@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { computeLevel } from '@/lib/userService';
+import { computeLevel, updateUserData } from '@/lib/userService';
 import { getOrgById } from '@/lib/orgService';
 
 // ── constants ────────────────────────────────────────────────────────────────
@@ -94,10 +94,11 @@ const CURRICULUM_SYSTEM_LABELS: Record<string, string> = {
 };
 
 export default function ProfileView() {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [showAllScores, setShowAllScores] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
+  const [resettingOnboarding, setResettingOnboarding] = useState(false);
 
   useEffect(() => {
     if (userData?.organisationId) {
@@ -287,35 +288,55 @@ export default function ProfileView() {
               <div style={{ color: '#64748b', fontSize: 10, marginBottom: 3 }}>TEXTBOOK / CURRICULUM</div>
               <div style={{ color: '#93c5fd', fontWeight: 'bold', fontSize: 14 }}>
                 {userData.curriculumProfile.customTextbook
-                  ? `📖 Custom — pending review`
+                  ? '📖 Custom — pending review'
                   : `📖 ${userData.curriculumProfile.textbook}`}
               </div>
             </div>
-            {orgName && (
-              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{
-                  padding: '3px 12px', borderRadius: 20, fontSize: 12,
-                  background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.35)',
-                  color: '#fb923c', display: 'inline-flex', alignItems: 'center', gap: 5
-                }}>
-                  📚 {orgName}
-                </span>
-              </div>
-            )}
           </div>
         ) : (
           <div style={{
             background: '#1e293b', borderRadius: 14, padding: '14px 16px', marginBottom: 14,
             border: '1px solid rgba(59,130,246,0.2)',
-            display: 'flex', alignItems: 'center', gap: 14
           }}>
-            <div style={{ fontSize: 32, flexShrink: 0 }}>📚</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14, marginBottom: 4 }}>Complete your curriculum setup</div>
-              <div style={{ color: '#64748b', fontSize: 12, lineHeight: 1.5 }}>
-                Tell us which education system and textbook you use so Logic Lords can personalise your learning path.
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+              <div style={{ fontSize: 32, flexShrink: 0 }}>📚</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14, marginBottom: 4 }}>Complete your curriculum setup</div>
+                <div style={{ color: '#64748b', fontSize: 12, lineHeight: 1.5 }}>
+                  Tell us which education system and textbook you use so Logic Lords can personalise your learning path.
+                </div>
               </div>
             </div>
+            <button
+              disabled={resettingOnboarding}
+              onClick={async () => {
+                if (!user) return;
+                setResettingOnboarding(true);
+                await updateUserData(user.uid, { onboardingComplete: false });
+                setResettingOnboarding(false);
+              }}
+              style={{
+                width: '100%', padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 'bold',
+                fontFamily: 'inherit', cursor: 'pointer',
+                background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.4)',
+                color: '#93c5fd'
+              }}
+            >
+              {resettingOnboarding ? 'Opening…' : '🎓 Set Up My Curriculum'}
+            </button>
+          </div>
+        )}
+
+        {/* ── Organisation chip (shown independently of curriculum presence) ── */}
+        {orgName && (
+          <div style={{ marginBottom: 14 }}>
+            <span style={{
+              padding: '4px 14px', borderRadius: 20, fontSize: 13,
+              background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.35)',
+              color: '#fb923c', display: 'inline-flex', alignItems: 'center', gap: 6
+            }}>
+              🏢 {orgName}
+            </span>
           </div>
         )}
 
