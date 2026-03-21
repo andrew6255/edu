@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { computeLevel } from '@/lib/userService';
 import { joinClassByCode } from '@/lib/classService';
 
-type View = 'universe' | 'curriculum' | 'warmup' | 'profile';
+type View = 'universe' | 'curriculum' | 'warmup' | 'arena' | 'profile';
 
 interface AppShellProps {
   view: View;
@@ -60,8 +60,9 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
   const navTabs = [
     { id: 'universe', icon: '🌌', label: 'Universe' },
-    { id: 'curriculum', icon: '📚', label: 'Learn' },
     { id: 'warmup', icon: '⚡', label: 'Warmup' },
+    { id: 'arena', icon: '⚔️', label: 'Arena' },
+    { id: 'curriculum', icon: '📚', label: 'Learn' },
     { id: 'profile', icon: '👤', label: 'Profile' },
   ] as const;
 
@@ -205,6 +206,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                 { icon: '🌌', label: 'Universe', target: 'universe' as View },
                 { icon: '📚', label: 'Curriculum', target: 'curriculum' as View },
                 { icon: '⚡', label: 'Warmup Games', target: 'warmup' as View },
+                { icon: '⚔️', label: 'Battle Arena', target: 'arena' as View },
                 { icon: '👤', label: 'My Profile', target: 'profile' as View },
               ].map(item => (
                 <button

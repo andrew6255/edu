@@ -6,8 +6,9 @@ import HexUniverseView from '@/views/HexUniverseView';
 import CurriculumView from '@/views/CurriculumView';
 import WarmupView from '@/views/WarmupView';
 import ProfileView from '@/views/ProfileView';
+import ArenaView from '@/views/ArenaView';
 
-type View = 'universe' | 'curriculum' | 'warmup' | 'profile';
+export type View = 'universe' | 'curriculum' | 'warmup' | 'arena' | 'profile';
 
 export default function AppPage() {
   const { user, loading } = useAuth();
@@ -50,6 +51,8 @@ export default function AppPage() {
         );
       case 'warmup':
         return <WarmupView />;
+      case 'arena':
+        return <ArenaView />;
       case 'profile':
         return <ProfileView />;
       default:
