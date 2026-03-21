@@ -24,6 +24,7 @@ export interface BattleStats {
   totalQuestions: number;
   damageDealt: number;
   damageTaken: number;
+  highestStreak: number;
 }
 
 type Phase = 'intro' | 'question' | 'feedback' | 'result';
@@ -33,6 +34,20 @@ interface FloatText { id: number; text: string; color: string; side: 'player' | 
 const PLAYER_HP = 100;
 const ENEMY_HP = 100;
 const MAX_QUESTIONS = 12;
+
+function streakBonus(streak: number): number {
+  if (streak >= 7) return 20;
+  if (streak >= 5) return 12;
+  if (streak >= 3) return 5;
+  return 0;
+}
+
+function streakLabel(streak: number): string | null {
+  if (streak >= 7) return '🔥 UNSTOPPABLE x' + streak;
+  if (streak >= 5) return '💥 ON FIRE x' + streak;
+  if (streak >= 3) return '⚡ STREAK x' + streak;
+  return null;
+}
 
 export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreenProps) {
   const [phase, setPhase] = useState<Phase>('intro');
@@ -44,19 +59,28 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
   const [floats, setFloats] = useState<FloatText[]>([]);
   const [shake, setShake] = useState<'player' | 'enemy' | null>(null);
   const [log, setLog] = useState<string[]>([]);
-  const [stats, setStats] = useState<BattleStats>({ correct: 0, wrong: 0, totalQuestions: 0, damageDealt: 0, damageTaken: 0 });
+  const [stats, setStats] = useState<BattleStats>({
+    correct: 0, wrong: 0, totalQuestions: 0,
+    damageDealt: 0, damageTaken: 0, highestStreak: 0
+  });
   const [questionCount, setQuestionCount] = useState(0);
   const [won, setWon] = useState(false);
   const [enemyAttacking, setEnemyAttacking] = useState(false);
   const [playerAttacking, setPlayerAttacking] = useState(false);
+  const [streak, setStreak] = useState(0);
+  const [showStreakBanner, setShowStreakBanner] = useState(false);
 
   const floatId = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playerHPRef = useRef(PLAYER_HP);
   const enemyHPRef = useRef(ENEMY_HP);
+  const streakRef = useRef(0);
+  const statsRef = useRef(stats);
 
   playerHPRef.current = playerHP;
   enemyHPRef.current = enemyHP;
+  streakRef.current = streak;
+  statsRef.current = stats;
 
   function addFloat(text: string, color: string, side: 'player' | 'enemy') {
     const id = floatId.current++;
@@ -70,7 +94,7 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
 
   function nextQuestion() {
     if (questionCount >= MAX_QUESTIONS) {
-      endBattle(enemyHPRef.current <= 0);
+      endBattle(enemyHPRef.current <= 0 || enemyHPRef.current < playerHPRef.current);
       return;
     }
     const q = generateQuestion(enemy.difficulty);
@@ -93,43 +117,70 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
     const correct = idx !== null && idx === question.correctIndex;
     setSelected(idx);
     setPhase('feedback');
-    setStats(prev => ({
-      ...prev,
-      correct: prev.correct + (correct ? 1 : 0),
-      wrong: prev.wrong + (correct ? 0 : 1),
-      totalQuestions: prev.totalQuestions + 1,
-    }));
 
     if (correct) {
-      const speedBonus = idx !== null ? Math.max(0, Math.floor((timeLeft / question.timeLimit) * 10)) : 0;
-      const dmg = question.damage + speedBonus;
+      const newStreak = streakRef.current + 1;
+      setStreak(newStreak);
+      streakRef.current = newStreak;
+      const bonus = streakBonus(newStreak);
+      const speedBonus = Math.max(0, Math.floor((timeLeft / question.timeLimit) * 10));
+      const dmg = question.damage + speedBonus + bonus;
       const newEnemyHP = Math.max(0, enemyHPRef.current - dmg);
       setEnemyHP(newEnemyHP);
       addFloat(`-${dmg}`, '#ef4444', 'enemy');
-      addLog(`⚔️ You dealt ${dmg} damage${speedBonus > 0 ? ` (+${speedBonus} speed bonus!)` : ''}!`);
+      const parts = [`⚔️ You dealt ${dmg} dmg`];
+      if (speedBonus > 0) parts.push(`(+${speedBonus} speed)`);
+      if (bonus > 0) parts.push(`(+${bonus} streak!)`);
+      addLog(parts.join(' '));
       setPlayerAttacking(true);
       setTimeout(() => setPlayerAttacking(false), 400);
       setShake('enemy');
       setTimeout(() => setShake(null), 500);
-      setStats(prev => ({ ...prev, damageDealt: prev.damageDealt + dmg }));
+      setStats(prev => {
+        const next = {
+          ...prev,
+          correct: prev.correct + 1,
+          totalQuestions: prev.totalQuestions + 1,
+          damageDealt: prev.damageDealt + dmg,
+          highestStreak: Math.max(prev.highestStreak, newStreak)
+        };
+        statsRef.current = next;
+        return next;
+      });
+
+      if (newStreak >= 3) {
+        setShowStreakBanner(true);
+        setTimeout(() => setShowStreakBanner(false), 1200);
+      }
 
       if (newEnemyHP <= 0) {
         setTimeout(() => endBattle(true), 800);
         return;
       }
     } else {
+      setStreak(0);
+      streakRef.current = 0;
       const [minDmg, maxDmg] = enemy.counterDmg;
       const dmg = Math.floor(Math.random() * (maxDmg - minDmg + 1)) + minDmg;
       const newPlayerHP = Math.max(0, playerHPRef.current - dmg);
       setPlayerHP(newPlayerHP);
       addFloat(`-${dmg}`, '#ef4444', 'player');
       const reason = idx === null ? '⏰ Time out!' : '❌ Wrong!';
-      addLog(`${reason} ${enemy.name} deals ${dmg} damage!`);
+      addLog(`${reason} ${enemy.name} deals ${dmg} dmg!`);
       setEnemyAttacking(true);
       setTimeout(() => setEnemyAttacking(false), 400);
       setShake('player');
       setTimeout(() => setShake(null), 500);
-      setStats(prev => ({ ...prev, damageTaken: prev.damageTaken + dmg }));
+      setStats(prev => {
+        const next = {
+          ...prev,
+          wrong: prev.wrong + 1,
+          totalQuestions: prev.totalQuestions + 1,
+          damageTaken: prev.damageTaken + dmg
+        };
+        statsRef.current = next;
+        return next;
+      });
 
       if (newPlayerHP <= 0) {
         setTimeout(() => endBattle(false), 800);
@@ -144,7 +195,6 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, selected, question, timeLeft, enemy]);
 
-  // Timer
   useEffect(() => {
     if (phase !== 'question') return;
     timerRef.current = setInterval(() => {
@@ -160,19 +210,18 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [phase, handleAnswer]);
 
-  // Intro → first question
   useEffect(() => {
     const t = setTimeout(() => nextQuestion(), 2200);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Result → trigger callback
   useEffect(() => {
     if (phase !== 'result') return;
+    const finalStats = statsRef.current;
     const xp = won ? enemy.xpReward : Math.floor(enemy.xpReward * 0.15);
     const gold = won ? enemy.goldReward : Math.floor(enemy.goldReward * 0.1);
-    const t = setTimeout(() => onComplete(won, xp, gold, stats), 3500);
+    const t = setTimeout(() => onComplete(won, xp, gold, finalStats), 3500);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
@@ -180,16 +229,19 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
   const playerPct = Math.max(0, (playerHP / PLAYER_HP) * 100);
   const enemyPct = Math.max(0, (enemyHP / ENEMY_HP) * 100);
   const timerPct = question ? (timeLeft / question.timeLimit) * 100 : 100;
+  const qProgress = MAX_QUESTIONS > 0 ? ((questionCount) / MAX_QUESTIONS) * 100 : 0;
 
   const hpColor = (pct: number) => pct > 60 ? '#10b981' : pct > 30 ? '#fbbf24' : '#ef4444';
+  const label = streakLabel(streak);
 
   return (
     <div style={{
-      position: 'relative', height: '100%', background: 'linear-gradient(180deg, #0a0f1e 0%, #0f172a 60%, #1a0530 100%)',
+      position: 'relative', height: '100%',
+      background: 'linear-gradient(180deg, #0a0f1e 0%, #0f172a 60%, #1a0530 100%)',
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
       fontFamily: 'inherit', userSelect: 'none'
     }}>
-      {/* Stars bg */}
+      {/* Stars */}
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         {Array.from({ length: 30 }).map((_, i) => (
           <div key={i} style={{
@@ -214,15 +266,28 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
         </div>
       ))}
 
+      {/* Streak banner */}
+      {showStreakBanner && label && (
+        <div style={{
+          position: 'absolute', top: '38%', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 60, pointerEvents: 'none',
+          fontSize: 20, fontWeight: 'bold', color: '#fbbf24',
+          textShadow: '0 0 20px #fbbf24, 0 0 40px #f97316',
+          animation: 'battleFloat 1.2s ease-out forwards',
+          whiteSpace: 'nowrap'
+        }}>
+          {label}
+        </div>
+      )}
+
       {/* HP Bars */}
-      <div style={{ display: 'flex', gap: 10, padding: '12px 16px', zIndex: 5, flexShrink: 0 }}>
-        {/* Player HP */}
+      <div style={{ display: 'flex', gap: 10, padding: '12px 16px 6px', zIndex: 5, flexShrink: 0 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-            <span style={{ color: '#93c5fd', fontWeight: 'bold', fontSize: 13 }}>YOU</span>
-            <span style={{ color: 'white', fontSize: 13, fontWeight: 'bold' }}>{playerHP} HP</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ color: '#93c5fd', fontWeight: 'bold', fontSize: 12 }}>YOU</span>
+            <span style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>{playerHP} HP</span>
           </div>
-          <div style={{ height: 12, background: '#1e293b', borderRadius: 6, overflow: 'hidden', border: '1px solid #334155' }}>
+          <div style={{ height: 10, background: '#1e293b', borderRadius: 5, overflow: 'hidden', border: '1px solid #334155' }}>
             <div style={{
               width: `${playerPct}%`, height: '100%',
               background: `linear-gradient(90deg, ${hpColor(playerPct)}, ${hpColor(playerPct)}aa)`,
@@ -232,15 +297,14 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
           </div>
         </div>
 
-        <div style={{ color: '#475569', fontWeight: 'bold', fontSize: 16, alignSelf: 'center', flexShrink: 0 }}>VS</div>
+        <div style={{ color: '#475569', fontWeight: 'bold', fontSize: 14, alignSelf: 'center', flexShrink: 0 }}>VS</div>
 
-        {/* Enemy HP */}
         <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-            <span style={{ color: '#fca5a5', fontWeight: 'bold', fontSize: 13 }}>{enemy.name.toUpperCase()}</span>
-            <span style={{ color: 'white', fontSize: 13, fontWeight: 'bold' }}>{enemyHP} HP</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ color: '#fca5a5', fontWeight: 'bold', fontSize: 12 }}>{enemy.name.toUpperCase()}</span>
+            <span style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>{enemyHP} HP</span>
           </div>
-          <div style={{ height: 12, background: '#1e293b', borderRadius: 6, overflow: 'hidden', border: '1px solid #334155', direction: 'rtl' }}>
+          <div style={{ height: 10, background: '#1e293b', borderRadius: 5, overflow: 'hidden', border: '1px solid #334155', direction: 'rtl' }}>
             <div style={{
               width: `${enemyPct}%`, height: '100%',
               background: `linear-gradient(90deg, ${hpColor(enemyPct)}aa, ${hpColor(enemyPct)})`,
@@ -251,41 +315,60 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
         </div>
       </div>
 
+      {/* Question progress bar */}
+      <div style={{ padding: '0 16px 6px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+          <span style={{ color: '#475569', fontSize: 10 }}>QUESTIONS</span>
+          <span style={{ color: '#64748b', fontSize: 10 }}>Q {Math.min(questionCount + 1, MAX_QUESTIONS)}/{MAX_QUESTIONS}</span>
+        </div>
+        <div style={{ height: 4, background: '#1e293b', borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{
+            width: `${qProgress}%`, height: '100%',
+            background: 'linear-gradient(90deg, #6366f1, #8b5cf6)',
+            transition: 'width 0.5s ease'
+          }} />
+        </div>
+      </div>
+
       {/* Arena floor */}
-      <div style={{ flex: 1, display: 'flex', position: 'relative', alignItems: 'flex-start', paddingTop: 10, minHeight: 0, overflow: 'hidden' }}>
-        {/* Player avatar */}
+      <div style={{ flex: 1, display: 'flex', position: 'relative', alignItems: 'flex-start', paddingTop: 4, minHeight: 0, overflow: 'hidden' }}>
+        {/* Player */}
         <div style={{
           position: 'absolute', left: '10%', bottom: 10,
-          fontSize: 56, textAlign: 'center',
-          transform: `${playerAttacking ? 'translateX(20px)' : 'none'} ${shake === 'player' ? 'translateX(-8px)' : 'none'}`,
-          transition: 'transform 0.15s ease', filter: shake === 'player' ? 'drop-shadow(0 0 8px #ef4444)' : 'none'
+          fontSize: 52, textAlign: 'center',
+          transform: `${playerAttacking ? 'translateX(20px)' : ''} ${shake === 'player' ? 'translateX(-8px)' : ''}`,
+          transition: 'transform 0.15s ease',
+          filter: shake === 'player' ? 'drop-shadow(0 0 8px #ef4444)' : 'none'
         }}>
           🧙‍♂️
-          <div style={{ fontSize: 11, color: '#93c5fd', marginTop: 3, fontWeight: 'bold' }}>YOU</div>
+          <div style={{ fontSize: 10, color: '#93c5fd', marginTop: 2, fontWeight: 'bold' }}>YOU</div>
+          {streak >= 3 && (
+            <div style={{ fontSize: 9, color: '#fbbf24', fontWeight: 'bold' }}>🔥 x{streak}</div>
+          )}
         </div>
 
-        {/* Enemy avatar */}
+        {/* Enemy */}
         <div style={{
           position: 'absolute', right: '10%', bottom: 10,
-          fontSize: 72, textAlign: 'center',
-          transform: `${enemyAttacking ? 'translateX(-20px)' : 'none'} ${shake === 'enemy' ? 'translateX(8px)' : 'none'}`,
+          fontSize: 68, textAlign: 'center',
+          transform: `${enemyAttacking ? 'translateX(-20px)' : ''} ${shake === 'enemy' ? 'translateX(8px)' : ''}`,
           transition: 'transform 0.15s ease',
           filter: shake === 'enemy' ? 'drop-shadow(0 0 10px #ef4444)' : `drop-shadow(0 0 15px ${enemy.color}66)`,
           animation: phase === 'intro' ? 'enemyAppear 0.5s ease' : 'enemyFloat 3s ease-in-out infinite'
         }}>
           {enemy.avatar}
-          <div style={{ fontSize: 11, color: '#fca5a5', marginTop: 3, fontWeight: 'bold' }}>{enemy.name}</div>
+          <div style={{ fontSize: 10, color: '#fca5a5', marginTop: 2, fontWeight: 'bold' }}>{enemy.name}</div>
         </div>
 
         {/* Battle log */}
         <div style={{
-          position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
-          width: '35%', minWidth: 160, maxWidth: 260,
+          position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)',
+          width: '35%', minWidth: 155, maxWidth: 250,
           display: 'flex', flexDirection: 'column', gap: 3, pointerEvents: 'none'
         }}>
           {log.map((msg, i) => (
             <div key={i} style={{
-              background: 'rgba(0,0,0,0.6)', padding: '3px 8px', borderRadius: 6, fontSize: 11,
+              background: 'rgba(0,0,0,0.65)', padding: '3px 7px', borderRadius: 6, fontSize: 10,
               color: '#cbd5e1', textAlign: 'center', opacity: 1 - i * 0.18,
               border: '1px solid rgba(255,255,255,0.05)'
             }}>
@@ -298,19 +381,17 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
         {phase === 'intro' && (
           <div style={{
             position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexDirection: 'column', gap: 12, background: 'rgba(0,0,0,0.5)', zIndex: 10,
+            flexDirection: 'column', gap: 10, background: 'rgba(0,0,0,0.55)', zIndex: 10,
             animation: 'fadeIn 0.3s ease'
           }}>
-            <div style={{ fontSize: 18, color: '#94a3b8' }}>Battle vs</div>
-            <div style={{ fontSize: 72 }}>{enemy.avatar}</div>
-            <div style={{ fontSize: 28, fontWeight: 'bold', color: enemy.color }}>{enemy.name}</div>
-            <div style={{ fontSize: 14, color: '#94a3b8' }}>{enemy.title}</div>
+            <div style={{ fontSize: 15, color: '#94a3b8' }}>Battle vs</div>
+            <div style={{ fontSize: 68 }}>{enemy.avatar}</div>
+            <div style={{ fontSize: 26, fontWeight: 'bold', color: enemy.color }}>{enemy.name}</div>
+            <div style={{ fontSize: 13, color: '#94a3b8' }}>{enemy.title}</div>
             <div style={{
-              fontSize: 42, fontWeight: 'black', color: '#ef4444', letterSpacing: 4,
+              fontSize: 38, fontWeight: 'black', color: '#ef4444', letterSpacing: 4,
               textShadow: '0 0 20px #ef4444', animation: 'pulse 0.5s ease infinite'
-            }}>
-              BATTLE!
-            </div>
+            }}>BATTLE!</div>
           </div>
         )}
 
@@ -318,19 +399,23 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
         {phase === 'result' && (
           <div style={{
             position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexDirection: 'column', gap: 12, background: 'rgba(0,0,0,0.75)', zIndex: 10,
+            flexDirection: 'column', gap: 10, background: 'rgba(0,0,0,0.75)', zIndex: 10,
             animation: 'fadeIn 0.4s ease'
           }}>
-            <div style={{ fontSize: 80 }}>{won ? '🏆' : '💀'}</div>
+            <div style={{ fontSize: 76 }}>{won ? '🏆' : '💀'}</div>
             <div style={{
-              fontSize: 36, fontWeight: 'black', letterSpacing: 3,
+              fontSize: 34, fontWeight: 'black', letterSpacing: 3,
               color: won ? '#fbbf24' : '#ef4444',
               textShadow: `0 0 20px ${won ? '#fbbf24' : '#ef4444'}`
             }}>
               {won ? 'VICTORY!' : 'DEFEATED'}
             </div>
-            <div style={{ color: '#94a3b8', fontSize: 14, textAlign: 'center', lineHeight: 1.8 }}>
-              {stats.correct}/{stats.totalQuestions} correct<br />
+            <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', lineHeight: 1.9 }}>
+              {statsRef.current.correct}/{statsRef.current.totalQuestions} correct
+              {statsRef.current.highestStreak >= 3 && (
+                <><br />🔥 Best streak: {statsRef.current.highestStreak}</>
+              )}
+              <br />
               {won
                 ? `+${enemy.xpReward} XP  +${enemy.goldReward} 🪙`
                 : `+${Math.floor(enemy.xpReward * 0.15)} XP  +${Math.floor(enemy.goldReward * 0.1)} 🪙`}
@@ -341,9 +426,9 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
 
       {/* Question area */}
       {(phase === 'question' || phase === 'feedback') && question && (
-        <div style={{ padding: '10px 16px 16px', background: 'rgba(0,0,0,0.5)', borderTop: '1px solid #334155', flexShrink: 0 }}>
+        <div style={{ padding: '8px 14px 14px', background: 'rgba(0,0,0,0.5)', borderTop: '1px solid #334155', flexShrink: 0 }}>
           {/* Timer */}
-          <div style={{ height: 5, background: '#1e293b', borderRadius: 3, overflow: 'hidden', marginBottom: 10, border: '1px solid #334155' }}>
+          <div style={{ height: 5, background: '#1e293b', borderRadius: 3, overflow: 'hidden', marginBottom: 8, border: '1px solid #334155' }}>
             <div style={{
               width: `${timerPct}%`, height: '100%',
               background: timerPct > 50 ? '#10b981' : timerPct > 25 ? '#fbbf24' : '#ef4444',
@@ -351,25 +436,32 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
             }} />
           </div>
 
-          {/* Question text */}
+          {/* Question */}
           <div style={{
-            background: '#1e293b', borderRadius: 10, padding: '12px 16px', marginBottom: 10,
+            background: '#1e293b', borderRadius: 10, padding: '10px 14px', marginBottom: 8,
             border: '1px solid #334155', textAlign: 'center',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10
           }}>
             <div style={{ flex: 1 }}>
-              <div style={{ color: 'white', fontSize: 20, fontWeight: 'bold', whiteSpace: 'pre-line' }}>{question.text}</div>
+              <div style={{ color: 'white', fontSize: 18, fontWeight: 'bold', whiteSpace: 'pre-line' }}>{question.text}</div>
             </div>
-            <div style={{
-              fontSize: 20, fontWeight: 'bold', minWidth: 36, textAlign: 'center',
-              color: timerPct > 50 ? '#10b981' : timerPct > 25 ? '#fbbf24' : '#ef4444'
-            }}>
-              {timeLeft}s
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{
+                fontSize: 18, fontWeight: 'bold', minWidth: 32, textAlign: 'center',
+                color: timerPct > 50 ? '#10b981' : timerPct > 25 ? '#fbbf24' : '#ef4444'
+              }}>
+                {timeLeft}s
+              </div>
+              {streak >= 3 && (
+                <div style={{ fontSize: 10, color: '#fbbf24', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                  🔥+{streakBonus(streak)}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Options */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
             {question.options.map((opt, i) => {
               let bg = 'rgba(30,41,59,0.8)';
               let border = '#475569';
@@ -388,7 +480,7 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
                   onClick={() => phase === 'question' && handleAnswer(i)}
                   disabled={phase === 'feedback'}
                   style={{
-                    padding: '13px 10px', borderRadius: 10, fontSize: 17, fontWeight: 'bold',
+                    padding: '12px 8px', borderRadius: 10, fontSize: 16, fontWeight: 'bold',
                     background: bg, border: `2px solid ${border}`, color,
                     cursor: phase === 'question' ? 'pointer' : 'default',
                     transition: '0.15s', fontFamily: 'inherit',
@@ -408,9 +500,9 @@ export default function BattleScreen({ enemy, onComplete, onFlee }: BattleScreen
         <button
           onClick={onFlee}
           style={{
-            position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
-            fontSize: 11, color: '#475569', background: 'none', border: 'none',
-            cursor: 'pointer', fontFamily: 'inherit', padding: '3px 8px',
+            position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+            fontSize: 10, color: '#475569', background: 'none', border: 'none',
+            cursor: 'pointer', fontFamily: 'inherit', padding: '2px 8px',
             textDecoration: 'underline', zIndex: 20
           }}
         >

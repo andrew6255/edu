@@ -75,7 +75,8 @@ scripts/                 # Utility scripts
 
 - **Universe** — Hex subject map → Curriculum view
 - **Learn** (Curriculum) — Curriculum list → chapters → skill tree objectives
-- **Warmup** — Game category filter + 6+ mini-games with high score tracking
+- **Warmup** — Game category filter + 18 mini-games; Solo / Ranked / Friend modes
+- **Arena** — Battle Arena: hub with 4 AI enemies, full RPG battle screen, streak system
 - **Profile** — XP/level/gold/streak, badges, personal bests
 
 ## Warmup Games Implemented
@@ -92,7 +93,9 @@ scripts/                 # Utility scripts
 
 Collection: `users/{uid}`
 
-Fields: `firstName`, `lastName`, `username`, `email`, `economy` `{gold, global_xp, streak}`, `curriculums`, `inventory` `{stories, badges, banners, mapThemes}`, `equipped`, `high_scores`, `analytics`
+Fields: `firstName`, `lastName`, `username`, `email`, `economy` `{gold, global_xp, streak}`, `arenaStats` `{wins, losses, highestStreak}`, `curriculums`, `inventory` `{stories, badges, banners, mapThemes}`, `equipped`, `high_scores`, `analytics`
+
+New users start with 200 gold (to enable Ranked mode from day 1).
 
 ## Economy
 

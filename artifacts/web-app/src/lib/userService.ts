@@ -5,6 +5,12 @@ import {
 
 export type UserRole = 'student' | 'teacher' | 'admin';
 
+export interface ArenaStats {
+  wins: number;
+  losses: number;
+  highestStreak: number;
+}
+
 export interface UserData {
   firstName: string;
   lastName: string;
@@ -17,6 +23,7 @@ export interface UserData {
   inventory: { stories: string[]; badges: string[]; banners: string[]; mapThemes: string[] };
   equipped: { mapTheme: string; banner: string; badges: string[] };
   high_scores: Record<string, number>;
+  arenaStats?: ArenaStats;
   warmup_date?: string;
   played_categories?: string[];
   analytics?: Record<string, Record<string, { mastered?: boolean }>>;
@@ -26,7 +33,8 @@ export interface UserData {
 
 const DEFAULT_USER: Partial<UserData> = {
   role: 'student',
-  economy: { gold: 0, global_xp: 0, streak: 0 },
+  economy: { gold: 200, global_xp: 0, streak: 0 },
+  arenaStats: { wins: 0, losses: 0, highestStreak: 0 },
   curriculums: {},
   inventory: { stories: [], badges: ['badge_pioneer'], banners: ['default'], mapThemes: ['theme-standard', 'theme-hex'] },
   equipped: { mapTheme: 'theme-standard', banner: 'default', badges: ['badge_pioneer'] },
@@ -102,6 +110,19 @@ export async function getUsersByClassId(classId: string): Promise<Array<UserData
   const q = query(collection(db, 'users'), where('classId', '==', classId));
   const snap = await getDocs(q);
   return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
+}
+
+export async function updateArenaStats(uid: string, won: boolean, sessionHighestStreak: number): Promise<void> {
+  const snap = await getDoc(doc(db, 'users', uid));
+  if (!snap.exists()) return;
+  const data = snap.data();
+  const current: ArenaStats = data?.arenaStats ?? { wins: 0, losses: 0, highestStreak: 0 };
+  await updateDoc(doc(db, 'users', uid), {
+    'arenaStats.wins': current.wins + (won ? 1 : 0),
+    'arenaStats.losses': current.losses + (won ? 0 : 1),
+    'arenaStats.highestStreak': Math.max(current.highestStreak, sessionHighestStreak),
+    last_active: new Date().toISOString().split('T')[0]
+  });
 }
 
 export function computeLevel(xp: number): { level: number; title: string } {
