@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Under Construction - Logic Lords</title>
+    <link rel="stylesheet" href="global.css">
+    <style>
+        body { 
+            background: radial-gradient(circle at center, #0f172a 0%, #020617 100%); 
+            color: white; height: 100vh; margin: 0; display: flex; flex-direction: column; 
+            justify-content: center; align-items: center; text-align: center; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; 
+        }
+        .pulse-icon { 
+            font-size: 80px; margin-bottom: 20px; animation: pulse 2s infinite alternate; 
+            filter: drop-shadow(0 0 20px var(--accent-blue)); 
+        }
+        @keyframes pulse { 
+            0% { transform: scale(1); opacity: 0.8; filter: drop-shadow(0 0 10px #3b82f6); } 
+            100% { transform: scale(1.1); opacity: 1; filter: drop-shadow(0 0 30px #60a5fa); } 
+        }
+        h1 { 
+            color: #3b82f6; font-size: 48px; margin: 0; 
+            text-shadow: 0 0 15px rgba(59, 130, 246, 0.5); letter-spacing: 2px; text-transform: uppercase; 
+        }
+        p { color: #94a3b8; font-size: 20px; max-width: 500px; line-height: 1.6; margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <div class="pulse-icon" onclick="triggerAdminOverride()" style="cursor: pointer;">⚙️</div>
+    <h1>The Forge is Closed</h1>
+    <p>Neural pathways are currently being upgraded.<br>We are performing essential maintenance to improve your experience.</p>
+    <p style="color: #64748b; font-size: 14px; margin-top: 40px; text-transform: uppercase; letter-spacing: 1px;">Please check back soon.</p>
+    
+    <script type="module" src="maintenance.js"></script>
+    <script>
+        // The Secret Backdoor Function
+        function triggerAdminOverride() {
+            let code = prompt("Admin Override Code:");
+            if (code === "00000") {
+                // Save the key so the gatekeeper lets you pass
+                localStorage.setItem("adminOverride", "00000");
+                alert("Admin Access Granted. Welcome back to the Forge.");
+                
+                // Route back to the index page
+                let basePath = window.location.pathname.includes('/education/') ? '/education/' : '/';
+                window.location.href = window.location.origin + basePath + 'index.html';
+            } else if (code !== null) {
+                alert("Access Denied.");
+            }
+        }
+    </script>
+</body>
+</html>

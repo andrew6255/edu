@@ -1,0 +1,254 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --font-sans: var(--app-font-sans);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+}
+
+:root {
+  --background: 222 47% 11%;
+  --foreground: 210 40% 98%;
+  --border: 217 33% 25%;
+  --input: 217 33% 25%;
+  --ring: 217 91% 60%;
+  --card: 222 47% 18%;
+  --card-foreground: 210 40% 98%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 217 33% 25%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 33% 20%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 217 91% 60%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  --app-font-sans: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --radius: 0.5rem;
+
+  /* Logic Lords theme vars */
+  --ll-bg-dark: #0f172a;
+  --ll-bg-card: #1e293b;
+  --ll-accent: #3b82f6;
+  --ll-green: #10b981;
+  --ll-red: #ef4444;
+  --ll-grey: #475569;
+  --ll-glow: rgba(59, 130, 246, 0.5);
+}
+
+@layer base {
+  * { @apply border-border; box-sizing: border-box; }
+  body {
+    @apply font-sans antialiased;
+    background-color: var(--ll-bg-dark);
+    color: #f8fafc;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    height: 100vh;
+  }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--ll-bg-dark); }
+  ::-webkit-scrollbar-thumb { background: var(--ll-grey); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ll-accent); }
+}
+
+/* Logic Lords Animations */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes breathe {
+  0% { box-shadow: inset 0 0 30px rgba(139, 92, 246, 0.4); }
+  100% { box-shadow: inset 0 0 80px rgba(139, 92, 246, 0.4); }
+}
+@keyframes pulseGlow {
+  0% { box-shadow: 0 0 10px var(--ll-accent); }
+  50% { box-shadow: 0 0 25px var(--ll-accent); }
+  100% { box-shadow: 0 0 10px var(--ll-accent); }
+}
+@keyframes redPulse {
+  0% { box-shadow: 0 0 0px var(--ll-red); }
+  50% { box-shadow: 0 0 20px var(--ll-red); border-color: var(--ll-red); }
+  100% { box-shadow: 0 0 0px var(--ll-red); }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.1); opacity: 1; }
+}
+
+.animate-fadeIn { animation: fadeIn 0.4s ease; }
+.animate-slideUp { animation: slideUp 0.4s ease; }
+.animate-breathe { animation: breathe 4s infinite alternate; }
+.animate-pulseGlow { animation: pulseGlow 2s infinite; }
+.animate-redPulse { animation: redPulse 2s infinite; }
+.animate-pulse-ll { animation: pulse 2s infinite alternate; }
+
+/* Logic Lords custom buttons */
+.ll-btn {
+  background: transparent;
+  border: 2px solid var(--ll-grey);
+  color: #f8fafc;
+  padding: 10px 20px;
+  font-size: 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: inherit;
+}
+.ll-btn:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: var(--ll-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+.ll-btn-primary {
+  background: var(--ll-accent);
+  border-color: var(--ll-accent);
+  color: white;
+}
+.ll-btn-primary:hover {
+  background: #2563eb;
+  box-shadow: 0 0 20px var(--ll-glow);
+  transform: translateY(-2px);
+}
+.ll-btn-danger {
+  border-color: var(--ll-red);
+  color: var(--ll-red);
+}
+.ll-btn-danger:hover {
+  background: rgba(239,68,68,0.1);
+}
+
+/* Hex cells */
+.hex-cell {
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  transition: transform 0.2s ease, filter 0.2s ease;
+  cursor: pointer;
+}
+.hex-cell:hover { filter: brightness(1.3); transform: scale(1.05); }
+.hex-cell.empty { opacity: 0.5; cursor: not-allowed; }
+.hex-cell.empty:hover { transform: none; filter: none; }
+
+/* Node styles */
+.skill-node {
+  width: 70px; height: 70px; border-radius: 50%;
+  background: var(--ll-grey);
+  border: 4px solid var(--ll-bg-dark);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; cursor: pointer; position: relative;
+  transition: all 0.3s; z-index: 2;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.4);
+}
+.skill-node:hover { transform: scale(1.15); }
+.skill-node.unlocked {
+  background: var(--ll-bg-card);
+  border-color: var(--ll-accent);
+  animation: pulseGlow 2s infinite;
+}
+.skill-node.completed {
+  background: var(--ll-green);
+  border-color: var(--ll-green);
+  color: black;
+}
+.skill-node.boss {
+  width: 90px; height: 90px; border-radius: 12px;
+  font-size: 36px; border-color: var(--ll-red);
+  background: #450a0a;
+}
+.path-line {
+  width: 8px; height: 50px; border-radius: 4px;
+  background: var(--ll-grey); transition: 0.5s;
+}
+.path-line.active { background: var(--ll-green); box-shadow: 0 0 15px var(--ll-green); }
+
+/* Game custom button */
+.custom-btn {
+  background: var(--ll-bg-card);
+  color: white;
+  border: 2px solid var(--ll-grey);
+  border-radius: 12px;
+  padding: 15px 25px;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  min-width: 80px;
+}
+.custom-btn:hover {
+  border-color: var(--ll-accent);
+  background: rgba(59,130,246,0.1);
+  transform: translateY(-2px);
+}
+.custom-btn:active { transform: scale(0.97); }
+
+.huge-display {
+  font-size: 52px;
+  font-weight: bold;
+  color: white;
+  margin-bottom: 20px;
+  text-shadow: 0 0 20px rgba(59,130,246,0.4);
+  text-align: center;
+}
+
+/* Chapter node */
+.chapter-node {
+  background: rgba(0,0,0,0.4);
+  border: 2px solid var(--ll-grey);
+  border-radius: 16px;
+  height: 140px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.3s;
+  position: relative; overflow: hidden;
+  text-align: center; padding: 15px;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+}
+.chapter-node:hover:not(.locked) {
+  border-color: var(--ll-accent);
+  box-shadow: 0 15px 30px var(--ll-glow);
+  transform: translateY(-5px);
+  background: var(--ll-bg-card);
+}
+.chapter-node.locked { opacity: 0.5; cursor: not-allowed; }
+
+/* Achievement popup */
+.achievement-popup {
+  position: fixed;
+  top: -100px; right: 20px;
+  background: var(--ll-bg-card);
+  border: 2px solid var(--ll-green);
+  border-radius: 12px;
+  padding: 15px 20px;
+  display: flex; gap: 15px; align-items: center;
+  z-index: 9999;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  transition: top 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.achievement-popup.show { top: 80px; }

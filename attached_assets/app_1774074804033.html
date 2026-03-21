@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Logic Lords</title>
+    <script src="https://unpkg.com/panzoom@9.4.0/dist/panzoom.min.js"></script>
+    <link rel="stylesheet" href="global.css">
+    <style>
+        :root {
+            --bg-dark: #0f172a; --bg-card: #1e293b; --text-light: #f8fafc;
+            --accent-blue: #3b82f6; --accent-hover: #2563eb; --completed-green: #10b981;
+            --locked-grey: #475569; --boss-red: #ef4444;
+        }
+        /* --- THE HEX UNIVERSE CSS --- */
+        #universe-window { width: 100%; height: 100vh; position: absolute; top:0; left:0; z-index: 1; overflow: hidden; }
+        #hex-canvas { position: absolute; width: 3000px; height: 3000px; transform-origin: 0 0; }
+        .hex { position: absolute; width: 120px; height: 138px; background: rgba(30, 41, 59, 0.8); clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); display: flex; align-items: center; justify-content: center; text-align: center; color: white; cursor: pointer; transition: transform 0.2s ease, filter 0.2s ease; box-shadow: inset 0 0 20px rgba(0,0,0,0.5); }
+        .hex:hover { filter: brightness(1.3); transform: scale(1.05); z-index: 100; }
+        .hex.math { background: #0ea5e9; } .hex.physics { background: #7e22ce; } .hex.chemistry { background: #be185d; } .hex.biology { background: #15803d; } .hex.compsci { background: #b45309; } .hex.history { background: #ca8a04; }
+        .hex.empty { background: #1e293b; opacity: 0.5; cursor: not-allowed; } .hex.empty:hover { transform: none; filter: none; }
+        .semantic-label { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 100%; text-align: center; pointer-events: none; }
+        .lvl-1 { font-size: 35px; font-weight: bold; text-shadow: 0 4px 15px rgba(0,0,0,0.8); } 
+        .lvl-2 { font-size: 14px; font-weight: bold; color: white; margin-top: 5px; } 
+        .lvl-3 { font-size: 10px; font-weight: bold; color: #cbd5e1; }
+        body.theme-hex { background-color: #020617; }
+        body.theme-hex .hud { background: rgba(0, 0, 0, 0.5); border-bottom: none; backdrop-filter: blur(5px); }
+
+        body { margin: 0; padding: 0; background-color: var(--bg-dark); color: var(--text-light); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+        
+        .hud { display: flex; justify-content: space-between; align-items: center; padding: 12px 30px; background: rgba(0, 0, 0, 0.85); border-bottom: 1px solid var(--locked-grey); z-index: 100; position: relative;}
+        .hud-left { flex: 1; display: flex; justify-content: flex-start; align-items: center; gap: 10px; }
+        .hud-center { flex: 2; display: flex; justify-content: center; align-items: center; gap: 20px; }
+        .hud-right { flex: 1; display: flex; justify-content: flex-end; }
+        
+        .mode-switcher { background: #1e293b; color: white; border: 2px solid var(--accent-blue); padding: 10px 15px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; outline: none; transition: 0.2s; box-shadow: 0 0 10px rgba(59, 130, 246, 0.3); }
+        .mode-switcher:hover { background: #334155; }
+
+        .btn { background: transparent; border: 2px solid #64748b; color: #cbd5e1; padding: 8px 16px; font-size: 14px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s;}
+        .btn:hover { background: #334155; }
+        .btn-primary { background: var(--accent-blue); border-color: var(--accent-blue); color: white; }
+
+        #app-content-container { flex: 1; position: relative; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center;}
+
+        #side-menu-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1001; }
+        #side-menu { position: fixed; top: 0; right: -350px; width: 300px; height: 100vh; background: var(--bg-card); border-left: 2px solid var(--accent-blue); z-index: 1002; transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; flex-direction: column; padding: 25px; box-sizing: border-box; box-shadow: -10px 0 30px rgba(0,0,0,0.8); }
+        .profile-btn { width: 45px; height: 45px; border-radius: 50%; background: var(--bg-card); border: 2px solid var(--locked-grey); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; padding: 0; overflow: hidden; }
+        .profile-btn:hover { border-color: var(--accent-blue); transform: scale(1.1); box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); }
+
+        /* --- PROFILE BANNER STYLES --- */
+        .player-banner { display: flex; align-items: center; gap: 15px; padding: 15px 25px; border-radius: 16px; border: 2px solid #475569; background: #0f172a; box-shadow: 0 10px 20px rgba(0,0,0,0.5); transition: 0.3s; }
+        .banner-info-right { display: flex; flex-direction: column; }
+        .banner-name-row { display: flex; align-items: baseline; gap: 10px; }
+        .player-username { font-size: 28px !important; text-shadow: 0 3px 6px rgba(0,0,0,0.9) !important; }
+        .player-level { font-size: 14px; color: var(--accent-blue); font-weight: bold; }
+        .banner-badges-wrapper { display: flex; gap: 5px; margin-top: 5px; cursor: pointer; }
+        .banner-badge-mini { font-size: 18px; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5)); }
+        .banner-badge-empty-text { font-size: 12px; color: #94a3b8; background: rgba(0,0,0,0.3); padding: 2px 8px; border-radius: 10px; }
+        .badge-item:hover { border-color: var(--accent-blue); box-shadow: 0 0 10px var(--accent-blue); }
+
+        body.theme-hex { background-color: #020617; }
+
+
+        /* --- BOTTOM NAVIGATION BAR --- */
+        .bottom-nav {
+            display: flex; justify-content: space-around; align-items: center;
+            background: rgba(15, 23, 42, 0.95); border-top: 1px solid var(--locked-grey);
+            padding-bottom: env(safe-area-inset-bottom, 10px); /* Adapts to iPhone curves */
+            padding-top: 10px; z-index: 500; position: relative; width: 100%;
+        }
+        .nav-tab {
+            flex: 1; background: none; border: none; color: #64748b;
+            display: flex; flex-direction: column; align-items: center; gap: 5px;
+            cursor: pointer; transition: 0.2s; font-family: inherit; outline: none; padding: 5px 0;
+        }
+        .nav-tab.active { color: var(--accent-blue); }
+        .nav-tab .nav-icon { font-size: 26px; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), filter 0.2s; filter: grayscale(1) opacity(0.7); }
+        .nav-tab.active .nav-icon { transform: translateY(-4px) scale(1.15); filter: grayscale(0) opacity(1); }
+        .nav-tab span { font-size: 13px; font-weight: bold; }
+
+        /* =========================================
+           💻 NARROW DESKTOP RESPONSIVENESS
+           ========================================= */
+        @media (min-width: 1025px) and (max-width: 1300px) {
+            .hud { padding: 10px 15px; } /* Reduce outer padding */
+            .hud-center { gap: 10px; } /* Bring XP bar and Stats closer */
+            .hud-center > div:first-child { width: 220px !important; } /* Slightly shrink XP bar length */
+            .hud-left { gap: 5px; }
+            .hud-left h2 { font-size: 18px !important; } /* Shrink title slightly */
+            
+            /* Prevent the stats box from wrapping into two lines */
+            .hud-center > div:nth-child(2) { white-space: nowrap; flex-shrink: 0; padding: 8px 15px !important; gap: 10px !important; }
+        }
+        /* =========================================
+           📱 MOBILE & TABLET RESPONSIVENESS OVERRIDES
+           ========================================= */
+        @media (max-width: 1024px) {
+            /* 1. Show Mobile Top Bar */
+            #mobile-top-bar { display: flex !important; }
+            
+            /* 2. Transform the HUD into a Left Drawer */
+            .hud {
+                position: fixed !important;
+                top: 0; left: -350px;
+                width: 320px !important; height: 100vh !important;
+                background: var(--bg-card) !important;
+                border-right: 2px solid var(--accent-blue);
+                flex-direction: column !important;
+                justify-content: flex-start !important;
+                align-items: stretch !important;
+                z-index: 1002 !important;
+                transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                padding: 25px !important;
+                box-sizing: border-box;
+                overflow-y: auto;
+                box-shadow: 10px 0 30px rgba(0,0,0,0.8);
+            }
+            body.dashboard-open .hud { left: 0 !important; }
+            
+            /* 3. Show Header inside Drawer & Hide Right Profile */
+            .mobile-hud-header { display: flex !important; }
+            .hud-right { display: none !important; }
+            
+            /* 4. Restructure HUD elements vertically */
+            /* Margin top pushes it down perfectly to reserve an empty slot for the Banner! */
+            .hud-left { flex-direction: column !important; gap: 15px !important; width: 100% !important; margin-bottom: 20px; margin-top: 110px !important; } 
+            .hud-left .btn { padding: 15px !important; font-size: 16px !important; text-align: left !important; width: 100% !important; }
+            
+            .hud-center { flex-direction: column !important; gap: 15px !important; width: 100% !important; }
+            .hud-center > div { width: 100% !important; justify-content: flex-start !important; padding: 15px !important; }
+
+            /* 5. Transform the Profile Banner into the Drawer */
+            .player-banner {
+                position: fixed !important;
+                top: 85px !important; /* Sits right under the Dashboard title */
+                left: -350px !important; /* Starts hidden */
+                width: 270px !important;
+                transform: scale(0.9) !important;
+                transform-origin: top left !important;
+                z-index: 1003 !important;
+                transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                margin: 0 !important;
+                border-radius: 12px !important;
+            }
+            /* Slide banner in when dashboard opens */
+            body.dashboard-open .player-banner { left: 25px !important; }
+            .player-username { font-size: 28px !important; text-shadow: 0 3px 6px rgba(0,0,0,0.9) !important; }
+
+            /* 6. Bottom Nav tweaks */
+            .bottom-nav-bar { padding: 0 10px; }
+            .nav-main-btn { padding: 0 15px !important; font-size: 14px !important; height: 50px !important; flex: 1; }
+            .nav-circ-btn { width: 50px !important; height: 50px !important; }
+            .nav-circ-btn span { font-size: 20px !important; }
+            .nav-circ-btn p { font-size: 9px !important; }
+
+            /* 7. Fix Stats Box Squishing in Drawer */
+            .hud-center > div:nth-child(2) { 
+                flex-wrap: wrap !important; 
+                justify-content: flex-start !important;
+            }
+            #hud-dynamic-currency { 
+                width: 100% !important; /* Forces trophies to drop to the next line */
+                border-left: none !important; /* Removes the vertical divider */
+                padding-left: 0 !important; 
+                border-top: 1px solid var(--locked-grey) !important; /* Adds a clean horizontal divider */
+                padding-top: 12px !important; 
+                margin-top: 4px !important; 
+            }
+            #trophy-rank-wrapper {
+                white-space: nowrap !important; /* Prevents the text from wrapping weirdly */
+            }
+        }
+    </style>
+    <script type="module" src="js/maintenance.js"></script>
+</head>
+<body class="theme-standard">
+    <div id="mobile-top-bar" style="display: none; justify-content: space-between; align-items: center; padding: 10px 20px; background: rgba(0,0,0,0.85); border-bottom: 1px solid var(--locked-grey); position: sticky; top: 0; z-index: 100;">
+        <button class="btn" style="font-size: 24px; padding: 5px 15px; border-color: var(--accent-blue); color: var(--accent-blue); background: rgba(59,130,246,0.1);" onclick="toggleDashboardPanel()">☰</button>
+        <div style="position: relative; display: inline-block;">
+            <button class="profile-btn" onclick="toggleSideMenu()">
+                <img id="mobile-hud-profile-pic" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Student" alt="Profile" style="width: 100%; height: 100%;" />
+            </button>
+            <div id="mobile-hud-notif-badge" style="display: none; position: absolute; top: -5px; right: -5px; background: var(--boss-red); color: white; font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 10px; border: 2px solid var(--bg-dark); pointer-events: none; z-index: 10;">0</div>
+        </div>
+    </div>
+
+    <div id="dashboard-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1001;" onclick="toggleDashboardPanel()"></div>
+
+    <div id="global-player-banner"></div>
+
+    <div class="hud" id="main-hud">
+        <div class="mobile-hud-header" style="display: none; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--locked-grey); padding-bottom: 15px; margin-bottom: 20px; width: 100%;">
+            <h2 style="margin: 0; color: white;">Dashboard</h2>
+            <button onclick="toggleDashboardPanel()" style="background: none; border: none; color: var(--locked-grey); font-size: 28px; cursor: pointer; padding: 0;">&times;</button>
+        </div>
+        <div class="hud-left">
+            <h2 style="margin:0; font-size: 22px; color: white; letter-spacing: 1px;">Logic <span style="color: var(--accent-blue);">Lords</span></h2>
+            <button class="btn" id="hud-emporium-btn" style="border-color: #a855f7; color: #d8b4fe;" onclick="openEmporium()">🏰 Emporium</button>
+            
+            <button class="btn" id="hud-ongoing-session-btn" style="display: none; border-color: var(--completed-green); color: var(--completed-green); box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);" onclick="resumeOngoingSession()">⚔️ Ongoing Session</button>
+        </div>
+        
+        <div class="hud-center">
+            <div style="display: flex; align-items: center; gap: 12px; width: 320px; background: rgba(0,0,0,0.5); padding: 6px 15px; border-radius: 20px; border: 1px solid var(--locked-grey);">
+                <span id="hud-curr-level" style="font-weight: 900; color: var(--accent-blue); font-size: 16px;">1</span>
+                <div style="flex: 1; height: 16px; background: #0f172a; border-radius: 8px; overflow: hidden; position: relative;">
+                    <div id="hud-xp-fill" style="height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #8b5cf6); transition: width 0.5s ease;"></div>
+                    <span id="hud-xp-text" style="position: absolute; top: 0; left: 0; width: 100%; text-align: center; font-size: 11px; line-height: 16px; color: white; font-weight: bold;">0 / 10000</span>
+                </div>
+                <span id="hud-next-level" style="font-weight: 900; color: #64748b; font-size: 14px;">2</span>
+            </div>
+
+            <div style="display: flex; flex-direction: row; gap: 15px; font-size: 15px; font-weight: bold; background: rgba(0,0,0,0.5); padding: 8px 20px; border-radius: 20px; border: 1px solid var(--locked-grey); align-items: center;">
+                <span title="Current Streak" style="color: #f97316;">🔥 <span id="hud-val-streak">0</span></span>
+                <span title="Gold Coins" style="color: #fbbf24;">🪙 <span id="hud-val-gold">0</span></span>
+                
+                <span id="hud-dynamic-currency" style="color: #e2e2e2; border-left: 1px solid var(--locked-grey); padding-left: 15px; display: inline-flex;">
+                    <div id="trophy-rank-wrapper" style="display: inline-flex; align-items: center; cursor: pointer; transition: 0.2s;" onclick="if(window.openTrophyRoad) window.openTrophyRoad()" onmouseover="this.style.filter='brightness(1.5)'" onmouseout="this.style.filter='none'">
+                        <span id="currency-emoji">🏆</span> <span id="hud-val-trophies" style="margin-left: 5px;">0</span> 
+                        <span style="font-size: 12px; color: #94a3b8; margin-left: 5px; font-weight: normal;">(<span id="hud-val-rankname">Unranked</span></span>
+                        <div style="position: relative; width: 25px; height: 25px; min-width: 25px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-left: -2px;">
+                            <div id="hud-val-rankicon" class="rank-icon-wrapper tier-bronze" style="position: absolute; transform: scale(0.35);">
+                                <div class="rank-shape"></div><div class="rank-inner"></div><div class="rank-core" id="hud-val-rankcore" style="display:none;"></div>
+                            </div>
+                        </div>
+                        <span style="font-size: 12px; color: #94a3b8; margin-left: -5px; font-weight: normal;">)</span>
+                    </div>
+                </span>
+            </div>
+        </div>
+
+        <div class="hud-right">
+            <div style="position: relative; display: inline-block;">
+                <button class="profile-btn" onclick="toggleSideMenu()">
+                    <img id="hud-profile-pic" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Student" alt="Profile" style="width: 100%; height: 100%;" />
+                </button>
+                <div id="hud-notif-badge" style="display: none; position: absolute; top: -5px; right: -5px; background: var(--boss-red); color: white; font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 10px; border: 2px solid var(--bg-dark); pointer-events: none; z-index: 10;">0</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="side-menu-overlay" onclick="toggleSideMenu()"></div>
+    <div id="side-menu">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--locked-grey); padding-bottom: 15px; margin-bottom: 20px;">
+            <h2 style="margin: 0; color: white;">Settings</h2>
+            <button onclick="toggleSideMenu()" style="background: none; border: none; color: var(--locked-grey); font-size: 28px; cursor: pointer; padding: 0;">&times;</button>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 15px;">
+            <button class="btn" style="position: relative; text-align: left; padding: 15px; font-size: 16px; border-color: #f59e0b; color: #f59e0b;" onclick="openNotificationsModal()">
+                🔔 Notifications
+                <div id="menu-notif-badge" style="display: none; position: absolute; top: 10px; right: 15px; background: var(--boss-red); color: white; font-size: 12px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">0</div>
+            </button>
+            
+            <button class="btn" style="text-align: left; padding: 15px; font-size: 16px; border-color: var(--accent-blue); color: var(--accent-blue);" onclick="openRealmModal()">🌍 Change Realm</button>
+        </div>
+        <button class="btn" onclick="window.location.href='index.html#logout'" style="border-color: var(--boss-red); color: #f87171; background: rgba(239, 68, 68, 0.1); padding: 15px; font-size: 16px; margin-top: auto;">🚪 Log Out</button>
+    </div>
+
+    <div class="modal-overlay" id="realm-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; align-items: center; justify-content: center;">
+        <div class="modal" id="realm-modal-content" style="background: var(--bg-card); padding: 40px; border-radius: 16px; border: 2px solid var(--accent-blue); width: 600px; text-align: center;"></div>
+    </div>
+
+    <div id="app-content-container"></div>
+
+    <div class="modal-overlay" id="badge-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); z-index: 500; align-items: center; justify-content: center;">
+        <div class="modal" style="background: var(--bg-card); padding: 40px; border-radius: 16px; border: 2px solid var(--accent-blue); width: 450px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
+            <h2 style="color: var(--accent-blue); margin-top: 0;">Equip Badge</h2>
+            <p style="color: #cbd5e1;">Select a badge to display on your banner.</p>
+            <div id="badge-inventory-grid" style="display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; margin-top: 20px;"></div>
+            <button class="btn" style="width:100%; margin-top:30px; border-color: var(--locked-grey);" onclick="document.getElementById('badge-modal').style.display='none'">CLOSE</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="emporium-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 300; align-items: center; justify-content: center;">
+        <div class="modal" style="background: var(--bg-card); border-radius: 16px; border: 2px solid #a855f7; width: 800px; max-width: 95%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; padding: 0;">
+            <div style="background: #3b0764; padding: 20px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #a855f7;">
+                <div><h2 style="color: #d8b4fe; margin: 0; font-size: 32px; letter-spacing: 2px;">🏰 THE EMPORIUM</h2><span style="color: #e9d5ff; font-size: 14px;">Customize your experience.</span></div>
+                <button onclick="document.getElementById('emporium-modal').style.display='none'" style="background: none; border: none; color: #d8b4fe; font-size: 32px; cursor: pointer;">&times;</button>
+            </div>
+            <div style="display: flex; background: rgba(0,0,0,0.3); border-bottom: 1px solid var(--locked-grey);">
+                <button class="emp-tab active" onclick="switchEmporiumTab('inventory', this)">🎒 INVENTORY</button>
+                <button class="emp-tab" onclick="switchEmporiumTab('store', this)">🛒 STORE</button>
+            </div>
+            <div style="padding: 30px; overflow-y: auto; flex: 1;" id="emporium-content"></div>
+        </div>
+    </div>
+    <style>
+        .emp-tab { flex: 1; padding: 15px; background: transparent; border: none; color: #94a3b8; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; border-bottom: 3px solid transparent; }
+        .emp-tab:hover { color: white; background: rgba(255,255,255,0.05); }
+        .emp-tab.active { color: #d8b4fe; border-bottom-color: #a855f7; background: rgba(168, 85, 247, 0.1); }
+        .emp-item { background: rgba(0,0,0,0.5); border: 2px solid var(--locked-grey); border-radius: 12px; padding: 20px; text-align: center; transition: 0.2s; position: relative; }
+        .emp-item:hover { transform: translateY(-5px); border-color: #a855f7; box-shadow: 0 10px 20px rgba(168, 85, 247, 0.2); }
+        .emp-item.equipped { border-color: var(--completed-green); background: rgba(16, 185, 129, 0.1); }
+        .emp-badge { position: absolute; top: 10px; right: 10px; font-size: 12px; font-weight: bold; padding: 3px 8px; border-radius: 10px; }
+    </style>
+
+    <div class="modal-overlay" id="mission-modal" style="display: none;">
+        <div class="modal" style="max-width: 500px; width: 90%;">
+            <h2 id="modal-title" style="color: var(--completed-green); margin-top: 0; font-size: 28px;">Objective Title</h2>
+            <p id="modal-desc" style="color: #cbd5e1; font-size: 16px; margin-bottom: 30px;">Objective description goes here.</p>
+            <div id="mission-prereq-warning" style="color: var(--boss-red); font-weight: bold; margin-bottom: 15px; display: none;"></div>
+            <div style="display: flex; flex-direction: column; gap: 15px;">
+                <button class="btn btn-primary" style="width: 100%; font-size: 18px; padding: 15px; font-weight: bold;" id="play-btn">Solo Practice</button>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn" style="flex: 1; border-color: var(--accent-blue); color: var(--accent-blue);" onclick="alert('Online coming soon!')">Online (Friend)</button>
+                    <button class="btn" style="flex: 1; border-color: var(--boss-red); color: var(--boss-red);" onclick="alert('Online coming soon!')">Online (Anyone)</button>
+                </div>
+                <button class="btn" style="border-color: #fbbf24; color: #fbbf24;" onclick="alert('Trophy Mode coming soon!')">Compete for Trophies 🏆</button>
+                <button class="btn" style="border-color: var(--locked-grey);" onclick="document.getElementById('mission-modal').style.display='none'">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
+        import { getFirestore, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+        
+        const firebaseConfig = { apiKey: "AIzaSyBaNWmSxGWq3q3G7qm78Aj-npdGTaAy3tM", authDomain: "logiclords-mvp.firebaseapp.com", projectId: "logiclords-mvp" };
+        const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp(); 
+        const db = getFirestore(app); const auth = getAuth(app);
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                const docSnap = await getDoc(doc(db, "users", user.uid));
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    window.currentUserData = data;
+                    window.equippedBadges = data.equipped?.badges || ["badge_pioneer", "badge_scholar", "badge_thinker"];
+                    localStorage.setItem('unlockedBadges', JSON.stringify(data.inventory?.badges || window.equippedBadges));
+                    localStorage.setItem('logicLordsEquipped', JSON.stringify(data.equipped || { mapTheme: "theme-standard", banner: "default" }));
+
+                    let globalXp = data.economy?.global_xp || 0; 
+                    let level = Math.floor(globalXp / 10000) + 1; let xpInLevel = globalXp % 10000;
+                    document.getElementById('hud-curr-level').innerText = level; document.getElementById('hud-next-level').innerText = level + 1; 
+                    document.getElementById('hud-xp-fill').style.width = `${(xpInLevel / 10000) * 100}%`; document.getElementById('hud-xp-text').innerText = `${xpInLevel} / 10000`;
+                    document.getElementById('hud-val-streak').innerText = data.economy?.streak || 0; document.getElementById('hud-val-gold').innerText = data.economy?.gold || 0; 
+                    document.getElementById('hud-profile-pic').src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.username || "Student"}`;
+                    document.getElementById('mobile-hud-profile-pic').src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.username || "Student"}`;
+                    document.body.className = data.equipped?.mapTheme || "theme-standard";
+
+                    if(window.updateGlobalRankAndBanner) window.updateGlobalRankAndBanner();
+                }
+            } else {
+                window.location.href = "index.html"; 
+            }
+        });
+
+        window.toggleDashboardPanel = function() {
+            const overlay = document.getElementById('dashboard-overlay');
+            if (document.body.classList.contains('dashboard-open')) {
+                document.body.classList.remove('dashboard-open');
+                overlay.style.display = 'none';
+            } else {
+                document.body.classList.add('dashboard-open');
+                overlay.style.display = 'block';
+            }
+        };
+        // --- ONGOING SESSIONS ENGINE ---
+        window.resumeOngoingSession = function() {
+            // 1. Close the mobile dashboard if it's open
+            if (document.body.classList.contains('dashboard-open')) {
+                toggleDashboardPanel();
+            }
+            
+            // 2. Instantly hide the button so it feels snappy!
+            let sessionBtn = document.getElementById('hud-ongoing-session-btn');
+            if (sessionBtn) sessionBtn.style.display = 'none';
+
+            // 3. Slide over to the Warmup tab (The Reconnect Engine will instantly catch them!)
+            if (typeof slideRoute === 'function') slideRoute('warmup');
+        };
+
+        // 3. Smart Monitor: Checks the background every 1 second to see if a match is running!
+        setInterval(() => {
+            let sessionBtn = document.getElementById('hud-ongoing-session-btn');
+            if (sessionBtn) {
+                // THE FIX: Only show the button if there is an active match AND you are on a different tab!
+                let hasActiveMatch = localStorage.getItem('activeMatchId') !== null;
+                let isNotOnWarmupTab = window.currentAppMode !== 'warmup';
+
+                if (hasActiveMatch && isNotOnWarmupTab) {
+                    sessionBtn.style.display = 'inline-block';
+                } else {
+                    sessionBtn.style.display = 'none';
+                }
+            }
+        }, 1000);
+    </script>
+
+    <script>
+        function toggleSideMenu() { const menu = document.getElementById('side-menu'); const overlay = document.getElementById('side-menu-overlay'); if (menu.style.right === '0px') { menu.style.right = '-350px'; overlay.style.display = 'none'; } else { menu.style.right = '0px'; overlay.style.display = 'block'; } }
+        function openRealmModal() { toggleSideMenu(); document.getElementById('realm-modal').style.display = 'flex'; }
+        window.goBackToDashboard = function() { routeAppMode('curriculum'); };
+
+        window.getBadgeEmoji = function(badgeId) {
+            const map = { 'badge_pioneer': '🚀', 'badge_scholar': '🎒', 'badge_thinker': '🧠', 'badge_streak_3': '🕯️', 'badge_streak_7': '🔥', 'badge_streak_30': '🌋', 'badge_flawless_5': '🎯', 'badge_boss_slayer': '☠️', 'badge_logic_lord': '👑', 'badge_starter': '⭐' };
+            return map[badgeId] || '🎖️';
+        }
+
+        window.openBadgeSelector = function() {
+            const modal = document.getElementById('badge-modal'); const grid = document.getElementById('badge-inventory-grid');
+            let inventory = JSON.parse(localStorage.getItem('unlockedBadges') || "[]"); if (inventory.length === 0) inventory = ["badge_pioneer"];
+            modal.style.display = 'flex'; grid.innerHTML = "";
+            let equippedClean = (window.equippedBadges || []).filter(b => b !== null);
+            inventory.forEach(b => {
+                let isSelected = equippedClean.includes(b); 
+                let btn = document.createElement('div'); btn.className = `badge-item ${isSelected ? 'selected' : ''}`; 
+                btn.style.cssText = `width: 60px; height: 60px; border-radius: 50%; background: var(--bg-card); border: 2px solid var(--locked-grey); font-size: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s;`;
+                if (isSelected) { btn.style.borderColor = "var(--completed-green)"; btn.style.boxShadow = "0 0 15px var(--completed-green)"; btn.style.background = "rgba(16, 185, 129, 0.1)"; btn.style.transform = "scale(1.1)"; }
+                btn.innerHTML = window.getBadgeEmoji(b); btn.onclick = () => window.toggleBadge(b); 
+                grid.appendChild(btn);
+            });
+        };
+
+        window.toggleBadge = function(badgeId) {
+            let equippedClean = (window.equippedBadges || []).filter(b => b !== null);
+            if (equippedClean.includes(badgeId)) { equippedClean = equippedClean.filter(b => b !== badgeId); } 
+            else { if (equippedClean.length >= 3) { alert("Max 3 badges!"); return; } equippedClean.push(badgeId); }
+            window.equippedBadges = [...equippedClean, null, null, null].slice(0, 3); 
+            
+            // Force redraw of the banner to show the new badges instantly
+            if(window.updateGlobalRankAndBanner) window.updateGlobalRankAndBanner();
+            window.openBadgeSelector(); 
+        };
+
+        window.openTrophyRoad = function() {
+            let maxT = window.hubMaxTrophies || 10000; let cTrophies = window.hubCurrentTrophies || 0; let cName = window.hubCurriculumName || "Arena";
+            let trophiesPerRank = maxT / 20; let rankIndex = Math.floor((cTrophies || 0) / trophiesPerRank); if (rankIndex >= 20) rankIndex = 19; if (rankIndex < 0) rankIndex = 0; 
+            const RANKS = ["Bronze I", "Bronze II", "Bronze III", "Silver I", "Silver II", "Silver III", "Gold I", "Gold II", "Gold III", "Platinum I", "Platinum II", "Platinum III", "Diamond I", "Diamond II", "Diamond III", "Master I", "Master II", "Master III", "Grandmaster", "Logic Lord"];
+            let html = `<div class="modal-overlay" id="trophy-road-modal" style="display: flex; position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); z-index: 2000; align-items: center; justify-content: center;"><div class="trophy-road-modal"><div class="trophy-road-header"><h2 style="margin:0; color: var(--accent-blue);">🏆 TROPHY ROAD</h2><p style="margin:5px 0 0 0; color:#cbd5e1; font-size:14px;">${cName}</p><button onclick="document.getElementById('trophy-road-modal').remove()" style="position:absolute; top:20px; right:20px; background:none; border:none; color:var(--locked-grey); font-size:24px; cursor:pointer;">&times;</button></div><div class="trophy-road-list" id="trophy-list-container"><div class="trophy-road-line"></div>`;
+            for (let i = 19; i >= 0; i--) {
+                let name = RANKS[i]; let tReq = Math.ceil(i * (maxT / 20)); let goldReward = (i + 1) * 200; 
+                let statusClass = rankIndex >= i ? "unlocked" : ""; if (rankIndex === i) statusClass = "current";
+                let rewardHtml = rankIndex > i ? `<div class="reward-pill claimed">✔️ Claimed</div>` : `<div class="reward-pill">🪙 ${goldReward}</div>`;
+                let tClass = "tier-bronze"; if (name.includes("Silver")) tClass = "tier-silver"; else if (name.includes("Gold")) tClass = "tier-gold"; else if (name.includes("Platinum")) tClass = "tier-platinum"; else if (name.includes("Diamond")) tClass = "tier-diamond"; else if (name.includes("Grandmaster")) tClass = "tier-grandmaster"; else if (name.includes("Master")) tClass = "tier-master"; else if (name.includes("Logic Lord")) tClass = "tier-logiclord";
+                html += `<div class="trophy-road-node ${statusClass}" id="tr-node-${i}"><div style="flex:1; text-align:right; padding-right:15px;"><div style="color:white; font-weight:bold; font-size:16px;">${name}</div><div style="color:#94a3b8; font-size:12px;">🏆 ${tReq}</div></div><div class="rank-icon-wrapper ${tClass}" style="width:40px; height:40px; z-index:10; background:var(--bg-card); border-radius:50%; box-shadow:0 0 10px rgba(0,0,0,0.8);"><div class="rank-shape" style="transform: scale(0.6);"></div><div class="rank-inner" style="transform: scale(0.6);"></div>${tClass === 'tier-logiclord' ? '<div class="rank-core" style="transform: scale(0.6);"></div>' : ''}</div><div style="flex:1; padding-left:15px;">${rewardHtml}</div></div>`;
+            }
+            html += `</div></div></div>`; let wrapper = document.createElement('div'); wrapper.innerHTML = html; document.body.appendChild(wrapper.firstElementChild);
+            setTimeout(() => { let currNode = document.getElementById(`tr-node-${rankIndex}`); if(currNode) currNode.scrollIntoView({ behavior: "smooth", block: "center" }); }, 100);
+        }
+
+        // --- THE MASTER BANNER & RANK ENGINE ---
+        window.updateGlobalRankAndBanner = function() {
+            let data = window.currentUserData || {};
+            let username = data.username || "Student";
+            let level = Math.floor((data.economy?.global_xp || 0) / 10000) + 1;
+            
+            let equippedData = JSON.parse(localStorage.getItem('logicLordsEquipped')) || { banner: "default" };
+            let equippedBanner = equippedData.banner || "default";
+
+            let activeKey = (window.CURRICULUM_CONFIG && window.CURRICULUM_CONFIG.storageKey) ? window.CURRICULUM_CONFIG.storageKey : 'cambridge_y9_math';
+            
+            // Calculate highest score between Cloud and Local
+            let dbScore = 0; if (data.curriculums && data.curriculums[activeKey]) dbScore = data.curriculums[activeKey].trophies || 0;
+            let localScore = parseInt(localStorage.getItem(`${activeKey}_trophies`) || "0");
+            let currentScore = Math.max(dbScore, localScore);
+            
+            window.hubCurrentTrophies = currentScore;
+            window.hubMaxTrophies = parseInt(localStorage.getItem(`${activeKey}_maxTrophies`)) || 10000;
+            window.hubCurriculumName = window.currentRealm?.book_title || "Arena";
+            
+            let currencyEl = document.getElementById('hud-val-trophies'); if (currencyEl) currencyEl.innerText = currentScore;
+
+            let trophiesPerRank = window.hubMaxTrophies / 20; 
+            let rankIndex = Math.floor((currentScore || 0) / (trophiesPerRank || 1)); 
+            if (rankIndex >= 20) rankIndex = 19; if (rankIndex < 0) rankIndex = 0; 
+            
+            const RANKS = ["Bronze I", "Bronze II", "Bronze III", "Silver I", "Silver II", "Silver III", "Gold I", "Gold II", "Gold III", "Platinum I", "Platinum II", "Platinum III", "Diamond I", "Diamond II", "Diamond III", "Master I", "Master II", "Master III", "Grandmaster", "Logic Lord"];
+            let rankName = RANKS[rankIndex] || "Unranked";
+            
+            let tierClass = "tier-bronze"; 
+            if (rankName.includes("Silver")) tierClass = "tier-silver"; else if (rankName.includes("Gold")) tierClass = "tier-gold"; else if (rankName.includes("Platinum")) tierClass = "tier-platinum"; else if (rankName.includes("Diamond")) tierClass = "tier-diamond"; else if (rankName.includes("Grandmaster")) tierClass = "tier-grandmaster"; else if (rankName.includes("Master")) tierClass = "tier-master"; else if (rankName.includes("Logic Lord")) tierClass = "tier-logiclord";
+
+            let rn = document.getElementById('hud-val-rankname'); if(rn) rn.innerText = rankName; 
+            let ri = document.getElementById('hud-val-rankicon'); if(ri) ri.className = `rank-icon-wrapper ${tierClass}`; 
+            let rc = document.getElementById('hud-val-rankcore'); if(rc) rc.style.display = tierClass === 'tier-logiclord' ? 'block' : 'none';
+
+            let equippedClean = (window.equippedBadges || []).filter(b => b !== null); let badgeHtml = "";
+            if (equippedClean.length === 0) { badgeHtml = `<span class="banner-badge-empty-text">+ Equip Badges</span>`; } 
+            else { equippedClean.forEach(b => { badgeHtml += `<div class="banner-badge-mini">${window.getBadgeEmoji(b)}</div>`; }); }
+
+            const BANNER_STYLES = {
+                'default': 'border-color: #475569; background: rgba(15,23,42,0.85); backdrop-filter: blur(10px);',
+                'banner_galaxy': 'border-color: #8b5cf6; background: radial-gradient(circle at top right, rgba(59,7,100,0.85), rgba(2,6,23,0.85)); backdrop-filter: blur(10px);',
+                'banner_fire': 'border-color: #ef4444; background: linear-gradient(0deg, rgba(69,10,10,0.85), rgba(153,27,27,0.85)); backdrop-filter: blur(10px);'
+            };
+
+            const bannerContainer = document.getElementById('global-player-banner');
+            if (bannerContainer) {
+                bannerContainer.className = `player-banner`;
+                let cssStyle = BANNER_STYLES[equippedBanner] || BANNER_STYLES['default'];
+                bannerContainer.style.cssText = `position: absolute; top: 80px; left: 30px; z-index: 90; ${cssStyle}`;
+
+                bannerContainer.innerHTML = `
+                    <div class="rank-icon-wrapper ${tierClass}" title="${rankName} (${currentScore})" onclick="if(window.openTrophyRoad) window.openTrophyRoad()" style="cursor:pointer;">
+                        <div class="rank-shape"></div><div class="rank-inner"></div>${tierClass === 'tier-logiclord' ? '<div class="rank-core"></div>' : ''}
+                    </div>
+                    <div class="banner-info-right">
+                        <div class="banner-name-row"><span class="player-username">${username}</span><span class="player-level">${level}</span></div>
+                        <div class="banner-badges-wrapper" onclick="if(window.openBadgeSelector) window.openBadgeSelector()" title="Edit Badges">${badgeHtml}</div>
+                    </div>`;
+            }
+        };
+    </script>
+
+    <script type="module" src="engine_core.js"></script>
+    <script type="module" src="engine_arena.js"></script>
+    <script type="module" src="warmup/warmup.js"></script>
+    <script src="js/router.js"></script>
+    <div class="modal-overlay" id="notifications-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 600; align-items: center; justify-content: center;">
+        <div class="modal" style="background: var(--bg-card); padding: 30px; border-radius: 16px; border: 2px solid #f59e0b; width: 500px; max-width: 95%; max-height: 80vh; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--locked-grey); padding-bottom: 15px; margin-bottom: 20px;">
+                <h2 style="color: #f59e0b; margin: 0;">🔔 Notifications</h2>
+                <button onclick="document.getElementById('notifications-modal').style.display='none'" style="background: none; border: none; color: var(--locked-grey); font-size: 28px; cursor: pointer; padding: 0;">&times;</button>
+            </div>
+            <div id="notifications-list" style="overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px;">
+                <p style="color: #94a3b8; text-align: center;">No new notifications.</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { getFirestore, collection, query, where, onSnapshot, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore.js";
+        const db = getFirestore();
+        
+        window.activeInvites = [];
+        
+        // Starts listening to Firebase the moment you log in
+        window.startGlobalNotificationListener = function(userId) {
+            if (!userId) return;
+            const q = query(collection(db, "invites"), where("targetId", "==", userId));
+            
+            onSnapshot(q, (snap) => {
+                window.activeInvites = [];
+                let unreadCount = 0;
+                snap.forEach(docSnap => { 
+                    let data = docSnap.data(); data.id = docSnap.id; 
+                    window.activeInvites.push(data);
+                    if (data.status === 'pending') unreadCount++;
+                });
+                
+                // Sort newest first
+                window.activeInvites.sort((a, b) => b.timestamp - a.timestamp);
+                
+                // Update Badges!
+                let hudBadge = document.getElementById('hud-notif-badge');
+                let menuBadge = document.getElementById('menu-notif-badge');
+                let mobileBadge = document.getElementById('mobile-hud-notif-badge'); // NEW
+                
+                if (unreadCount > 0) {
+                    if(hudBadge) { hudBadge.style.display = 'block'; hudBadge.innerText = unreadCount; }
+                    if(menuBadge) { menuBadge.style.display = 'block'; menuBadge.innerText = unreadCount; }
+                    if(mobileBadge) { mobileBadge.style.display = 'block'; mobileBadge.innerText = unreadCount; } // NEW
+                } else {
+                    if(hudBadge) hudBadge.style.display = 'none';
+                    if(menuBadge) menuBadge.style.display = 'none';
+                    if(mobileBadge) mobileBadge.style.display = 'none'; // NEW
+                }
+                
+                // Live refresh the modal if it's open
+                if (document.getElementById('notifications-modal').style.display === 'flex') window.openNotificationsModal();
+            });
+        };
+
+        window.openNotificationsModal = function() {
+            toggleSideMenu(); // Close side menu
+            document.getElementById('notifications-modal').style.display = 'flex';
+            let list = document.getElementById('notifications-list');
+            list.innerHTML = '';
+
+            if (window.activeInvites.length === 0) { list.innerHTML = '<p style="color: #94a3b8; text-align: center;">Inbox is empty.</p>'; return; }
+
+            window.activeInvites.forEach(inv => {
+                let statusHtml = '';
+                if (inv.status === 'pending') {
+                    statusHtml = `
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <button class="btn btn-primary" style="flex:1; padding: 8px; font-size: 14px;" onclick="acceptInvite('${inv.id}', '${inv.matchId}', '${inv.gameId}')">✔️ Accept</button>
+                            <button class="btn" style="flex:1; padding: 8px; font-size: 14px; border-color: var(--boss-red); color: var(--boss-red);" onclick="declineInvite('${inv.id}', '${inv.matchId}')">❌ Decline</button>
+                        </div>`;
+                } else if (inv.status === 'accepted') { statusHtml = `<span style="color: var(--completed-green); font-size: 12px; font-weight: bold;">✓ ACCEPTED</span>`; } 
+                else { statusHtml = `<span style="color: var(--boss-red); font-size: 12px; font-weight: bold;">✕ DECLINED</span>`; }
+
+                list.innerHTML += `
+                    <div style="background: rgba(0,0,0,0.5); border: 1px solid var(--locked-grey); padding: 15px; border-radius: 8px; text-align: left;">
+                        <div style="color: #cbd5e1; font-size: 14px; margin-bottom: 5px;"><strong>${inv.senderName}</strong> challenged you to:</div>
+                        <div style="color: #f97316; font-size: 18px; font-weight: bold;">${inv.gameName}</div>
+                        ${statusHtml}
+                    </div>`;
+            });
+        };
+
+        // --- DYNAMICALLY OVERRIDE APP.HTML ACCEPT/JOIN LOGIC ---
+window.acceptInvite = async function(inviteId, matchId, gameId) {
+    let notifModal = document.getElementById('notifications-modal');
+    if (notifModal) notifModal.style.display = 'none';
+    
+    try {
+        // THE FIX: Grab the username from the global app.html data because warmup.js might not be booted yet!
+        let myName = window.currentUserData?.username || window.userData?.username || "Player 2";
+
+        await updateDoc(doc(db, "invites", inviteId), { status: "accepted" });
+        await updateDoc(doc(db, "matchmaking", matchId), { 
+            player2: currentUserId, 
+            player2Name: myName, 
+            status: "playing", 
+            roundStartAt: Date.now() + 4000, 
+            player1Score: 0, 
+            player2Score: 0, 
+            seed: Math.floor(Math.random() * 1000000)
+        });
+        
+        // 1. Give the Match ID to the Reconnect Engine!
+        localStorage.setItem('activeMatchId', matchId);
+        
+        // 2. Teleport! The Reconnect Engine will automatically catch you and build the Arena!
+        if (window.currentAppMode === 'warmup') {
+            if (window.initializeWarmupScreen) window.initializeWarmupScreen();
+        } else {
+            if (typeof window.slideRoute === 'function') window.slideRoute('warmup');
+            else if (typeof window.routeAppMode === 'function') window.routeAppMode('warmup');
+        }
+    } catch(e) { console.error("Error accepting invite:", e); }
+};
+
+        window.declineInvite = async function(inviteId, matchId) {
+            try {
+                await updateDoc(doc(db, "invites", inviteId), { status: "declined" });
+                await updateDoc(doc(db, "matchmaking", matchId), { status: "declined" });
+            } catch(e) { console.error("Error declining", e); }
+        };
+
+        // Inject the boot-up call into the existing auth state loop
+        setTimeout(() => { let uid = localStorage.getItem('logicLordsUserId'); if(uid) window.startGlobalNotificationListener(uid); }, 1500);
+    </script>
+    <div id="main-bottom-nav" class="bottom-nav">
+        <button class="nav-tab" id="nav-tab-warmup" onclick="slideRoute('warmup')">
+            <div class="nav-icon">⚡</div>
+            <span>Warmup</span>
+        </button>
+        <button class="nav-tab active" id="nav-tab-curriculum" onclick="slideRoute('curriculum')">
+            <div class="nav-icon">📚</div>
+            <span>Curriculum</span>
+        </button>
+        <button class="nav-tab" id="nav-tab-logic" onclick="slideRoute('logic')">
+            <div class="nav-icon">🦘</div>
+            <span>Logic</span>
+        </button>
+    </div>
+
+    <script>
+        let swipeStartX = null;
+        let swipeStartY = null;
+
+        // 1. Helper to check if we are touching a draggable map
+        function isSwipeProtected(target) {
+            if (!target) return false;
+            // Now we ONLY protect the Hex Map. 
+            // Warmup and Logic screens will swipe from anywhere!
+            return target.closest('#universe-window');
+        }
+
+        // 2. Mobile Touch Events
+        document.addEventListener('touchstart', e => { 
+            if (isSwipeProtected(e.target)) return; // Ignore if touching a map
+            swipeStartX = e.changedTouches[0].screenX; 
+            swipeStartY = e.changedTouches[0].screenY; 
+        }, {passive: true});
+
+        document.addEventListener('touchend', e => { 
+            if (swipeStartX === null) return;
+            handleSwipe(e.changedTouches[0].screenX, e.changedTouches[0].screenY); 
+        }, {passive: true});
+
+        // 3. Desktop Mouse Events
+        document.addEventListener('mousedown', e => { 
+            if (isSwipeProtected(e.target)) return; // Ignore if clicking a map
+            swipeStartX = e.screenX; 
+            swipeStartY = e.screenY;
+        });
+
+        document.addEventListener('mouseup', e => { 
+            if (swipeStartX === null) return;
+            handleSwipe(e.screenX, e.screenY); 
+        });
+
+        // 4. Calculate Direction and Velocity
+        function handleSwipe(endX, endY) {
+            let deltaX = endX - swipeStartX;
+            let deltaY = endY - swipeStartY;
+            
+            // Reset coords for the next swipe
+            swipeStartX = null;
+            swipeStartY = null;
+
+            // Check if it's a real swipe (mostly horizontal, more than 50px distance)
+            if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) { 
+                if (typeof window.slideRoute !== 'function') return;
+                let currentIndex = window.ROUTES.indexOf(window.currentAppMode);
+                
+                if (deltaX < 0 && currentIndex < 2) slideRoute(window.ROUTES[currentIndex + 1]); // Swiped Left
+                else if (deltaX > 0 && currentIndex > 0) slideRoute(window.ROUTES[currentIndex - 1]); // Swiped Right
+            }
+        }
+    </script>
+</body>
+</html>
