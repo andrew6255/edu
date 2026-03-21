@@ -1,105 +1,208 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllUsers, UserData, computeLevel } from '@/lib/userService';
+import { getAllUsers, computeLevel } from '@/lib/userService';
 
-type LBTab = 'global' | 'arena' | 'org';
+type Tab = 'global' | 'arena' | 'weekly';
 
 const MEDAL = ['🥇', '🥈', '🥉'];
+const AVATAR_COLORS = [
+  '#3b82f6', '#10b981', '#f97316', '#8b5cf6',
+  '#ec4899', '#14b8a6', '#f59e0b', '#ef4444'
+];
 
-function avatarBg(username: string): string {
-  const hue = ((username?.charCodeAt(0) || 65) * 137) % 360;
-  return `hsl(${hue}, 55%, 35%)`;
+function avatarColor(username: string): string {
+  let h = 0;
+  for (let i = 0; i < username.length; i++) h = username.charCodeAt(i) + ((h << 5) - h);
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 }
 
-interface LBEntry {
+function currentWeekStart(): string {
+  const now = new Date();
+  const diff = now.getDay() === 0 ? -6 : 1 - now.getDay();
+  const mon = new Date(now);
+  mon.setDate(now.getDate() + diff);
+  mon.setHours(0, 0, 0, 0);
+  return mon.toISOString().split('T')[0];
+}
+
+interface Entry {
   uid: string;
   username: string;
   xp: number;
   arenaWins: number;
-  role: string;
-  orgId?: string;
+  weeklyXp: number;
+  level: number;
+  title: string;
+}
+
+function buildEntries(users: ReturnType<typeof Array.prototype.map>): Entry[] {
+  const weekStart = currentWeekStart();
+  return (users as Array<{
+    uid: string; username?: string; firstName?: string; lastName?: string;
+    economy?: { global_xp?: number }; arenaStats?: { wins?: number };
+    last_active?: string;
+  }>).map(u => {
+    const xp = u.economy?.global_xp ?? 0;
+    const { level, title } = computeLevel(xp);
+    const lastActive = u.last_active ?? '';
+    const weeklyXp = lastActive >= weekStart ? Math.min(xp, 500) : 0;
+    return {
+      uid: u.uid,
+      username: u.username || `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || 'Unknown',
+      xp,
+      arenaWins: u.arenaStats?.wins ?? 0,
+      weeklyXp,
+      level,
+      title,
+    };
+  });
+}
+
+function SkeletonRow() {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+      borderRadius: 10, background: 'rgba(255,255,255,0.04)',
+      border: '1px solid #1e293b', marginBottom: 6
+    }}>
+      <div style={{ width: 26, height: 16, borderRadius: 4, background: '#1e293b' }} />
+      <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#1e293b' }} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div style={{ height: 12, width: '55%', borderRadius: 4, background: '#1e293b' }} />
+        <div style={{ height: 10, width: '35%', borderRadius: 4, background: '#1e293b' }} />
+      </div>
+      <div style={{ width: 50, height: 16, borderRadius: 4, background: '#1e293b' }} />
+    </div>
+  );
+}
+
+interface RowProps {
+  rank: number;
+  entry: Entry;
+  isSelf: boolean;
+  tab: Tab;
+}
+
+function LeaderboardRow({ rank, entry, isSelf, tab }: RowProps) {
+  const color = avatarColor(entry.username);
+  const score = tab === 'global' ? entry.xp : tab === 'arena' ? entry.arenaWins : entry.weeklyXp;
+  const scoreUnit = tab === 'arena' ? 'Wins' : 'XP';
+  const scoreColor = tab === 'arena' ? '#60a5fa' : '#fbbf24';
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '10px 12px', borderRadius: 10, marginBottom: 6,
+      background: isSelf ? 'rgba(59,130,246,0.12)' : '#1e293b',
+      border: isSelf ? '1px solid rgba(59,130,246,0.45)' : '1px solid #334155',
+      transition: 'background 0.15s'
+    }}>
+      <div style={{ width: 28, textAlign: 'center', flexShrink: 0, fontSize: rank <= 3 ? 18 : 13, color: '#64748b', fontWeight: 'bold' }}>
+        {rank <= 3 ? MEDAL[rank - 1] : rank}
+      </div>
+      <div style={{
+        width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+        background: `${color}30`, border: `2px solid ${color}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 15, fontWeight: 'bold', color: 'white'
+      }}>
+        {entry.username[0]?.toUpperCase() ?? '?'}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          color: isSelf ? '#93c5fd' : 'white', fontWeight: isSelf ? 'bold' : 'normal',
+          fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+        }}>
+          {entry.username}
+          {isSelf && <span style={{ color: '#64748b', fontSize: 11, fontWeight: 'normal' }}> (you)</span>}
+        </div>
+        <div style={{ color: '#64748b', fontSize: 11 }}>Lv.{entry.level} · {entry.title}</div>
+      </div>
+      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div style={{ color: scoreColor, fontWeight: 'bold', fontSize: 14 }}>{score.toLocaleString()}</div>
+        <div style={{ color: '#475569', fontSize: 10 }}>{scoreUnit}</div>
+      </div>
+    </div>
+  );
 }
 
 export default function LeaderboardView() {
-  const { userData, user } = useAuth();
-  const [tab, setTab] = useState<LBTab>('global');
-  const [entries, setEntries] = useState<LBEntry[]>([]);
+  const { user } = useAuth();
+  const [tab, setTab] = useState<Tab>('global');
+  const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastFetched, setLastFetched] = useState<Date | null>(null);
 
-  useEffect(() => {
-    getAllUsers().then(users => {
-      setEntries(
-        users
-          .filter(u => u.role === 'student' || u.role === 'teacher')
-          .map(u => ({
-            uid: u.uid,
-            username: u.username || `${u.firstName} ${u.lastName}`,
-            xp: u.economy?.global_xp || 0,
-            arenaWins: u.arenaStats?.wins || 0,
-            role: u.role,
-            orgId: u.organisationId,
-          }))
-      );
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const users = await getAllUsers();
+      setEntries(buildEntries(users));
+      setLastFetched(new Date());
+    } finally {
       setLoading(false);
-    });
+    }
   }, []);
 
-  const byXP = [...entries].sort((a, b) => b.xp - a.xp).slice(0, 50);
-  const byArena = [...entries].sort((a, b) => b.arenaWins - a.arenaWins).filter(e => e.arenaWins > 0).slice(0, 50);
-  const byOrg = userData?.organisationId
-    ? [...entries].filter(e => e.orgId === userData.organisationId).sort((a, b) => b.xp - a.xp)
-    : [];
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  const myUid = user?.uid;
+  const myUid = user?.uid ?? '';
 
-  const lists: Record<LBTab, LBEntry[]> = { global: byXP, arena: byArena, org: byOrg };
-  const active = lists[tab];
+  const sortKey: keyof Entry = tab === 'global' ? 'xp' : tab === 'arena' ? 'arenaWins' : 'weeklyXp';
+  const sorted = [...entries].sort((a, b) => b[sortKey] - a[sortKey]);
+  const top50 = sorted.slice(0, 50);
+  const selfInTop = top50.some(e => e.uid === myUid);
+  const myRank = sorted.findIndex(e => e.uid === myUid) + 1;
+  const myEntry = sorted.find(e => e.uid === myUid);
 
-  const tabs: { id: LBTab; icon: string; label: string }[] = [
-    { id: 'global', icon: '🌍', label: 'Global XP' },
+  const tabDefs: { id: Tab; icon: string; label: string }[] = [
+    { id: 'global', icon: '🌐', label: 'Global XP' },
     { id: 'arena', icon: '⚔️', label: 'Arena' },
-    { id: 'org', icon: '🏢', label: 'My School' },
+    { id: 'weekly', icon: '📅', label: 'Weekly' },
   ];
-
-  function myRank(list: LBEntry[], key: 'xp' | 'arenaWins') {
-    if (!myUid) return null;
-    const sorted = [...list].sort((a, b) => b[key] - a[key]);
-    const idx = sorted.findIndex(e => e.uid === myUid);
-    return idx >= 0 ? idx + 1 : null;
-  }
-
-  const myGlobalRank = myRank(entries, 'xp');
-  const myArenaRank = myRank(entries, 'arenaWins');
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
       {/* Header */}
       <div style={{ padding: '16px 16px 0', flexShrink: 0 }}>
-        <div style={{ textAlign: 'center', marginBottom: 14 }}>
-          <div style={{ fontSize: 36, marginBottom: 4 }}>🏆</div>
-          <h2 style={{ margin: 0, color: 'white', fontSize: 20, fontWeight: 'bold' }}>Leaderboards</h2>
-          <p style={{ color: '#64748b', fontSize: 12, margin: '4px 0 0' }}>
-            Top players across Logic Lords
-          </p>
-        </div>
-
-        {/* My rank chips */}
-        {!loading && (
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-            {myGlobalRank && (
-              <div style={{
-                padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 'bold',
-                background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399'
-              }}>
-                🌍 Global Rank #{myGlobalRank}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div>
+            <h2 style={{ color: 'white', margin: 0, fontSize: 22, fontWeight: 'bold' }}>🏆 Leaderboard</h2>
+            {lastFetched && (
+              <div style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>
+                Updated {lastFetched.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
             )}
-            {myArenaRank && (
+          </div>
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            style={{
+              padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold',
+              fontFamily: 'inherit', cursor: loading ? 'not-allowed' : 'pointer',
+              background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)',
+              color: loading ? '#475569' : '#93c5fd', transition: '0.2s'
+            }}
+          >
+            {loading ? '⏳' : '🔄 Refresh'}
+          </button>
+        </div>
+
+        {/* Personal rank chips */}
+        {!loading && myEntry && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div style={{
+              padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 'bold',
+              background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd'
+            }}>
+              🌐 Global #{myRank}
+            </div>
+            {myEntry.arenaWins > 0 && (
               <div style={{
-                padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 'bold',
-                background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171'
+                padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 'bold',
+                background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: '#60a5fa'
               }}>
-                ⚔️ Arena Rank #{myArenaRank}
+                ⚔️ Arena #{sorted.findIndex(e => e.uid === myUid && tab === 'arena') + 1 || '—'}
               </div>
             )}
           </div>
@@ -107,7 +210,7 @@ export default function LeaderboardView() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 14, background: '#1e293b', borderRadius: 12, padding: 4 }}>
-          {tabs.map(t => (
+          {tabDefs.map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -116,7 +219,7 @@ export default function LeaderboardView() {
                 fontFamily: 'inherit', border: 'none', cursor: 'pointer',
                 background: tab === t.id ? '#0f172a' : 'transparent',
                 color: tab === t.id ? 'white' : '#64748b',
-                boxShadow: tab === t.id ? '0 1px 4px rgba(0,0,0,0.4)' : 'none',
+                boxShadow: tab === t.id ? '0 1px 4px rgba(0,0,0,0.5)' : 'none',
                 transition: 'all 0.2s'
               }}
             >
@@ -127,112 +230,47 @@ export default function LeaderboardView() {
       </div>
 
       {/* List */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 16px' }}>
         {loading ? (
-          <div style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>
-            <div style={{ fontSize: 32, marginBottom: 10 }}>⏳</div>
-            <div>Loading rankings...</div>
+          <div>
+            {Array.from({ length: 10 }).map((_, i) => <SkeletonRow key={i} />)}
           </div>
-        ) : active.length === 0 ? (
-          <div style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>
-            <div style={{ fontSize: 40, marginBottom: 10 }}>
-              {tab === 'org' ? '🏢' : tab === 'arena' ? '⚔️' : '🌍'}
+        ) : top50.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '48px 0', color: '#64748b' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>
+              {tab === 'arena' ? '⚔️' : tab === 'weekly' ? '📅' : '🌐'}
             </div>
-            <div style={{ fontWeight: 'bold', color: '#94a3b8', marginBottom: 6 }}>
-              {tab === 'org' ? 'Join an organisation to see your school ranking' : 'No entries yet'}
-            </div>
-            <div style={{ fontSize: 12 }}>
+            <div style={{ fontWeight: 'bold', color: '#94a3b8', marginBottom: 6 }}>No entries yet</div>
+            <div style={{ fontSize: 13 }}>
               {tab === 'arena' ? 'Start battling in the Arena to appear here!' : 'Keep earning XP to climb the ranks!'}
             </div>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {/* Top 3 podium */}
-            {active.length >= 1 && (
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginBottom: 10, padding: '0 4px' }}>
-                {[1, 0, 2].map(i => {
-                  const e = active[i];
-                  if (!e) return <div key={i} style={{ flex: 1 }} />;
-                  const isCenter = i === 0;
-                  const isMe = e.uid === myUid;
-                  const { level } = computeLevel(e.xp);
-                  const value = tab === 'arena' ? `${e.arenaWins}W` : `${e.xp.toLocaleString()} XP`;
-                  const podiumH = isCenter ? 90 : i === 1 ? 70 : 60;
-                  const textColor = isCenter ? '#fbbf24' : i === 1 ? '#94a3b8' : '#b45309';
-                  return (
-                    <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                      <div style={{ fontSize: isCenter ? 20 : 16 }}>{MEDAL[i]}</div>
-                      <div style={{
-                        width: isCenter ? 44 : 34, height: isCenter ? 44 : 34, borderRadius: '50%',
-                        background: avatarBg(e.username),
-                        border: isMe ? '2px solid #3b82f6' : `2px solid ${textColor}66`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: isCenter ? 18 : 14, fontWeight: 'bold', color: 'white'
-                      }}>
-                        {e.username[0]?.toUpperCase()}
-                      </div>
-                      <div style={{ color: 'white', fontSize: 10, fontWeight: 'bold', textAlign: 'center', maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {isMe ? '👑 You' : e.username}
-                      </div>
-                      <div style={{
-                        width: '100%', height: podiumH,
-                        background: isCenter ? 'linear-gradient(0deg, rgba(251,191,36,0.2), rgba(251,191,36,0.05))' : 'rgba(30,41,59,0.8)',
-                        border: `1px solid ${textColor}44`, borderRadius: '8px 8px 0 0',
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start',
-                        paddingTop: 8, fontSize: 11, color: textColor, fontWeight: 'bold'
-                      }}>
-                        <div>{value}</div>
-                        <div style={{ color: '#475569', fontSize: 9, marginTop: 2 }}>Lv.{level}</div>
-                      </div>
-                    </div>
-                  );
-                })}
+          <>
+            {top50.map((e, i) => (
+              <LeaderboardRow key={e.uid} rank={i + 1} entry={e} isSelf={e.uid === myUid} tab={tab} />
+            ))}
+
+            {/* Pinned "you" row when outside top 50 */}
+            {!selfInTop && myEntry && myRank > 0 && (
+              <div style={{
+                position: 'sticky', bottom: 0, background: '#0f172a',
+                paddingTop: 8, borderTop: '1px solid rgba(59,130,246,0.2)',
+                marginTop: 4
+              }}>
+                <div style={{ color: '#475569', fontSize: 11, textAlign: 'center', marginBottom: 4 }}>
+                  ··· Your ranking ···
+                </div>
+                <LeaderboardRow rank={myRank} entry={myEntry} isSelf tab={tab} />
               </div>
             )}
 
-            {/* Rest of the list */}
-            {active.slice(3).map((e, i) => {
-              const rank = i + 4;
-              const isMe = e.uid === myUid;
-              const { level } = computeLevel(e.xp);
-              const value = tab === 'arena' ? `${e.arenaWins}W` : `${e.xp.toLocaleString()}`;
-              const suffix = tab === 'arena' ? '' : ' XP';
-
-              return (
-                <div key={e.uid} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  background: isMe ? 'rgba(59,130,246,0.1)' : '#1e293b',
-                  border: isMe ? '1px solid rgba(59,130,246,0.4)' : '1px solid #334155',
-                  borderRadius: 10, padding: '10px 12px'
-                }}>
-                  <div style={{
-                    width: 26, flexShrink: 0, textAlign: 'center',
-                    color: '#475569', fontSize: 12, fontWeight: 'bold'
-                  }}>
-                    {rank}
-                  </div>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                    background: avatarBg(e.username),
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 14, fontWeight: 'bold', color: 'white',
-                    border: isMe ? '2px solid #3b82f6' : 'none'
-                  }}>
-                    {e.username[0]?.toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: isMe ? '#93c5fd' : 'white', fontSize: 13, fontWeight: isMe ? 'bold' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {isMe ? '👑 ' : ''}{e.username}
-                    </div>
-                    <div style={{ color: '#64748b', fontSize: 10 }}>Lv.{level}</div>
-                  </div>
-                  <div style={{ color: tab === 'arena' ? '#60a5fa' : '#10b981', fontWeight: 'bold', fontSize: 13, flexShrink: 0 }}>
-                    {value}{suffix}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+            {!selfInTop && !myEntry && (
+              <div style={{ textAlign: 'center', paddingTop: 16, color: '#475569', fontSize: 12 }}>
+                Play to earn XP and appear on the leaderboard!
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
