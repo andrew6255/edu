@@ -40,6 +40,7 @@ interface EconModalState { uid: string; username: string; goldDelta: string; xpD
 
 export default function AdminDashboard() {
   const { user, userData: adminData } = useAuth();
+  const myUid = user?.uid;
   const [users, setUsers] = useState<Array<UserData & { uid: string }>>([]);
   const [classes, setClasses] = useState<ClassData[]>([]);
   const [org, setOrg] = useState<OrgData | null>(null);
@@ -706,6 +707,55 @@ export default function AdminDashboard() {
                 </div>
               ))}
             </div>
+
+            {/* Admins list */}
+            {org.adminIds && org.adminIds.length > 0 && (
+              <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid rgba(249,115,22,0.3)', marginBottom: 14 }}>
+                <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14, fontWeight: 'bold' }}>⚙️ Organisation Admins</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {org.adminIds.map(adminUid => {
+                    const adminUser = users.find(u => u.uid === adminUid);
+                    const isMe = adminUid === myUid;
+                    return (
+                      <div key={adminUid} style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        background: isMe ? 'rgba(249,115,22,0.08)' : '#0f172a',
+                        borderRadius: 8, padding: '10px 12px',
+                        border: isMe ? '1px solid rgba(249,115,22,0.3)' : 'none'
+                      }}>
+                        <div style={{
+                          width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                          background: adminUser
+                            ? `hsl(${(adminUser.username?.charCodeAt(0) || 65) * 37 % 360}, 55%, 38%)`
+                            : '#334155',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontWeight: 'bold', color: 'white', fontSize: 14
+                        }}>
+                          {adminUser ? (adminUser.username?.[0] || adminUser.firstName?.[0] || '?').toUpperCase() : '?'}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ color: 'white', fontSize: 13, fontWeight: 'bold' }}>
+                            {adminUser
+                              ? `${adminUser.username || `${adminUser.firstName} ${adminUser.lastName}`}${isMe ? ' (you)' : ''}`
+                              : adminUid.slice(0, 10) + '…'}
+                          </div>
+                          <div style={{ color: '#64748b', fontSize: 11 }}>
+                            {adminUser?.email || 'Admin'}
+                          </div>
+                        </div>
+                        <span style={{
+                          fontSize: 10, fontWeight: 'bold', padding: '2px 8px', borderRadius: 5,
+                          background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)',
+                          color: '#fb923c'
+                        }}>
+                          admin
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Teachers in org */}
             <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155', marginBottom: 14 }}>

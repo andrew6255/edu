@@ -49,7 +49,6 @@ const DEFAULT_USER: Partial<UserData> = {
   economy: { gold: 200, global_xp: 0, streak: 0 },
   arenaStats: { wins: 0, losses: 0, highestStreak: 0 },
   curriculums: {},
-  onboardingComplete: false,
   inventory: { stories: [], badges: ['badge_pioneer'], banners: ['default'], mapThemes: ['theme-standard', 'theme-hex'] },
   equipped: { mapTheme: 'theme-standard', banner: 'default', badges: ['badge_pioneer'] },
   high_scores: {

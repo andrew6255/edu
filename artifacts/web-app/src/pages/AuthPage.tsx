@@ -3,7 +3,7 @@ import { useLocation } from 'wouter';
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
   updateProfile, signInWithPopup, signInWithRedirect,
-  getRedirectResult, GoogleAuthProvider
+  getRedirectResult, GoogleAuthProvider, signInWithCustomToken
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import {
@@ -13,7 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 const SUPER_ADMIN_USERNAME = '0000';
 const SUPER_ADMIN_PASSWORD = '0000';
-const SUPER_ADMIN_FIREBASE_PASSWORD = 'logiclords_sa_2024_internal';
+const SA_FIREBASE_EMAIL = 'superadmin.logiclords@internal.app';
 
 async function generateUniqueUsername(base: string): Promise<string> {
   const clean = base.replace(/[^a-zA-Z0-9]/g, '').slice(0, 18) || 'user';
@@ -116,27 +116,31 @@ export default function AuthPage() {
   async function handleLogin() {
     if (!loginId || !loginPass) return setError('Please fill in all fields.');
 
-    // Super admin hardcoded login
+    // Super admin hardcoded login — credentials validated server-side, no Firebase password in client
     if (loginId === SUPER_ADMIN_USERNAME && loginPass === SUPER_ADMIN_PASSWORD) {
       setSubmitting(true); setError('');
       try {
-        // Use a deterministic email for the super admin Firebase account
-        const saEmail = 'superadmin.logiclords@internal.app';
-        let result;
-        try {
-          result = await signInWithEmailAndPassword(auth, saEmail, SUPER_ADMIN_FIREBASE_PASSWORD);
-        } catch {
-          // First time: create the account
-          result = await createUserWithEmailAndPassword(auth, saEmail, SUPER_ADMIN_FIREBASE_PASSWORD);
-          await updateProfile(result.user, { displayName: 'SuperAdmin' });
+        const apiBase = import.meta.env.BASE_URL?.replace(/\/$/, '') || '';
+        const resp = await fetch(`${apiBase}/api/superadmin/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: loginId, password: loginPass }),
+        });
+        const data = await resp.json() as { customToken?: string; uid?: string; error?: string };
+        if (!resp.ok || !data.customToken) {
+          setError(data.error || 'Super admin sign-in unavailable. Contact the system administrator.');
+          setSubmitting(false);
+          return;
+        }
+        const result = await signInWithCustomToken(auth, data.customToken);
+        await updateProfile(result.user, { displayName: 'SuperAdmin' });
+        const existing = await getUserData(result.user.uid);
+        if (!existing) {
           await createUserData(result.user.uid, {
             firstName: 'Super', lastName: 'Admin', username: 'superadmin',
-            email: saEmail, role: 'superadmin', onboardingComplete: true,
+            email: SA_FIREBASE_EMAIL, role: 'superadmin', onboardingComplete: true,
           });
-        }
-        // Ensure the Firestore doc has superadmin role (in case it was created differently)
-        const existing = await getUserData(result.user.uid);
-        if (existing && existing.role !== 'superadmin') {
+        } else if (existing.role !== 'superadmin') {
           const { updateUserData } = await import('@/lib/userService');
           await updateUserData(result.user.uid, { role: 'superadmin' });
         }
