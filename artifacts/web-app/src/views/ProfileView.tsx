@@ -303,8 +303,12 @@ export default function ProfileView() {
               onClick={async () => {
                 if (!user) return;
                 setResettingOnboarding(true);
-                await updateUserData(user.uid, { onboardingComplete: false });
-                await refreshUserData();
+                try {
+                  await updateUserData(user.uid, { onboardingComplete: false });
+                  await refreshUserData();
+                } finally {
+                  setResettingOnboarding(false);
+                }
               }}
               style={{
                 width: '100%', padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 'bold',
