@@ -266,10 +266,10 @@ export default function ProfileView() {
         </div>
 
         {/* ── Curriculum Profile ── */}
-        {userData.curriculumProfile && (
+        {userData.curriculumProfile ? (
           <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid #334155' }}>
             <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, fontWeight: 'bold' }}>
-              📚 Curriculum Profile
+              📚 My Curriculum
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <div style={{ background: '#0f172a', borderRadius: 10, padding: '10px 12px', border: '1px solid #334155' }}>
@@ -287,8 +287,33 @@ export default function ProfileView() {
               <div style={{ color: '#64748b', fontSize: 10, marginBottom: 3 }}>TEXTBOOK / CURRICULUM</div>
               <div style={{ color: '#93c5fd', fontWeight: 'bold', fontSize: 14 }}>
                 {userData.curriculumProfile.customTextbook
-                  ? `📖 ${userData.curriculumProfile.customTextbook} (custom request)`
+                  ? `📖 Custom — pending review`
                   : `📖 ${userData.curriculumProfile.textbook}`}
+              </div>
+            </div>
+            {orgName && (
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  padding: '3px 12px', borderRadius: 20, fontSize: 12,
+                  background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.35)',
+                  color: '#fb923c', display: 'inline-flex', alignItems: 'center', gap: 5
+                }}>
+                  📚 {orgName}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{
+            background: '#1e293b', borderRadius: 14, padding: '14px 16px', marginBottom: 14,
+            border: '1px solid rgba(59,130,246,0.2)',
+            display: 'flex', alignItems: 'center', gap: 14
+          }}>
+            <div style={{ fontSize: 32, flexShrink: 0 }}>📚</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14, marginBottom: 4 }}>Complete your curriculum setup</div>
+              <div style={{ color: '#64748b', fontSize: 12, lineHeight: 1.5 }}>
+                Tell us which education system and textbook you use so Logic Lords can personalise your learning path.
               </div>
             </div>
           </div>
