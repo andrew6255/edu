@@ -2,7 +2,7 @@
 
 ## Overview
 
-Gamified education platform — "Logic Lords". Students battle through curriculum content via warmup games, hex universe maps, and arena combat. Teachers/admins manage curriculum.
+Gamified education platform — "Logic Lords". Students battle through curriculum content via warmup games, hex universe maps, and arena combat. Teachers/admins manage classes via a dedicated dashboard.
 
 Built as a pnpm monorepo: React/Vite web app (client), Express API (server), Firebase for auth + Firestore.
 

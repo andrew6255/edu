@@ -1,13 +1,17 @@
 import { db } from './firebase';
 import {
-  doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, arrayUnion
+  doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs
 } from 'firebase/firestore';
+
+export type UserRole = 'student' | 'teacher' | 'admin';
 
 export interface UserData {
   firstName: string;
   lastName: string;
   username: string;
   email: string;
+  role: UserRole;
+  classId?: string;
   economy: { gold: number; global_xp: number; streak: number };
   curriculums: Record<string, { trophies: number }>;
   inventory: { stories: string[]; badges: string[]; banners: string[]; mapThemes: string[] };
@@ -16,9 +20,11 @@ export interface UserData {
   warmup_date?: string;
   played_categories?: string[];
   analytics?: Record<string, Record<string, { mastered?: boolean }>>;
+  last_active?: string;
 }
 
 const DEFAULT_USER: Partial<UserData> = {
+  role: 'student',
   economy: { gold: 0, global_xp: 0, streak: 0 },
   curriculums: {},
   inventory: { stories: [], badges: ['badge_pioneer'], banners: ['default'], mapThemes: ['theme-standard', 'theme-hex'] },
@@ -30,7 +36,8 @@ const DEFAULT_USER: Partial<UserData> = {
     chessNameSurvival: 0, chessNameSpeed: 0, chessFindSurvival: 0, chessFindSpeed: 0, chessMemory: 0
   },
   warmup_date: '',
-  played_categories: []
+  played_categories: [],
+  last_active: new Date().toISOString().split('T')[0]
 };
 
 export async function getUserData(uid: string): Promise<UserData | null> {
@@ -40,7 +47,11 @@ export async function getUserData(uid: string): Promise<UserData | null> {
 }
 
 export async function createUserData(uid: string, data: Partial<UserData>): Promise<void> {
-  await setDoc(doc(db, 'users', uid), { ...DEFAULT_USER, ...data });
+  await setDoc(doc(db, 'users', uid), {
+    ...DEFAULT_USER,
+    ...data,
+    last_active: new Date().toISOString().split('T')[0]
+  });
 }
 
 export async function updateUserData(uid: string, updates: Partial<UserData>): Promise<void> {
@@ -55,11 +66,10 @@ export async function updateEconomy(uid: string, goldDelta: number, xpDelta: num
   const snap = await getDoc(doc(db, 'users', uid));
   if (!snap.exists()) return;
   const data = snap.data();
-  const currentGold = data?.economy?.gold || 0;
-  const currentXP = data?.economy?.global_xp || 0;
   await updateDoc(doc(db, 'users', uid), {
-    'economy.gold': currentGold + goldDelta,
-    'economy.global_xp': currentXP + xpDelta
+    'economy.gold': (data?.economy?.gold || 0) + goldDelta,
+    'economy.global_xp': (data?.economy?.global_xp || 0) + xpDelta,
+    last_active: new Date().toISOString().split('T')[0]
   });
 }
 
@@ -76,14 +86,30 @@ export async function isUsernameTaken(username: string): Promise<boolean> {
   return !snap.empty;
 }
 
+export async function getAllUsers(): Promise<Array<UserData & { uid: string }>> {
+  const snap = await getDocs(collection(db, 'users'));
+  return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
+}
+
+export async function getUsersByRole(role: UserRole): Promise<Array<UserData & { uid: string }>> {
+  const q = query(collection(db, 'users'), where('role', '==', role));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
+}
+
+export async function getUsersByClassId(classId: string): Promise<Array<UserData & { uid: string }>> {
+  const q = query(collection(db, 'users'), where('classId', '==', classId));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
+}
+
 export function computeLevel(xp: number): { level: number; title: string } {
   const levels = [
     { min: 0, title: 'Initiate' }, { min: 500, title: 'Apprentice' }, { min: 1500, title: 'Seeker' },
     { min: 3000, title: 'Scholar' }, { min: 6000, title: 'Adept' }, { min: 10000, title: 'Expert' },
     { min: 15000, title: 'Master' }, { min: 25000, title: 'Grandmaster' }, { min: 50000, title: 'Logic Lord' }
   ];
-  let level = 1;
-  let title = 'Initiate';
+  let level = 1; let title = 'Initiate';
   for (let i = levels.length - 1; i >= 0; i--) {
     if (xp >= levels[i].min) { level = i + 1; title = levels[i].title; break; }
   }

@@ -5,11 +5,11 @@ import {
   updateProfile, signInWithPopup, GoogleAuthProvider
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { findUserByUsername, createUserData, isUsernameTaken } from '@/lib/userService';
+import { findUserByUsername, createUserData, isUsernameTaken, UserRole } from '@/lib/userService';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function AuthPage() {
-  const { user, loading } = useAuth();
+  const { user, userData, loading } = useAuth();
   const [, setLocation] = useLocation();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState('');
@@ -24,6 +24,7 @@ export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [role, setRole] = useState<UserRole>('student');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -31,8 +32,14 @@ export default function AuthPage() {
   }, []);
 
   useEffect(() => {
-    if (!loading && user) setLocation('/app');
-  }, [user, loading]);
+    if (!loading && user && userData) {
+      if (userData.role === 'teacher' || userData.role === 'admin') {
+        setLocation('/dashboard');
+      } else {
+        setLocation('/app');
+      }
+    }
+  }, [user, userData, loading]);
 
   async function handleLogin() {
     if (!loginId || !loginPass) return setError('Please fill in all fields.');
@@ -54,6 +61,7 @@ export default function AuthPage() {
   async function handleRegister() {
     if (!fname || !lname || !username || !email || !pass) return setError('Please fill in all required fields.');
     if (pass !== confirm) return setError('Passwords do not match.');
+    if (pass.length < 6) return setError('Password must be at least 6 characters.');
     setSubmitting(true); setError('');
     try {
       const taken = await isUsernameTaken(username);
@@ -61,7 +69,7 @@ export default function AuthPage() {
       const cred = await createUserWithEmailAndPassword(auth, email, pass);
       await updateProfile(cred.user, { displayName: username });
       await createUserData(cred.user.uid, {
-        firstName: fname, lastName: lname, username, email,
+        firstName: fname, lastName: lname, username, email, role,
         economy: { gold: 1000, global_xp: 0, streak: 0 }
       });
     } catch (e: unknown) {
@@ -75,13 +83,15 @@ export default function AuthPage() {
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
-      const userData = await import('@/lib/userService').then(m => m.getUserData(result.user.uid));
-      if (!userData) {
+      const { getUserData } = await import('@/lib/userService');
+      const existingData = await getUserData(result.user.uid);
+      if (!existingData) {
         await createUserData(result.user.uid, {
           firstName: result.user.displayName?.split(' ')[0] || '',
-          lastName: result.user.displayName?.split(' ')[1] || '',
+          lastName: result.user.displayName?.split(' ').slice(1).join(' ') || '',
           username: result.user.displayName?.replace(/\s+/g, '') || '',
           email: result.user.email || '',
+          role: 'student',
           economy: { gold: 1000, global_xp: 0, streak: 0 }
         });
       }
@@ -92,7 +102,7 @@ export default function AuthPage() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '13px 15px', marginBottom: 12,
+    width: '100%', padding: '12px 14px', marginBottom: 10,
     borderRadius: 8, border: '1px solid #475569',
     background: 'rgba(0,0,0,0.5)', color: 'white',
     boxSizing: 'border-box', fontSize: 14,
@@ -103,24 +113,24 @@ export default function AuthPage() {
     <div style={{
       background: 'radial-gradient(circle at center, #1e293b 0%, #0f172a 100%)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      height: '100vh', padding: 20
+      minHeight: '100vh', padding: 20
     }}>
       <div style={{
-        background: '#1e293b', padding: 40, borderRadius: 16,
-        border: '2px solid #334155', boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-        maxWidth: 450, width: '100%', textAlign: 'center',
+        background: '#1e293b', padding: 35, borderRadius: 16,
+        border: '2px solid #334155', boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+        maxWidth: 420, width: '100%', textAlign: 'center',
         maxHeight: '90vh', overflowY: 'auto', animation: 'slideUp 0.4s ease'
       }}>
-        <div style={{ fontSize: 40, marginBottom: 10 }}>🌌</div>
-        <h1 style={{ margin: '0 0 5px', color: 'white', fontSize: 28, textShadow: '0 0 10px rgba(59,130,246,0.5)' }}>
+        <div style={{ fontSize: 36, marginBottom: 8 }}>🌌</div>
+        <h1 style={{ margin: '0 0 4px', color: 'white', fontSize: 24, textShadow: '0 0 10px rgba(59,130,246,0.4)' }}>
           LOGIC LORDS
         </h1>
-        <p style={{ color: '#94a3b8', marginBottom: 25, fontSize: 15 }}>
-          {mode === 'login' ? 'Please login to your account' : 'Create your account'}
+        <p style={{ color: '#94a3b8', marginBottom: 22, fontSize: 14 }}>
+          {mode === 'login' ? 'Sign in to your account' : 'Create your account'}
         </p>
 
         {error && (
-          <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 15, padding: '10px', background: 'rgba(239,68,68,0.1)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)' }}>
+          <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 14, padding: '10px 14px', background: 'rgba(239,68,68,0.1)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)' }}>
             {error}
           </div>
         )}
@@ -129,8 +139,8 @@ export default function AuthPage() {
           <div>
             <input style={inputStyle} placeholder="Email or Username" value={loginId} onChange={e => setLoginId(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()} />
             <input style={inputStyle} type="password" placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()} />
-            <button className="ll-btn ll-btn-primary" style={{ width: '100%', padding: '14px', fontSize: 16, marginBottom: 10 }} onClick={handleLogin} disabled={submitting}>
-              {submitting ? 'Logging in...' : 'LOGIN'}
+            <button className="ll-btn ll-btn-primary" style={{ width: '100%', padding: '13px', fontSize: 16, marginBottom: 10 }} onClick={handleLogin} disabled={submitting}>
+              {submitting ? 'Signing in...' : 'LOG IN'}
             </button>
             <button style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: 14, width: '100%', padding: '8px', fontFamily: 'inherit' }} onClick={() => { setMode('register'); setError(''); }}>
               Need an account? Register here
@@ -138,16 +148,41 @@ export default function AuthPage() {
           </div>
         ) : (
           <div>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 0 }}>
-              <input style={{ ...inputStyle, flex: 1 }} placeholder="First Name" value={fname} onChange={e => setFname(e.target.value)} />
+            {/* Role selector */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              {(['student', 'teacher'] as UserRole[]).map(r => (
+                <button
+                  key={r}
+                  onClick={() => setRole(r)}
+                  style={{
+                    flex: 1, padding: '11px 10px', borderRadius: 10, fontSize: 14, fontWeight: 'bold',
+                    cursor: 'pointer', fontFamily: 'inherit', transition: '0.2s',
+                    background: role === r
+                      ? (r === 'teacher' ? 'rgba(16,185,129,0.2)' : 'rgba(59,130,246,0.2)')
+                      : 'rgba(0,0,0,0.3)',
+                    border: role === r
+                      ? (r === 'teacher' ? '2px solid #10b981' : '2px solid #3b82f6')
+                      : '2px solid #334155',
+                    color: role === r
+                      ? (r === 'teacher' ? '#34d399' : '#93c5fd')
+                      : '#64748b'
+                  }}
+                >
+                  {r === 'student' ? '🧑‍🎓 Student' : '🧑‍🏫 Teacher'}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input style={{ ...inputStyle, flex: 1, marginRight: 0 }} placeholder="First Name" value={fname} onChange={e => setFname(e.target.value)} />
               <input style={{ ...inputStyle, flex: 1 }} placeholder="Last Name" value={lname} onChange={e => setLname(e.target.value)} />
             </div>
             <input style={inputStyle} placeholder="Username (e.g. LogicMaster99)" value={username} onChange={e => setUsername(e.target.value)} />
             <input style={inputStyle} type="email" placeholder="Email Address" value={email} onChange={e => setEmail(e.target.value)} />
-            <input style={inputStyle} type="password" placeholder="Password" value={pass} onChange={e => setPass(e.target.value)} />
+            <input style={inputStyle} type="password" placeholder="Password (min 6 chars)" value={pass} onChange={e => setPass(e.target.value)} />
             <input style={inputStyle} type="password" placeholder="Confirm Password" value={confirm} onChange={e => setConfirm(e.target.value)} />
-            <button className="ll-btn ll-btn-primary" style={{ width: '100%', padding: '14px', fontSize: 16, marginBottom: 10 }} onClick={handleRegister} disabled={submitting}>
-              {submitting ? 'Creating account...' : 'REGISTER'}
+            <button className="ll-btn ll-btn-primary" style={{ width: '100%', padding: '13px', fontSize: 16, marginBottom: 10 }} onClick={handleRegister} disabled={submitting}>
+              {submitting ? 'Creating account...' : `CREATE ${role.toUpperCase()} ACCOUNT`}
             </button>
             <button style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: 14, width: '100%', padding: '8px', fontFamily: 'inherit' }} onClick={() => { setMode('login'); setError(''); }}>
               Already have an account? Log in
@@ -155,7 +190,7 @@ export default function AuthPage() {
           </div>
         )}
 
-        <div style={{ margin: '20px 0', color: '#64748b', fontSize: 14, fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
+        <div style={{ margin: '18px 0', color: '#64748b', fontSize: 13, fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
           <div style={{ flex: 1, borderBottom: '1px solid #334155', margin: '0 10px' }} />OR<div style={{ flex: 1, borderBottom: '1px solid #334155', margin: '0 10px' }} />
         </div>
 
@@ -164,7 +199,7 @@ export default function AuthPage() {
           disabled={submitting}
           style={{
             background: 'white', color: '#334155', border: 'none',
-            borderRadius: 8, padding: '13px 20px', width: '100%',
+            borderRadius: 8, padding: '12px 20px', width: '100%',
             fontSize: 15, fontWeight: 'bold', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
             fontFamily: 'inherit', transition: '0.2s'

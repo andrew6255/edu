@@ -6,6 +6,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import Landing from "@/pages/Landing";
 import AuthPage from "@/pages/AuthPage";
 import AppPage from "@/pages/AppPage";
+import DashboardPage from "@/pages/DashboardPage";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,7 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/app" component={AppPage} />
+      <Route path="/dashboard" component={DashboardPage} />
       <Route component={NotFound} />
     </Switch>
   );
