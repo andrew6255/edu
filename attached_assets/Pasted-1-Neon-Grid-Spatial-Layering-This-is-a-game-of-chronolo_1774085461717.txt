@@ -1,0 +1,22 @@
+1. Neon Grid (Spatial Layering)
+This is a game of chronological layering. Imagine you are painting a canvas, but you can only paint in full straight lines, and your new paint always covers up what was underneath it.
+The Objective
+You are presented with a small "Target Pattern" and a large, empty "Interactive Board." Your goal is to fire the lasers (the brushes on the sides) until your board is an exact 1:1 match of the target.
+The Rules
+• Axis-Only Movement: You cannot click individual squares. You must click the emitters on the right (to fire a horizontal row) or the bottom (to fire a vertical column).
+• The Overwrite Rule: The most recently fired laser always sits on top. If you fire a Blue row and then a Pink column, the square where they intersect will be Pink.
+• Infinite Tries: In the Logic Lords version, you can keep firing lasers to fix mistakes, or hit the Reset (↺) button to start the "canvas" over.
+The Strategy: Reverse Engineering
+The secret to winning is thinking backwards. Look at the target image and find a row or column that is a single, solid, unbroken line of color. Because it is unbroken, nothing was fired after it. That was your final move. Work your way down until you find the colors that are most "broken up"—those were your first moves.
+2. Flip Nodes (Parity Puzzle)
+This is a mathematical challenge based on the "Turning Turtles" problem. It tests your ability to track how changing one part of a system affects the whole.
+The Objective
+You have a row of "Nodes" (or cups). Some are pointed UP (Blue/Green), and some are pointed DOWN (Grey/Red). You must manipulate them until they all match the "Target Pattern" (which is usually all nodes pointing UP).
+The Rules
+• The Multi-Flip Constraint: You cannot flip one node at a time. You are forced to select a specific number (e.g., exactly 2 or exactly 3) before the game allows them to flip.
+• Binary States: A node only has two states. If you flip an "Up" node, it becomes "Down." If you flip it again, it returns to "Up."
+• Automatic Progression: Once you select the required number of nodes, they flip instantly.
+The Strategy: Managing the "Odd Man Out"
+The difficulty comes when you have an odd number of nodes to fix but can only flip an even number at a time (or vice versa).
+• Identify the Goal: Look at how many nodes are currently "wrong."
+• Calculate the Moves: If you need to fix 1 node but must flip 2 at a time, you actually have to flip 1 "Wrong" node and 1 "Right" node. Now you have 2 "Wrong" nodes, which you can then flip together to solve the puzzle.
