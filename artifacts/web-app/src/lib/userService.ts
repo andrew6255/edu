@@ -20,6 +20,7 @@ export interface UserData {
   warmup_date?: string;
   played_categories?: string[];
   analytics?: Record<string, Record<string, { mastered?: boolean }>>;
+  progress?: Record<string, Record<string, Record<string, { mastered: boolean; xpAwarded: number; completedAt?: string }>>>;
   last_active?: string;
 }
 
