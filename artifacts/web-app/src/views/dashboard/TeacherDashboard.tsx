@@ -108,7 +108,8 @@ export default function TeacherDashboard() {
     if (!newClassName.trim() || !user || !userData) return;
     setCreating(true);
     const cls = await createClass(user.uid, userData.username || `${userData.firstName} ${userData.lastName}`, {
-      name: newClassName.trim(), subject: newSubject, description: newDescription.trim()
+      name: newClassName.trim(), subject: newSubject, description: newDescription.trim(),
+      ...(userData.organisationId ? { organisationId: userData.organisationId } : {})
     });
     setClasses(prev => [...prev, cls]);
     setSelectedClass(cls);

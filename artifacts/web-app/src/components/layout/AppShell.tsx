@@ -7,7 +7,7 @@ import { computeLevel } from '@/lib/userService';
 import { joinClassByCode } from '@/lib/classService';
 import ChallengeNotification from '@/components/warmup/ChallengeNotification';
 
-type View = 'universe' | 'curriculum' | 'warmup' | 'arena' | 'profile';
+type View = 'universe' | 'curriculum' | 'warmup' | 'arena' | 'profile' | 'leaderboard';
 
 interface AppShellProps {
   view: View;
@@ -63,7 +63,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
     { id: 'universe', icon: '🌌', label: 'Universe' },
     { id: 'warmup', icon: '⚡', label: 'Warmup' },
     { id: 'arena', icon: '⚔️', label: 'Arena' },
-    { id: 'curriculum', icon: '📚', label: 'Learn' },
+    { id: 'leaderboard', icon: '🏆', label: 'Ranks' },
     { id: 'profile', icon: '👤', label: 'Profile' },
   ] as const;
 
@@ -208,6 +208,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                 { icon: '📚', label: 'Curriculum', target: 'curriculum' as View },
                 { icon: '⚡', label: 'Warmup Games', target: 'warmup' as View },
                 { icon: '⚔️', label: 'Battle Arena', target: 'arena' as View },
+                { icon: '🏆', label: 'Leaderboards', target: 'leaderboard' as View },
                 { icon: '👤', label: 'My Profile', target: 'profile' as View },
               ].map(item => (
                 <button

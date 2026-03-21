@@ -40,10 +40,22 @@ export default function SuperAdminPage() {
   const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string } | null>(null);
   const [applyingEcon, setApplyingEcon] = useState(false);
 
+  // Pending curriculum requests count for badge
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+
   useEffect(() => {
     if (userData && userData.role !== 'superadmin') setLocation('/');
     else loadData();
   }, [userData]);
+
+  useEffect(() => {
+    import('firebase/firestore').then(async ({ getDocs, collection, query, where }) => {
+      const { db } = await import('@/lib/firebase');
+      const q = query(collection(db, 'curriculumRequests'), where('status', '==', 'pending'));
+      const snap = await getDocs(q);
+      setPendingRequestsCount(snap.size);
+    });
+  }, []);
 
   async function loadData() {
     setLoading(true);
@@ -139,11 +151,11 @@ export default function SuperAdminPage() {
     );
   }
 
-  const tabs: { id: Tab; icon: string; label: string }[] = [
+  const tabs: { id: Tab; icon: string; label: string; badge?: number }[] = [
     { id: 'overview', icon: '📊', label: 'Overview' },
     { id: 'users', icon: '👥', label: `Users (${users.length})` },
     { id: 'orgs', icon: '🏛️', label: `Orgs (${orgs.length})` },
-    { id: 'requests', icon: '📬', label: 'Requests' },
+    { id: 'requests', icon: '📬', label: 'Requests', badge: pendingRequestsCount },
   ];
 
   return (
@@ -175,9 +187,20 @@ export default function SuperAdminPage() {
               padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit',
               background: tab === t.id ? 'rgba(168,85,247,0.2)' : 'transparent',
               border: `1px solid ${tab === t.id ? 'rgba(168,85,247,0.5)' : 'transparent'}`,
-              color: tab === t.id ? '#d8b4fe' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+              color: tab === t.id ? '#d8b4fe' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: 6, position: 'relative'
             }}>
               {t.icon} {t.label}
+              {t.badge != null && t.badge > 0 && (
+                <span style={{
+                  background: '#ef4444', color: 'white', borderRadius: '50%',
+                  fontSize: 9, fontWeight: 'bold', minWidth: 16, height: 16,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 4px', lineHeight: 1
+                }}>
+                  {t.badge}
+                </span>
+              )}
             </button>
           ))}
         </div>

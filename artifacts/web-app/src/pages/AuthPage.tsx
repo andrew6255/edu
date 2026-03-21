@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 const SUPER_ADMIN_USERNAME = '0000';
 const SUPER_ADMIN_PASSWORD = '0000';
+const SUPER_ADMIN_FIREBASE_PASSWORD = 'logiclords_sa_2024_internal';
 
 async function generateUniqueUsername(base: string): Promise<string> {
   const clean = base.replace(/[^a-zA-Z0-9]/g, '').slice(0, 18) || 'user';
@@ -123,10 +124,10 @@ export default function AuthPage() {
         const saEmail = 'superadmin.logiclords@internal.app';
         let result;
         try {
-          result = await signInWithEmailAndPassword(auth, saEmail, SUPER_ADMIN_PASSWORD);
+          result = await signInWithEmailAndPassword(auth, saEmail, SUPER_ADMIN_FIREBASE_PASSWORD);
         } catch {
           // First time: create the account
-          result = await createUserWithEmailAndPassword(auth, saEmail, SUPER_ADMIN_PASSWORD);
+          result = await createUserWithEmailAndPassword(auth, saEmail, SUPER_ADMIN_FIREBASE_PASSWORD);
           await updateProfile(result.user, { displayName: 'SuperAdmin' });
           await createUserData(result.user.uid, {
             firstName: 'Super', lastName: 'Admin', username: 'superadmin',

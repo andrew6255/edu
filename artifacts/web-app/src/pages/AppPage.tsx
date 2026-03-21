@@ -7,9 +7,10 @@ import CurriculumView from '@/views/CurriculumView';
 import WarmupView from '@/views/WarmupView';
 import ProfileView from '@/views/ProfileView';
 import ArenaView from '@/views/ArenaView';
+import LeaderboardView from '@/views/LeaderboardView';
 import OnboardingPage from '@/pages/OnboardingPage';
 
-export type View = 'universe' | 'curriculum' | 'warmup' | 'arena' | 'profile';
+export type View = 'universe' | 'curriculum' | 'warmup' | 'arena' | 'profile' | 'leaderboard';
 
 export default function AppPage() {
   const { user, userData, loading, refreshUserData } = useAuth();
@@ -38,8 +39,8 @@ export default function AppPage() {
 
   if (!user || !userData) return null;
 
-  // Show curriculum onboarding for new students who haven't completed it
-  if (!userData.onboardingComplete && userData.role === 'student') {
+  // Show curriculum onboarding only for new students explicitly flagged (existing users w/ undefined field are skipped)
+  if (userData.onboardingComplete === false && userData.role === 'student') {
     return <OnboardingPage onComplete={refreshUserData} />;
   }
 
@@ -63,6 +64,8 @@ export default function AppPage() {
         return <WarmupView />;
       case 'arena':
         return <ArenaView />;
+      case 'leaderboard':
+        return <LeaderboardView />;
       case 'profile':
         return <ProfileView />;
       default:

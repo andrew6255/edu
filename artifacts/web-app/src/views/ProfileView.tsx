@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { computeLevel } from '@/lib/userService';
+import { getOrgById } from '@/lib/orgService';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -31,27 +32,28 @@ const BADGE_META: Record<string, { emoji: string; name: string; desc: string }> 
 };
 
 const GAME_META: Record<string, { label: string; icon: string }> = {
-  quickMath:         { label: 'Quick Math',          icon: '⚡' },
-  advQuickMath:      { label: 'Advanced Math',       icon: '🔢' },
-  pyramid:           { label: 'Number Pyramid',      icon: '🔺' },
-  blockPuzzle:       { label: 'Block Puzzle',        icon: '🟦' },
-  flipNodes:         { label: 'Flip Nodes',          icon: '🔄' },
-  fifteenPuzzle:     { label: '15 Puzzle',           icon: '🧩' },
-  sequence:          { label: 'Sequence',            icon: '📈' },
-  trueFalse:         { label: 'True or False',       icon: '✅' },
-  missingOp:         { label: 'Missing Op',          icon: '❓' },
-  compareExp:        { label: 'Compare Expressions', icon: '⚖️' },
-  completeEq:        { label: 'Complete Equation',   icon: '✏️' },
-  memoOrder:         { label: 'Memo Order',          icon: '🧠' },
-  memoCells:         { label: 'Memo Cells',          icon: '🔲' },
-  ticTacToe:         { label: 'Tic-Tac-Toe',         icon: '❌' },
-  chessMemory:       { label: 'Chess Memory',        icon: '♟️' },
-  neonGrid:          { label: 'Neon Grid',           icon: '🌐' },
-  flipCup:           { label: 'Flip Cup',            icon: '🥤' },
-  chessNameSurvival: { label: 'Chess Name (Survival)',icon: '♜' },
-  chessNameSpeed:    { label: 'Chess Name (Speed)',   icon: '♝' },
-  chessFindSurvival: { label: 'Chess Find (Survival)',icon: '♞' },
-  chessFindSpeed:    { label: 'Chess Find (Speed)',   icon: '♛' },
+  quickMath:    { label: 'Quick Math',          icon: '⚡' },
+  timeLimit:    { label: 'Time Limit',          icon: '⏱️' },
+  advQuickMath: { label: 'Advanced Math',       icon: '🔢' },
+  pyramid:      { label: 'Number Pyramid',      icon: '🔺' },
+  blockPuzzle:  { label: 'Block Puzzle',        icon: '🟦' },
+  flipNodes:    { label: 'Flip Nodes',          icon: '🔄' },
+  fifteenPuzzle:{ label: '15 Puzzle',           icon: '🧩' },
+  sequence:     { label: 'Sequence',            icon: '📈' },
+  trueFalse:    { label: 'True or False',       icon: '✅' },
+  missingOp:    { label: 'Missing Op',          icon: '❓' },
+  compareExp:   { label: 'Compare Expressions', icon: '⚖️' },
+  completeEq:   { label: 'Complete Equation',   icon: '✏️' },
+  memoOrder:    { label: 'Memo Order',          icon: '🧠' },
+  memoCells:    { label: 'Memo Cells',          icon: '🔲' },
+  ticTacToe:    { label: 'Tic-Tac-Toe',         icon: '❌' },
+  chessMemory:  { label: 'Chess Memory',        icon: '♟️' },
+  neonGrid:     { label: 'Neon Grid',           icon: '🌐' },
+  flipCup:      { label: 'Flip Cup',            icon: '🥤' },
+  nameSquare10: { label: 'Name Square (10s)',   icon: '♜' },
+  nameSquare60: { label: 'Name Square (60s)',   icon: '♝' },
+  findSquare10: { label: 'Find Square (10s)',   icon: '♞' },
+  findSquare60: { label: 'Find Square (60s)',   icon: '♛' },
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -87,10 +89,23 @@ function avatarBg(username: string): string {
 
 // ── component ─────────────────────────────────────────────────────────────────
 
+const CURRICULUM_SYSTEM_LABELS: Record<string, string> = {
+  IGCSE: '🇬🇧 IGCSE', BAC: '🇫🇷 Baccalauréat', American: '🇺🇸 American', IB: '🌐 IB', Other: '📚 Other'
+};
+
 export default function ProfileView() {
   const { userData } = useAuth();
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [showAllScores, setShowAllScores] = useState(false);
+  const [orgName, setOrgName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (userData?.organisationId) {
+      getOrgById(userData.organisationId).then(org => setOrgName(org?.name ?? null));
+    } else {
+      setOrgName(null);
+    }
+  }, [userData?.organisationId]);
 
   if (!userData) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#64748b' }}>
@@ -158,6 +173,15 @@ export default function ProfileView() {
           }}>
             Level {level} · {title}
           </div>
+          {orgName && (
+            <div style={{
+              marginTop: 6, padding: '3px 12px', borderRadius: 20,
+              background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.35)',
+              color: '#fb923c', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5
+            }}>
+              🏢 {orgName}
+            </div>
+          )}
         </div>
 
         {/* 4-stat row */}
@@ -240,6 +264,35 @@ export default function ProfileView() {
             })}
           </div>
         </div>
+
+        {/* ── Curriculum Profile ── */}
+        {userData.curriculumProfile && (
+          <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid #334155' }}>
+            <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, fontWeight: 'bold' }}>
+              📚 Curriculum Profile
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ background: '#0f172a', borderRadius: 10, padding: '10px 12px', border: '1px solid #334155' }}>
+                <div style={{ color: '#64748b', fontSize: 10, marginBottom: 3 }}>SYSTEM</div>
+                <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>
+                  {CURRICULUM_SYSTEM_LABELS[userData.curriculumProfile.system] || userData.curriculumProfile.system}
+                </div>
+              </div>
+              <div style={{ background: '#0f172a', borderRadius: 10, padding: '10px 12px', border: '1px solid #334155' }}>
+                <div style={{ color: '#64748b', fontSize: 10, marginBottom: 3 }}>YEAR</div>
+                <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>{userData.curriculumProfile.year}</div>
+              </div>
+            </div>
+            <div style={{ background: '#0f172a', borderRadius: 10, padding: '10px 12px', border: '1px solid #334155', marginTop: 8 }}>
+              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 3 }}>TEXTBOOK / CURRICULUM</div>
+              <div style={{ color: '#93c5fd', fontWeight: 'bold', fontSize: 14 }}>
+                {userData.curriculumProfile.customTextbook
+                  ? `📖 ${userData.curriculumProfile.customTextbook} (custom request)`
+                  : `📖 ${userData.curriculumProfile.textbook}`}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Arena Stats ── */}
         <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid #334155' }}>

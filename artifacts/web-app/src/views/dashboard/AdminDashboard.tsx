@@ -1,32 +1,33 @@
 import { useState, useEffect } from 'react';
-import { getAllUsers, updateUserData, updateEconomy, UserData, UserRole, computeLevel } from '@/lib/userService';
-import { getAllClasses, ClassData } from '@/lib/classService';
+import { useAuth } from '@/contexts/AuthContext';
+import { getUsersByOrgId, updateUserData, updateEconomy, UserData, UserRole, computeLevel } from '@/lib/userService';
+import { getClassesByOrgId, ClassData } from '@/lib/classService';
+import { getOrgById, OrgData } from '@/lib/orgService';
 
-type Tab = 'overview' | 'users' | 'classes' | 'analytics';
+type Tab = 'overview' | 'users' | 'classes' | 'analytics' | 'organisation';
 
-const ROLE_COLORS: Record<UserRole, string> = {
-  student: '#3b82f6', teacher: '#10b981', admin: '#f97316'
+const ROLE_COLORS: Record<string, string> = {
+  student: '#3b82f6', teacher: '#10b981', admin: '#f97316', superadmin: '#a855f7'
 };
 
 const GAME_LABELS: Record<string, string> = {
-  quickMath: 'Quick Math', advQuickMath: 'Adv Math', pyramid: 'Pyramid',
-  blockPuzzle: 'Blocks', flipNodes: 'Flip Nodes', fifteenPuzzle: '15 Puzzle',
-  sequence: 'Sequence', trueFalse: 'True/False', missingOp: 'Missing Op',
-  compareExp: 'Compare', completeEq: 'Complete Eq', memoOrder: 'Memo Order',
-  memoCells: 'Memo Cells', ticTacToe: 'Tic-Tac-Toe', chessMemory: 'Chess Mem',
-  neonGrid: 'Neon Grid', flipCup: 'Flip Cup',
+  quickMath: 'Quick Math', timeLimit: 'Time Limit', advQuickMath: 'Adv Math',
+  pyramid: 'Pyramid', blockPuzzle: 'Blocks', flipNodes: 'Flip Nodes',
+  fifteenPuzzle: '15 Puzzle', sequence: 'Sequence', trueFalse: 'True/False',
+  missingOp: 'Missing Op', compareExp: 'Compare', completeEq: 'Complete Eq',
+  memoOrder: 'Memo Order', memoCells: 'Memo Cells', ticTacToe: 'Tic-Tac-Toe',
+  chessMemory: 'Chess Mem', neonGrid: 'Neon Grid', flipCup: 'Flip Cup',
+  nameSquare10: 'Name Sq (10s)', nameSquare60: 'Name Sq (60s)',
+  findSquare10: 'Find Sq (10s)', findSquare60: 'Find Sq (60s)',
 };
 
 function countMastered(progress?: UserData['progress']): number {
   if (!progress) return 0;
   let count = 0;
-  for (const curriculum of Object.values(progress)) {
-    for (const chapter of Object.values(curriculum)) {
-      for (const obj of Object.values(chapter)) {
+  for (const curriculum of Object.values(progress))
+    for (const chapter of Object.values(curriculum))
+      for (const obj of Object.values(chapter))
         if (obj.mastered) count++;
-      }
-    }
-  }
   return count;
 }
 
@@ -35,16 +36,13 @@ function totalHighScores(hs?: Record<string, number>): number {
   return Object.values(hs).filter(v => v > 0).length;
 }
 
-interface EconModalState {
-  uid: string;
-  username: string;
-  goldDelta: string;
-  xpDelta: string;
-}
+interface EconModalState { uid: string; username: string; goldDelta: string; xpDelta: string; }
 
 export default function AdminDashboard() {
+  const { user, userData: adminData } = useAuth();
   const [users, setUsers] = useState<Array<UserData & { uid: string }>>([]);
   const [classes, setClasses] = useState<ClassData[]>([]);
+  const [org, setOrg] = useState<OrgData | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('overview');
   const [search, setSearch] = useState('');
@@ -55,14 +53,23 @@ export default function AdminDashboard() {
   const [econModal, setEconModal] = useState<EconModalState | null>(null);
   const [applyingEcon, setApplyingEcon] = useState(false);
   const [classStudents, setClassStudents] = useState<Record<string, Array<UserData & { uid: string }>>>({});
+  const [copiedJoinCode, setCopiedJoinCode] = useState(false);
 
-  useEffect(() => { loadData(); }, []);
+  const orgId = adminData?.organisationId;
+
+  useEffect(() => { if (orgId) loadData(); else setLoading(false); }, [orgId]);
 
   async function loadData() {
+    if (!orgId) return;
     setLoading(true);
-    const [u, c] = await Promise.all([getAllUsers(), getAllClasses()]);
+    const [u, c, o] = await Promise.all([
+      getUsersByOrgId(orgId),
+      getClassesByOrgId(orgId),
+      getOrgById(orgId)
+    ]);
     setUsers(u);
     setClasses(c);
+    setOrg(o);
     setLoading(false);
   }
 
@@ -100,10 +107,16 @@ export default function AdminDashboard() {
     setClassStudents(prev => ({ ...prev, [cls.id]: studentData }));
   }
 
-  // ── Derived stats ──────────────────────────────────
+  function copyJoinCode() {
+    if (!org) return;
+    navigator.clipboard.writeText(org.joinCode);
+    setCopiedJoinCode(true);
+    setTimeout(() => setCopiedJoinCode(false), 2000);
+  }
+
+  // ── Derived stats ───────────────────────────────────
   const totalStudents = users.filter(u => u.role === 'student').length;
   const totalTeachers = users.filter(u => u.role === 'teacher').length;
-  const totalAdmins = users.filter(u => u.role === 'admin').length;
   const today = new Date().toISOString().split('T')[0];
   const activeToday = users.filter(u => u.last_active === today).length;
   const totalXP = users.reduce((a, u) => a + (u.economy?.global_xp || 0), 0);
@@ -113,10 +126,8 @@ export default function AdminDashboard() {
   const totalArenaBattles = users.reduce((a, u) => a + (u.arenaStats?.wins || 0) + (u.arenaStats?.losses || 0), 0);
   const avgXP = users.length ? Math.round(totalXP / users.length) : 0;
 
-  // Game popularity: count how many users have a score > 0 per game
   const gamePopularity = Object.keys(GAME_LABELS).map(gid => ({
-    id: gid,
-    label: GAME_LABELS[gid],
+    id: gid, label: GAME_LABELS[gid],
     players: users.filter(u => (u.high_scores?.[gid] || 0) > 0).length,
     topScore: Math.max(0, ...users.map(u => u.high_scores?.[gid] || 0))
   })).sort((a, b) => b.players - a.players);
@@ -144,12 +155,28 @@ export default function AdminDashboard() {
     );
   }
 
+  // ── No org assigned screen ─────────────────────────
+  if (!orgId) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 16, padding: 40 }}>
+        <div style={{ fontSize: 56 }}>🏫</div>
+        <h2 style={{ color: 'white', margin: 0 }}>Not assigned to an organisation</h2>
+        <p style={{ color: '#64748b', textAlign: 'center', maxWidth: 400, lineHeight: 1.6 }}>
+          Your admin account hasn't been linked to an organisation yet. Ask your Super Admin to assign you to one in the Super Admin panel.
+        </p>
+      </div>
+    );
+  }
+
   const tabs: { id: Tab; icon: string; label: string }[] = [
     { id: 'overview', icon: '📊', label: 'Overview' },
     { id: 'users', icon: '👥', label: `Users (${users.length})` },
     { id: 'classes', icon: '🏫', label: `Classes (${classes.length})` },
     { id: 'analytics', icon: '📈', label: 'Analytics' },
+    { id: 'organisation', icon: '🏢', label: 'Organisation' },
   ];
+
+  const ORG_TYPE_LABELS: Record<string, string> = { school: 'School', university: 'University', other: 'Other' };
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
@@ -157,8 +184,15 @@ export default function AdminDashboard() {
       <div style={{ padding: '13px 18px', background: '#1e293b', borderBottom: '1px solid #334155', flexShrink: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <div>
-            <h2 style={{ margin: 0, color: 'white', fontSize: 19 }}>⚙️ Admin Dashboard</h2>
-            <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Full platform oversight and management</div>
+            <h2 style={{ margin: 0, color: 'white', fontSize: 19 }}>
+              ⚙️ {org?.name || 'Admin'} Dashboard
+            </h2>
+            <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>
+              {org ? `${ORG_TYPE_LABELS[org.type] || org.type}${org.country ? ` · ${org.country}` : ''} · Join code: ` : 'Organisation management'}
+              {org && (
+                <span style={{ color: '#fbbf24', fontWeight: 'bold', letterSpacing: 1 }}>{org.joinCode}</span>
+              )}
+            </div>
           </div>
           <button onClick={loadData} style={{
             padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 'bold', fontFamily: 'inherit',
@@ -167,13 +201,13 @@ export default function AdminDashboard() {
             ↺ Refresh
           </button>
         </div>
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
           {tabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit',
               background: tab === t.id ? 'rgba(59,130,246,0.2)' : 'transparent',
               border: `1px solid ${tab === t.id ? 'rgba(59,130,246,0.5)' : 'transparent'}`,
-              color: tab === t.id ? '#93c5fd' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap'
+              color: tab === t.id ? '#93c5fd' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0
             }}>
               {t.icon} {t.label}
             </button>
@@ -187,10 +221,9 @@ export default function AdminDashboard() {
         {/* ── OVERVIEW ── */}
         {tab === 'overview' && (
           <div style={{ animation: 'fadeIn 0.3s ease' }}>
-            {/* Primary stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, marginBottom: 18 }}>
               {[
-                { label: 'Total Users', value: users.length, icon: '👤', color: '#c084fc' },
+                { label: 'Total Members', value: users.length, icon: '👤', color: '#c084fc' },
                 { label: 'Students', value: totalStudents, icon: '🧑‍🎓', color: '#3b82f6' },
                 { label: 'Teachers', value: totalTeachers, icon: '🧑‍🏫', color: '#10b981' },
                 { label: 'Active Today', value: activeToday, icon: '⚡', color: '#fbbf24' },
@@ -211,7 +244,6 @@ export default function AdminDashboard() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-              {/* Top players by XP */}
               <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155' }}>
                 <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14, fontWeight: 'bold' }}>🏆 Top XP</h3>
                 {[...users]
@@ -237,7 +269,6 @@ export default function AdminDashboard() {
                   })}
               </div>
 
-              {/* Top Arena fighters */}
               <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155' }}>
                 <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14, fontWeight: 'bold' }}>⚔️ Arena Champions</h3>
                 {topArena.length === 0 ? (
@@ -263,11 +294,10 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* User distribution */}
             <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155' }}>
-              <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14, fontWeight: 'bold' }}>👥 User Distribution</h3>
+              <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14, fontWeight: 'bold' }}>👥 Member Distribution</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {([['Students', totalStudents, '#3b82f6'], ['Teachers', totalTeachers, '#10b981'], ['Admins', totalAdmins, '#f97316']] as [string, number, string][]).map(([label, count, color]) => (
+                {([['Students', totalStudents, '#3b82f6'], ['Teachers', totalTeachers, '#10b981']] as [string, number, string][]).map(([label, count, color]) => (
                   <div key={label}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12 }}>
                       <span style={{ color: '#cbd5e1' }}>{label}</span>
@@ -308,10 +338,9 @@ export default function AdminDashboard() {
                 <option value="all">All Roles</option>
                 <option value="student">Students</option>
                 <option value="teacher">Teachers</option>
-                <option value="admin">Admins</option>
               </select>
             </div>
-            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>{filteredUsers.length} users found</div>
+            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>{filteredUsers.length} members found</div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {filteredUsers.map(u => {
@@ -328,7 +357,6 @@ export default function AdminDashboard() {
                     border: `1px solid ${isExpanded ? '#3b82f688' : '#334155'}`,
                     overflow: 'hidden'
                   }}>
-                    {/* Main row */}
                     <div style={{ padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'wrap' }}>
                       <button
                         onClick={() => setExpandedUser(isExpanded ? null : u.uid)}
@@ -355,9 +383,9 @@ export default function AdminDashboard() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
                         <span style={{
                           fontSize: 10, fontWeight: 'bold', padding: '2px 8px', borderRadius: 5, textTransform: 'capitalize',
-                          background: `${ROLE_COLORS[u.role as UserRole] || '#475569'}22`,
-                          border: `1px solid ${ROLE_COLORS[u.role as UserRole] || '#475569'}55`,
-                          color: ROLE_COLORS[u.role as UserRole] || '#94a3b8'
+                          background: `${ROLE_COLORS[u.role] || '#475569'}22`,
+                          border: `1px solid ${ROLE_COLORS[u.role] || '#475569'}55`,
+                          color: ROLE_COLORS[u.role] || '#94a3b8'
                         }}>
                           {u.role || 'student'}
                         </span>
@@ -373,7 +401,6 @@ export default function AdminDashboard() {
                         >
                           <option value="student">→ Student</option>
                           <option value="teacher">→ Teacher</option>
-                          <option value="admin">→ Admin</option>
                         </select>
                         <button
                           onClick={() => setEconModal({ uid: u.uid, username: u.username || u.firstName, goldDelta: '', xpDelta: '' })}
@@ -389,7 +416,6 @@ export default function AdminDashboard() {
                       </div>
                     </div>
 
-                    {/* Expanded detail */}
                     {isExpanded && (
                       <div style={{ padding: '10px 14px 14px', borderTop: '1px solid #334155' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
@@ -423,11 +449,11 @@ export default function AdminDashboard() {
         {/* ── CLASSES ── */}
         {tab === 'classes' && (
           <div style={{ animation: 'fadeIn 0.3s ease' }}>
-            <h3 style={{ color: 'white', margin: '0 0 14px', fontSize: 16 }}>🏫 All Classes</h3>
+            <h3 style={{ color: 'white', margin: '0 0 14px', fontSize: 16 }}>🏫 Organisation Classes</h3>
             {classes.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>
                 <div style={{ fontSize: 44, marginBottom: 12 }}>🏫</div>
-                <p>No classes created yet.</p>
+                <p>No classes created in this organisation yet.</p>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -451,58 +477,46 @@ export default function AdminDashboard() {
                           setExpandedClass(isExpanded ? null : cls.id);
                         }}
                         style={{
-                          width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-                          padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left'
+                          width: '100%', textAlign: 'left', padding: '14px 16px',
+                          background: 'none', border: 'none', cursor: 'pointer', color: 'white'
                         }}
                       >
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 3, flexWrap: 'wrap' }}>
-                            <span style={{ fontWeight: 'bold', color: 'white', fontSize: 15 }}>{cls.name}</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                          <div>
+                            <div style={{ fontWeight: 'bold', fontSize: 15 }}>{cls.name}</div>
+                            <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>
+                              {cls.subject} · {cls.studentIds.length} students
+                              {teacher && ` · 🧑‍🏫 ${teacher.username || teacher.firstName}`}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                             <span style={{
-                              fontWeight: 'bold', fontSize: 12, letterSpacing: 2,
-                              background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)',
-                              borderRadius: 5, padding: '2px 7px', color: '#fbbf24'
+                              fontSize: 11, fontWeight: 'bold', background: 'rgba(251,191,36,0.12)',
+                              color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)',
+                              borderRadius: 6, padding: '2px 9px', letterSpacing: 1
                             }}>
                               {cls.code}
                             </span>
-                          </div>
-                          <div style={{ color: '#64748b', fontSize: 12 }}>
-                            {cls.subject} · 👨‍🏫 {cls.teacherName} · 👥 {cls.studentIds.length} students
+                            <span style={{ color: '#64748b', fontSize: 14 }}>{isExpanded ? '▲' : '▼'}</span>
                           </div>
                         </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                          <div style={{ color: '#94a3b8', fontSize: 11 }}>Created</div>
-                          <div style={{ color: '#64748b', fontSize: 11 }}>{new Date(cls.createdAt).toLocaleDateString()}</div>
-                        </div>
-                        <span style={{ color: '#475569', fontSize: 14 }}>{isExpanded ? '▲' : '▼'}</span>
                       </button>
 
                       {isExpanded && (
-                        <div style={{ padding: '0 16px 14px', borderTop: '1px solid #334155' }}>
-                          {/* Teacher detail */}
-                          {teacher && (
-                            <div style={{ padding: '10px 0', borderBottom: '1px solid #1e293b', marginBottom: 10 }}>
-                              <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Teacher</div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <div style={{
-                                  width: 30, height: 30, borderRadius: '50%',
-                                  background: `hsl(${(teacher.username?.charCodeAt(0) || 65) * 37 % 360}, 55%, 35%)`,
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  fontWeight: 'bold', color: 'white', fontSize: 13, flexShrink: 0
-                                }}>
-                                  {(teacher.username?.[0] || teacher.firstName?.[0] || '?').toUpperCase()}
+                        <div style={{ padding: '0 16px 16px', borderTop: '1px solid #334155' }}>
+                          {studs.length > 0 && (
+                            <div style={{ display: 'flex', gap: 10, marginBottom: 12, marginTop: 12 }}>
+                              {[
+                                { label: 'Students', value: cls.studentIds.length, color: '#3b82f6' },
+                                { label: 'Avg XP', value: avgClsXP.toLocaleString(), color: '#10b981' },
+                              ].map(s => (
+                                <div key={s.label} style={{ background: '#0f172a', borderRadius: 8, padding: '8px 14px', border: '1px solid #334155', textAlign: 'center' }}>
+                                  <div style={{ fontWeight: 'bold', color: s.color, fontSize: 16 }}>{s.value}</div>
+                                  <div style={{ color: '#64748b', fontSize: 10 }}>{s.label}</div>
                                 </div>
-                                <div>
-                                  <div style={{ color: 'white', fontSize: 13, fontWeight: 'bold' }}>
-                                    {teacher.username || `${teacher.firstName} ${teacher.lastName}`}
-                                  </div>
-                                  <div style={{ color: '#64748b', fontSize: 11 }}>{teacher.email}</div>
-                                </div>
-                              </div>
+                              ))}
                             </div>
                           )}
-
-                          {/* Student list */}
                           <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
                             Students {studs.length > 0 && `· avg ${avgClsXP.toLocaleString()} XP`}
                           </div>
@@ -515,10 +529,7 @@ export default function AdminDashboard() {
                               {studs.map(s => {
                                 const { level } = computeLevel(s.economy?.global_xp || 0);
                                 return (
-                                  <div key={s.uid} style={{
-                                    display: 'flex', alignItems: 'center', gap: 10,
-                                    background: '#0f172a', borderRadius: 8, padding: '8px 12px'
-                                  }}>
+                                  <div key={s.uid} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#0f172a', borderRadius: 8, padding: '8px 12px' }}>
                                     <div style={{
                                       width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
                                       background: `hsl(${(s.username?.charCodeAt(0) || 65) * 37 % 360}, 55%, 35%)`,
@@ -555,9 +566,8 @@ export default function AdminDashboard() {
         {/* ── ANALYTICS ── */}
         {tab === 'analytics' && (
           <div style={{ animation: 'fadeIn 0.3s ease' }}>
-            <h3 style={{ color: 'white', margin: '0 0 14px', fontSize: 16 }}>📈 Platform Analytics</h3>
+            <h3 style={{ color: 'white', margin: '0 0 14px', fontSize: 16 }}>📈 Organisation Analytics</h3>
 
-            {/* Platform totals */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginBottom: 18 }}>
               {[
                 { label: 'Total XP Earned', value: totalXP.toLocaleString(), icon: '⭐', color: '#10b981' },
@@ -578,7 +588,6 @@ export default function AdminDashboard() {
               ))}
             </div>
 
-            {/* Game popularity */}
             <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155', marginBottom: 14 }}>
               <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14, fontWeight: 'bold' }}>🎮 Game Popularity</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -589,12 +598,8 @@ export default function AdminDashboard() {
                   return (
                     <div key={g.id}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, fontSize: 12 }}>
-                        <span style={{ color: '#cbd5e1' }}>
-                          {i === 0 ? '🏅 ' : ''}{g.label}
-                        </span>
-                        <span style={{ color: '#64748b' }}>
-                          {g.players} players · top score: {g.topScore}
-                        </span>
+                        <span style={{ color: '#cbd5e1' }}>{i === 0 ? '🏅 ' : ''}{g.label}</span>
+                        <span style={{ color: '#64748b' }}>{g.players} players · top: {g.topScore}</span>
                       </div>
                       <div style={{ height: 6, background: '#0f172a', borderRadius: 3, overflow: 'hidden' }}>
                         <div style={{ width: `${pct}%`, height: '100%', background: bar, borderRadius: 3, transition: 'width 0.5s ease' }} />
@@ -605,7 +610,6 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Level distribution */}
             <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155' }}>
               <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14, fontWeight: 'bold' }}>🎓 Student Level Distribution</h3>
               {(() => {
@@ -615,9 +619,9 @@ export default function AdminDashboard() {
                   buckets[level] = (buckets[level] || 0) + 1;
                 });
                 const maxCount = Math.max(1, ...Object.values(buckets));
+                const LEVEL_TITLES = ['Initiate','Apprentice','Seeker','Scholar','Adept','Expert','Master','Grandmaster','Logic Lord'];
                 return Array.from({ length: 9 }, (_, i) => i + 1).map(lv => {
                   const count = buckets[lv] || 0;
-                  const LEVEL_TITLES = ['Initiate','Apprentice','Seeker','Scholar','Adept','Expert','Master','Grandmaster','Logic Lord'];
                   return (
                     <div key={lv} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                       <div style={{ width: 60, color: '#94a3b8', fontSize: 11, flexShrink: 0 }}>Lv.{lv}</div>
@@ -633,6 +637,161 @@ export default function AdminDashboard() {
                   );
                 });
               })()}
+            </div>
+          </div>
+        )}
+
+        {/* ── ORGANISATION ── */}
+        {tab === 'organisation' && org && (
+          <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            {/* Org profile card */}
+            <div style={{ background: '#1e293b', borderRadius: 14, padding: 22, border: '1px solid #334155', marginBottom: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+                <div style={{
+                  width: 56, height: 56, borderRadius: 12, flexShrink: 0,
+                  background: 'rgba(249,115,22,0.15)', border: '1px solid rgba(249,115,22,0.3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28
+                }}>🏢</div>
+                <div style={{ flex: 1 }}>
+                  <h2 style={{ margin: '0 0 4px', color: 'white', fontSize: 21 }}>{org.name}</h2>
+                  <div style={{ color: '#64748b', fontSize: 13 }}>
+                    {ORG_TYPE_LABELS[org.type] || org.type}
+                    {org.country ? ` · ${org.country}` : ''}
+                    {` · Created ${new Date(org.createdAt).toLocaleDateString()}`}
+                  </div>
+                </div>
+              </div>
+
+              {/* Join code */}
+              <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ color: '#64748b', fontSize: 11, marginBottom: 4 }}>STUDENT JOIN CODE</div>
+                  <div style={{
+                    background: '#0f172a', border: '2px solid rgba(251,191,36,0.4)',
+                    borderRadius: 10, padding: '8px 18px',
+                    fontSize: 26, fontWeight: 'bold', letterSpacing: 4, color: '#fbbf24', display: 'inline-block'
+                  }}>
+                    {org.joinCode}
+                  </div>
+                </div>
+                <button
+                  onClick={copyJoinCode}
+                  style={{
+                    padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 'bold', fontFamily: 'inherit',
+                    background: copiedJoinCode ? 'rgba(16,185,129,0.2)' : 'rgba(59,130,246,0.15)',
+                    border: copiedJoinCode ? '1px solid #10b981' : '1px solid rgba(59,130,246,0.4)',
+                    color: copiedJoinCode ? '#10b981' : '#93c5fd', cursor: 'pointer', marginTop: 16
+                  }}
+                >
+                  {copiedJoinCode ? '✓ Copied!' : '📋 Copy Code'}
+                </button>
+              </div>
+              <div style={{ color: '#475569', fontSize: 12, marginTop: 10 }}>
+                Students join by going to <strong style={{ color: '#94a3b8' }}>⚙ Settings → Join Class</strong> and entering this code.
+              </div>
+            </div>
+
+            {/* Stats summary */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10, marginBottom: 18 }}>
+              {[
+                { label: 'Total Members', value: users.length, icon: '👥', color: '#c084fc' },
+                { label: 'Students', value: totalStudents, icon: '🧑‍🎓', color: '#3b82f6' },
+                { label: 'Teachers', value: totalTeachers, icon: '🧑‍🏫', color: '#10b981' },
+                { label: 'Classes', value: classes.length, icon: '🏫', color: '#f97316' },
+              ].map(s => (
+                <div key={s.label} style={{ background: '#1e293b', borderRadius: 10, padding: '12px', border: `1px solid ${s.color}33`, textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>
+                  <div style={{ fontSize: 20, fontWeight: 'bold', color: s.color }}>{s.value}</div>
+                  <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Teachers in org */}
+            <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155', marginBottom: 14 }}>
+              <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14, fontWeight: 'bold' }}>🧑‍🏫 Teachers</h3>
+              {users.filter(u => u.role === 'teacher').length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: 13, textAlign: 'center', padding: '16px 0' }}>
+                  No teachers yet. Promote students below.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {users.filter(u => u.role === 'teacher').map(t => (
+                    <div key={t.uid} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#0f172a', borderRadius: 8, padding: '10px 12px' }}>
+                      <div style={{
+                        width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                        background: `hsl(${(t.username?.charCodeAt(0) || 65) * 37 % 360}, 55%, 38%)`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'white', fontSize: 14
+                      }}>
+                        {(t.username?.[0] || t.firstName?.[0] || '?').toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: 'white', fontSize: 13, fontWeight: 'bold' }}>
+                          {t.username || `${t.firstName} ${t.lastName}`}
+                        </div>
+                        <div style={{ color: '#64748b', fontSize: 11 }}>{t.email}</div>
+                      </div>
+                      <button
+                        onClick={() => handleRoleChange(t.uid, 'student')}
+                        disabled={changingRole === t.uid}
+                        style={{
+                          padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit',
+                          background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+                          color: '#ef4444', cursor: 'pointer'
+                        }}
+                        title="Demote to student"
+                      >
+                        {changingRole === t.uid ? '...' : '↓ Student'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Promote students */}
+            <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155' }}>
+              <h3 style={{ color: 'white', margin: '0 0 4px', fontSize: 14, fontWeight: 'bold' }}>🎓 Promote to Teacher</h3>
+              <p style={{ color: '#64748b', fontSize: 12, margin: '0 0 12px' }}>
+                Promote a student to teacher so they can create classes.
+              </p>
+              {users.filter(u => u.role === 'student').length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: 13, textAlign: 'center', padding: '16px 0' }}>No students to promote.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
+                  {users.filter(u => u.role === 'student').map(s => {
+                    const { level } = computeLevel(s.economy?.global_xp || 0);
+                    return (
+                      <div key={s.uid} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#0f172a', borderRadius: 8, padding: '9px 12px' }}>
+                        <div style={{
+                          width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                          background: `hsl(${(s.username?.charCodeAt(0) || 65) * 37 % 360}, 55%, 38%)`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'white', fontSize: 12
+                        }}>
+                          {(s.username?.[0] || s.firstName?.[0] || '?').toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ color: 'white', fontSize: 12, fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {s.username || `${s.firstName} ${s.lastName}`}
+                          </div>
+                          <div style={{ color: '#64748b', fontSize: 10 }}>Lv.{level} · {(s.economy?.global_xp || 0).toLocaleString()} XP</div>
+                        </div>
+                        <button
+                          onClick={() => handleRoleChange(s.uid, 'teacher')}
+                          disabled={changingRole === s.uid}
+                          style={{
+                            padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit',
+                            background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)',
+                            color: '#10b981', cursor: 'pointer', flexShrink: 0
+                          }}
+                        >
+                          {changingRole === s.uid ? '...' : '↑ Teacher'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -655,9 +814,7 @@ export default function AdminDashboard() {
             </p>
             <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Gold Δ (e.g. +500 or -100)</label>
             <input
-              type="number"
-              placeholder="0"
-              value={econModal.goldDelta}
+              type="number" placeholder="0" value={econModal.goldDelta}
               onChange={e => setEconModal(prev => prev ? { ...prev, goldDelta: e.target.value } : null)}
               style={{
                 width: '100%', padding: '10px 13px', marginBottom: 12,
@@ -667,9 +824,7 @@ export default function AdminDashboard() {
             />
             <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>XP Δ (e.g. +200 or -50)</label>
             <input
-              type="number"
-              placeholder="0"
-              value={econModal.xpDelta}
+              type="number" placeholder="0" value={econModal.xpDelta}
               onChange={e => setEconModal(prev => prev ? { ...prev, xpDelta: e.target.value } : null)}
               style={{
                 width: '100%', padding: '10px 13px', marginBottom: 16,
@@ -678,14 +833,10 @@ export default function AdminDashboard() {
               }}
             />
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setEconModal(null)} className="ll-btn" style={{ flex: 1, padding: '11px' }}>
-                Cancel
-              </button>
+              <button onClick={() => setEconModal(null)} className="ll-btn" style={{ flex: 1, padding: '11px' }}>Cancel</button>
               <button
-                onClick={handleEconApply}
-                disabled={applyingEcon}
-                className="ll-btn ll-btn-primary"
-                style={{ flex: 1, padding: '11px' }}
+                onClick={handleEconApply} disabled={applyingEcon}
+                className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}
               >
                 {applyingEcon ? 'Applying...' : 'Apply'}
               </button>

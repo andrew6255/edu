@@ -13,6 +13,7 @@ export interface ClassData {
   studentIds: string[];
   createdAt: string;
   description?: string;
+  organisationId?: string;
 }
 
 function generateCode(): string {
@@ -20,7 +21,7 @@ function generateCode(): string {
 }
 
 export async function createClass(teacherId: string, teacherName: string, data: {
-  name: string; subject: string; description?: string;
+  name: string; subject: string; description?: string; organisationId?: string;
 }): Promise<ClassData> {
   const id = `class_${Date.now()}`;
   const classData: ClassData = {
@@ -29,7 +30,8 @@ export async function createClass(teacherId: string, teacherName: string, data: 
     description: data.description || '',
     code: generateCode(),
     studentIds: [],
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    ...(data.organisationId ? { organisationId: data.organisationId } : {})
   };
   await setDoc(doc(db, 'classes', id), classData);
   return classData;
@@ -52,6 +54,12 @@ export async function getAllClasses(): Promise<ClassData[]> {
   return snap.docs.map(d => d.data() as ClassData);
 }
 
+export async function getClassesByOrgId(orgId: string): Promise<ClassData[]> {
+  const q = query(collection(db, 'classes'), where('organisationId', '==', orgId));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => d.data() as ClassData);
+}
+
 export async function joinClassByCode(uid: string, code: string): Promise<ClassData | null> {
   const q = query(collection(db, 'classes'), where('code', '==', code.toUpperCase()));
   const snap = await getDocs(q);
@@ -61,7 +69,11 @@ export async function joinClassByCode(uid: string, code: string): Promise<ClassD
   await updateDoc(doc(db, 'classes', classDoc.id), {
     studentIds: arrayUnion(uid)
   });
-  await updateDoc(doc(db, 'users', uid), { classId: classDoc.id });
+  const userUpdates: Record<string, unknown> = { classId: classDoc.id };
+  if (classData.organisationId) {
+    userUpdates.organisationId = classData.organisationId;
+  }
+  await updateDoc(doc(db, 'users', uid), userUpdates);
   return classData;
 }
 
