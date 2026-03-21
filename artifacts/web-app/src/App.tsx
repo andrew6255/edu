@@ -8,6 +8,7 @@ import Landing from "@/pages/Landing";
 import AuthPage from "@/pages/AuthPage";
 import AppPage from "@/pages/AppPage";
 import DashboardPage from "@/pages/DashboardPage";
+import SuperAdminPage from "@/pages/SuperAdminPage";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/auth" component={AuthPage} />
       <Route path="/app" component={AppPage} />
       <Route path="/dashboard" component={DashboardPage} />
+      <Route path="/superadmin" component={SuperAdminPage} />
       <Route component={NotFound} />
     </Switch>
   );

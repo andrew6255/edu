@@ -13,7 +13,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!loading && !user) setLocation('/');
-    if (!loading && user && userData && userData.role === 'student') setLocation('/app');
+    if (!loading && userData) {
+      if (userData.role === 'student') setLocation('/app');
+      if (userData.role === 'superadmin') setLocation('/superadmin');
+    }
   }, [user, userData, loading]);
 
   if (loading || !userData) {

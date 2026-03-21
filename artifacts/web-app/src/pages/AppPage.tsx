@@ -7,18 +7,23 @@ import CurriculumView from '@/views/CurriculumView';
 import WarmupView from '@/views/WarmupView';
 import ProfileView from '@/views/ProfileView';
 import ArenaView from '@/views/ArenaView';
+import OnboardingPage from '@/pages/OnboardingPage';
 
 export type View = 'universe' | 'curriculum' | 'warmup' | 'arena' | 'profile';
 
 export default function AppPage() {
-  const { user, loading } = useAuth();
+  const { user, userData, loading, refreshUserData } = useAuth();
   const [, setLocation] = useLocation();
   const [view, setView] = useState<View>('universe');
   const [selectedSubject, setSelectedSubject] = useState<string | undefined>();
 
   useEffect(() => {
     if (!loading && !user) setLocation('/');
-  }, [user, loading]);
+    if (!loading && userData) {
+      if (userData.role === 'superadmin') setLocation('/superadmin');
+      else if (userData.role === 'teacher' || userData.role === 'admin') setLocation('/dashboard');
+    }
+  }, [user, userData, loading]);
 
   if (loading) {
     return (
@@ -31,7 +36,12 @@ export default function AppPage() {
     );
   }
 
-  if (!user) return null;
+  if (!user || !userData) return null;
+
+  // Show curriculum onboarding for new students who haven't completed it
+  if (!userData.onboardingComplete && userData.role === 'student') {
+    return <OnboardingPage onComplete={refreshUserData} />;
+  }
 
   function handleSelectSubject(subject: string) {
     setSelectedSubject(subject);

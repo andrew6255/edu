@@ -1,9 +1,17 @@
 import { db } from './firebase';
 import {
-  doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs
+  doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, deleteDoc
 } from 'firebase/firestore';
 
-export type UserRole = 'student' | 'teacher' | 'admin';
+export type UserRole = 'student' | 'teacher' | 'admin' | 'superadmin';
+
+export interface CurriculumProfile {
+  system: string;
+  year: string;
+  textbook: string;
+  customTextbook?: string;
+  completedAt: string;
+}
 
 export interface ArenaStats {
   wins: number;
@@ -17,9 +25,12 @@ export interface UserData {
   username: string;
   email: string;
   role: UserRole;
+  organisationId?: string;
   classId?: string;
   economy: { gold: number; global_xp: number; streak: number };
   curriculums: Record<string, { trophies: number }>;
+  curriculumProfile?: CurriculumProfile;
+  onboardingComplete?: boolean;
   inventory: { stories: string[]; badges: string[]; banners: string[]; mapThemes: string[] };
   equipped: { mapTheme: string; banner: string; badges: string[] };
   high_scores: Record<string, number>;
@@ -31,18 +42,21 @@ export interface UserData {
   last_active?: string;
 }
 
+export const SUPER_ADMIN_UID = 'SUPERADMIN_0000';
+
 const DEFAULT_USER: Partial<UserData> = {
   role: 'student',
   economy: { gold: 200, global_xp: 0, streak: 0 },
   arenaStats: { wins: 0, losses: 0, highestStreak: 0 },
   curriculums: {},
+  onboardingComplete: false,
   inventory: { stories: [], badges: ['badge_pioneer'], banners: ['default'], mapThemes: ['theme-standard', 'theme-hex'] },
   equipped: { mapTheme: 'theme-standard', banner: 'default', badges: ['badge_pioneer'] },
   high_scores: {
     quickMath: 0, timeLimit: 0, numGrid: 0, blockPuzzle: 0, ticTacToe: 0,
     advQuickMath: 0, compareExp: 0, trueFalse: 0, missingOp: 0, fifteenPuzzle: 0,
     completeEq: 0, sequence: 0, memoOrder: 0, pyramid: 0, memoCells: 0,
-    chessNameSurvival: 0, chessNameSpeed: 0, chessFindSurvival: 0, chessFindSpeed: 0, chessMemory: 0
+    chessMemory: 0, nameSquare10: 0, nameSquare60: 0, findSquare10: 0, findSquare60: 0
   },
   warmup_date: '',
   played_categories: [],
@@ -67,6 +81,10 @@ export async function updateUserData(uid: string, updates: Partial<UserData>): P
   await updateDoc(doc(db, 'users', uid), updates as Record<string, unknown>);
 }
 
+export async function deleteUserData(uid: string): Promise<void> {
+  await deleteDoc(doc(db, 'users', uid));
+}
+
 export async function updateHighScore(uid: string, gameId: string, score: number): Promise<void> {
   await updateDoc(doc(db, 'users', uid), { [`high_scores.${gameId}`]: score });
 }
@@ -76,8 +94,8 @@ export async function updateEconomy(uid: string, goldDelta: number, xpDelta: num
   if (!snap.exists()) return;
   const data = snap.data();
   await updateDoc(doc(db, 'users', uid), {
-    'economy.gold': (data?.economy?.gold || 0) + goldDelta,
-    'economy.global_xp': (data?.economy?.global_xp || 0) + xpDelta,
+    'economy.gold': Math.max(0, (data?.economy?.gold || 0) + goldDelta),
+    'economy.global_xp': Math.max(0, (data?.economy?.global_xp || 0) + xpDelta),
     last_active: new Date().toISOString().split('T')[0]
   });
 }
@@ -112,6 +130,12 @@ export async function getUsersByClassId(classId: string): Promise<Array<UserData
   return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
 }
 
+export async function getUsersByOrgId(orgId: string): Promise<Array<UserData & { uid: string }>> {
+  const q = query(collection(db, 'users'), where('organisationId', '==', orgId));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
+}
+
 export async function updateArenaStats(uid: string, won: boolean, sessionHighestStreak: number): Promise<void> {
   const snap = await getDoc(doc(db, 'users', uid));
   if (!snap.exists()) return;
@@ -122,6 +146,14 @@ export async function updateArenaStats(uid: string, won: boolean, sessionHighest
     'arenaStats.losses': current.losses + (won ? 0 : 1),
     'arenaStats.highestStreak': Math.max(current.highestStreak, sessionHighestStreak),
     last_active: new Date().toISOString().split('T')[0]
+  });
+}
+
+export async function submitCurriculumRequest(uid: string, username: string, profile: {
+  system: string; year: string; textbook: string;
+}): Promise<void> {
+  await setDoc(doc(db, 'curriculumRequests', `${uid}_${Date.now()}`), {
+    uid, username, ...profile, requestedAt: new Date().toISOString(), status: 'pending'
   });
 }
 

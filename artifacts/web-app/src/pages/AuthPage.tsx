@@ -7,9 +7,12 @@ import {
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import {
-  findUserByUsername, createUserData, isUsernameTaken, getUserData, UserRole
+  findUserByUsername, createUserData, isUsernameTaken, getUserData
 } from '@/lib/userService';
 import { useAuth } from '@/contexts/AuthContext';
+
+const SUPER_ADMIN_USERNAME = '0000';
+const SUPER_ADMIN_PASSWORD = '0000';
 
 async function generateUniqueUsername(base: string): Promise<string> {
   const clean = base.replace(/[^a-zA-Z0-9]/g, '').slice(0, 18) || 'user';
@@ -37,6 +40,7 @@ async function ensureGoogleUserDoc(firebaseUser: {
       username,
       email: firebaseUser.email || '',
       role: 'student',
+      onboardingComplete: false,
     });
   }
 }
@@ -73,14 +77,12 @@ export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [role, setRole] = useState<UserRole>('student');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('mode') === 'register') setMode('register');
   }, []);
 
-  // Pick up the result after a Google redirect (popup fallback)
   useEffect(() => {
     setGoogleLoading(true);
     getRedirectResult(auth)
@@ -100,7 +102,9 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (!loading && user && userData) {
-      if (userData.role === 'teacher' || userData.role === 'admin') {
+      if (userData.role === 'superadmin') {
+        setLocation('/superadmin');
+      } else if (userData.role === 'teacher' || userData.role === 'admin') {
         setLocation('/dashboard');
       } else {
         setLocation('/app');
@@ -110,6 +114,38 @@ export default function AuthPage() {
 
   async function handleLogin() {
     if (!loginId || !loginPass) return setError('Please fill in all fields.');
+
+    // Super admin hardcoded login
+    if (loginId === SUPER_ADMIN_USERNAME && loginPass === SUPER_ADMIN_PASSWORD) {
+      setSubmitting(true); setError('');
+      try {
+        // Use a deterministic email for the super admin Firebase account
+        const saEmail = 'superadmin.logiclords@internal.app';
+        let result;
+        try {
+          result = await signInWithEmailAndPassword(auth, saEmail, SUPER_ADMIN_PASSWORD);
+        } catch {
+          // First time: create the account
+          result = await createUserWithEmailAndPassword(auth, saEmail, SUPER_ADMIN_PASSWORD);
+          await updateProfile(result.user, { displayName: 'SuperAdmin' });
+          await createUserData(result.user.uid, {
+            firstName: 'Super', lastName: 'Admin', username: 'superadmin',
+            email: saEmail, role: 'superadmin', onboardingComplete: true,
+          });
+        }
+        // Ensure the Firestore doc has superadmin role (in case it was created differently)
+        const existing = await getUserData(result.user.uid);
+        if (existing && existing.role !== 'superadmin') {
+          const { updateUserData } = await import('@/lib/userService');
+          await updateUserData(result.user.uid, { role: 'superadmin' });
+        }
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Super admin login failed.');
+      }
+      setSubmitting(false);
+      return;
+    }
+
     setSubmitting(true); setError('');
     try {
       let loginEmail = loginId;
@@ -142,7 +178,9 @@ export default function AuthPage() {
       const cred = await createUserWithEmailAndPassword(auth, email, pass);
       await updateProfile(cred.user, { displayName: username });
       await createUserData(cred.user.uid, {
-        firstName: fname, lastName: lname, username, email, role,
+        firstName: fname, lastName: lname, username, email,
+        role: 'student',
+        onboardingComplete: false,
       });
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
@@ -159,18 +197,15 @@ export default function AuthPage() {
     setSubmitting(true); setError('');
     const provider = new GoogleAuthProvider();
     try {
-      // Try popup first — works in most browser contexts
       const result = await signInWithPopup(auth, provider);
       await ensureGoogleUserDoc(result.user);
-      // onAuthStateChanged may have fired before the doc was created; refresh to be sure
       await refreshUserData();
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
       if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user') {
-        // Fallback: use redirect (handles strict browser popup policies)
         try {
           await signInWithRedirect(auth, provider);
-          return; // page will redirect — don't reset submitting
+          return;
         } catch (redirectErr: unknown) {
           const rCode = (redirectErr as { code?: string })?.code || '';
           const msg = googleErrorMessage(rCode);
@@ -224,7 +259,6 @@ export default function AuthPage() {
           </div>
         )}
 
-        {/* Google Sign-In button — shown on both modes */}
         <button
           onClick={handleGoogle}
           disabled={isLoading}
@@ -257,7 +291,6 @@ export default function AuthPage() {
           <div style={{ flex: 1, borderBottom: '1px solid #334155' }} />
         </div>
 
-        {/* Tab switcher */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
           {(['login', 'register'] as const).map(m => (
             <button
@@ -298,30 +331,6 @@ export default function AuthPage() {
           </div>
         ) : (
           <div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              {(['student', 'teacher'] as UserRole[]).map(r => (
-                <button
-                  key={r}
-                  onClick={() => setRole(r)}
-                  style={{
-                    flex: 1, padding: '10px', borderRadius: 10, fontSize: 13, fontWeight: 'bold',
-                    cursor: 'pointer', fontFamily: 'inherit', transition: '0.2s',
-                    background: role === r
-                      ? (r === 'teacher' ? 'rgba(16,185,129,0.2)' : 'rgba(59,130,246,0.2)')
-                      : 'rgba(0,0,0,0.3)',
-                    border: role === r
-                      ? (r === 'teacher' ? '2px solid #10b981' : '2px solid #3b82f6')
-                      : '2px solid #334155',
-                    color: role === r
-                      ? (r === 'teacher' ? '#34d399' : '#93c5fd')
-                      : '#64748b'
-                  }}
-                >
-                  {r === 'student' ? '🧑‍🎓 Student' : '🧑‍🏫 Teacher'}
-                </button>
-              ))}
-            </div>
-
             <div style={{ display: 'flex', gap: 8 }}>
               <input style={{ ...inputStyle, flex: 1, marginRight: 0 }} placeholder="First Name" value={fname} onChange={e => setFname(e.target.value)} />
               <input style={{ ...inputStyle, flex: 1 }} placeholder="Last Name" value={lname} onChange={e => setLname(e.target.value)} />
@@ -335,7 +344,7 @@ export default function AuthPage() {
               style={{ width: '100%', padding: '13px', fontSize: 15, marginBottom: 8 }}
               onClick={handleRegister} disabled={isLoading}
             >
-              {submitting ? 'Creating account...' : `CREATE ${role.toUpperCase()} ACCOUNT`}
+              {submitting ? 'Creating account...' : 'CREATE ACCOUNT'}
             </button>
           </div>
         )}
