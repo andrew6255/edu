@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { GameProps } from '@/views/WarmupView';
+import { GameMode } from '@/types/warmup';
+
+interface GameProps { gameId: string; mode: GameMode; onGameOver: (score: number) => void; }
 
 const GRID_SIZE = 3;
 const TOTAL = GRID_SIZE * GRID_SIZE;

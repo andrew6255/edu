@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { GameProps } from '@/views/WarmupView';
+import { GameMode } from '@/types/warmup';
+
+interface GameProps { gameId: string; mode: GameMode; onGameOver: (score: number) => void; }
 
 type Cell = { value: number | null; fixed: boolean; state?: 'correct' | 'wrong' | null };
 type Grid = Cell[][];

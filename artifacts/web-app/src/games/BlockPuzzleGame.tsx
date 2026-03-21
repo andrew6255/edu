@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { GameProps } from '@/views/WarmupView';
+import { GameMode } from '@/types/warmup';
+
+interface GameProps { gameId: string; mode: GameMode; onGameOver: (score: number) => void; }
 
 const COLS = 7;
 const ROWS = 12;

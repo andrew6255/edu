@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { GameProps } from '@/views/WarmupView';
+import { GameMode } from '@/types/warmup';
+
+interface GameProps { gameId: string; mode: GameMode; onGameOver: (score: number) => void; }
 
 const SIZE = 4;
 

@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { GameProps } from '@/views/WarmupView';
+import { GameMode } from '@/types/warmup';
+
+interface GameProps { gameId: string; mode: GameMode; onGameOver: (score: number) => void; }
 
 function rand(a: number, b: number) { return Math.floor(Math.random() * (b - a + 1)) + a; }
 

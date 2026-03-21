@@ -5,6 +5,7 @@ import { auth } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { computeLevel } from '@/lib/userService';
 import { joinClassByCode } from '@/lib/classService';
+import ChallengeNotification from '@/components/warmup/ChallengeNotification';
 
 type View = 'universe' | 'curriculum' | 'warmup' | 'arena' | 'profile';
 
@@ -306,6 +307,9 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
           </div>
         </>
       )}
+
+      {/* Challenge notifications (global, appear above nav bar) */}
+      <ChallengeNotification onNavigateToWarmup={() => setView('warmup')} />
     </div>
   );
 }
