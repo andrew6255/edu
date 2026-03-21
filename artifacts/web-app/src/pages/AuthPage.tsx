@@ -11,8 +11,6 @@ import {
 } from '@/lib/userService';
 import { useAuth } from '@/contexts/AuthContext';
 
-const SUPER_ADMIN_USERNAME = '0000';
-const SUPER_ADMIN_PASSWORD = '0000';
 const SA_FIREBASE_EMAIL = 'superadmin.logiclords@internal.app';
 
 async function generateUniqueUsername(base: string): Promise<string> {
@@ -116,42 +114,39 @@ export default function AuthPage() {
   async function handleLogin() {
     if (!loginId || !loginPass) return setError('Please fill in all fields.');
 
-    // Super admin hardcoded login — credentials validated server-side, no Firebase password in client
-    if (loginId === SUPER_ADMIN_USERNAME && loginPass === SUPER_ADMIN_PASSWORD) {
-      setSubmitting(true); setError('');
-      try {
-        const apiBase = import.meta.env.BASE_URL?.replace(/\/$/, '') || '';
-        const resp = await fetch(`${apiBase}/api/superadmin/token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: loginId, password: loginPass }),
-        });
+    setSubmitting(true); setError('');
+
+    // Attempt super admin login server-side — server validates credentials from env vars, never exposed here
+    try {
+      const apiBase = import.meta.env.BASE_URL?.replace(/\/$/, '') || '';
+      const resp = await fetch(`${apiBase}/api/superadmin/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginId, password: loginPass }),
+      });
+      if (resp.ok) {
         const data = await resp.json() as { customToken?: string; uid?: string; error?: string };
-        if (!resp.ok || !data.customToken) {
-          setError(data.error || 'Super admin sign-in unavailable. Contact the system administrator.');
+        if (data.customToken) {
+          const result = await signInWithCustomToken(auth, data.customToken);
+          await updateProfile(result.user, { displayName: 'SuperAdmin' });
+          const existing = await getUserData(result.user.uid);
+          if (!existing) {
+            await createUserData(result.user.uid, {
+              firstName: 'Super', lastName: 'Admin', username: 'superadmin',
+              email: SA_FIREBASE_EMAIL, role: 'superadmin', onboardingComplete: true,
+            });
+          } else if (existing.role !== 'superadmin') {
+            const { updateUserData } = await import('@/lib/userService');
+            await updateUserData(result.user.uid, { role: 'superadmin' });
+          }
           setSubmitting(false);
           return;
         }
-        const result = await signInWithCustomToken(auth, data.customToken);
-        await updateProfile(result.user, { displayName: 'SuperAdmin' });
-        const existing = await getUserData(result.user.uid);
-        if (!existing) {
-          await createUserData(result.user.uid, {
-            firstName: 'Super', lastName: 'Admin', username: 'superadmin',
-            email: SA_FIREBASE_EMAIL, role: 'superadmin', onboardingComplete: true,
-          });
-        } else if (existing.role !== 'superadmin') {
-          const { updateUserData } = await import('@/lib/userService');
-          await updateUserData(result.user.uid, { role: 'superadmin' });
-        }
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Super admin login failed.');
       }
-      setSubmitting(false);
-      return;
+      // 401 = not super admin creds, 503 = not configured — fall through to regular auth
+    } catch {
+      // Network error or server down — fall through to regular Firebase auth
     }
-
-    setSubmitting(true); setError('');
     try {
       let loginEmail = loginId;
       if (!loginId.includes('@')) {

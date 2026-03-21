@@ -3,15 +3,21 @@ import { getFirebaseAdmin } from '../lib/firebaseAdmin.js';
 
 const router: IRouter = Router();
 
-const SA_USERNAME = '0000';
-const SA_PASSWORD = '0000';
 const SA_FIREBASE_EMAIL = 'superadmin.logiclords@internal.app';
 
 router.post('/superadmin/token', async (req, res) => {
+  const saUsername = process.env.SA_USERNAME;
+  const saPassword = process.env.SA_PASSWORD;
+
+  if (!saUsername || !saPassword) {
+    res.status(503).json({ error: 'Super admin credentials not configured on server.' });
+    return;
+  }
+
   const { username, password } = req.body as { username?: string; password?: string };
 
-  if (username !== SA_USERNAME || password !== SA_PASSWORD) {
-    res.status(401).json({ error: 'Invalid super admin credentials.' });
+  if (username !== saUsername || password !== saPassword) {
+    res.status(401).json({ error: 'Invalid credentials.' });
     return;
   }
 
