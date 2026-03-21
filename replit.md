@@ -77,6 +77,7 @@ scripts/                 # Utility scripts
 - **Learn** (Curriculum) — Curriculum list → chapters → skill tree objectives
 - **Warmup** — Game category filter + 18 mini-games; Solo / Ranked / Friend modes
 - **Arena** — Battle Arena: hub with 4 AI enemies, full RPG battle screen, streak system
+- **Teacher Dashboard** — `/dashboard`: class management, 5 tabs (Overview, Students, Progress, Scores, Leaderboard)
 - **Profile** — XP/level/gold/streak, badges, personal bests
 
 ## Warmup Games Implemented
