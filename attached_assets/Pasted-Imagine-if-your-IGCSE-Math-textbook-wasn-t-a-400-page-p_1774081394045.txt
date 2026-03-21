@@ -1,0 +1,24 @@
+Imagine if your IGCSE Math textbook wasn’t a 400-page paper weight, but a sprawling, neon-lit digital universe where every chapter is a territory to conquer and every equation is a boss to defeat. That is the core of this platform: The death of the boring PDF and the birth of the Playable Curriculum.
+### 👑 The Power Hierarchy: Who Runs the World?
+The platform is built on a "Trust-to-Power" model. While everyone starts as a Student, the hierarchy determines how the world is shaped.
+• Super Admins (The Architects): They are the high-level creators. They build the Main Programs—the permanent, gold-standard gamified paths for systems like IGCSE (Cambridge), IB, American Common Core, and BAC. They control the global economy and decide which new mental-combat games enter the Warmup Arena.
+• Admins (The Governors): These are the leaders of specific schools or organizations. An Admin manages their "Kingdom" (school), upgrading Students to Teachers, managing enrollments, and ensuring their specific students are outperforming the global average.
+• Teachers (The Alchemists): Armed with the Transformation Engine, a teacher can take any simple worksheet or past exam paper and "transmute" it into a sequence of playable levels. They don't just assign homework; they launch "Campaigns."
+• Students (The Players): The heart of the system. Students progress through the Trophy Road, compete in 1v1 Ranked matches to earn gold, and form "Study Sessions" to tackle difficult textbook chapters together.
+### 🌀 The Transformation Engine: Books into Battlefields
+The most powerful feature of Logic Lords is how it handles content. It doesn't just display a book; it consumes it.
+• Curriculum Mapping: The platform identifies independent topics within a book (e.g., Quadratic Equations or Cell Mitosis). It then builds a visual Trophy Road—a map of nodes that the student must travel through.
+• Topic Nodes & Leveling: Each topic is broken down into a "Node." Inside a node, the difficulty scales automatically. Level 1 might be a basic conceptual check, while Level 5 is a complex, multi-step problem extracted directly from the back of the textbook.
+• On-the-Fly Generation: If a student or teacher has a specific sheet of problems, they simply upload it. The AI analyzes the logic and instantly generates a playable skill tree, grouping the questions by difficulty and topic.
+### ⚔️ The Warmup Arena: Mental Combat
+Before entering the high-stakes "Main Program," students sharpen their blades in the Warmup Arena. This is a fast-paced environment designed for brain-training and social competition.
+• 21+ Logic Modules: Everything from Quick Math and Chess Positioning to spatial puzzles like Neon Grid and Flip Nodes.
+• Ranked 1v1: A live, "Tug-of-War" style race. You aren't just solving problems; you are watching your opponent’s progress in real-time. If they score, the bar moves against you.
+• LogicBot 🤖: The benchmark. If no human is available, our adaptive AI steps in. It doesn't just "play"—it mimics human behavior, pushing you to your absolute limit but allowing for a "comeback" if you show true skill.
+### 🗺️ The User Experience: Flow & Social Learning
+The platform is designed for "Deep Work" but wrapped in a "High Energy" UI.
+• The Swipe Ecosystem: Navigating between your Curriculum, the Social Hub, and the Arena is a seamless swipe. No clunky menus—just a fluid, mobile-first experience.
+• Ongoing Sessions: Learning is social. A student can open a "Study Session," invite three friends, and work through the IGCSE Year 9 Math program together. If you swipe away to check a notification, a persistent Ongoing Session button stays with you, allowing you to snap back into the live sync instantly.
+• The Economy: Success in the Arena and the Trophy Road earns Gold. This gold is used for Ranked entries and, eventually, unlocking rare aesthetic "Node Themes" or custom avatars.
+### 🎓 The Global Goal: Universal Mastery
+Whether you are a student in an American high school or a teacher in a French Lycée, the platform creates a universal language of logic. You aren't just "studying for a test"—you are climbing a global leaderboard of human intelligence, turning the world's most difficult curricula into a game that everyone wants to win.
