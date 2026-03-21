@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllUsers, computeLevel } from '@/lib/userService';
+import { getAllUsers, computeLevel, type UserData } from '@/lib/userService';
 
 type Tab = 'global' | 'arena' | 'weekly';
 
@@ -35,17 +35,16 @@ interface Entry {
   title: string;
 }
 
-function buildEntries(users: ReturnType<typeof Array.prototype.map>): Entry[] {
+function buildEntries(users: Array<UserData & { uid: string }>): Entry[] {
   const weekStart = currentWeekStart();
-  return (users as Array<{
-    uid: string; username?: string; firstName?: string; lastName?: string;
-    economy?: { global_xp?: number }; arenaStats?: { wins?: number };
-    last_active?: string;
-  }>).map(u => {
+  return users.map(u => {
     const xp = u.economy?.global_xp ?? 0;
     const { level, title } = computeLevel(xp);
     const lastActive = u.last_active ?? '';
-    const weeklyXp = lastActive >= weekStart ? Math.min(xp, 500) : 0;
+    const isActiveThisWeek = lastActive >= weekStart;
+    const weeklyXp = isActiveThisWeek
+      ? ((u as UserData & { uid: string; weekly_xp?: number }).weekly_xp ?? Math.min(xp, 500))
+      : 0;
     return {
       uid: u.uid,
       username: u.username || `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || 'Unknown',
@@ -148,8 +147,14 @@ export default function LeaderboardView() {
 
   const myUid = user?.uid ?? '';
 
-  const sortKey: keyof Entry = tab === 'global' ? 'xp' : tab === 'arena' ? 'arenaWins' : 'weeklyXp';
-  const sorted = [...entries].sort((a, b) => b[sortKey] - a[sortKey]);
+  const sortedByXp = [...entries].sort((a, b) => b.xp - a.xp);
+  const sortedByArena = [...entries].sort((a, b) => b.arenaWins - a.arenaWins);
+  const sortedByWeekly = [...entries].sort((a, b) => b.weeklyXp - a.weeklyXp);
+
+  const globalRank = sortedByXp.findIndex(e => e.uid === myUid) + 1;
+  const arenaRank = sortedByArena.findIndex(e => e.uid === myUid) + 1;
+
+  const sorted = tab === 'global' ? sortedByXp : tab === 'arena' ? sortedByArena : sortedByWeekly;
   const top50 = sorted.slice(0, 50);
   const selfInTop = top50.some(e => e.uid === myUid);
   const myRank = sorted.findIndex(e => e.uid === myUid) + 1;
@@ -188,21 +193,23 @@ export default function LeaderboardView() {
           </button>
         </div>
 
-        {/* Personal rank chips */}
+        {/* Personal rank chips — always computed from independent sorted lists */}
         {!loading && myEntry && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            <div style={{
-              padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 'bold',
-              background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd'
-            }}>
-              🌐 Global #{myRank}
-            </div>
-            {myEntry.arenaWins > 0 && (
+            {globalRank > 0 && (
+              <div style={{
+                padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 'bold',
+                background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd'
+              }}>
+                🌐 Global #{globalRank}
+              </div>
+            )}
+            {myEntry.arenaWins > 0 && arenaRank > 0 && (
               <div style={{
                 padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 'bold',
                 background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: '#60a5fa'
               }}>
-                ⚔️ Arena #{sorted.findIndex(e => e.uid === myUid && tab === 'arena') + 1 || '—'}
+                ⚔️ Arena #{arenaRank}
               </div>
             )}
           </div>
