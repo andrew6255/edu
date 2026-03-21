@@ -21,6 +21,10 @@ import MissingOpGame from '@/games/MissingOpGame';
 import MemoCellsGame from '@/games/MemoCellsGame';
 import MemoOrderGame from '@/games/MemoOrderGame';
 import CompleteEqGame from '@/games/CompleteEqGame';
+import NeonGridGame from '@/games/NeonGridGame';
+import FlipCupGame from '@/games/FlipCupGame';
+import TicTacToeGame from '@/games/TicTacToeGame';
+import ChessMemoryGame from '@/games/ChessMemoryGame';
 
 export type WarmupCategory = 'rapid' | 'memory' | 'spatial' | 'logic';
 
@@ -58,6 +62,10 @@ const GAMES: GameConfig[] = [
   { id: 'flipNodes',    label: 'Flip Nodes',         icon: '⬡',  category: 'logic',   description: 'Solve the parity flipping puzzle',              component: FlipNodesGame },
   { id: 'blockPuzzle',  label: 'Block Puzzle',       icon: '🟦', category: 'spatial', description: 'Drop blocks and clear the grid',               component: BlockPuzzleGame },
   { id: 'fifteenPuzzle',label: '15 Puzzle',          icon: '🔀', category: 'spatial', description: 'Slide tiles to sort 1–15 in order',             component: FifteenGame },
+  { id: 'neonGrid',     label: 'Neon Grid',          icon: '💡', category: 'spatial', description: 'Copy the glowing pattern by toggling cells',      component: NeonGridGame,   isNew: true },
+  { id: 'flipCup',      label: 'Flip Cup',           icon: '🥤', category: 'logic',   description: 'Tap to flip cups and neighbors — all upright!',  component: FlipCupGame,    isNew: true },
+  { id: 'ticTacToe',   label: 'Tic Tac Toe',        icon: '❌', category: 'logic',   description: 'Beat the unbeatable bot as many times as you can',component: TicTacToeGame,  isNew: true },
+  { id: 'chessMemory', label: 'Chess Memory',        icon: '♟️', category: 'memory',  description: 'Memorise piece positions then place them back',   component: ChessMemoryGame, isNew: true },
 ];
 
 const CATEGORIES = [
