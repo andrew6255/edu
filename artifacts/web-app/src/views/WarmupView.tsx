@@ -143,12 +143,6 @@ export default function WarmupView() {
     setPhase('solo_result');
   }
 
-  function handleMultiComplete(session: GameSession) {
-    setMultiSession(session);
-    setPhase('hub');
-    setActiveSession(null);
-  }
-
   function backToHub() {
     setPhase('hub');
     setSelectedGame(null);
@@ -242,7 +236,6 @@ export default function WarmupView() {
       <MultiplayerGame
         session={multiSession}
         game={selectedGame}
-        onComplete={handleMultiComplete}
         onLeave={backToHub}
       />
     );

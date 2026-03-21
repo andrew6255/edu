@@ -40,7 +40,11 @@ export function generateBotScore(gameId: string, difficulty: 'easy' | 'medium' |
     memoCells:    { easy: [2, 4],   medium: [3, 6],   hard: [5, 8]   },
     memoOrder:    { easy: [2, 4],   medium: [3, 6],   hard: [5, 8]   },
     blockPuzzle:  { easy: [100, 300], medium: [200, 600], hard: [400, 1000] },
-    fifteenPuzzle:{ easy: [60, 120], medium: [30, 70],  hard: [15, 40] },
+    fifteenPuzzle:{ easy: [60, 120], medium: [30, 70],  hard: [15, 40]  },
+    neonGrid:     { easy: [2, 5],   medium: [4, 9],    hard: [7, 14]   },
+    flipCup:      { easy: [2, 4],   medium: [3, 7],    hard: [5, 10]   },
+    ticTacToe:    { easy: [0, 2],   medium: [1, 3],    hard: [2, 5]    },
+    chessMemory:  { easy: [3, 8],   medium: [7, 14],   hard: [12, 20]  },
   };
   const range = ranges[gameId]?.[difficulty] ?? [3, 8];
   return Math.floor(Math.random() * (range[1] - range[0] + 1)) + range[0];
