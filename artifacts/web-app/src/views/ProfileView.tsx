@@ -94,7 +94,7 @@ const CURRICULUM_SYSTEM_LABELS: Record<string, string> = {
 };
 
 export default function ProfileView() {
-  const { user, userData } = useAuth();
+  const { user, userData, refreshUserData } = useAuth();
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [showAllScores, setShowAllScores] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
@@ -174,15 +174,6 @@ export default function ProfileView() {
           }}>
             Level {level} · {title}
           </div>
-          {orgName && (
-            <div style={{
-              marginTop: 6, padding: '3px 12px', borderRadius: 20,
-              background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.35)',
-              color: '#fb923c', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5
-            }}>
-              🏢 {orgName}
-            </div>
-          )}
         </div>
 
         {/* 4-stat row */}
@@ -313,7 +304,7 @@ export default function ProfileView() {
                 if (!user) return;
                 setResettingOnboarding(true);
                 await updateUserData(user.uid, { onboardingComplete: false });
-                setResettingOnboarding(false);
+                await refreshUserData();
               }}
               style={{
                 width: '100%', padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 'bold',
