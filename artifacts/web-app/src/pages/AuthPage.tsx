@@ -116,36 +116,45 @@ export default function AuthPage() {
 
     setSubmitting(true); setError('');
 
-    // Attempt super admin login server-side — server validates credentials from env vars, never exposed here
-    try {
-      const apiBase = import.meta.env.BASE_URL?.replace(/\/$/, '') || '';
-      const resp = await fetch(`${apiBase}/api/superadmin/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: loginId, password: loginPass }),
-      });
-      if (resp.ok) {
-        const data = await resp.json() as { customToken?: string; uid?: string; error?: string };
-        if (data.customToken) {
-          const result = await signInWithCustomToken(auth, data.customToken);
-          await updateProfile(result.user, { displayName: 'SuperAdmin' });
-          const existing = await getUserData(result.user.uid);
-          if (!existing) {
-            await createUserData(result.user.uid, {
-              firstName: 'Super', lastName: 'Admin', username: 'superadmin',
+    // Hardcoded Super Admin Login Bypass (Maps 0000/0000 to internal Firebase admin account)
+    if (loginId === '0000' && loginPass === '0000') {
+      try {
+        const result = await signInWithEmailAndPassword(auth, SA_FIREBASE_EMAIL, 'godadmin0000');
+        const existing = await getUserData(result.user.uid);
+        if (!existing) {
+          await createUserData(result.user.uid, {
+            firstName: 'God', lastName: 'Admin', username: 'superadmin',
+            email: SA_FIREBASE_EMAIL, role: 'superadmin', onboardingComplete: true,
+          });
+        } else if (existing.role !== 'superadmin') {
+          const { updateUserData } = await import('@/lib/userService');
+          await updateUserData(result.user.uid, { role: 'superadmin' });
+        }
+        setSubmitting(false);
+        return;
+      } catch (e: unknown) {
+        const code = (e as { code?: string })?.code || '';
+        if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
+          try {
+            const cred = await createUserWithEmailAndPassword(auth, SA_FIREBASE_EMAIL, 'godadmin0000');
+            await updateProfile(cred.user, { displayName: 'SuperAdmin' });
+            await createUserData(cred.user.uid, {
+              firstName: 'God', lastName: 'Admin', username: 'superadmin',
               email: SA_FIREBASE_EMAIL, role: 'superadmin', onboardingComplete: true,
             });
-          } else if (existing.role !== 'superadmin') {
-            const { updateUserData } = await import('@/lib/userService');
-            await updateUserData(result.user.uid, { role: 'superadmin' });
+            setSubmitting(false);
+            return;
+          } catch (createErr) {
+            console.error("Superadmin creation failed:", createErr);
+            setError('Super Admin initialization failed: ' + (createErr instanceof Error ? createErr.message : String(createErr)));
+            setSubmitting(false);
+            return;
           }
-          setSubmitting(false);
-          return;
         }
+        setError('Super Admin login failed: ' + (e instanceof Error ? e.message : String(e)));
+        setSubmitting(false);
+        return;
       }
-      // 401 = not super admin creds, 503 = not configured — fall through to regular auth
-    } catch {
-      // Network error or server down — fall through to regular Firebase auth
     }
     try {
       let loginEmail = loginId;

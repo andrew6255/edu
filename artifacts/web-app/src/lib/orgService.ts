@@ -20,7 +20,7 @@ function generateCode(): string {
 export async function createOrg(data: Omit<OrgData, 'id' | 'joinCode' | 'createdAt'>): Promise<OrgData> {
   const id = `org_${Date.now()}`;
   const org: OrgData = {
-    id, joinCode: generateCode(), createdAt: new Date().toISOString(), adminIds: [],
+    id, joinCode: generateCode(), createdAt: new Date().toISOString(),
     ...data
   };
   await setDoc(doc(db, 'organisations', id), org);
