@@ -37,6 +37,8 @@ jobs:
 
       - name: Build Web App
         run: pnpm --filter @workspace/web-app run build
+        env:
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
