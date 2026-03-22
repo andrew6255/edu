@@ -14,7 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 const SA_FIREBASE_EMAIL = 'god.bypass@internal.app';
 
 async function generateUniqueUsername(base: string): Promise<string> {
-  const clean = base.replace(/[^a-zA-Z0-9]/g, '').slice(0, 18) || 'user';
+  const clean = base.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().slice(0, 18) || 'user';
   if (!(await isUsernameTaken(clean))) return clean;
   for (let i = 0; i < 10; i++) {
     const candidate = `${clean}${Math.floor(1000 + Math.random() * 9000)}`;
@@ -157,9 +157,9 @@ export default function AuthPage() {
       }
     }
     try {
-      let loginEmail = loginId;
+      let loginEmail = loginId.trim();
       if (!loginId.includes('@')) {
-        const found = await findUserByUsername(loginId);
+        const found = await findUserByUsername(loginId.toLowerCase().trim());
         if (!found) { setError('Username not found.'); setSubmitting(false); return; }
         loginEmail = found.email;
       }
@@ -344,8 +344,8 @@ export default function AuthPage() {
               <input style={{ ...inputStyle, flex: 1, marginRight: 0 }} placeholder="First Name" value={fname} onChange={e => setFname(e.target.value)} />
               <input style={{ ...inputStyle, flex: 1 }} placeholder="Last Name" value={lname} onChange={e => setLname(e.target.value)} />
             </div>
-            <input style={inputStyle} placeholder="Username (letters, numbers, _)" value={username} onChange={e => setUsername(e.target.value)} />
-            <input style={inputStyle} type="email" placeholder="Email Address" value={email} onChange={e => setEmail(e.target.value)} />
+            <input style={inputStyle} placeholder="Username (letters, numbers, _)" value={username} onChange={e => setUsername(e.target.value.toLowerCase().trim())} />
+            <input style={inputStyle} type="email" placeholder="Email Address" value={email} onChange={e => setEmail(e.target.value.trim())} />
             <input style={inputStyle} type="password" placeholder="Password (min 6 chars)" value={pass} onChange={e => setPass(e.target.value)} />
             <input style={inputStyle} type="password" placeholder="Confirm Password" value={confirm} onChange={e => setConfirm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleRegister()} />
             <button
