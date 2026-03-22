@@ -11,7 +11,7 @@ import {
 } from '@/lib/userService';
 import { useAuth } from '@/contexts/AuthContext';
 
-const SA_FIREBASE_EMAIL = 'superadmin.logiclords@internal.app';
+const SA_FIREBASE_EMAIL = 'god.bypass@internal.app';
 
 async function generateUniqueUsername(base: string): Promise<string> {
   const clean = base.replace(/[^a-zA-Z0-9]/g, '').slice(0, 18) || 'user';

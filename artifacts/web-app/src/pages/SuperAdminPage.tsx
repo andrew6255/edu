@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
+import { signOut } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAllUsers, updateUserData, deleteUserData, updateEconomy, UserData, UserRole, computeLevel } from '@/lib/userService';
 import { getAllOrgs, createOrg, updateOrg, deleteOrg, addAdminToOrg, removeAdminFromOrg, OrgData } from '@/lib/orgService';
@@ -176,7 +178,7 @@ export default function SuperAdminPage() {
             <button onClick={loadData} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', cursor: 'pointer' }}>
               ↺ Refresh
             </button>
-            <button onClick={() => setLocation('/auth')} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>
+            <button onClick={async () => { await signOut(auth); localStorage.clear(); setLocation('/auth'); }} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>
               Sign Out
             </button>
           </div>
@@ -308,14 +310,14 @@ export default function SuperAdminPage() {
                           border: `1px solid ${ROLE_COLORS[u.role as UserRole] || '#475569'}55`,
                           color: ROLE_COLORS[u.role as UserRole] || '#94a3b8', textTransform: 'capitalize'
                         }}>{u.role}</span>
-                        {!isSelf && (user?.email === 'superadmin.logiclords@internal.app' || u.role !== 'superadmin') && (
+                        {!isSelf && (user?.email === 'god.bypass@internal.app' || u.role !== 'superadmin') && (
                           <>
                             <select
                               value={u.role} disabled={changingRole === u.uid}
                               onChange={e => handleRoleChange(u.uid, e.target.value as UserRole)}
                               style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #475569', background: '#0f172a', color: '#94a3b8', fontFamily: 'inherit', fontSize: 11, cursor: 'pointer', outline: 'none' }}
                             >
-                              {(user?.email === 'superadmin.logiclords@internal.app' ? ROLE_ORDER : ROLE_ORDER.filter(r => r !== 'superadmin'))
+                              {(user?.email === 'god.bypass@internal.app' ? ROLE_ORDER : ROLE_ORDER.filter(r => r !== 'superadmin'))
                                 .map(r => <option key={r} value={r}>→ {r}</option>)}
                             </select>
                             <button
