@@ -8,9 +8,13 @@ import WarmupView from '@/views/WarmupView';
 import ProfileView from '@/views/ProfileView';
 import ArenaView from '@/views/ArenaView';
 import LeaderboardView from '@/views/LeaderboardView';
+import EmporiumView from '@/views/EmporiumView';
+import LogicGamesView from '@/views/LogicGamesView';
+import NotificationsView from '@/views/NotificationsView';
+import FriendsView from '@/views/FriendsView';
 import OnboardingPage from '@/pages/OnboardingPage';
 
-export type View = 'universe' | 'curriculum' | 'warmup' | 'arena' | 'profile' | 'leaderboard';
+export type View = 'emporium' | 'warmup' | 'universe' | 'logic' | 'profile' | 'curriculum' | 'notifications' | 'friends';
 
 export default function AppPage() {
   const { user, userData, loading, refreshUserData } = useAuth();
@@ -62,10 +66,14 @@ export default function AppPage() {
         );
       case 'warmup':
         return <WarmupView />;
-      case 'arena':
-        return <ArenaView />;
-      case 'leaderboard':
-        return <LeaderboardView />;
+      case 'emporium':
+        return <EmporiumView />;
+      case 'logic':
+        return <LogicGamesView />;
+      case 'notifications':
+        return <NotificationsView />;
+      case 'friends':
+        return <FriendsView />;
       case 'profile':
         return <ProfileView />;
       default:

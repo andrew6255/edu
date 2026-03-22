@@ -65,12 +65,17 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
     setGoldGained(gold);
 
     try {
-      const snap = await import('@/lib/userService').then(m => m.getUserData(user.uid));
+      const userService = await import('@/lib/userService');
+      const snap = await userService.getUserData(user.uid);
       if (snap) {
         await updateDoc(doc(db, 'users', user.uid), {
           'economy.global_xp': (snap.economy.global_xp || 0) + xp,
           'economy.gold': (snap.economy.gold || 0) + gold,
         });
+        if (mode === 'ranked' || mode === 'friend') {
+           const result = won ? 'win' : drew ? 'draw' : 'loss';
+           await userService.updateRankedStats(user.uid, game.id, result);
+        }
         await refreshUserData();
       }
     } catch (e) {

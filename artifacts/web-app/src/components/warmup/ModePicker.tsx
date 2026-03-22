@@ -1,5 +1,9 @@
+import { useState, useEffect } from 'react';
 import { GameMode } from '@/types/warmup';
 import { useAuth } from '@/contexts/AuthContext';
+import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { getUserData } from '@/lib/userService';
 
 interface GameConfig {
   id: string;
@@ -14,53 +18,99 @@ interface ModePickerProps {
 }
 
 const MODES = [
-  {
-    id: 'solo' as GameMode,
-    label: 'Solo Practice',
-    icon: '🎯',
-    desc: 'Play alone and compete for the Top 5 leaderboard',
-    cost: null,
-    color: '#10b981'
-  },
-  {
-    id: 'ranked' as GameMode,
-    label: 'Ranked',
-    icon: '⚔️',
-    desc: 'Enter matchmaking and face a random opponent. Best of 5 rounds.',
-    cost: 25,
-    color: '#f97316'
-  },
-  {
-    id: 'friend' as GameMode,
-    label: 'Play a Friend',
-    icon: '👥',
-    desc: 'Challenge a friend by username. Best of 5 rounds.',
-    cost: null,
-    color: '#3b82f6'
-  }
+  { id: 'solo' as GameMode,   label: 'Solo Practice', icon: '🎯', desc: 'Play alone to set high scores', cost: null, color: '#10b981' },
+  { id: 'ranked' as GameMode, label: 'Ranked Match',  icon: '⚔️', desc: 'Face a random opponent. Best of 5', cost: 25,   color: '#f97316' },
+  { id: 'friend' as GameMode, label: 'Play a Friend', icon: '👥', desc: 'Challenge a friend directly.', cost: null, color: '#3b82f6' }
 ];
 
 export default function ModePicker({ game, onSelect, onBack }: ModePickerProps) {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const gold = userData?.economy?.gold ?? 0;
+  
+  const [leaderboardMode, setLeaderboardMode] = useState<'global' | 'friends'>('global');
+  const [board, setBoard] = useState<{ uid: string, username: string, score: number }[]>([]);
+  const [loadingBoard, setLoadingBoard] = useState(true);
+
+  const stats = userData?.rankedStats?.[game.id] || { wins: 0, losses: 0, highestStreak: 0 };
+  const total = stats.wins + stats.losses;
+  const winRate = total > 0 ? Math.round((stats.wins / total) * 100) : 0;
+
+  useEffect(() => {
+    loadLeaderboard();
+  }, [leaderboardMode, game.id]);
+
+  async function loadLeaderboard() {
+    if (!user) return;
+    setLoadingBoard(true);
+    try {
+      if (leaderboardMode === 'global') {
+        const q = query(collection(db, 'users'), orderBy(`high_scores.${game.id}`, 'desc'), limit(10));
+        const snap = await getDocs(q);
+        const data = snap.docs.map(d => ({
+          uid: d.id, username: d.data().username || 'Unknown', score: d.data().high_scores?.[game.id] || 0
+        })).filter(x => x.score > 0);
+        setBoard(data);
+      } else {
+        if (!userData?.friends || userData.friends.length === 0) {
+          // Just me
+          setBoard([{ uid: user.uid, username: userData?.username || 'You', score: userData?.high_scores?.[game.id] || 0 }].filter(x => x.score > 0));
+        } else {
+          // fetch friends + self
+          const uids = [...userData.friends, user.uid];
+          const fetched = await Promise.all(uids.map(async id => {
+            const d = await getUserData(id);
+            return { uid: id, username: d?.username || 'Unknown', score: d?.high_scores?.[game.id] || 0 };
+          }));
+          fetched.sort((a,b) => b.score - a.score);
+          setBoard(fetched.filter(x => x.score > 0).slice(0, 10));
+        }
+      }
+    } catch(e) {
+      console.error("Board error:", e);
+    }
+    setLoadingBoard(false);
+  }
 
   return (
-    <div style={{
-      height: '100%', display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center', padding: '24px 20px', gap: 20
-    }}>
-      <button onClick={onBack} style={{
-        position: 'absolute', top: 16, left: 16,
-        background: 'none', border: 'none', color: '#64748b', fontSize: 14, cursor: 'pointer'
-      }}>← Back</button>
-
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: 52, marginBottom: 8 }}>{game.icon}</div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f172a', overflowY: 'auto' }}>
+      
+      {/* ── TOP NAV ── */}
+      <div style={{ padding: '20px', position: 'relative', textAlign: 'center' }}>
+        <button onClick={onBack} style={{
+          position: 'absolute', top: 24, left: 16,
+          background: 'none', border: 'none', color: '#64748b', fontSize: 14, cursor: 'pointer'
+        }}>← Back</button>
+        <div style={{ fontSize: 44, marginBottom: 8 }}>{game.icon}</div>
         <h2 style={{ margin: '0 0 4px', color: 'white', fontSize: 22 }}>{game.label}</h2>
-        <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>Choose a mode to play</p>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 360 }}>
+      {/* ── RANKED STATS ── */}
+      <div style={{ padding: '0 20px 20px' }}>
+        <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', border: '1px solid #334155' }}>
+          <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, fontWeight: 'bold' }}>
+            ⚔️ Your Ranked Stats
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+            {[
+              { label: 'Wins',       value: stats.wins,          color: '#10b981' },
+              { label: 'Losses',     value: stats.losses,        color: '#ef4444' },
+              { label: 'Win Rate',   value: `${winRate}%`,       color: '#3b82f6' },
+              { label: 'Best Streak',value: stats.highestStreak, color: '#f97316' },
+            ].map(s => (
+              <div key={s.label} style={{
+                background: '#0f172a', borderRadius: 10, padding: '10px 4px',
+                textAlign: 'center', border: `1px solid ${s.color}33`
+              }}>
+                <div style={{ fontSize: 18, fontWeight: 'bold', color: s.color }}>{s.value}</div>
+                <div style={{ color: '#64748b', fontSize: 10, marginTop: 3 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── MODES ── */}
+      <div style={{ padding: '0 20px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
         {MODES.map(mode => {
           const canAfford = mode.cost === null || gold >= mode.cost;
           return (
@@ -78,15 +128,17 @@ export default function ModePicker({ game, onSelect, onBack }: ModePickerProps) 
               }}
               onMouseEnter={e => {
                 if (canAfford) {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = mode.color;
-                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)';
-                  (e.currentTarget as HTMLDivElement).style.boxShadow = `0 6px 20px ${mode.color}22`;
+                  const el = e.currentTarget as HTMLDivElement;
+                  el.style.borderColor = mode.color;
+                  el.style.transform = 'translateY(-2px)';
+                  el.style.boxShadow = `0 6px 20px ${mode.color}22`;
                 }
               }}
               onMouseLeave={e => {
-                (e.currentTarget as HTMLDivElement).style.borderColor = canAfford ? mode.color + '55' : '#334155';
-                (e.currentTarget as HTMLDivElement).style.transform = '';
-                (e.currentTarget as HTMLDivElement).style.boxShadow = '';
+                const el = e.currentTarget as HTMLDivElement;
+                el.style.borderColor = canAfford ? mode.color + '55' : '#334155';
+                el.style.transform = '';
+                el.style.boxShadow = '';
               }}
             >
               <div style={{
@@ -123,9 +175,62 @@ export default function ModePicker({ game, onSelect, onBack }: ModePickerProps) 
         })}
       </div>
 
-      <div style={{ color: '#475569', fontSize: 12, textAlign: 'center' }}>
-        Your gold: <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>{gold} 🪙</span>
+      {/* ── LEADERBOARD ── */}
+      <div style={{ padding: '0 20px 30px' }}>
+        <div style={{ background: '#1e293b', borderRadius: 14, padding: '16px', border: '1px solid #334155' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold' }}>
+              🏆 Top 10 High Scores
+            </div>
+            <div style={{ display: 'flex', gap: 4, background: '#0f172a', padding: 4, borderRadius: 8, border: '1px solid #334155' }}>
+              <button 
+                onClick={() => setLeaderboardMode('global')}
+                style={{
+                  background: leaderboardMode === 'global' ? '#3b82f6' : 'transparent',
+                  color: leaderboardMode === 'global' ? 'white' : '#64748b',
+                  border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 'bold'
+                }}
+              >Global</button>
+              <button 
+                onClick={() => setLeaderboardMode('friends')}
+                style={{
+                  background: leaderboardMode === 'friends' ? '#3b82f6' : 'transparent',
+                  color: leaderboardMode === 'friends' ? 'white' : '#64748b',
+                  border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 'bold'
+                }}
+              >Friends</button>
+            </div>
+          </div>
+          
+          {loadingBoard ? (
+            <div style={{ color: '#64748b', textAlign: 'center', padding: '20px 0' }}>Loading ranks...</div>
+          ) : board.length === 0 ? (
+            <div style={{ color: '#475569', textAlign: 'center', padding: '20px 0', fontSize: 13 }}>
+              No scores yet. Be the first!
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {board.map((u, i) => (
+                <div key={u.uid} style={{ 
+                  display: 'flex', alignItems: 'center', background: '#0f172a', 
+                  padding: '10px 14px', borderRadius: 8, border: '1px solid #334155' 
+                }}>
+                  <div style={{ width: 24, fontSize: 14, fontWeight: 'bold', color: i < 3 ? '#fbbf24' : '#64748b' }}>
+                    #{i + 1}
+                  </div>
+                  <div style={{ flex: 1, color: u.uid === user?.uid ? '#3b82f6' : 'white', fontWeight: 'bold', fontSize: 14 }}>
+                    {u.username} {u.uid === user?.uid && '(You)'}
+                  </div>
+                  <div style={{ color: '#10b981', fontWeight: 'bold', fontSize: 14 }}>
+                    {game.id === 'numGrid' ? `${u.score}s` : u.score.toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+      
     </div>
   );
 }

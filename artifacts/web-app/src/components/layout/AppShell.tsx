@@ -7,7 +7,7 @@ import { computeLevel } from '@/lib/userService';
 import { joinClassByCode } from '@/lib/classService';
 import ChallengeNotification from '@/components/warmup/ChallengeNotification';
 
-type View = 'universe' | 'curriculum' | 'warmup' | 'arena' | 'profile' | 'leaderboard';
+type View = 'emporium' | 'warmup' | 'universe' | 'logic' | 'profile' | 'curriculum' | 'notifications' | 'friends';
 
 interface AppShellProps {
   view: View;
@@ -60,10 +60,10 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   }
 
   const navTabs = [
-    { id: 'universe', icon: '🌌', label: 'Universe' },
+    { id: 'emporium', icon: '🏪', label: 'Emporium' },
     { id: 'warmup', icon: '⚡', label: 'Warmup' },
-    { id: 'arena', icon: '⚔️', label: 'Arena' },
-    { id: 'leaderboard', icon: '🏆', label: 'Ranks' },
+    { id: 'universe', icon: '🌌', label: 'Universe' },
+    { id: 'logic', icon: '🧩', label: 'Logic Games' },
     { id: 'profile', icon: '👤', label: 'Profile' },
   ] as const;
 
@@ -204,11 +204,8 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
-                { icon: '🌌', label: 'Universe', target: 'universe' as View },
-                { icon: '📚', label: 'Curriculum', target: 'curriculum' as View },
-                { icon: '⚡', label: 'Warmup Games', target: 'warmup' as View },
-                { icon: '⚔️', label: 'Battle Arena', target: 'arena' as View },
-                { icon: '🏆', label: 'Leaderboards', target: 'leaderboard' as View },
+                { icon: '🔔', label: 'Notifications', target: 'notifications' as View },
+                { icon: '👥', label: 'Friends List', target: 'friends' as View },
                 { icon: '👤', label: 'My Profile', target: 'profile' as View },
               ].map(item => (
                 <button

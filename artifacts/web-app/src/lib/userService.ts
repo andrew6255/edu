@@ -5,12 +5,20 @@ import {
 
 export type UserRole = 'student' | 'teacher' | 'admin' | 'superadmin';
 
+export interface SubjectConfig {
+  textbook: string;
+  isVisible: boolean;
+}
+
 export interface CurriculumProfile {
   system: string;
   year: string;
-  textbook: string;
-  customTextbook?: string;
-  completedAt: string;
+  subjects: {
+    mathematics: SubjectConfig;
+    physics: SubjectConfig;
+    chemistry: SubjectConfig;
+    biology: SubjectConfig;
+  };
 }
 
 export interface ArenaStats {
@@ -38,14 +46,31 @@ export interface UserData {
   warmup_date?: string;
   played_categories?: string[];
   analytics?: Record<string, Record<string, { mastered?: boolean }>>;
+  friends: string[];
+  incomingRequests: string[];
+  outgoingRequests: string[];
+  rankedStats?: Record<string, { wins: number; losses: number; highestStreak: number; currentStreak?: number }>;
   progress?: Record<string, Record<string, Record<string, { mastered: boolean; xpAwarded: number; completedAt?: string }>>>;
   last_active?: string;
+}
+
+export interface AppNotification {
+  id: string;
+  fromUid: string;
+  fromUsername: string;
+  type: 'friendRequest' | 'system';
+  message: string;
+  createdAt: string;
+  read: boolean;
 }
 
 export const SUPER_ADMIN_UID = 'SUPERADMIN_0000';
 
 const DEFAULT_USER: Partial<UserData> = {
   role: 'student',
+  friends: [],
+  incomingRequests: [],
+  outgoingRequests: [],
   economy: { gold: 200, global_xp: 0, streak: 0 },
   arenaStats: { wins: 0, losses: 0, highestStreak: 0 },
   curriculums: {},
@@ -146,6 +171,65 @@ export async function updateArenaStats(uid: string, won: boolean, sessionHighest
     'arenaStats.highestStreak': Math.max(current.highestStreak, sessionHighestStreak),
     last_active: new Date().toISOString().split('T')[0]
   });
+}
+
+export async function updateRankedStats(uid: string, gameId: string, result: 'win' | 'loss' | 'draw'): Promise<void> {
+  const snap = await getDoc(doc(db, 'users', uid));
+  if (!snap.exists()) return;
+  const data = snap.data();
+  const current = data?.rankedStats?.[gameId] ?? { wins: 0, losses: 0, highestStreak: 0, currentStreak: 0 };
+  
+  if (result === 'draw') return;
+
+  const won = result === 'win';
+  const newCurrentStreak = won ? (current.currentStreak || 0) + 1 : 0;
+  const newHighestStreak = Math.max(current.highestStreak || 0, newCurrentStreak);
+
+  await updateDoc(doc(db, 'users', uid), {
+    [`rankedStats.${gameId}.wins`]: current.wins + (won ? 1 : 0),
+    [`rankedStats.${gameId}.losses`]: current.losses + (won ? 0 : 1),
+    [`rankedStats.${gameId}.highestStreak`]: newHighestStreak,
+    [`rankedStats.${gameId}.currentStreak`]: newCurrentStreak,
+    last_active: new Date().toISOString().split('T')[0]
+  });
+}
+
+export async function sendFriendRequest(fromUid: string, fromUsername: string, toUsername: string): Promise<boolean> {
+  const q = query(collection(db, 'users'), where('username', '==', toUsername.toLowerCase().trim()));
+  const snap = await getDocs(q);
+  if (snap.empty) return false;
+  
+  const toUid = snap.docs[0].id;
+  if (toUid === fromUid) return false;
+
+  const { arrayUnion } = await import('firebase/firestore');
+  await updateDoc(doc(db, 'users', toUid), { incomingRequests: arrayUnion(fromUid) });
+  await updateDoc(doc(db, 'users', fromUid), { outgoingRequests: arrayUnion(toUid) });
+  
+  const notifRef = doc(collection(db, `users/${toUid}/notifications`));
+  await setDoc(notifRef, {
+    id: notifRef.id, fromUid, fromUsername, type: 'friendRequest',
+    message: `${fromUsername} sent you a friend request.`, createdAt: new Date().toISOString(), read: false
+  });
+  return true;
+}
+
+export async function respondToFriendRequest(uid: string, peerUid: string, accept: boolean): Promise<void> {
+  const { arrayRemove, arrayUnion } = await import('firebase/firestore');
+  
+  await updateDoc(doc(db, 'users', uid), { incomingRequests: arrayRemove(peerUid) });
+  await updateDoc(doc(db, 'users', peerUid), { outgoingRequests: arrayRemove(uid) });
+  
+  if (accept) {
+    await updateDoc(doc(db, 'users', uid), { friends: arrayUnion(peerUid) });
+    await updateDoc(doc(db, 'users', peerUid), { friends: arrayUnion(uid) });
+  }
+}
+
+export async function removeFriend(uid: string, peerUid: string): Promise<void> {
+  const { arrayRemove } = await import('firebase/firestore');
+  await updateDoc(doc(db, 'users', uid), { friends: arrayRemove(peerUid) });
+  await updateDoc(doc(db, 'users', peerUid), { friends: arrayRemove(uid) });
 }
 
 export async function submitCurriculumRequest(uid: string, username: string, profile: {

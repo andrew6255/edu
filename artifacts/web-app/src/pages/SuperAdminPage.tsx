@@ -359,7 +359,7 @@ export default function SuperAdminPage() {
                         )}
                         {u.curriculumProfile && (
                           <div style={{ marginTop: 8, fontSize: 11, color: '#64748b' }}>
-                            Curriculum: {u.curriculumProfile.system} · {u.curriculumProfile.year} · {u.curriculumProfile.textbook}
+                            Curriculum: {u.curriculumProfile.system} · {u.curriculumProfile.year}
                           </div>
                         )}
                         <div style={{ color: '#475569', fontSize: 10, marginTop: 6 }}>UID: {u.uid}</div>
