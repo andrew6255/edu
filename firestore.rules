@@ -16,7 +16,9 @@ service cloud.firestore {
     }
 
     function myRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : 'student';
     }
 
     function isAdmin() {
@@ -36,7 +38,7 @@ service cloud.firestore {
     // arena matchmaking, class/org membership checks).
     // Writes are own-uid only; admins/superadmin may write any user doc.
     match /users/{userId} {
-      allow read: if isAuthed();
+      allow read: if true; // Public read required for username validation before login
       allow create: if isOwn(userId) || isAdmin();
       allow update: if isOwn(userId) || isAdmin();
       allow delete: if isAdmin();
