@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────────────────────
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function myUid() {
+      return request.auth.uid;
+    }
+
+    function isOwn(userId) {
+      return isAuthed() && myUid() == userId;
+    }
+
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isAuthed() && myRole() in ['admin', 'superadmin'];
+    }
+
+    function isSuperAdmin() {
+      return isAuthed() && myRole() == 'superadmin';
+    }
+
+    function isTeacherOrAbove() {
+      return isAuthed() && myRole() in ['teacher', 'admin', 'superadmin'];
+    }
+
+    // ── Users ─────────────────────────────────────────────────────────────
+    // Any authenticated user may read any user doc (needed for leaderboard,
+    // arena matchmaking, class/org membership checks).
+    // Writes are own-uid only; admins/superadmin may write any user doc.
+    match /users/{userId} {
+      allow read: if isAuthed();
+      allow create: if isOwn(userId) || isAdmin();
+      allow update: if isOwn(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── Organisations ─────────────────────────────────────────────────────
+    // Any authenticated user can read orgs (for membership display, joining).
+    // Only admins/superadmins can create/update/delete orgs.
+    match /organisations/{orgId} {
+      allow read: if isAuthed();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── Classes ───────────────────────────────────────────────────────────
+    // Any authenticated user can read class docs (for join-by-code flow).
+    // Teachers and above can create/update/delete classes.
+    match /classes/{classId} {
+      allow read: if isAuthed();
+      allow create, update, delete: if isTeacherOrAbove();
+    }
+
+    // ── Game Sessions ─────────────────────────────────────────────────────
+    // Any authenticated user can read/write game sessions (arena gameplay).
+    match /gameSessions/{sessionId} {
+      allow read, write: if isAuthed();
+    }
+
+    // ── Matchmaking Queue ─────────────────────────────────────────────────
+    match /matchmakingQueue/{entryId} {
+      allow read, write: if isAuthed();
+    }
+
+    // ── Challenges ────────────────────────────────────────────────────────
+    match /challenges/{challengeId} {
+      allow read, write: if isAuthed();
+    }
+
+    // ── Leaderboards (mini-game high-score aggregates) ────────────────────
+    match /leaderboards/{gameId} {
+      allow read: if isAuthed();
+      allow write: if isAuthed();
+    }
+
+    // ── Curriculum Requests ───────────────────────────────────────────────
+    // Students can create and read their own requests.
+    // Admins/superadmins can read and update all requests.
+    match /curriculumRequests/{reqId} {
+      allow create: if isAuthed();
+      allow read: if isAuthed() && (
+        resource.data.uid == myUid() || isAdmin()
+      );
+      allow update, delete: if isAdmin();
+    }
+
+  }
+}
