@@ -380,12 +380,25 @@ export async function removeFriend(uid: string, peerUid: string): Promise<void> 
   const myFriends = Array.isArray(myData.friends) ? myData.friends : [];
   const peerFriends = Array.isArray(peerData.friends) ? peerData.friends : [];
 
-  const nextMyFriends = myFriends.filter(x => x !== peerUid);
-  const nextPeerFriends = peerFriends.filter(x => x !== uid);
+  const myHadPeer = myFriends.includes(peerUid);
+  const peerHadMe = peerFriends.includes(uid);
+
+  // If the lists are already out of sync, avoid attempting a no-op cross-user write,
+  // because our Firestore rules validate exact list size changes.
+  if (!myHadPeer && !peerHadMe) return;
 
   const batch = writeBatch(db);
-  batch.set(doc(db, 'users', uid), { friends: nextMyFriends }, { merge: true });
-  batch.set(doc(db, 'users', peerUid), { friends: nextPeerFriends }, { merge: true });
+
+  if (myHadPeer) {
+    const nextMyFriends = myFriends.filter(x => x !== peerUid);
+    batch.set(doc(db, 'users', uid), { friends: nextMyFriends }, { merge: true });
+  }
+
+  if (peerHadMe) {
+    const nextPeerFriends = peerFriends.filter(x => x !== uid);
+    batch.set(doc(db, 'users', peerUid), { friends: nextPeerFriends }, { merge: true });
+  }
+
   await batch.commit();
 }
 
