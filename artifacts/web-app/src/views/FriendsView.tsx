@@ -20,16 +20,31 @@ export default function FriendsView() {
       setLoading(false);
       return;
     }
-    const fData = await Promise.all(userData.friends.map(uid => getUserData(uid).then(d => ({ uid, ...d }))));
-    // sort by online status
-    const today = new Date().toISOString().split('T')[0];
-    fData.sort((a, b) => {
-      const aOnline = a.last_active === today ? 1 : 0;
-      const bOnline = b.last_active === today ? 1 : 0;
-      return bOnline - aOnline;
-    });
-    setFriends(fData);
-    setLoading(false);
+    setLoading(true);
+    try {
+      const fData = await Promise.all(
+        userData.friends.map(async (uid) => {
+          try {
+            const d = await getUserData(uid);
+            if (!d) return { uid, username: 'Unknown', last_active: '' };
+            return { uid, ...d };
+          } catch {
+            return { uid, username: 'Unknown', last_active: '' };
+          }
+        })
+      );
+
+      // sort by online status
+      const today = new Date().toISOString().split('T')[0];
+      fData.sort((a, b) => {
+        const aOnline = a.last_active === today ? 1 : 0;
+        const bOnline = b.last_active === today ? 1 : 0;
+        return bOnline - aOnline;
+      });
+      setFriends(fData);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleAdd() {
@@ -43,7 +58,11 @@ export default function FriendsView() {
       setMsg(ok ? '✅ Friend request sent!' : '❌ User not found or request already sent.');
     } catch(e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setMsg(`❌ ${msg || 'Error sending request.'}`);
+      if ((msg || '').toLowerCase().includes('already friends')) {
+        setMsg('✅ You are already friends');
+      } else {
+        setMsg(`❌ ${msg || 'Error sending request.'}`);
+      }
     }
     setTimeout(() => setMsg(''), 3000);
     setSearch('');

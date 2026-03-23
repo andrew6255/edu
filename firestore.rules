@@ -103,6 +103,26 @@ service cloud.firestore {
           )
         )
       ) || (
+        // Allow a user to unfriend: remove myUid from someone else's friends list.
+        isAuthed() &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['friends']) &&
+        request.resource.data.friends is list &&
+        (
+          (
+            // Normal case: friends exists and we remove exactly our uid
+            resource.data.friends is list &&
+            resource.data.friends.hasAny([myUid()]) &&
+            request.resource.data.friends.size() == resource.data.friends.size() - 1 &&
+            resource.data.friends.hasAll(request.resource.data.friends)
+          )
+          ||
+          (
+            // Edge case: friends missing/null, allow setting it to empty list
+            !(resource.data.keys().hasAny(['friends'])) &&
+            request.resource.data.friends.size() == 0
+          )
+        )
+      ) || (
         // Allow the receiver to accept a request in one atomic write on the sender:
         // remove myUid from outgoingRequests AND add myUid to friends.
         isAuthed() &&

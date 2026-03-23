@@ -293,7 +293,7 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
       const toData = toUserSnap.data() as Partial<UserData>;
       const friends = Array.isArray(toData.friends) ? toData.friends : [];
       const incoming = Array.isArray(toData.incomingRequests) ? toData.incomingRequests : [];
-      if (friends.includes(fromUid)) return false;
+      if (friends.includes(fromUid)) throw new Error('You are already friends');
       if (incoming.includes(fromUid)) {
         // Request already pending; we'll just bump the existing notification below.
       }
@@ -370,9 +370,23 @@ export async function respondToFriendRequest(uid: string, peerUid: string, accep
 }
 
 export async function removeFriend(uid: string, peerUid: string): Promise<void> {
-  const { arrayRemove } = await import('firebase/firestore');
-  await updateDoc(doc(db, 'users', uid), { friends: arrayRemove(peerUid) });
-  await updateDoc(doc(db, 'users', peerUid), { friends: arrayRemove(uid) });
+  const mySnap = await getDoc(doc(db, 'users', uid));
+  const peerSnap = await getDoc(doc(db, 'users', peerUid));
+  if (!mySnap.exists() || !peerSnap.exists()) return;
+
+  const myData = mySnap.data() as Partial<UserData>;
+  const peerData = peerSnap.data() as Partial<UserData>;
+
+  const myFriends = Array.isArray(myData.friends) ? myData.friends : [];
+  const peerFriends = Array.isArray(peerData.friends) ? peerData.friends : [];
+
+  const nextMyFriends = myFriends.filter(x => x !== peerUid);
+  const nextPeerFriends = peerFriends.filter(x => x !== uid);
+
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'users', uid), { friends: nextMyFriends }, { merge: true });
+  batch.set(doc(db, 'users', peerUid), { friends: nextPeerFriends }, { merge: true });
+  await batch.commit();
 }
 
 export async function submitCurriculumRequest(uid: string, username: string, profile: {
