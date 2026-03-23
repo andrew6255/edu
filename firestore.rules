@@ -40,8 +40,33 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true; // Public read required for username validation before login
       allow create: if isOwn(userId) || isAdmin();
-      allow update: if isOwn(userId) || isAdmin();
+      // Allow others to add themselves to a user's incomingRequests.
+      // This is required for sending friend requests.
+      allow update: if isOwn(userId) || isAdmin() || (
+        isAuthed() &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['incomingRequests']) &&
+        request.resource.data.incomingRequests is list &&
+        resource.data.incomingRequests is list &&
+        request.resource.data.incomingRequests.size() == resource.data.incomingRequests.size() + 1 &&
+        request.resource.data.incomingRequests.hasAll(resource.data.incomingRequests) &&
+        request.resource.data.incomingRequests.hasAny([myUid()])
+      );
       allow delete: if isAdmin();
+
+      // Notifications inbox
+      match /notifications/{notifId} {
+        allow read: if isOwn(userId) || isAdmin();
+
+        // Allow any authenticated user to create a notification for another user,
+        // but require that the notification is attributed to the sender.
+        allow create: if isAuthed() &&
+          request.resource.data.fromUid == myUid() &&
+          request.resource.data.id == notifId &&
+          request.resource.data.type in ['friendRequest', 'challenge', 'system'];
+
+        // Only the owner (or admin) can mark read / delete.
+        allow update, delete: if isOwn(userId) || isAdmin();
+      }
     }
 
     // ── Organisations ─────────────────────────────────────────────────────
