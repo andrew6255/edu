@@ -61,6 +61,47 @@ service cloud.firestore {
           )
         ) &&
         request.resource.data.incomingRequests.hasAny([myUid()])
+      ) || (
+        // Allow the receiver to remove their uid from the sender's outgoingRequests when responding.
+        // (decline OR accept both require this cleanup)
+        isAuthed() &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['outgoingRequests']) &&
+        request.resource.data.outgoingRequests is list &&
+        (
+          (
+            // Normal case: outgoingRequests exists and we remove exactly our uid
+            resource.data.outgoingRequests is list &&
+            resource.data.outgoingRequests.hasAny([myUid()]) &&
+            request.resource.data.outgoingRequests.size() == resource.data.outgoingRequests.size() - 1 &&
+            resource.data.outgoingRequests.hasAll(request.resource.data.outgoingRequests)
+          )
+          ||
+          (
+            // Edge case: outgoingRequests is missing/null, allow setting it to an empty list
+            !(resource.data.keys().hasAny(['outgoingRequests'])) &&
+            request.resource.data.outgoingRequests.size() == 0
+          )
+        )
+      ) || (
+        // Allow the receiver to add themselves to the sender's friends list when accepting.
+        isAuthed() &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['friends']) &&
+        request.resource.data.friends is list &&
+        request.resource.data.friends.hasAny([myUid()]) &&
+        (
+          (
+            // Normal case: friends exists and we add exactly our uid
+            resource.data.friends is list &&
+            request.resource.data.friends.size() == resource.data.friends.size() + 1 &&
+            request.resource.data.friends.hasAll(resource.data.friends)
+          )
+          ||
+          (
+            // Edge case: friends is missing/null, allow setting it to a 1-item list containing our uid
+            !(resource.data.keys().hasAny(['friends'])) &&
+            request.resource.data.friends.size() == 1
+          )
+        )
       );
       allow delete: if isAdmin();
 
