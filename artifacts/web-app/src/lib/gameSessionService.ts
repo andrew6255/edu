@@ -299,6 +299,15 @@ export function listenChallengeState(
   });
 }
 
+export async function cancelChallenge(challengeId: string, fromUid: string): Promise<void> {
+  const snap = await getDoc(doc(db, 'challenges', challengeId));
+  if (!snap.exists()) return;
+  const challenge = snap.data() as Challenge;
+  if (challenge.fromUid !== fromUid) return;
+  if (challenge.state !== 'pending') return;
+  await updateDoc(doc(db, 'challenges', challengeId), { state: 'canceled' });
+}
+
 export async function respondToChallenge(
   challengeId: string,
   accept: boolean,

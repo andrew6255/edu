@@ -320,6 +320,24 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <RoundTracker session={session} myUid={user?.uid ?? ''} />
+      <div style={{
+        padding: '10px 16px', background: 'rgba(0,0,0,0.5)',
+        borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0
+      }}>
+        <button
+          onClick={handleLeave}
+          className="ll-btn"
+          style={{ padding: '7px 14px', fontSize: 12 }}
+        >
+          {mode === 'ranked' || mode === 'friend' ? 'Forfeit & Leave' : 'Leave Match'}
+        </button>
+        <span style={{ fontWeight: 'bold', fontSize: 14, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {game.icon} {game.label}
+        </span>
+        <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: 11, background: '#1e293b', padding: '3px 8px', borderRadius: 6, border: '1px solid #334155' }}>
+          ⚔️ {mode === 'friend' ? 'Play a Friend' : 'Ranked'}
+        </span>
+      </div>
       <div style={{ flex: 1, overflow: 'hidden' }}>
         <GameComp gameId={game.id} mode={mode} onGameOver={handleGameOver} />
       </div>

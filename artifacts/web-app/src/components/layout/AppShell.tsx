@@ -78,7 +78,8 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const { level, title } = computeLevel(xp);
 
   const ongoingBadge = ongoingWarmup && view !== 'warmup' ? 1 : 0;
-  const hudBadgeCount = unreadCount + ongoingBadge;
+  const friendReqCount = userData?.incomingRequests?.length ?? 0;
+  const hudBadgeCount = unreadCount + friendReqCount + ongoingBadge;
 
   const maxXP = level * 1000;
   const prevXP = (level - 1) * 1000;
@@ -265,9 +266,9 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
             </div>
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[
-                { icon: '🔔', label: 'Notifications', target: 'notifications' as View },
-                { icon: '👥', label: 'Friends List', target: 'friends' as View },
+              {[{
+                icon: '🔔', label: 'Notifications', target: 'notifications' as View, badge: unreadCount },
+                { icon: '👥', label: 'Friends List', target: 'friends' as View, badge: friendReqCount },
                 { icon: '👤', label: 'My Profile', target: 'profile' as View },
               ].map(item => (
                 <button
@@ -304,6 +305,17 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                       }}>
                         {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    )}
+                    {item.target === 'friends' && friendReqCount > 0 && (
+                      <span style={{
+                        marginLeft: 'auto',
+                        minWidth: 18, height: 18, padding: '0 6px',
+                        borderRadius: 999, background: '#ef4444',
+                        color: 'white', fontSize: 11, fontWeight: 'bold',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}>
+                        {friendReqCount > 99 ? '99+' : friendReqCount}
                       </span>
                     )}
                   </span>
@@ -435,7 +447,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
               <button onClick={() => setNotificationsOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>×</button>
             </div>
             <div style={{ height: 'calc(100% - 41px)', overflow: 'hidden' }}>
-              <NotificationsView />
+              <NotificationsView onClose={() => setNotificationsOpen(false)} />
             </div>
           </div>
         </>

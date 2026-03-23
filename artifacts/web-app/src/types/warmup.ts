@@ -59,7 +59,7 @@ export interface Challenge {
   toUsername: string;
   gameId: string;
   gameLabel: string;
-  state: 'pending' | 'accepted' | 'declined';
+  state: 'pending' | 'accepted' | 'declined' | 'canceled';
   sessionId?: string;
   createdAt: string;
 }

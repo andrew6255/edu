@@ -1,13 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { respondToFriendRequest, AppNotification } from '@/lib/userService';
 import { db } from '@/lib/firebase';
 import { collection, query, orderBy, onSnapshot, doc, deleteDoc, writeBatch } from 'firebase/firestore';
-import { respondToChallenge } from '@/lib/gameSessionService';
+import { listenChallengeState, respondToChallenge } from '@/lib/gameSessionService';
 
-export default function NotificationsView() {
+interface Props {
+  onClose?: () => void;
+}
+
+export default function NotificationsView({ onClose }: Props) {
   const { user, refreshUserData } = useAuth();
   const [notifs, setNotifs] = useState<AppNotification[]>([]);
+  const cleanupUnsubsRef = useRef<Map<string, () => void>>(new Map());
 
   useEffect(() => {
     if (!user) return;
@@ -17,6 +22,43 @@ export default function NotificationsView() {
     });
     return unsub;
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const cleanup = cleanupUnsubsRef.current;
+    const activeIds = new Set(
+      notifs
+        .filter(n => n.type === 'challenge' && !!n.challengeId)
+        .map(n => n.id)
+    );
+
+    // Unsubscribe watchers for notifications that are gone
+    for (const [notifId, unsub] of cleanup.entries()) {
+      if (!activeIds.has(notifId)) {
+        unsub();
+        cleanup.delete(notifId);
+      }
+    }
+
+    // Subscribe to each challenge notif's challenge doc, and auto-remove notif if not pending
+    for (const n of notifs) {
+      if (n.type !== 'challenge') continue;
+      if (!n.challengeId) continue;
+      if (cleanup.has(n.id)) continue;
+
+      const unsub = listenChallengeState(n.challengeId, async challenge => {
+        if (challenge.state === 'pending') return;
+        await deleteDoc(doc(db, `users/${user.uid}/notifications`, n.id));
+      });
+      cleanup.set(n.id, unsub);
+    }
+
+    return () => {
+      for (const [, unsub] of cleanup.entries()) unsub();
+      cleanup.clear();
+    };
+  }, [user, notifs]);
 
   useEffect(() => {
     if (!user) return;
@@ -57,6 +99,7 @@ export default function NotificationsView() {
       if (session) {
         window.dispatchEvent(new CustomEvent('ll:setPendingSession', { detail: { session, gameId: n.gameId } }));
         window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'warmup' } }));
+        onClose?.();
       }
     } else {
       await respondToChallenge(n.challengeId, false, user.uid, '');
