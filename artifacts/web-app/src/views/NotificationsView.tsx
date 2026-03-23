@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function NotificationsView({ onClose }: Props) {
-  const { user, refreshUserData } = useAuth();
+  const { user, userData, refreshUserData } = useAuth();
   const [notifs, setNotifs] = useState<AppNotification[]>([]);
   const cleanupUnsubsRef = useRef<Map<string, () => void>>(new Map());
 
@@ -78,11 +78,35 @@ export default function NotificationsView({ onClose }: Props) {
     batch.commit();
   }, [user, notifs]);
 
+  useEffect(() => {
+    if (!user) return;
+    const friends = userData?.friends ?? [];
+    if (friends.length === 0) return;
+
+    const toResolve = notifs.filter(n =>
+      n.type === 'friendRequest' && !n.resolved && friends.includes(n.fromUid)
+    );
+    if (toResolve.length === 0) return;
+
+    const batch = writeBatch(db);
+    for (const n of toResolve) {
+      batch.set(doc(db, `users/${user.uid}/notifications`, n.id), {
+        message: `You are now friends with ${n.fromUsername}.`,
+        resolved: true,
+        resolvedAt: new Date().toISOString(),
+        read: true,
+        type: 'system',
+      }, { merge: true });
+    }
+    batch.commit();
+  }, [user, userData?.friends, notifs]);
+
   async function handleResponse(n: AppNotification, accept: boolean) {
     if (!user) return;
     await respondToFriendRequest(user.uid, n.fromUid, accept);
     await writeBatch(db)
       .set(doc(db, `users/${user.uid}/notifications`, n.id), {
+        ...(accept ? { message: `You are now friends with ${n.fromUsername}.`, type: 'system' } : {}),
         resolved: true,
         resolvedAt: new Date().toISOString(),
         read: true,

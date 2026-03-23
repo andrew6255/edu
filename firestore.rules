@@ -102,6 +102,45 @@ service cloud.firestore {
             request.resource.data.friends.size() == 1
           )
         )
+      ) || (
+        // Allow the receiver to accept a request in one atomic write on the sender:
+        // remove myUid from outgoingRequests AND add myUid to friends.
+        isAuthed() &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly(['outgoingRequests', 'friends']) &&
+        request.resource.data.outgoingRequests is list &&
+        request.resource.data.friends is list &&
+        request.resource.data.friends.hasAny([myUid()]) &&
+        (
+          // outgoingRequests: normal removal OR edge case missing -> []
+          (
+            (
+              resource.data.outgoingRequests is list &&
+              resource.data.outgoingRequests.hasAny([myUid()]) &&
+              request.resource.data.outgoingRequests.size() == resource.data.outgoingRequests.size() - 1 &&
+              resource.data.outgoingRequests.hasAll(request.resource.data.outgoingRequests)
+            )
+            ||
+            (
+              !(resource.data.keys().hasAny(['outgoingRequests'])) &&
+              request.resource.data.outgoingRequests.size() == 0
+            )
+          )
+        ) &&
+        (
+          // friends: normal add OR edge case missing -> [myUid]
+          (
+            (
+              resource.data.friends is list &&
+              request.resource.data.friends.size() == resource.data.friends.size() + 1 &&
+              request.resource.data.friends.hasAll(resource.data.friends)
+            )
+            ||
+            (
+              !(resource.data.keys().hasAny(['friends'])) &&
+              request.resource.data.friends.size() == 1
+            )
+          )
+        )
       );
       allow delete: if isAdmin();
 
@@ -117,7 +156,18 @@ service cloud.firestore {
           request.resource.data.type in ['friendRequest', 'challenge', 'system'];
 
         // Only the owner (or admin) can mark read / delete.
-        allow update, delete: if isOwn(userId) || isAdmin();
+        allow update: if isOwn(userId) || isAdmin() || (
+          // Allow the sender to update the notification they created (for de-dupe / bumping),
+          // but only for a small safe set of fields.
+          isAuthed() &&
+          resource.data.fromUid == myUid() &&
+          request.resource.data.fromUid == myUid() &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'message', 'createdAt', 'read', 'resolved', 'resolvedAt',
+            'challengeId', 'gameId', 'gameLabel', 'type', 'id', 'fromUsername'
+          ])
+        );
+        allow delete: if isOwn(userId) || isAdmin();
       }
     }
 

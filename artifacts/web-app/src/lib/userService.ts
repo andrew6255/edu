@@ -288,6 +288,17 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
     const toUid = snap.docs[0].id;
     if (toUid === fromUid) return false;
 
+    const toUserSnap = await getDoc(doc(db, 'users', toUid));
+    if (toUserSnap.exists()) {
+      const toData = toUserSnap.data() as Partial<UserData>;
+      const friends = Array.isArray(toData.friends) ? toData.friends : [];
+      const incoming = Array.isArray(toData.incomingRequests) ? toData.incomingRequests : [];
+      if (friends.includes(fromUid)) return false;
+      if (incoming.includes(fromUid)) {
+        // Request already pending; we'll just bump the existing notification below.
+      }
+    }
+
     const { arrayUnion } = await import('firebase/firestore');
 
     const batch = writeBatch(db);
@@ -296,9 +307,11 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
     batch.set(doc(db, 'users', toUid), { incomingRequests: arrayUnion(fromUid) }, { merge: true });
     batch.set(doc(db, 'users', fromUid), { outgoingRequests: arrayUnion(toUid) }, { merge: true });
 
-    const notifRef = doc(collection(db, `users/${toUid}/notifications`));
+    // Deduplicate: one friendRequest notification per sender->receiver.
+    const notifId = `friendRequest_${fromUid}`;
+    const notifRef = doc(db, `users/${toUid}/notifications`, notifId);
     batch.set(notifRef, {
-      id: notifRef.id,
+      id: notifId,
       fromUid,
       fromUsername,
       type: 'friendRequest',
@@ -306,7 +319,7 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
       createdAt: new Date().toISOString(),
       read: false,
       resolved: false
-    });
+    }, { merge: true });
 
     await batch.commit();
     return true;
@@ -319,15 +332,41 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
 }
 
 export async function respondToFriendRequest(uid: string, peerUid: string, accept: boolean): Promise<void> {
-  const { arrayRemove, arrayUnion } = await import('firebase/firestore');
-  
-  await updateDoc(doc(db, 'users', uid), { incomingRequests: arrayRemove(peerUid) });
-  await updateDoc(doc(db, 'users', peerUid), { outgoingRequests: arrayRemove(uid) });
-  
-  if (accept) {
-    await updateDoc(doc(db, 'users', uid), { friends: arrayUnion(peerUid) });
-    await updateDoc(doc(db, 'users', peerUid), { friends: arrayUnion(uid) });
-  }
+  const mySnap = await getDoc(doc(db, 'users', uid));
+  const peerSnap = await getDoc(doc(db, 'users', peerUid));
+  if (!mySnap.exists() || !peerSnap.exists()) return;
+
+  const myData = mySnap.data() as Partial<UserData>;
+  const peerData = peerSnap.data() as Partial<UserData>;
+
+  const myIncoming = Array.isArray(myData.incomingRequests) ? myData.incomingRequests : [];
+  const myFriends = Array.isArray(myData.friends) ? myData.friends : [];
+  const peerOutgoing = Array.isArray(peerData.outgoingRequests) ? peerData.outgoingRequests : [];
+  const peerFriends = Array.isArray(peerData.friends) ? peerData.friends : [];
+
+  const nextMyIncoming = myIncoming.filter(x => x !== peerUid);
+  const nextPeerOutgoing = peerOutgoing.filter(x => x !== uid);
+
+  const nextMyFriends = accept
+    ? Array.from(new Set([...myFriends, peerUid]))
+    : myFriends;
+
+  const nextPeerFriends = accept
+    ? Array.from(new Set([...peerFriends, uid]))
+    : peerFriends;
+
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'users', uid), {
+    incomingRequests: nextMyIncoming,
+    ...(accept ? { friends: nextMyFriends } : {}),
+  }, { merge: true });
+
+  batch.set(doc(db, 'users', peerUid), {
+    outgoingRequests: nextPeerOutgoing,
+    ...(accept ? { friends: nextPeerFriends } : {}),
+  }, { merge: true });
+
+  await batch.commit();
 }
 
 export async function removeFriend(uid: string, peerUid: string): Promise<void> {
