@@ -221,46 +221,59 @@ export async function sendChallenge(
   gameId: string,
   gameLabel: string
 ): Promise<{ success: boolean; challengeId?: string; error?: string }> {
-  const usersQ = query(
-    collection(db, 'users'),
-    where('username', '==', toUsername)
-  );
-  const results = await getDocs(usersQ);
-  if (results.empty) return { success: false, error: 'Username not found' };
+  const trimmed = toUsername.trim();
+  const normalized = trimmed.toLowerCase();
 
-  const toDoc = results.docs[0];
-  const toUid = toDoc.id;
-  if (toUid === fromUid) return { success: false, error: 'You cannot challenge yourself' };
+  try {
+    let results = await getDocs(
+      query(collection(db, 'users'), where('username', '==', normalized))
+    );
+    if (results.empty && trimmed !== normalized) {
+      results = await getDocs(
+        query(collection(db, 'users'), where('username', '==', trimmed))
+      );
+    }
+    if (results.empty) return { success: false, error: 'Username not found' };
 
-  const challengeId = makeId();
-  const challenge: Challenge = {
-    id: challengeId,
-    fromUid, fromUsername,
-    toUid, toUsername,
-    gameId, gameLabel,
-    state: 'pending',
-    createdAt: new Date().toISOString()
-  };
+    const toDoc = results.docs[0];
+    const toUid = toDoc.id;
+    if (toUid === fromUid) return { success: false, error: 'You cannot challenge yourself' };
 
-  const batch = writeBatch(db);
-  batch.set(doc(db, 'challenges', challengeId), challenge);
+    const challengeId = makeId();
+    const challenge: Challenge = {
+      id: challengeId,
+      fromUid, fromUsername,
+      toUid, toUsername: trimmed,
+      gameId, gameLabel,
+      state: 'pending',
+      createdAt: new Date().toISOString()
+    };
 
-  const notifRef = doc(collection(db, `users/${toUid}/notifications`));
-  batch.set(notifRef, {
-    id: notifRef.id,
-    fromUid,
-    fromUsername,
-    type: 'challenge',
-    message: `${fromUsername} challenged you in ${gameLabel}.`,
-    createdAt: new Date().toISOString(),
-    read: false,
-    challengeId,
-    gameId,
-    gameLabel,
-  });
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'challenges', challengeId), challenge);
 
-  await batch.commit();
-  return { success: true, challengeId };
+    const notifRef = doc(collection(db, `users/${toUid}/notifications`));
+    batch.set(notifRef, {
+      id: notifRef.id,
+      fromUid,
+      fromUsername,
+      type: 'challenge',
+      message: `${fromUsername} challenged you in ${gameLabel}.`,
+      createdAt: new Date().toISOString(),
+      read: false,
+      challengeId,
+      gameId,
+      gameLabel,
+    });
+
+    await batch.commit();
+    return { success: true, challengeId };
+  } catch (e) {
+    const err = e as { message?: string; code?: string };
+    const msg = err?.message || 'Failed to send challenge';
+    const code = err?.code ? ` (${err.code})` : '';
+    return { success: false, error: `${msg}${code}` };
+  }
 }
 
 export function listenIncomingChallenges(

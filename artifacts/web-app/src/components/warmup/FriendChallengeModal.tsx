@@ -23,25 +23,34 @@ export default function FriendChallengeModal({ gameId, gameLabel, onSessionReady
     if (!user || !userData || !username.trim()) return;
     setSending(true);
     setError('');
-    const { success, challengeId, error: err } = await sendChallenge(
-      user.uid, userData.username || 'Player',
-      username.trim(), gameId, gameLabel
-    );
-    setSending(false);
-    if (!success || !challengeId) { setError(err || 'Failed to send'); return; }
-
-    setPhase('waiting');
-    const unsub = listenChallengeState(challengeId, async (challenge: Challenge) => {
-      if (challenge.state === 'accepted' && challenge.sessionId) {
-        unsub();
-        const session = await getSession(challenge.sessionId);
-        if (session) onSessionReady(session);
-      } else if (challenge.state === 'declined') {
-        unsub();
-        setPhase('declined');
+    try {
+      const { success, challengeId, error: err } = await sendChallenge(
+        user.uid, userData.username || 'Player',
+        username.trim(), gameId, gameLabel
+      );
+      if (!success || !challengeId) {
+        setError(err || 'Failed to send');
+        return;
       }
-    });
-    setUnsubRef(() => unsub);
+
+      setPhase('waiting');
+      const unsub = listenChallengeState(challengeId, async (challenge: Challenge) => {
+        if (challenge.state === 'accepted' && challenge.sessionId) {
+          unsub();
+          const session = await getSession(challenge.sessionId);
+          if (session) onSessionReady(session);
+        } else if (challenge.state === 'declined') {
+          unsub();
+          setPhase('declined');
+        }
+      });
+      setUnsubRef(() => unsub);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg || 'Failed to send');
+    } finally {
+      setSending(false);
+    }
   }
 
   function handleCancel() {

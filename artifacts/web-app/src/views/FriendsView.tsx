@@ -42,7 +42,8 @@ export default function FriendsView() {
       const ok = await sendFriendRequest(user.uid, userData.username || user.uid, search);
       setMsg(ok ? '✅ Friend request sent!' : '❌ User not found or request already sent.');
     } catch(e) {
-      setMsg('❌ Error sending request.');
+      const msg = e instanceof Error ? e.message : String(e);
+      setMsg(`❌ ${msg || 'Error sending request.'}`);
     }
     setTimeout(() => setMsg(''), 3000);
     setSearch('');

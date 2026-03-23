@@ -273,34 +273,46 @@ export async function updateRankedStats(uid: string, gameId: string, result: 'wi
 }
 
 export async function sendFriendRequest(fromUid: string, fromUsername: string, toUsername: string): Promise<boolean> {
-  const q = query(collection(db, 'users'), where('username', '==', toUsername.toLowerCase().trim()));
-  const snap = await getDocs(q);
-  if (snap.empty) return false;
-  
-  const toUid = snap.docs[0].id;
-  if (toUid === fromUid) return false;
+  const trimmed = toUsername.trim();
+  const normalized = trimmed.toLowerCase();
 
-  const { arrayUnion } = await import('firebase/firestore');
+  try {
+    let snap = await getDocs(query(collection(db, 'users'), where('username', '==', normalized)));
+    if (snap.empty && trimmed !== normalized) {
+      snap = await getDocs(query(collection(db, 'users'), where('username', '==', trimmed)));
+    }
+    if (snap.empty) return false;
 
-  const batch = writeBatch(db);
+    const toUid = snap.docs[0].id;
+    if (toUid === fromUid) return false;
 
-  // Use merge writes so this doesn't fail if some fields are missing.
-  batch.set(doc(db, 'users', toUid), { incomingRequests: arrayUnion(fromUid) }, { merge: true });
-  batch.set(doc(db, 'users', fromUid), { outgoingRequests: arrayUnion(toUid) }, { merge: true });
+    const { arrayUnion } = await import('firebase/firestore');
 
-  const notifRef = doc(collection(db, `users/${toUid}/notifications`));
-  batch.set(notifRef, {
-    id: notifRef.id,
-    fromUid,
-    fromUsername,
-    type: 'friendRequest',
-    message: `${fromUsername} sent you a friend request.`,
-    createdAt: new Date().toISOString(),
-    read: false
-  });
+    const batch = writeBatch(db);
 
-  await batch.commit();
-  return true;
+    // Use merge writes so this doesn't fail if some fields are missing.
+    batch.set(doc(db, 'users', toUid), { incomingRequests: arrayUnion(fromUid) }, { merge: true });
+    batch.set(doc(db, 'users', fromUid), { outgoingRequests: arrayUnion(toUid) }, { merge: true });
+
+    const notifRef = doc(collection(db, `users/${toUid}/notifications`));
+    batch.set(notifRef, {
+      id: notifRef.id,
+      fromUid,
+      fromUsername,
+      type: 'friendRequest',
+      message: `${fromUsername} sent you a friend request.`,
+      createdAt: new Date().toISOString(),
+      read: false
+    });
+
+    await batch.commit();
+    return true;
+  } catch (e) {
+    const err = e as { message?: string; code?: string };
+    const msg = err?.message || 'Error sending request';
+    const code = err?.code ? ` (${err.code})` : '';
+    throw new Error(`${msg}${code}`);
+  }
 }
 
 export async function respondToFriendRequest(uid: string, peerUid: string, accept: boolean): Promise<void> {
