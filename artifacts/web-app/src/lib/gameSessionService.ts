@@ -27,9 +27,9 @@ function botPlayer(difficulty: 'easy' | 'medium' | 'hard' = 'medium'): SessionPl
 }
 
 export function generateBotScore(gameId: string, difficulty: 'easy' | 'medium' | 'hard'): number {
+  const baseId = gameId.replace(/_(10s|60s)$/i, '');
   const ranges: Record<string, Record<string, [number, number]>> = {
     quickMath:    { easy: [3, 7],   medium: [6, 12],  hard: [10, 18] },
-    timeLimit:    { easy: [5, 10],  medium: [8, 15],  hard: [12, 22] },
     advQuickMath: { easy: [2, 5],   medium: [4, 9],   hard: [7, 14]  },
     compareExp:   { easy: [4, 8],   medium: [7, 13],  hard: [10, 18] },
     trueFalse:    { easy: [5, 10],  medium: [8, 15],  hard: [12, 20] },
@@ -46,7 +46,7 @@ export function generateBotScore(gameId: string, difficulty: 'easy' | 'medium' |
     ticTacToe:    { easy: [0, 2],   medium: [1, 3],    hard: [2, 5]    },
     chessMemory:  { easy: [3, 8],   medium: [7, 14],   hard: [12, 20]  },
   };
-  const range = ranges[gameId]?.[difficulty] ?? [3, 8];
+  const range = ranges[baseId]?.[difficulty] ?? [3, 8];
   return Math.floor(Math.random() * (range[1] - range[0] + 1)) + range[0];
 }
 
@@ -137,6 +137,23 @@ export async function getSession(sessionId: string): Promise<GameSession | null>
   return snap.exists() ? (snap.data() as GameSession) : null;
 }
 
+export async function forfeitSession(sessionId: string, forfeitingUid: string): Promise<void> {
+  const snap = await getDoc(doc(db, 'gameSessions', sessionId));
+  if (!snap.exists()) return;
+  const session = snap.data() as GameSession;
+  if (session.state === 'complete') return;
+
+  const winner: 'p1' | 'p2' | 'draw' =
+    session.player1.uid === forfeitingUid ? 'p2' : session.player2.uid === forfeitingUid ? 'p1' : 'draw';
+
+  if (winner === 'draw') return;
+
+  await updateDoc(doc(db, 'gameSessions', sessionId), {
+    state: 'complete',
+    winner,
+  });
+}
+
 // ─── Matchmaking ─────────────────────────────────────────────────────────────
 
 export async function joinMatchmaking(
@@ -224,7 +241,25 @@ export async function sendChallenge(
     state: 'pending',
     createdAt: new Date().toISOString()
   };
-  await setDoc(doc(db, 'challenges', challengeId), challenge);
+
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'challenges', challengeId), challenge);
+
+  const notifRef = doc(collection(db, `users/${toUid}/notifications`));
+  batch.set(notifRef, {
+    id: notifRef.id,
+    fromUid,
+    fromUsername,
+    type: 'challenge',
+    message: `${fromUsername} challenged you in ${gameLabel}.`,
+    createdAt: new Date().toISOString(),
+    read: false,
+    challengeId,
+    gameId,
+    gameLabel,
+  });
+
+  await batch.commit();
   return { success: true, challengeId };
 }
 

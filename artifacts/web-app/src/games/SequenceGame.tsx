@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { GameMode } from '@/types/warmup';
 
 interface GameProps { gameId: string; mode: GameMode; onGameOver: (score: number) => void; }
@@ -50,7 +50,8 @@ function genWrongAnswers(correct: number): number[] {
   return Array.from(set).sort(() => Math.random() - 0.5);
 }
 
-export default function SequenceGame({ onGameOver }: GameProps) {
+export default function SequenceGame({ gameId, onGameOver }: GameProps) {
+  const is60s = /_60s$/i.test(gameId);
   const [question, setQuestion] = useState<Sequence & { options: number[] }>(() => {
     const q = makeSequence(1);
     return { ...q, options: genWrongAnswers(q.answer) };
@@ -59,21 +60,42 @@ export default function SequenceGame({ onGameOver }: GameProps) {
   const [round, setRound] = useState(1);
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
   const [started, setStarted] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(is60s ? 60 : 10);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!started) return;
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          onGameOver(score);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [started, score]);
 
   function handleAnswer(opt: number) {
     if (feedback) return;
-    if (opt === question.answer) {
-      setScore(s => s + 50);
+    const ok = opt === question.answer;
+    if (ok) {
+      setScore(s => s + 1);
       setFeedback('correct');
+      if (!is60s) setTimeLeft(10);
     } else {
       setFeedback('wrong');
+      if (is60s) setScore(s => Math.max(0, s - 1));
     }
     setTimeout(() => {
-      if (round >= 8) { onGameOver(score + (opt === question.answer ? 50 : 0)); return; }
-      const q = makeSequence(Math.min(4, Math.floor(round / 2) + 1));
+      if (!ok && !is60s) { onGameOver(score); return; }
+      const nextRound = round + 1;
+      const q = makeSequence(Math.min(4, Math.floor(nextRound / 3) + 1));
       setQuestion({ ...q, options: genWrongAnswers(q.answer) });
       setFeedback(null);
-      setRound(r => r + 1);
+      setRound(nextRound);
     }, 800);
   }
 
@@ -83,7 +105,8 @@ export default function SequenceGame({ onGameOver }: GameProps) {
         <div style={{ fontSize: 64 }}>🔗</div>
         <h2 style={{ margin: 0, fontSize: 28, color: 'white' }}>Sequence</h2>
         <p style={{ color: '#94a3b8', textAlign: 'center', maxWidth: 360, lineHeight: 1.6 }}>
-          Find the <strong style={{ color: '#f8fafc' }}>missing number</strong> in each sequence. 8 rounds!
+          Find the <strong style={{ color: '#f8fafc' }}>missing number</strong> in each sequence.<br />
+          {is60s ? '60 seconds. Wrong = -1.' : '10 seconds per question. One wrong = game over.'}
         </p>
         <button className="ll-btn ll-btn-primary" style={{ fontSize: 18, padding: '16px 50px' }} onClick={() => setStarted(true)}>
           START
@@ -96,7 +119,7 @@ export default function SequenceGame({ onGameOver }: GameProps) {
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 25, padding: 25 }}>
       <div style={{ display: 'flex', gap: 20, fontSize: 15 }}>
         <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>Score: {score}</span>
-        <span style={{ color: '#94a3b8' }}>Round {round}/8</span>
+        <span style={{ color: '#94a3b8' }}>{is60s ? `${timeLeft}s` : `Q: ${timeLeft}s`}</span>
       </div>
 
       {/* Sequence display */}

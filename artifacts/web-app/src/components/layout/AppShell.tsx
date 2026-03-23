@@ -1,11 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { signOut } from 'firebase/auth';
 import { useLocation } from 'wouter';
 import { auth } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { computeLevel } from '@/lib/userService';
 import { joinClassByCode } from '@/lib/classService';
-import ChallengeNotification from '@/components/warmup/ChallengeNotification';
+import NotificationsView from '@/views/NotificationsView';
+import FriendsView from '@/views/FriendsView';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { useSession } from '@/contexts/SessionContext';
+import { forfeitSession } from '@/lib/gameSessionService';
 
 type View = 'emporium' | 'warmup' | 'universe' | 'logic' | 'profile' | 'curriculum' | 'notifications' | 'friends';
 
@@ -16,13 +21,54 @@ interface AppShellProps {
 }
 
 export default function AppShell({ view, setView, children }: AppShellProps) {
-  const { userData, refreshUserData } = useAuth();
+  const { user, userData, refreshUserData } = useAuth();
+  const { ongoingWarmup, activeSession, setActiveSession, setOngoingWarmup } = useSession();
   const [, setLocation] = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [friendsOpen, setFriendsOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [joinCodeOpen, setJoinCodeOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [joinMsg, setJoinMsg] = useState('');
   const [joining, setJoining] = useState(false);
+
+  const abandonTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (abandonTimerRef.current) {
+      window.clearTimeout(abandonTimerRef.current);
+      abandonTimerRef.current = null;
+    }
+
+    if (!user) return;
+    if (!activeSession) return;
+    if (view === 'warmup') return;
+
+    abandonTimerRef.current = window.setTimeout(async () => {
+      try {
+        await forfeitSession(activeSession.sessionId, user.uid);
+      } finally {
+        setActiveSession(null);
+        setOngoingWarmup(null);
+      }
+    }, 30000);
+
+    return () => {
+      if (abandonTimerRef.current) {
+        window.clearTimeout(abandonTimerRef.current);
+        abandonTimerRef.current = null;
+      }
+    };
+  }, [user, view, activeSession]);
+
+  useEffect(() => {
+    const uid = user?.uid;
+    if (!uid) return;
+    const q = query(collection(db, `users/${uid}/notifications`), where('read', '==', false));
+    const unsub = onSnapshot(q, snap => setUnreadCount(snap.size));
+    return unsub;
+  }, [user]);
 
   const gold = userData?.economy?.gold ?? 0;
   const xp = userData?.economy?.global_xp ?? 0;
@@ -30,6 +76,9 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const username = userData?.username ?? 'Student';
   const role = userData?.role ?? 'student';
   const { level, title } = computeLevel(xp);
+
+  const ongoingBadge = ongoingWarmup && view !== 'warmup' ? 1 : 0;
+  const hudBadgeCount = unreadCount + ongoingBadge;
 
   const maxXP = level * 1000;
   const prevXP = (level - 1) * 1000;
@@ -101,9 +150,22 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
             border: isDashboardRole ? '2px solid #10b981' : '2px solid #475569',
             color: 'white', cursor: 'pointer', fontSize: 16,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
+            position: 'relative'
           }}
         >
           {username[0]?.toUpperCase() || '?'}
+          {hudBadgeCount > 0 && (
+            <span style={{
+              position: 'absolute', top: -4, right: -4,
+              minWidth: 16, height: 16, padding: '0 4px',
+              borderRadius: 999, background: '#ef4444',
+              color: 'white', fontSize: 10, fontWeight: 'bold',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '2px solid rgba(0,0,0,0.85)'
+            }}>
+              {hudBadgeCount > 99 ? '99+' : hudBadgeCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -210,7 +272,20 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
               ].map(item => (
                 <button
                   key={item.label}
-                  onClick={() => { setView(item.target); setMenuOpen(false); }}
+                  onClick={() => {
+                    if (item.target === 'notifications') {
+                      setNotificationsOpen(true);
+                      setMenuOpen(false);
+                      return;
+                    }
+                    if (item.target === 'friends') {
+                      setFriendsOpen(true);
+                      setMenuOpen(false);
+                      return;
+                    }
+                    setView(item.target);
+                    setMenuOpen(false);
+                  }}
                   style={{
                     textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
                     background: view === item.target ? 'rgba(59,130,246,0.15)' : 'transparent',
@@ -218,9 +293,50 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                     borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
                   }}
                 >
-                  {item.icon} {item.label}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>{item.icon} {item.label}</span>
+                    {item.target === 'notifications' && unreadCount > 0 && (
+                      <span style={{
+                        marginLeft: 'auto',
+                        minWidth: 18, height: 18, padding: '0 6px',
+                        borderRadius: 999, background: '#ef4444',
+                        color: 'white', fontSize: 11, fontWeight: 'bold',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}>
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    )}
+                  </span>
                 </button>
               ))}
+
+              {ongoingWarmup && view !== 'warmup' && (
+                <button
+                  onClick={() => { setView('warmup'); setMenuOpen(false); }}
+                  style={{
+                    textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
+                    background: 'rgba(249,115,22,0.12)',
+                    border: '1px solid rgba(249,115,22,0.35)',
+                    borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>🎮 Ongoing Game</span>
+                    <span style={{
+                      marginLeft: 'auto',
+                      minWidth: 18, height: 18, padding: '0 6px',
+                      borderRadius: 999, background: '#f97316',
+                      color: 'white', fontSize: 11, fontWeight: 'bold',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      {ongoingBadge}
+                    </span>
+                  </span>
+                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+                    {ongoingWarmup.gameLabel}
+                  </div>
+                </button>
+              )}
 
               {isDashboardRole && (
                 <button
@@ -306,8 +422,43 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
         </>
       )}
 
-      {/* Challenge notifications (global, appear above nav bar) */}
-      <ChallengeNotification onNavigateToWarmup={() => setView('warmup')} />
+      {notificationsOpen && (
+        <>
+          <div onClick={() => setNotificationsOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1200 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            width: 'min(520px, 92vw)', height: 'min(720px, 88vh)',
+            background: '#0f172a', borderRadius: 16, border: '2px solid #334155',
+            zIndex: 1201, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.7)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 10, background: 'rgba(0,0,0,0.55)', borderBottom: '1px solid #334155' }}>
+              <button onClick={() => setNotificationsOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>×</button>
+            </div>
+            <div style={{ height: 'calc(100% - 41px)', overflow: 'hidden' }}>
+              <NotificationsView />
+            </div>
+          </div>
+        </>
+      )}
+
+      {friendsOpen && (
+        <>
+          <div onClick={() => setFriendsOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1200 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            width: 'min(520px, 92vw)', height: 'min(720px, 88vh)',
+            background: '#0f172a', borderRadius: 16, border: '2px solid #334155',
+            zIndex: 1201, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.7)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 10, background: 'rgba(0,0,0,0.55)', borderBottom: '1px solid #334155' }}>
+              <button onClick={() => setFriendsOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>×</button>
+            </div>
+            <div style={{ height: 'calc(100% - 41px)', overflow: 'hidden' }}>
+              <FriendsView />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

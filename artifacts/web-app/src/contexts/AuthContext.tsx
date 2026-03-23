@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { getUserData, UserData } from '@/lib/userService';
+import { getUserData, migrateWarmupVariantsIfNeeded, UserData } from '@/lib/userService';
 
 interface AuthContextType {
   user: User | null;
@@ -30,6 +30,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
+        try {
+          await migrateWarmupVariantsIfNeeded(firebaseUser.uid);
+        } catch (e) {
+          console.error('Warmup migration failed:', e);
+        }
         const data = await getUserData(firebaseUser.uid);
         setUserData(data);
       } else {

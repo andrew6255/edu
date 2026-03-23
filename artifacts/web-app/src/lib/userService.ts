@@ -1,6 +1,6 @@
 import { db } from './firebase';
 import {
-  doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, deleteDoc
+  doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, deleteDoc, writeBatch
 } from 'firebase/firestore';
 
 export type UserRole = 'student' | 'teacher' | 'admin' | 'superadmin';
@@ -51,6 +51,7 @@ export interface UserData {
   outgoingRequests: string[];
   rankedStats?: Record<string, { wins: number; losses: number; highestStreak: number; currentStreak?: number }>;
   progress?: Record<string, Record<string, Record<string, { mastered: boolean; xpAwarded: number; completedAt?: string }>>>;
+  warmupVariantsMigrated?: boolean;
   last_active?: string;
 }
 
@@ -58,10 +59,13 @@ export interface AppNotification {
   id: string;
   fromUid: string;
   fromUsername: string;
-  type: 'friendRequest' | 'system';
+  type: 'friendRequest' | 'challenge' | 'system';
   message: string;
   createdAt: string;
   read: boolean;
+  challengeId?: string;
+  gameId?: string;
+  gameLabel?: string;
 }
 
 export const SUPER_ADMIN_UID = 'SUPERADMIN_0000';
@@ -77,9 +81,15 @@ const DEFAULT_USER: Partial<UserData> = {
   inventory: { stories: [], badges: ['badge_pioneer'], banners: ['default'], mapThemes: ['theme-standard', 'theme-hex'] },
   equipped: { mapTheme: 'theme-standard', banner: 'default', badges: ['badge_pioneer'] },
   high_scores: {
-    quickMath: 0, timeLimit: 0, numGrid: 0, blockPuzzle: 0, ticTacToe: 0,
-    advQuickMath: 0, compareExp: 0, trueFalse: 0, missingOp: 0, fifteenPuzzle: 0,
-    completeEq: 0, sequence: 0, memoOrder: 0, pyramid: 0, memoCells: 0,
+    quickMath_10s: 0, quickMath_60s: 0,
+    advQuickMath_10s: 0, advQuickMath_60s: 0,
+    trueFalse_10s: 0, trueFalse_60s: 0,
+    compareExp_10s: 0, compareExp_60s: 0,
+    missingOp_10s: 0, missingOp_60s: 0,
+    completeEq_10s: 0, completeEq_60s: 0,
+    sequence_10s: 0, sequence_60s: 0,
+    numGrid: 0, blockPuzzle: 0, ticTacToe: 0,
+    fifteenPuzzle: 0, memoOrder: 0, pyramid: 0, memoCells: 0,
     chessMemory: 0, nameSquare10: 0, nameSquare60: 0, findSquare10: 0, findSquare60: 0
   },
   warmup_date: '',
@@ -90,7 +100,75 @@ const DEFAULT_USER: Partial<UserData> = {
 export async function getUserData(uid: string): Promise<UserData | null> {
   const snap = await getDoc(doc(db, 'users', uid));
   if (!snap.exists()) return null;
-  return { ...DEFAULT_USER, ...snap.data() } as UserData;
+  return snap.data() as UserData;
+}
+
+export async function migrateWarmupVariantsIfNeeded(uid: string): Promise<boolean> {
+  const snap = await getDoc(doc(db, 'users', uid));
+  if (!snap.exists()) return false;
+  const data = snap.data() as UserData;
+  if (data.warmupVariantsMigrated) return false;
+
+  const hs = data.high_scores ?? {};
+  const rs = data.rankedStats ?? {};
+
+  const updates: Record<string, unknown> = {
+    warmupVariantsMigrated: true,
+  };
+
+  const hi = (key: string) => (typeof (hs as any)[key] === 'number' ? ((hs as any)[key] as number) : 0);
+  const rstat = (key: string) => ((rs as any)[key] as any) ?? null;
+
+  function migrateScore(fromKey: string, toKey: string) {
+    const from = hi(fromKey);
+    const to = hi(toKey);
+    if (from > to) updates[`high_scores.${toKey}`] = from;
+  }
+
+  function migrateRanked(fromKey: string, toKey: string) {
+    const from = rstat(fromKey);
+    const to = rstat(toKey);
+    if (from && !to) updates[`rankedStats.${toKey}`] = from;
+  }
+
+  migrateScore('quickMath', 'quickMath_10s');
+  migrateScore('timeLimit', 'quickMath_60s');
+
+  migrateScore('advQuickMath', 'advQuickMath_10s');
+  migrateScore('advQuickMath', 'advQuickMath_60s');
+
+  migrateScore('trueFalse', 'trueFalse_10s');
+  migrateScore('trueFalse', 'trueFalse_60s');
+
+  migrateScore('compareExp', 'compareExp_10s');
+  migrateScore('compareExp', 'compareExp_60s');
+
+  migrateScore('missingOp', 'missingOp_10s');
+  migrateScore('missingOp', 'missingOp_60s');
+
+  migrateScore('completeEq', 'completeEq_10s');
+  migrateScore('completeEq', 'completeEq_60s');
+
+  migrateScore('sequence', 'sequence_10s');
+  migrateScore('sequence', 'sequence_60s');
+
+  migrateRanked('quickMath', 'quickMath_10s');
+  migrateRanked('timeLimit', 'quickMath_60s');
+  migrateRanked('advQuickMath', 'advQuickMath_10s');
+  migrateRanked('advQuickMath', 'advQuickMath_60s');
+  migrateRanked('trueFalse', 'trueFalse_10s');
+  migrateRanked('trueFalse', 'trueFalse_60s');
+  migrateRanked('compareExp', 'compareExp_10s');
+  migrateRanked('compareExp', 'compareExp_60s');
+  migrateRanked('missingOp', 'missingOp_10s');
+  migrateRanked('missingOp', 'missingOp_60s');
+  migrateRanked('completeEq', 'completeEq_10s');
+  migrateRanked('completeEq', 'completeEq_60s');
+  migrateRanked('sequence', 'sequence_10s');
+  migrateRanked('sequence', 'sequence_60s');
+
+  await updateDoc(doc(db, 'users', uid), updates);
+  return true;
 }
 
 export async function createUserData(uid: string, data: Partial<UserData>): Promise<void> {
@@ -203,14 +281,25 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
   if (toUid === fromUid) return false;
 
   const { arrayUnion } = await import('firebase/firestore');
-  await updateDoc(doc(db, 'users', toUid), { incomingRequests: arrayUnion(fromUid) });
-  await updateDoc(doc(db, 'users', fromUid), { outgoingRequests: arrayUnion(toUid) });
-  
+
+  const batch = writeBatch(db);
+
+  // Use merge writes so this doesn't fail if some fields are missing.
+  batch.set(doc(db, 'users', toUid), { incomingRequests: arrayUnion(fromUid) }, { merge: true });
+  batch.set(doc(db, 'users', fromUid), { outgoingRequests: arrayUnion(toUid) }, { merge: true });
+
   const notifRef = doc(collection(db, `users/${toUid}/notifications`));
-  await setDoc(notifRef, {
-    id: notifRef.id, fromUid, fromUsername, type: 'friendRequest',
-    message: `${fromUsername} sent you a friend request.`, createdAt: new Date().toISOString(), read: false
+  batch.set(notifRef, {
+    id: notifRef.id,
+    fromUid,
+    fromUsername,
+    type: 'friendRequest',
+    message: `${fromUsername} sent you a friend request.`,
+    createdAt: new Date().toISOString(),
+    read: false
   });
+
+  await batch.commit();
   return true;
 }
 

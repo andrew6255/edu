@@ -10,8 +10,6 @@ import ArenaView from '@/views/ArenaView';
 import LeaderboardView from '@/views/LeaderboardView';
 import EmporiumView from '@/views/EmporiumView';
 import LogicGamesView from '@/views/LogicGamesView';
-import NotificationsView from '@/views/NotificationsView';
-import FriendsView from '@/views/FriendsView';
 import OnboardingPage from '@/pages/OnboardingPage';
 
 export type View = 'emporium' | 'warmup' | 'universe' | 'logic' | 'profile' | 'curriculum' | 'notifications' | 'friends';
@@ -21,6 +19,19 @@ export default function AppPage() {
   const [, setLocation] = useLocation();
   const [view, setView] = useState<View>('universe');
   const [selectedSubject, setSelectedSubject] = useState<string | undefined>();
+
+  useEffect(() => {
+    function onSetView(e: Event) {
+      const ce = e as CustomEvent<{ view?: View }>;
+      const next = ce.detail?.view;
+      if (!next) return;
+      setView(next);
+      if (next !== 'curriculum') setSelectedSubject(undefined);
+    }
+
+    window.addEventListener('ll:setView', onSetView as EventListener);
+    return () => window.removeEventListener('ll:setView', onSetView as EventListener);
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) setLocation('/');
@@ -65,15 +76,11 @@ export default function AppPage() {
           />
         );
       case 'warmup':
-        return <WarmupView />;
+        return null;
       case 'emporium':
         return <EmporiumView />;
       case 'logic':
         return <LogicGamesView />;
-      case 'notifications':
-        return <NotificationsView />;
-      case 'friends':
-        return <FriendsView />;
       case 'profile':
         return <ProfileView />;
       default:
@@ -83,8 +90,13 @@ export default function AppPage() {
 
   return (
     <AppShell view={view} setView={v => { setView(v); if (v !== 'curriculum') setSelectedSubject(undefined); }}>
-      <div style={{ height: '100%', overflow: 'hidden', animation: 'fadeIn 0.3s ease' }} key={view}>
-        {renderView()}
+      <div style={{ height: '100%', overflow: 'hidden' }}>
+        <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'block' : 'none' }}>
+          <WarmupView />
+        </div>
+        <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'none' : 'block', animation: 'fadeIn 0.3s ease' }} key={view}>
+          {renderView()}
+        </div>
       </div>
     </AppShell>
   );

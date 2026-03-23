@@ -35,11 +35,12 @@ function makeRound() {
 }
 
 export default function CompareExpGame({ gameId, onGameOver }: GameProps) {
+  const is60s = /_60s$/i.test(gameId);
   const [phase, setPhase] = useState<'ready' | 'playing' | 'done'>('ready');
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(45);
+  const [timeLeft, setTimeLeft] = useState(is60s ? 60 : 10);
   const [round, setRound] = useState(makeRound());
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
   const [total, setTotal] = useState(0);
@@ -71,14 +72,20 @@ export default function CompareExpGame({ gameId, onGameOver }: GameProps) {
       const ns = streak + 1;
       setStreak(ns);
       setMaxStreak(m => Math.max(m, ns));
-      setScore(s => s + 1 + (ns >= 3 ? 1 : 0));
+      setScore(s => s + 1);
+      if (!is60s) setTimeLeft(10);
     } else {
       setStreak(0);
+      if (is60s) setScore(s => Math.max(0, s - 1));
     }
-    setTimeout(() => { setFeedback(null); setRound(makeRound()); }, 550);
+    setTimeout(() => {
+      if (!ok && !is60s) { setPhase('done'); return; }
+      setFeedback(null);
+      setRound(makeRound());
+    }, 550);
   }
 
-  const timerPct = (timeLeft / 45) * 100;
+  const timerPct = (timeLeft / (is60s ? 60 : 10)) * 100;
   const accuracy = total > 0 ? Math.round((score / total) * 100) : 0;
 
   return (
@@ -88,7 +95,8 @@ export default function CompareExpGame({ gameId, onGameOver }: GameProps) {
           <div style={{ fontSize: 60, marginBottom: 16 }}>⚖️</div>
           <h2 style={{ color: 'white', margin: '0 0 10px', fontSize: 26 }}>Compare Expressions</h2>
           <p style={{ color: '#94a3b8', marginBottom: 24, lineHeight: 1.6 }}>
-            Decide whether the left expression is<br /><strong style={{ color: 'white' }}>less than, equal to, or greater than</strong> the right.<br />45 seconds. Streaks give bonus points!
+            Decide whether the left expression is<br /><strong style={{ color: 'white' }}>less than, equal to, or greater than</strong> the right.<br />
+            {is60s ? '60 seconds. Wrong = -1.' : '10 seconds per question. One wrong = game over.'}
           </p>
           <button className="ll-btn ll-btn-primary" style={{ padding: '14px 40px', fontSize: 18 }} onClick={() => setPhase('playing')}>
             START

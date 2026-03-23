@@ -6,6 +6,7 @@ import {
   listenSession, submitRoundScore, resolveRound,
   generateBotScore, getSession
 } from '@/lib/gameSessionService';
+import { forfeitSession } from '@/lib/gameSessionService';
 import { GameSession, GameMode } from '@/types/warmup';
 import { updateDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -182,6 +183,17 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
 
   function handleLeave() {
     unsubRef.current?.();
+
+    if (user && (mode === 'ranked' || mode === 'friend')) {
+      forfeitSession(session.id, user.uid)
+        .catch(e => console.error('Failed to forfeit session:', e))
+        .finally(() => {
+          setActiveSession(null);
+          onLeave();
+        });
+      return;
+    }
+
     setActiveSession(null);
     onLeave();
   }

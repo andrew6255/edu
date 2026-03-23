@@ -46,17 +46,17 @@ export interface GameConfig {
   description: string;
   component: React.ComponentType<{ gameId: string; mode: GameMode; onGameOver: (score: number) => void }>;
   isNew?: boolean;
+  supportsVariants?: boolean;
 }
 
 const GAMES: GameConfig[] = [
-  { id: 'quickMath',    label: 'Quick Math',         icon: '🧮', category: 'rapid',   description: '10 sec per question. One wrong = game over!',   component: QuickMathGame },
-  { id: 'timeLimit',    label: 'Time Limit',         icon: '⏱️', category: 'rapid',   description: '60 seconds, max questions. Wrong = -1.',        component: QuickMathGame },
-  { id: 'advQuickMath', label: 'Advanced Math',      icon: '⚡', category: 'rapid',   description: 'Harder questions, survival mode',               component: QuickMathGame },
-  { id: 'trueFalse',    label: 'True or False',      icon: '✅', category: 'rapid',   description: 'Judge math statements in 60 seconds',           component: TrueFalseGame, isNew: true },
-  { id: 'compareExp',   label: 'Compare Expressions',icon: '⚖️', category: 'rapid',   description: 'Which side is bigger? <, =, or >?',            component: CompareExpGame, isNew: true },
-  { id: 'missingOp',    label: 'Missing Operator',   icon: '🔣', category: 'rapid',   description: 'Find the missing +, −, ×, or ÷',               component: MissingOpGame, isNew: true },
-  { id: 'completeEq',   label: 'Complete Equation',  icon: '📝', category: 'rapid',   description: 'Fill both blanks to complete the equation',      component: CompleteEqGame, isNew: true },
-  { id: 'sequence',     label: 'Sequence',           icon: '🔗', category: 'rapid',   description: 'Complete the number pattern',                   component: SequenceGame },
+  { id: 'quickMath',    label: 'Quick Math',         icon: '🧮', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: QuickMathGame, supportsVariants: true },
+  { id: 'advQuickMath', label: 'Advanced Math',      icon: '⚡', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: QuickMathGame, supportsVariants: true },
+  { id: 'trueFalse',    label: 'True or False',      icon: '✅', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: TrueFalseGame, isNew: true, supportsVariants: true },
+  { id: 'compareExp',   label: 'Compare Expressions',icon: '⚖️', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: CompareExpGame, isNew: true, supportsVariants: true },
+  { id: 'missingOp',    label: 'Missing Operator',   icon: '🔣', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: MissingOpGame, isNew: true, supportsVariants: true },
+  { id: 'completeEq',   label: 'Complete Equation',  icon: '📝', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: CompleteEqGame, isNew: true, supportsVariants: true },
+  { id: 'sequence',     label: 'Sequence',           icon: '🔗', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: SequenceGame, supportsVariants: true },
   { id: 'memoCells',    label: 'Memo Cells',         icon: '🧠', category: 'memory',  description: 'Memorize flashing cells, then recall them',      component: MemoCellsGame, isNew: true },
   { id: 'memoOrder',    label: 'Memo Order',         icon: '🔢', category: 'memory',  description: 'Tap numbers in the order they appeared',        component: MemoOrderGame, isNew: true },
   { id: 'pyramid',      label: 'Number Pyramid',     icon: '△',  category: 'rapid',   description: 'Fill in the pyramid using addition',            component: PyramidGame },
@@ -87,6 +87,7 @@ export default function WarmupView() {
   const [phase, setPhase] = useState<GamePhase>('hub');
   const [category, setCategory] = useState<string>('all');
   const [selectedGame, setSelectedGame] = useState<GameConfig | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<'10s' | '60s'>('10s');
   const [selectedMode, setSelectedMode] = useState<GameMode | null>(null);
   const [multiSession, setMultiSession] = useState<GameSession | null>(null);
   const [soloScore, setSoloScore] = useState<number>(0);
@@ -94,15 +95,35 @@ export default function WarmupView() {
   const [myRank, setMyRank] = useState<number | null>(null);
   const [isNewBest, setIsNewBest] = useState(false);
 
-  const { activeSession, setActiveSession, pendingSession, setPendingSession } = useSession();
+  const { activeSession, setActiveSession, pendingSession, setPendingSession, ongoingWarmup, setOngoingWarmup } = useSession();
   const highScores = userData?.high_scores ?? {};
   const filtered = category === 'all' ? GAMES : GAMES.filter(g => g.category === category);
 
+  const effectiveGameId = selectedGame
+    ? selectedGame.supportsVariants
+      ? `${selectedGame.id}_${selectedVariant}`
+      : selectedGame.id
+    : null;
+
+  useEffect(() => {
+    if (phase === 'playing_solo' && selectedGame && effectiveGameId) {
+      setOngoingWarmup({ kind: 'solo', gameId: effectiveGameId, gameLabel: selectedGame.label });
+      return;
+    }
+    if (phase === 'playing_multi' && selectedGame && effectiveGameId) {
+      setOngoingWarmup({ kind: 'multi', gameId: effectiveGameId, gameLabel: selectedGame.label });
+      return;
+    }
+    setOngoingWarmup(null);
+  }, [phase, selectedGame, effectiveGameId]);
+
   useEffect(() => {
     if (pendingSession) {
-      const game = GAMES.find(g => g.id === pendingSession.gameId);
+      const baseId = pendingSession.gameId.replace(/_(10s|60s)$/i, '');
+      const game = GAMES.find(g => g.id === baseId);
       if (game) {
         setSelectedGame(game);
+        setSelectedVariant(pendingSession.gameId.endsWith('_60s') ? '60s' : '10s');
         setMultiSession(pendingSession.session);
         setSelectedMode('friend');
         setPhase('playing_multi');
@@ -112,12 +133,15 @@ export default function WarmupView() {
   }, [pendingSession]);
 
   function selectGame(game: GameConfig) {
+    if (activeSession || ongoingWarmup) return;
     setSelectedGame(game);
+    setSelectedVariant('10s');
     setPhase('mode_picker');
   }
 
   async function selectMode(mode: GameMode) {
     if (!selectedGame) return;
+    if (activeSession || ongoingWarmup) return;
     setSelectedMode(mode);
     if (mode === 'solo') {
       setPhase('playing_solo');
@@ -129,20 +153,20 @@ export default function WarmupView() {
   }
 
   async function handleSoloGameOver(score: number) {
-    if (!user || !userData || !selectedGame) return;
+    if (!user || !userData || !selectedGame || !effectiveGameId) return;
     setSoloScore(score);
 
     const [{ newBest, rank }, lb] = await Promise.all([
-      submitScore(selectedGame.id, user.uid, userData.username || 'Player', score),
-      getLeaderboard(selectedGame.id)
+      submitScore(effectiveGameId, user.uid, userData.username || 'Player', score),
+      getLeaderboard(effectiveGameId)
     ]);
     setLeaderboard(lb);
     setMyRank(rank);
     setIsNewBest(newBest);
 
-    const prev = highScores[selectedGame.id] ?? 0;
+    const prev = highScores[effectiveGameId] ?? 0;
     if (score > prev) {
-      await updateHighScore(user.uid, selectedGame.id, score);
+      await updateHighScore(user.uid, effectiveGameId, score);
       await refreshUserData();
     }
     setPhase('solo_result');
@@ -153,11 +177,13 @@ export default function WarmupView() {
     setSelectedGame(null);
     setSelectedMode(null);
     setMultiSession(null);
+    setActiveSession(null);
+    setOngoingWarmup(null);
   }
 
   // ── Solo Result Screen ────────────────────────────────────────────────────
   if (phase === 'solo_result' && selectedGame) {
-    const best = highScores[selectedGame.id] ?? 0;
+    const best = effectiveGameId ? (highScores[effectiveGameId] ?? 0) : 0;
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 24 }}>
         <div style={{ fontSize: 56 }}>{isNewBest ? '🏆' : selectedGame.icon}</div>
@@ -215,9 +241,10 @@ export default function WarmupView() {
 
   // ── Multiplayer flows ────────────────────────────────────────────────────
   if (phase === 'matchmaking' && selectedGame) {
+    if (!effectiveGameId) return null;
     return (
       <MatchmakingScreen
-        gameId={selectedGame.id}
+        gameId={effectiveGameId}
         gameLabel={selectedGame.label}
         onMatched={session => { setMultiSession(session); setPhase('playing_multi'); }}
         onCancel={backToHub}
@@ -226,9 +253,10 @@ export default function WarmupView() {
   }
 
   if (phase === 'friend_challenge' && selectedGame) {
+    if (!effectiveGameId) return null;
     return (
       <FriendChallengeModal
-        gameId={selectedGame.id}
+        gameId={effectiveGameId}
         gameLabel={selectedGame.label}
         onSessionReady={session => { setMultiSession(session); setPhase('playing_multi'); }}
         onCancel={backToHub}
@@ -240,7 +268,7 @@ export default function WarmupView() {
     return (
       <MultiplayerGame
         session={multiSession}
-        game={selectedGame}
+        game={{ ...selectedGame, id: effectiveGameId || selectedGame.id }}
         onLeave={backToHub}
       />
     );
@@ -248,9 +276,14 @@ export default function WarmupView() {
 
   // ── Mode picker ──────────────────────────────────────────────────────────
   if (phase === 'mode_picker' && selectedGame) {
+    if (!effectiveGameId) return null;
     return (
       <ModePicker
         game={selectedGame}
+        gameId={effectiveGameId}
+        variant={selectedVariant}
+        supportsVariants={!!selectedGame.supportsVariants}
+        onVariantChange={setSelectedVariant}
         onSelect={selectMode}
         onBack={backToHub}
       />
@@ -259,6 +292,7 @@ export default function WarmupView() {
 
   // ── Solo playing ─────────────────────────────────────────────────────────
   if (phase === 'playing_solo' && selectedGame) {
+    if (!effectiveGameId) return null;
     const GameComp = selectedGame.component;
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -266,17 +300,17 @@ export default function WarmupView() {
           padding: '10px 16px', background: 'rgba(0,0,0,0.5)',
           borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0
         }}>
-          <button onClick={backToHub} className="ll-btn" style={{ padding: '7px 14px', fontSize: 12 }}>← Back</button>
+          <button onClick={backToHub} className="ll-btn" style={{ padding: '7px 14px', fontSize: 12 }}>Leave Game</button>
           <span style={{ fontWeight: 'bold', fontSize: 14, color: 'white' }}>{selectedGame.icon} {selectedGame.label}</span>
           <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: 11, background: '#1e293b', padding: '3px 8px', borderRadius: 6, border: '1px solid #334155' }}>
             🎯 Solo Practice
           </span>
-          {(highScores[selectedGame.id] ?? 0) > 0 && (
-            <span style={{ color: '#fbbf24', fontSize: 12 }}>🏆 {highScores[selectedGame.id]}</span>
+          {(highScores[effectiveGameId] ?? 0) > 0 && (
+            <span style={{ color: '#fbbf24', fontSize: 12 }}>🏆 {highScores[effectiveGameId]}</span>
           )}
         </div>
         <div style={{ flex: 1, overflow: 'hidden' }}>
-          <GameComp gameId={selectedGame.id} mode="solo" onGameOver={handleSoloGameOver} />
+          <GameComp gameId={effectiveGameId} mode="solo" onGameOver={handleSoloGameOver} />
         </div>
       </div>
     );
@@ -294,7 +328,8 @@ export default function WarmupView() {
       {activeSession && (
         <div
           onClick={() => {
-            const game = GAMES.find(g => g.id === activeSession.gameId);
+            const baseId = activeSession.gameId.replace(/_(10s|60s)$/i, '');
+            const game = GAMES.find(g => g.id === baseId);
             if (game) { setSelectedGame(game); setPhase('playing_multi'); }
           }}
           style={{
@@ -333,7 +368,8 @@ export default function WarmupView() {
       {/* Game grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))', gap: 10 }}>
         {filtered.map(game => {
-          const best = highScores[game.id] ?? 0;
+          const bestKey = game.supportsVariants ? `${game.id}_10s` : game.id;
+          const best = highScores[bestKey] ?? 0;
           return (
             <div
               key={game.id}

@@ -10,6 +10,12 @@ interface ActiveSession {
   mode: 'ranked' | 'friend';
 }
 
+export interface OngoingWarmup {
+  kind: 'solo' | 'multi';
+  gameId: string;
+  gameLabel: string;
+}
+
 export interface PendingSession {
   session: GameSession;
   gameId: string;
@@ -20,6 +26,8 @@ interface SessionContextType {
   setActiveSession: (s: ActiveSession | null) => void;
   pendingSession: PendingSession | null;
   setPendingSession: (s: PendingSession | null) => void;
+  ongoingWarmup: OngoingWarmup | null;
+  setOngoingWarmup: (g: OngoingWarmup | null) => void;
   incomingChallenges: Challenge[];
   dismissChallenge: (id: string) => void;
 }
@@ -29,6 +37,8 @@ const SessionContext = createContext<SessionContextType>({
   setActiveSession: () => {},
   pendingSession: null,
   setPendingSession: () => {},
+  ongoingWarmup: null,
+  setOngoingWarmup: () => {},
   incomingChallenges: [],
   dismissChallenge: () => {}
 });
@@ -37,8 +47,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [pendingSession, setPendingSession] = useState<PendingSession | null>(null);
+  const [ongoingWarmup, setOngoingWarmup] = useState<OngoingWarmup | null>(null);
   const [incomingChallenges, setIncomingChallenges] = useState<Challenge[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    function onSetPendingSession(e: Event) {
+      const ce = e as CustomEvent<PendingSession | null>;
+      if (ce.detail == null) {
+        setPendingSession(null);
+        return;
+      }
+      setPendingSession(ce.detail);
+    }
+
+    window.addEventListener('ll:setPendingSession', onSetPendingSession as EventListener);
+    return () => window.removeEventListener('ll:setPendingSession', onSetPendingSession as EventListener);
+  }, []);
+
+  useEffect(() => {
+    function onSetOngoingWarmup(e: Event) {
+      const ce = e as CustomEvent<OngoingWarmup | null>;
+      setOngoingWarmup(ce.detail ?? null);
+    }
+
+    window.addEventListener('ll:setOngoingWarmup', onSetOngoingWarmup as EventListener);
+    return () => window.removeEventListener('ll:setOngoingWarmup', onSetOngoingWarmup as EventListener);
+  }, []);
 
   useEffect(() => {
     if (!user) { setIncomingChallenges([]); return; }
@@ -57,6 +92,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     <SessionContext.Provider value={{
       activeSession, setActiveSession,
       pendingSession, setPendingSession,
+      ongoingWarmup, setOngoingWarmup,
       incomingChallenges, dismissChallenge
     }}>
       {children}

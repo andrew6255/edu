@@ -47,12 +47,13 @@ function makeRound(): Round {
 }
 
 export default function CompleteEqGame({ gameId, onGameOver }: GameProps) {
+  const is60s = /_60s$/i.test(gameId);
   const [phase, setPhase] = useState<'ready' | 'playing' | 'done'>('ready');
   const [score, setScore] = useState(0);
   const [wrong, setWrong] = useState(0);
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(60);
+  const [timeLeft, setTimeLeft] = useState(is60s ? 60 : 10);
   const [round, setRound] = useState(makeRound());
   const [feedback, setFeedback] = useState<{ idx: number; correct: boolean } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -80,15 +81,21 @@ export default function CompleteEqGame({ gameId, onGameOver }: GameProps) {
       const ns = streak + 1;
       setStreak(ns);
       setMaxStreak(m => Math.max(m, ns));
-      setScore(s => s + 1 + (ns >= 4 ? 1 : 0));
+      setScore(s => s + 1);
+      if (!is60s) setTimeLeft(10);
     } else {
       setWrong(w => w + 1);
       setStreak(0);
+      if (is60s) setScore(s => Math.max(0, s - 1));
     }
-    setTimeout(() => { setFeedback(null); setRound(makeRound()); }, 650);
+    setTimeout(() => {
+      if (!correct && !is60s) { setPhase('done'); return; }
+      setFeedback(null);
+      setRound(makeRound());
+    }, 650);
   }
 
-  const timerPct = (timeLeft / 60) * 100;
+  const timerPct = (timeLeft / (is60s ? 60 : 10)) * 100;
   const total = score + wrong;
   const accuracy = total > 0 ? Math.round((score / total) * 100) : 0;
 
@@ -99,7 +106,8 @@ export default function CompleteEqGame({ gameId, onGameOver }: GameProps) {
           <div style={{ fontSize: 60, marginBottom: 16 }}>📝</div>
           <h2 style={{ color: 'white', margin: '0 0 10px', fontSize: 26 }}>Complete the Equation</h2>
           <p style={{ color: '#94a3b8', marginBottom: 24, lineHeight: 1.6 }}>
-            Fill in the blank to make the equation true.<br />60 seconds. Streak bonuses after 4 in a row!
+            Fill in the blank to make the equation true.<br />
+            {is60s ? '60 seconds. Wrong = -1.' : '10 seconds per question. One wrong = game over.'}
           </p>
           <button className="ll-btn ll-btn-primary" style={{ padding: '14px 40px', fontSize: 18 }} onClick={() => setPhase('playing')}>START</button>
         </div>

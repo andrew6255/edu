@@ -145,23 +145,32 @@ export default function PyramidGame({ onGameOver }: GameProps) {
       </div>
 
       {/* Numpad */}
-      {selected && !solved && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxWidth: 240, width: '100%', marginTop: 10 }}>
-          {['1','2','3','4','5','6','7','8','9','⌫','0','✓'].map(k => (
-            <button
-              key={k}
-              onClick={() => handleNumpad(k)}
-              style={{
-                padding: '14px', borderRadius: 10, fontSize: 18, fontWeight: 'bold',
-                background: k === '✓' ? 'rgba(16,185,129,0.2)' : k === '⌫' ? 'rgba(239,68,68,0.2)' : '#1e293b',
-                border: k === '✓' ? '1px solid #10b981' : k === '⌫' ? '1px solid #ef4444' : '1px solid #334155',
-                color: k === '✓' ? '#10b981' : k === '⌫' ? '#ef4444' : 'white',
-                cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
-              }}
-            >
-              {k}
-            </button>
-          ))}
+      {!solved && (
+        <div style={{ maxWidth: 240, width: '100%', marginTop: 10 }}>
+          {!selected && (
+            <div style={{ textAlign: 'center', color: '#64748b', fontSize: 12, marginBottom: 8 }}>
+              Tap a square to enter a number
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, width: '100%' }}>
+            {['1','2','3','4','5','6','7','8','9','⌫','0','✓'].map(k => (
+              <button
+                key={k}
+                onClick={() => handleNumpad(k)}
+                disabled={!selected}
+                style={{
+                  padding: '14px', borderRadius: 10, fontSize: 18, fontWeight: 'bold',
+                  background: k === '✓' ? 'rgba(16,185,129,0.2)' : k === '⌫' ? 'rgba(239,68,68,0.2)' : '#1e293b',
+                  border: k === '✓' ? '1px solid #10b981' : k === '⌫' ? '1px solid #ef4444' : '1px solid #334155',
+                  color: k === '✓' ? '#10b981' : k === '⌫' ? '#ef4444' : 'white',
+                  cursor: !selected ? 'not-allowed' : 'pointer', fontFamily: 'inherit', transition: '0.15s',
+                  opacity: !selected ? 0.45 : 1
+                }}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

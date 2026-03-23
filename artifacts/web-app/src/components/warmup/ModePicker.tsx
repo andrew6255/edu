@@ -13,6 +13,10 @@ interface GameConfig {
 
 interface ModePickerProps {
   game: GameConfig;
+  gameId: string;
+  supportsVariants: boolean;
+  variant: '10s' | '60s';
+  onVariantChange: (v: '10s' | '60s') => void;
   onSelect: (mode: GameMode) => void;
   onBack: () => void;
 }
@@ -23,7 +27,7 @@ const MODES = [
   { id: 'friend' as GameMode, label: 'Play a Friend', icon: '👥', desc: 'Challenge a friend directly.', cost: null, color: '#3b82f6' }
 ];
 
-export default function ModePicker({ game, onSelect, onBack }: ModePickerProps) {
+export default function ModePicker({ game, gameId, supportsVariants, variant, onVariantChange, onSelect, onBack }: ModePickerProps) {
   const { user, userData } = useAuth();
   const gold = userData?.economy?.gold ?? 0;
   
@@ -31,35 +35,35 @@ export default function ModePicker({ game, onSelect, onBack }: ModePickerProps) 
   const [board, setBoard] = useState<{ uid: string, username: string, score: number }[]>([]);
   const [loadingBoard, setLoadingBoard] = useState(true);
 
-  const stats = userData?.rankedStats?.[game.id] || { wins: 0, losses: 0, highestStreak: 0 };
+  const stats = userData?.rankedStats?.[gameId] || { wins: 0, losses: 0, highestStreak: 0 };
   const total = stats.wins + stats.losses;
   const winRate = total > 0 ? Math.round((stats.wins / total) * 100) : 0;
 
   useEffect(() => {
     loadLeaderboard();
-  }, [leaderboardMode, game.id]);
+  }, [leaderboardMode, gameId]);
 
   async function loadLeaderboard() {
     if (!user) return;
     setLoadingBoard(true);
     try {
       if (leaderboardMode === 'global') {
-        const q = query(collection(db, 'users'), orderBy(`high_scores.${game.id}`, 'desc'), limit(10));
+        const q = query(collection(db, 'users'), orderBy(`high_scores.${gameId}`, 'desc'), limit(10));
         const snap = await getDocs(q);
         const data = snap.docs.map(d => ({
-          uid: d.id, username: d.data().username || 'Unknown', score: d.data().high_scores?.[game.id] || 0
+          uid: d.id, username: d.data().username || 'Unknown', score: d.data().high_scores?.[gameId] || 0
         })).filter(x => x.score > 0);
         setBoard(data);
       } else {
         if (!userData?.friends || userData.friends.length === 0) {
           // Just me
-          setBoard([{ uid: user.uid, username: userData?.username || 'You', score: userData?.high_scores?.[game.id] || 0 }].filter(x => x.score > 0));
+          setBoard([{ uid: user.uid, username: userData?.username || 'You', score: userData?.high_scores?.[gameId] || 0 }].filter(x => x.score > 0));
         } else {
           // fetch friends + self
           const uids = [...userData.friends, user.uid];
           const fetched = await Promise.all(uids.map(async id => {
             const d = await getUserData(id);
-            return { uid: id, username: d?.username || 'Unknown', score: d?.high_scores?.[game.id] || 0 };
+            return { uid: id, username: d?.username || 'Unknown', score: d?.high_scores?.[gameId] || 0 };
           }));
           fetched.sort((a,b) => b.score - a.score);
           setBoard(fetched.filter(x => x.score > 0).slice(0, 10));
@@ -86,6 +90,36 @@ export default function ModePicker({ game, onSelect, onBack }: ModePickerProps) 
 
       {/* ── RANKED STATS ── */}
       <div style={{ padding: '0 20px 20px' }}>
+        {supportsVariants && (
+          <div style={{
+            display: 'flex', justifyContent: 'center', padding: '0 0 14px'
+          }}>
+            <div style={{ display: 'flex', gap: 6, background: '#0f172a', padding: 6, borderRadius: 999, border: '1px solid #334155' }}>
+              <button
+                onClick={() => onVariantChange('10s')}
+                style={{
+                  background: variant === '10s' ? '#3b82f6' : 'transparent',
+                  color: variant === '10s' ? 'white' : '#64748b',
+                  border: 'none', borderRadius: 999, padding: '6px 12px', fontSize: 12,
+                  cursor: 'pointer', fontWeight: 'bold', fontFamily: 'inherit'
+                }}
+              >
+                10s
+              </button>
+              <button
+                onClick={() => onVariantChange('60s')}
+                style={{
+                  background: variant === '60s' ? '#3b82f6' : 'transparent',
+                  color: variant === '60s' ? 'white' : '#64748b',
+                  border: 'none', borderRadius: 999, padding: '6px 12px', fontSize: 12,
+                  cursor: 'pointer', fontWeight: 'bold', fontFamily: 'inherit'
+                }}
+              >
+                60s
+              </button>
+            </div>
+          </div>
+        )}
         <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', border: '1px solid #334155' }}>
           <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, fontWeight: 'bold' }}>
             ⚔️ Your Ranked Stats
