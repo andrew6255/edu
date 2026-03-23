@@ -11,6 +11,7 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useSession } from '@/contexts/SessionContext';
 import { forfeitSession } from '@/lib/gameSessionService';
+import type { AppNotification } from '@/lib/userService';
 
 type View = 'emporium' | 'warmup' | 'universe' | 'logic' | 'profile' | 'curriculum' | 'notifications' | 'friends';
 
@@ -27,7 +28,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifBadgeCount, setNotifBadgeCount] = useState(0);
   const [joinCodeOpen, setJoinCodeOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [joinMsg, setJoinMsg] = useState('');
@@ -65,8 +66,15 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   useEffect(() => {
     const uid = user?.uid;
     if (!uid) return;
-    const q = query(collection(db, `users/${uid}/notifications`), where('read', '==', false));
-    const unsub = onSnapshot(q, snap => setUnreadCount(snap.size));
+    const q = query(collection(db, `users/${uid}/notifications`));
+    const unsub = onSnapshot(q, snap => {
+      const items = snap.docs.map(d => d.data() as AppNotification);
+      const count = items.reduce((acc, n) => {
+        if (n.type === 'friendRequest' || n.type === 'challenge') return acc + 1;
+        return acc + (n.read ? 0 : 1);
+      }, 0);
+      setNotifBadgeCount(count);
+    });
     return unsub;
   }, [user]);
 
@@ -78,8 +86,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const { level, title } = computeLevel(xp);
 
   const ongoingBadge = ongoingWarmup && view !== 'warmup' ? 1 : 0;
-  const friendReqCount = userData?.incomingRequests?.length ?? 0;
-  const hudBadgeCount = unreadCount + friendReqCount + ongoingBadge;
+  const hudBadgeCount = notifBadgeCount + ongoingBadge;
 
   const maxXP = level * 1000;
   const prevXP = (level - 1) * 1000;
@@ -267,8 +274,8 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[{
-                icon: '🔔', label: 'Notifications', target: 'notifications' as View, badge: unreadCount },
-                { icon: '👥', label: 'Friends List', target: 'friends' as View, badge: friendReqCount },
+                icon: '🔔', label: 'Notifications', target: 'notifications' as View },
+                { icon: '👥', label: 'Friends List', target: 'friends' as View },
                 { icon: '👤', label: 'My Profile', target: 'profile' as View },
               ].map(item => (
                 <button
@@ -296,7 +303,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                 >
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span>{item.icon} {item.label}</span>
-                    {item.target === 'notifications' && unreadCount > 0 && (
+                    {item.target === 'notifications' && notifBadgeCount > 0 && (
                       <span style={{
                         marginLeft: 'auto',
                         minWidth: 18, height: 18, padding: '0 6px',
@@ -304,18 +311,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                         color: 'white', fontSize: 11, fontWeight: 'bold',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                       }}>
-                        {unreadCount > 99 ? '99+' : unreadCount}
-                      </span>
-                    )}
-                    {item.target === 'friends' && friendReqCount > 0 && (
-                      <span style={{
-                        marginLeft: 'auto',
-                        minWidth: 18, height: 18, padding: '0 6px',
-                        borderRadius: 999, background: '#ef4444',
-                        color: 'white', fontSize: 11, fontWeight: 'bold',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center'
-                      }}>
-                        {friendReqCount > 99 ? '99+' : friendReqCount}
+                        {notifBadgeCount > 99 ? '99+' : notifBadgeCount}
                       </span>
                     )}
                   </span>
