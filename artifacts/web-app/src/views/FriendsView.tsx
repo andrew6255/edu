@@ -9,6 +9,9 @@ export default function FriendsView() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [msg, setMsg] = useState('');
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingUnfriend, setPendingUnfriend] = useState<{ uid: string; username: string } | null>(null);
+  const [unfriending, setUnfriending] = useState(false);
 
   useEffect(() => {
     loadFriends();
@@ -73,6 +76,56 @@ export default function FriendsView() {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f172a', padding: 20, overflowY: 'auto' }}>
       <h2 style={{ color: 'white', margin: '0 0 16px', fontSize: 22 }}>👥 Friends List</h2>
+
+      {confirmOpen && pendingUnfriend && (
+        <>
+          <div
+            onClick={() => { if (!unfriending) { setConfirmOpen(false); setPendingUnfriend(null); } }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1200 }}
+          />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            width: 'min(420px, 92vw)', background: '#0b1220', border: '1px solid #334155',
+            borderRadius: 16, padding: 18, zIndex: 1201, boxShadow: '0 20px 70px rgba(0,0,0,0.75)'
+          }}>
+            <div style={{ color: 'white', fontWeight: 'bold', fontSize: 16, marginBottom: 8 }}>
+              Unfriend {pendingUnfriend.username}?
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 16, lineHeight: 1.4 }}>
+              This will remove you from each other's friends list.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                className="ll-btn"
+                disabled={unfriending}
+                onClick={() => { setConfirmOpen(false); setPendingUnfriend(null); }}
+                style={{ flex: 1, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: 'white' }}
+              >
+                Cancel
+              </button>
+              <button
+                className="ll-btn ll-btn-danger"
+                disabled={unfriending}
+                onClick={async () => {
+                  if (!user) return;
+                  setUnfriending(true);
+                  try {
+                    await removeFriend(user.uid, pendingUnfriend.uid);
+                    await refreshUserData();
+                  } finally {
+                    setUnfriending(false);
+                    setConfirmOpen(false);
+                    setPendingUnfriend(null);
+                  }
+                }}
+                style={{ flex: 1, padding: '10px' }}
+              >
+                {unfriending ? 'Unfriending…' : 'Unfriend'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
       
       <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
         <input 
@@ -106,7 +159,23 @@ export default function FriendsView() {
                     <div style={{ color: 'white', fontWeight: 'bold', fontSize: 15 }}>{f.username}</div>
                     <div style={{ color: isOnline ? '#10b981' : '#64748b', fontSize: 12 }}>{isOnline ? 'Online' : 'Offline'}</div>
                   </div>
-                  <button onClick={async () => { await removeFriend(user!.uid, f.uid); await refreshUserData(); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 18 }} title="Remove friend">×</button>
+                  <button
+                    onClick={() => {
+                      if (!user) return;
+                      setPendingUnfriend({ uid: f.uid, username: f.username || 'this user' });
+                      setConfirmOpen(true);
+                    }}
+                    className="ll-btn"
+                    style={{
+                      padding: '8px 12px',
+                      background: 'rgba(239,68,68,0.1)',
+                      borderColor: 'rgba(239,68,68,0.35)',
+                      color: '#ef4444',
+                      fontSize: 13
+                    }}
+                  >
+                    Unfriend
+                  </button>
                 </div>
               );
             })}
