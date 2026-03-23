@@ -88,7 +88,15 @@ service cloud.firestore {
     // ── Game Sessions ─────────────────────────────────────────────────────
     // Any authenticated user can read/write game sessions (arena gameplay).
     match /gameSessions/{sessionId} {
-      allow read, write: if isAuthed();
+      allow read: if isAuthed();
+
+      // Keep gameplay working as-is, but restrict writes to participants or admins.
+      allow write: if isAuthed() && (
+        isAdmin() ||
+        resource == null ||
+        resource.data.player1.uid == myUid() ||
+        resource.data.player2.uid == myUid()
+      );
     }
 
     // ── Matchmaking Queue ─────────────────────────────────────────────────

@@ -30,6 +30,13 @@ export interface RoundResult {
   winner: 'p1' | 'p2' | 'draw';
 }
 
+ export interface QuickChatPayload {
+   fromUid: string;
+   fromUsername: string;
+   text: string;
+   createdAt: string;
+ }
+
 export interface GameSession {
   id: string;
   gameId: string;
@@ -41,6 +48,7 @@ export interface GameSession {
   rounds: RoundResult[];
   winner?: 'p1' | 'p2' | 'draw';
   createdAt: string;
+  quickChat?: QuickChatPayload;
 }
 
 export interface MatchmakingEntry {

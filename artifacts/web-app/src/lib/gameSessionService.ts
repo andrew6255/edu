@@ -337,3 +337,19 @@ export async function respondToChallenge(
 export async function cleanupSession(sessionId: string): Promise<void> {
   await deleteDoc(doc(db, 'gameSessions', sessionId));
 }
+
+export async function sendQuickChat(
+  sessionId: string,
+  fromUid: string,
+  fromUsername: string,
+  text: string
+): Promise<void> {
+  await updateDoc(doc(db, 'gameSessions', sessionId), {
+    quickChat: {
+      fromUid,
+      fromUsername,
+      text,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
