@@ -70,7 +70,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
     const unsub = onSnapshot(q, snap => {
       const items = snap.docs.map(d => d.data() as AppNotification);
       const count = items.reduce((acc, n) => {
-        if (n.type === 'friendRequest' || n.type === 'challenge') return acc + 1;
+        if (n.type === 'friendRequest' || n.type === 'challenge') return acc + (n.resolved ? 0 : 1);
         return acc + (n.read ? 0 : 1);
       }, 0);
       setNotifBadgeCount(count);

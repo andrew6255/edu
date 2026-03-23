@@ -261,6 +261,7 @@ export async function sendChallenge(
       message: `${fromUsername} challenged you in ${gameLabel}.`,
       createdAt: new Date().toISOString(),
       read: false,
+      resolved: false,
       challengeId,
       gameId,
       gameLabel,

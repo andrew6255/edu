@@ -63,6 +63,8 @@ export interface AppNotification {
   message: string;
   createdAt: string;
   read: boolean;
+  resolved?: boolean;
+  resolvedAt?: string;
   challengeId?: string;
   gameId?: string;
   gameLabel?: string;
@@ -302,7 +304,8 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
       type: 'friendRequest',
       message: `${fromUsername} sent you a friend request.`,
       createdAt: new Date().toISOString(),
-      read: false
+      read: false,
+      resolved: false
     });
 
     await batch.commit();

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { respondToFriendRequest, AppNotification } from '@/lib/userService';
 import { db } from '@/lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, writeBatch } from 'firebase/firestore';
 import { listenChallengeState, respondToChallenge } from '@/lib/gameSessionService';
 
 interface Props {
@@ -49,7 +49,13 @@ export default function NotificationsView({ onClose }: Props) {
 
       const unsub = listenChallengeState(n.challengeId, async challenge => {
         if (challenge.state === 'pending') return;
-        await deleteDoc(doc(db, `users/${user.uid}/notifications`, n.id));
+        await writeBatch(db)
+          .set(doc(db, `users/${user.uid}/notifications`, n.id), {
+            resolved: true,
+            resolvedAt: new Date().toISOString(),
+            read: true,
+          }, { merge: true })
+          .commit();
       });
       cleanup.set(n.id, unsub);
     }
@@ -75,14 +81,26 @@ export default function NotificationsView({ onClose }: Props) {
   async function handleResponse(n: AppNotification, accept: boolean) {
     if (!user) return;
     await respondToFriendRequest(user.uid, n.fromUid, accept);
-    await deleteDoc(doc(db, `users/${user.uid}/notifications`, n.id));
+    await writeBatch(db)
+      .set(doc(db, `users/${user.uid}/notifications`, n.id), {
+        resolved: true,
+        resolvedAt: new Date().toISOString(),
+        read: true,
+      }, { merge: true })
+      .commit();
     await refreshUserData();
   }
 
   async function handleChallenge(n: AppNotification, accept: boolean) {
     if (!user) return;
     if (!n.challengeId || !n.gameId) {
-      await deleteDoc(doc(db, `users/${user.uid}/notifications`, n.id));
+      await writeBatch(db)
+        .set(doc(db, `users/${user.uid}/notifications`, n.id), {
+          resolved: true,
+          resolvedAt: new Date().toISOString(),
+          read: true,
+        }, { merge: true })
+        .commit();
       return;
     }
 
@@ -105,7 +123,13 @@ export default function NotificationsView({ onClose }: Props) {
       await respondToChallenge(n.challengeId, false, user.uid, '');
     }
 
-    await deleteDoc(doc(db, `users/${user.uid}/notifications`, n.id));
+    await writeBatch(db)
+      .set(doc(db, `users/${user.uid}/notifications`, n.id), {
+        resolved: true,
+        resolvedAt: new Date().toISOString(),
+        read: true,
+      }, { merge: true })
+      .commit();
   }
 
   return (
@@ -124,14 +148,14 @@ export default function NotificationsView({ onClose }: Props) {
               <div style={{ color: 'white', fontSize: 15, marginBottom: 8 }}>{n.message}</div>
               <div style={{ color: '#64748b', fontSize: 11, marginBottom: 12 }}>{new Date(n.createdAt).toLocaleString()}</div>
               
-              {n.type === 'friendRequest' && (
+              {n.type === 'friendRequest' && !n.resolved && (
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => handleResponse(n, true)} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '8px' }}>Accept</button>
                   <button onClick={() => handleResponse(n, false)} className="ll-btn" style={{ flex: 1, padding: '8px', background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.3)', color: '#ef4444' }}>Decline</button>
                 </div>
               )}
 
-              {n.type === 'challenge' && (
+              {n.type === 'challenge' && !n.resolved && (
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button
                     onClick={() => handleChallenge(n, true)}

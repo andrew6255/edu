@@ -46,9 +46,20 @@ service cloud.firestore {
         isAuthed() &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly(['incomingRequests']) &&
         request.resource.data.incomingRequests is list &&
-        resource.data.incomingRequests is list &&
-        request.resource.data.incomingRequests.size() == resource.data.incomingRequests.size() + 1 &&
-        request.resource.data.incomingRequests.hasAll(resource.data.incomingRequests) &&
+        (
+          // Normal case: incomingRequests already exists
+          (
+            resource.data.incomingRequests is list &&
+            request.resource.data.incomingRequests.size() == resource.data.incomingRequests.size() + 1 &&
+            request.resource.data.incomingRequests.hasAll(resource.data.incomingRequests)
+          )
+          ||
+          // Edge case: target user doc exists but incomingRequests is missing/null
+          (
+            !(resource.data.keys().hasAny(['incomingRequests'])) &&
+            request.resource.data.incomingRequests.size() == 1
+          )
+        ) &&
         request.resource.data.incomingRequests.hasAny([myUid()])
       );
       allow delete: if isAdmin();
