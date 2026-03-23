@@ -201,6 +201,32 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
   const GameComp = game.component;
   const me = isP1 ? session.player1 : session.player2;
 
+  const leaveLabel = mode === 'ranked' || mode === 'friend' ? 'Forfeit & Leave' : 'Leave Match';
+  const leaveBtnClass = mode === 'ranked' || mode === 'friend' ? 'll-btn ll-btn-danger' : 'll-btn';
+
+  function ActionBar() {
+    return (
+      <div style={{
+        padding: '10px 16px', background: 'rgba(0,0,0,0.5)',
+        borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0
+      }}>
+        <button
+          onClick={handleLeave}
+          className={leaveBtnClass}
+          style={{ padding: '7px 14px', fontSize: 12 }}
+        >
+          {leaveLabel}
+        </button>
+        <span style={{ fontWeight: 'bold', fontSize: 14, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {game.icon} {game.label}
+        </span>
+        <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: 11, background: '#1e293b', padding: '3px 8px', borderRadius: 6, border: '1px solid #334155' }}>
+          ⚔️ {mode === 'friend' ? 'Play a Friend' : 'Ranked'}
+        </span>
+      </div>
+    );
+  }
+
   // ── Match Complete ────────────────────────────────────────────────────────
   if (phase === 'match_complete') {
     const won = session.winner === (isP1 ? 'p1' : 'p2');
@@ -271,6 +297,7 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <RoundTracker session={session} myUid={user?.uid ?? ''} />
+        <ActionBar />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 24 }}>
           <div style={{ fontSize: 52 }}>{won ? '🎉' : drew ? '🤝' : '💥'}</div>
           <div style={{ textAlign: 'center' }}>
@@ -285,9 +312,6 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
           <button onClick={startNextRound} className="ll-btn ll-btn-primary" style={{ padding: '14px 44px', fontSize: 16 }}>
             Next Round →
           </button>
-          <button onClick={handleLeave} style={{ background: 'none', border: 'none', color: '#475569', fontSize: 12, cursor: 'pointer' }}>
-            Forfeit & Leave
-          </button>
         </div>
       </div>
     );
@@ -298,6 +322,7 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <RoundTracker session={session} myUid={user?.uid ?? ''} />
+        <ActionBar />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 24 }}>
           <div style={{ width: 60, height: 60, borderRadius: '50%', border: '3px solid #334155', borderTopColor: '#3b82f6', animation: 'spin 1s linear infinite' }} />
           <div style={{ textAlign: 'center' }}>
@@ -308,9 +333,6 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
               {opp.isBot ? `${opp.username} is calculating…` : `Waiting for ${opp.username}…`}
             </div>
           </div>
-          <button onClick={handleLeave} style={{ background: 'none', border: 'none', color: '#475569', fontSize: 12, cursor: 'pointer' }}>
-            Forfeit & Leave
-          </button>
         </div>
       </div>
     );
@@ -320,24 +342,7 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <RoundTracker session={session} myUid={user?.uid ?? ''} />
-      <div style={{
-        padding: '10px 16px', background: 'rgba(0,0,0,0.5)',
-        borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0
-      }}>
-        <button
-          onClick={handleLeave}
-          className="ll-btn"
-          style={{ padding: '7px 14px', fontSize: 12 }}
-        >
-          {mode === 'ranked' || mode === 'friend' ? 'Forfeit & Leave' : 'Leave Match'}
-        </button>
-        <span style={{ fontWeight: 'bold', fontSize: 14, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {game.icon} {game.label}
-        </span>
-        <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: 11, background: '#1e293b', padding: '3px 8px', borderRadius: 6, border: '1px solid #334155' }}>
-          ⚔️ {mode === 'friend' ? 'Play a Friend' : 'Ranked'}
-        </span>
-      </div>
+      <ActionBar />
       <div style={{ flex: 1, overflow: 'hidden' }}>
         <GameComp gameId={game.id} mode={mode} onGameOver={handleGameOver} />
       </div>
