@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "chapters": {
+    "CH2": {
+      "questionTypes": {
+        "sequences.term_to_term": {
+          "title": "Term-to-term rule",
+          "treeOrder": 1
+        },
+        "sequences.position_to_term": {
+          "title": "Position-to-term rule",
+          "treeOrder": 2
+        },
+        "algebra.substitution": {
+          "title": "Substitution & evaluation",
+          "treeOrder": 3
+        }
+      },
+      "annotations": {
+        "CH2_EX_2_1::Q2": {
+          "question_type_id": "sequences.term_to_term",
+          "difficulty": "easy",
+          "mcq": {
+            "choices": ["36", "40", "42", "43"],
+            "correctChoiceIndex": 3
+          }
+        }
+      }
+    }
+  }
+}
