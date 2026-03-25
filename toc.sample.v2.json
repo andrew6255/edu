@@ -1,0 +1,1321 @@
+{
+  "program_id": "inferred-program",
+  "program_title": null,
+  "source": {
+    "file_name": null,
+    "page_range": [
+      4,
+      5
+    ]
+  },
+  "toc_tree": [
+    {
+      "id": "introduction",
+      "title": "Introduction",
+      "level": 1,
+      "ref": null,
+      "page_range": [
+        3,
+        5
+      ],
+      "children": []
+    },
+    {
+      "id": "acknowledgements",
+      "title": "Acknowledgements",
+      "level": 1,
+      "ref": null,
+      "page_range": [
+        6,
+        6
+      ],
+      "children": []
+    },
+    {
+      "id": "unit-1-integers-powers-and-roots",
+      "title": "Integers, powers and roots",
+      "level": 1,
+      "ref": "Unit 1",
+      "page_range": [
+        7,
+        17
+      ],
+      "children": [
+        {
+          "id": "unit-1-1-arithmetic-with-integers",
+          "title": "Arithmetic with integers",
+          "level": 2,
+          "ref": "1.1",
+          "page_range": [
+            8,
+            10
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-1-2-multiples-factors-and-primes",
+          "title": "Multiples, factors and primes",
+          "level": 2,
+          "ref": "1.2",
+          "page_range": [
+            11,
+            12
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-1-3-more-about-prime-numbers",
+          "title": "More about prime numbers",
+          "level": 2,
+          "ref": "1.3",
+          "page_range": [
+            13,
+            14
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-1-4-powers-and-roots",
+          "title": "Powers and roots",
+          "level": 2,
+          "ref": "1.4",
+          "page_range": [
+            15,
+            16
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-1-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            17,
+            17
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-2-sequences-expressions-and-formulae",
+      "title": "Sequences, expressions and formulae",
+      "level": 1,
+      "ref": "Unit 2",
+      "page_range": [
+        18,
+        30
+      ],
+      "children": [
+        {
+          "id": "unit-2-1-generating-sequences",
+          "title": "Generating sequences",
+          "level": 2,
+          "ref": "2.1",
+          "page_range": [
+            19,
+            20
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-2-2-finding-rules-for-sequences",
+          "title": "Finding rules for sequences",
+          "level": 2,
+          "ref": "2.2",
+          "page_range": [
+            21,
+            22
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-2-3-using-the-nth-term",
+          "title": "Using the nth term",
+          "level": 2,
+          "ref": "2.3",
+          "page_range": [
+            23,
+            23
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-2-4-using-functions-and-mappings",
+          "title": "Using functions and mappings",
+          "level": 2,
+          "ref": "2.4",
+          "page_range": [
+            24,
+            25
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-2-5-constructing-linear-expressions",
+          "title": "Constructing linear expressions",
+          "level": 2,
+          "ref": "2.5",
+          "page_range": [
+            26,
+            26
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-2-6-deriving-and-using-formulae",
+          "title": "Deriving and using formulae",
+          "level": 2,
+          "ref": "2.6",
+          "page_range": [
+            27,
+            29
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-2-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            30,
+            30
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-3-place-value-ordering-and-rounding",
+      "title": "Place value, ordering and rounding",
+      "level": 1,
+      "ref": "Unit 3",
+      "page_range": [
+        31,
+        43
+      ],
+      "children": [
+        {
+          "id": "unit-3-1-multiplying-and-dividing-by-0-1-and-0-01",
+          "title": "Multiplying and dividing by 0.1 and 0.01",
+          "level": 2,
+          "ref": "3.1",
+          "page_range": [
+            32,
+            33
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-3-2-ordering-decimals",
+          "title": "Ordering decimals",
+          "level": 2,
+          "ref": "3.2",
+          "page_range": [
+            34,
+            35
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-3-3-rounding",
+          "title": "Rounding",
+          "level": 2,
+          "ref": "3.3",
+          "page_range": [
+            36,
+            36
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-3-4-adding-and-subtracting-decimals",
+          "title": "Adding and subtracting decimals",
+          "level": 2,
+          "ref": "3.4",
+          "page_range": [
+            37,
+            37
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-3-5-dividing-decimals",
+          "title": "Dividing decimals",
+          "level": 2,
+          "ref": "3.5",
+          "page_range": [
+            38,
+            38
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-3-6-multiplying-by-decimals",
+          "title": "Multiplying by decimals",
+          "level": 2,
+          "ref": "3.6",
+          "page_range": [
+            39,
+            39
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-3-7-dividing-by-decimals",
+          "title": "Dividing by decimals",
+          "level": 2,
+          "ref": "3.7",
+          "page_range": [
+            40,
+            40
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-3-8-estimating-and-approximating",
+          "title": "Estimating and approximating",
+          "level": 2,
+          "ref": "3.8",
+          "page_range": [
+            41,
+            42
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-3-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            43,
+            43
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-4-length-mass-and-capacity",
+      "title": "Length, mass and capacity",
+      "level": 1,
+      "ref": "Unit 4",
+      "page_range": [
+        44,
+        49
+      ],
+      "children": [
+        {
+          "id": "unit-4-1-choosing-suitable-units",
+          "title": "Choosing suitable units",
+          "level": 2,
+          "ref": "4.1",
+          "page_range": [
+            45,
+            46
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-4-2-kilometres-and-miles",
+          "title": "Kilometres and miles",
+          "level": 2,
+          "ref": "4.2",
+          "page_range": [
+            47,
+            48
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-4-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            49,
+            49
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-5-angles",
+      "title": "Angles",
+      "level": 1,
+      "ref": "Unit 5",
+      "page_range": [
+        50,
+        60
+      ],
+      "children": [
+        {
+          "id": "unit-5-1-parallel-lines",
+          "title": "Parallel lines",
+          "level": 2,
+          "ref": "5.1",
+          "page_range": [
+            51,
+            53
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-5-2-explaining-angle-properties",
+          "title": "Explaining angle properties",
+          "level": 2,
+          "ref": "5.2",
+          "page_range": [
+            54,
+            56
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-5-3-solving-angle-problems",
+          "title": "Solving angle problems",
+          "level": 2,
+          "ref": "5.3",
+          "page_range": [
+            57,
+            59
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-5-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            60,
+            60
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-6-planning-and-collecting-data",
+      "title": "Planning and collecting data",
+      "level": 1,
+      "ref": "Unit 6",
+      "page_range": [
+        61,
+        69
+      ],
+      "children": [
+        {
+          "id": "unit-6-1-collecting-data",
+          "title": "Collecting data",
+          "level": 2,
+          "ref": "6.1",
+          "page_range": [
+            62,
+            64
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-6-2-types-of-data",
+          "title": "Types of data",
+          "level": 2,
+          "ref": "6.2",
+          "page_range": [
+            65,
+            65
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-6-3-using-frequency-tables",
+          "title": "Using frequency tables",
+          "level": 2,
+          "ref": "6.3",
+          "page_range": [
+            66,
+            68
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-6-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            69,
+            69
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-7-fractions",
+      "title": "Fractions",
+      "level": 1,
+      "ref": "Unit 7",
+      "page_range": [
+        70,
+        82
+      ],
+      "children": [
+        {
+          "id": "unit-7-1-finding-equivalent-fractions-decimals-and-percentages",
+          "title": "Finding equivalent fractions, decimals and percentages",
+          "level": 2,
+          "ref": "7.1",
+          "page_range": [
+            71,
+            72
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-7-2-converting-fractions-to-decimals",
+          "title": "Converting fractions to decimals",
+          "level": 2,
+          "ref": "7.2",
+          "page_range": [
+            73,
+            73
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-7-3-ordering-fractions",
+          "title": "Ordering fractions",
+          "level": 2,
+          "ref": "7.3",
+          "page_range": [
+            74,
+            74
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-7-4-adding-and-subtracting-fractions",
+          "title": "Adding and subtracting fractions",
+          "level": 2,
+          "ref": "7.4",
+          "page_range": [
+            75,
+            76
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-7-5-finding-fractions-of-a-quantity",
+          "title": "Finding fractions of a quantity",
+          "level": 2,
+          "ref": "7.5",
+          "page_range": [
+            77,
+            77
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-7-6-multiplying-an-integer-by-a-fraction",
+          "title": "Multiplying an integer by a fraction",
+          "level": 2,
+          "ref": "7.6",
+          "page_range": [
+            78,
+            78
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-7-7-dividing-an-integer-by-a-fraction",
+          "title": "Dividing an integer by a fraction",
+          "level": 2,
+          "ref": "7.7",
+          "page_range": [
+            79,
+            79
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-7-8-multiplying-and-dividing-fractions",
+          "title": "Multiplying and dividing fractions",
+          "level": 2,
+          "ref": "7.8",
+          "page_range": [
+            80,
+            81
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-7-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            82,
+            82
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-8-shapes-and-geometric-reasoning",
+      "title": "Shapes and geometric reasoning",
+      "level": 1,
+      "ref": "Unit 8",
+      "page_range": [
+        83,
+        94
+      ],
+      "children": [
+        {
+          "id": "unit-8-1-recognising-congruent-shapes",
+          "title": "Recognising congruent shapes",
+          "level": 2,
+          "ref": "8.1",
+          "page_range": [
+            84,
+            85
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-8-2-identifying-symmetry-of-2d-shapes",
+          "title": "Identifying symmetry of 2D shapes",
+          "level": 2,
+          "ref": "8.2",
+          "page_range": [
+            86,
+            87
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-8-3-classifying-quadrilaterals",
+          "title": "Classifying quadrilaterals",
+          "level": 2,
+          "ref": "8.3",
+          "page_range": [
+            88,
+            89
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-8-4-drawing-nets-of-solids",
+          "title": "Drawing nets of solids",
+          "level": 2,
+          "ref": "8.4",
+          "page_range": [
+            90,
+            91
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-8-5-making-scale-drawings",
+          "title": "Making scale drawings",
+          "level": 2,
+          "ref": "8.5",
+          "page_range": [
+            92,
+            93
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-8-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            94,
+            94
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-9-simplifying-expressions-and-solving-equations",
+      "title": "Simplifying expressions and solving equations",
+      "level": 1,
+      "ref": "Unit 9",
+      "page_range": [
+        95,
+        101
+      ],
+      "children": [
+        {
+          "id": "unit-9-1-collecting-like-terms",
+          "title": "Collecting like terms",
+          "level": 2,
+          "ref": "9.1",
+          "page_range": [
+            96,
+            97
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-9-2-expanding-brackets",
+          "title": "Expanding brackets",
+          "level": 2,
+          "ref": "9.2",
+          "page_range": [
+            98,
+            98
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-9-3-constructing-and-solving-equations",
+          "title": "Constructing and solving equations",
+          "level": 2,
+          "ref": "9.3",
+          "page_range": [
+            99,
+            100
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-9-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            101,
+            101
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-10-processing-and-presenting-data",
+      "title": "Processing and presenting data",
+      "level": 1,
+      "ref": "Unit 10",
+      "page_range": [
+        102,
+        109
+      ],
+      "children": [
+        {
+          "id": "unit-10-1-calculating-statistics-from-discrete-data",
+          "title": "Calculating statistics from discrete data",
+          "level": 2,
+          "ref": "10.1",
+          "page_range": [
+            103,
+            104
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-10-2-calculating-statistics-from-grouped-or-continuous-data",
+          "title": "Calculating statistics from grouped or continuous data",
+          "level": 2,
+          "ref": "10.2",
+          "page_range": [
+            105,
+            106
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-10-3-using-statistics-to-compare-two-distributions",
+          "title": "Using statistics to compare two distributions",
+          "level": 2,
+          "ref": "10.3",
+          "page_range": [
+            107,
+            108
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-10-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            109,
+            109
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-11-percentages",
+      "title": "Percentages",
+      "level": 1,
+      "ref": "Unit 11",
+      "page_range": [
+        110,
+        119
+      ],
+      "children": [
+        {
+          "id": "unit-11-1-calculating-percentages",
+          "title": "Calculating percentages",
+          "level": 2,
+          "ref": "11.1",
+          "page_range": [
+            111,
+            112
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-11-2-percentage-increases-and-decreases",
+          "title": "Percentage increases and decreases",
+          "level": 2,
+          "ref": "11.2",
+          "page_range": [
+            113,
+            114
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-11-3-finding-percentages",
+          "title": "Finding percentages",
+          "level": 2,
+          "ref": "11.3",
+          "page_range": [
+            115,
+            116
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-11-4-using-percentages",
+          "title": "Using percentages",
+          "level": 2,
+          "ref": "11.4",
+          "page_range": [
+            117,
+            118
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-11-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            119,
+            119
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-12-constructions",
+      "title": "Constructions",
+      "level": 1,
+      "ref": "Unit 12",
+      "page_range": [
+        120,
+        128
+      ],
+      "children": [
+        {
+          "id": "unit-12-1-drawing-circles-and-arcs",
+          "title": "Drawing circles and arcs",
+          "level": 2,
+          "ref": "12.1",
+          "page_range": [
+            121,
+            121
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-12-2-drawing-a-perpendicular-bisector",
+          "title": "Drawing a perpendicular bisector",
+          "level": 2,
+          "ref": "12.2",
+          "page_range": [
+            122,
+            123
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-12-3-drawing-an-angle-bisector",
+          "title": "Drawing an angle bisector",
+          "level": 2,
+          "ref": "12.3",
+          "page_range": [
+            124,
+            125
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-12-4-constructing-triangles",
+          "title": "Constructing triangles",
+          "level": 2,
+          "ref": "12.4",
+          "page_range": [
+            126,
+            127
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-12-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            128,
+            128
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-13-graphs",
+      "title": "Graphs",
+      "level": 1,
+      "ref": "Unit 13",
+      "page_range": [
+        129,
+        139
+      ],
+      "children": [
+        {
+          "id": "unit-13-1-drawing-graphs-of-equations",
+          "title": "Drawing graphs of equations",
+          "level": 2,
+          "ref": "13.1",
+          "page_range": [
+            130,
+            131
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-13-2-equations-of-the-form-y-mx-c",
+          "title": "Equations of the form y = mx + c",
+          "level": 2,
+          "ref": "13.2",
+          "page_range": [
+            132,
+            133
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-13-3-the-midpoint-of-a-line-segment",
+          "title": "The midpoint of a line segment",
+          "level": 2,
+          "ref": "13.3",
+          "page_range": [
+            134,
+            135
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-13-4-graphs-in-real-life-contexts",
+          "title": "Graphs in real-life contexts",
+          "level": 2,
+          "ref": "13.4",
+          "page_range": [
+            136,
+            138
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-13-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            139,
+            139
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-14-ratio-and-proportion",
+      "title": "Ratio and proportion",
+      "level": 1,
+      "ref": "Unit 14",
+      "page_range": [
+        140,
+        147
+      ],
+      "children": [
+        {
+          "id": "unit-14-1-simplifying-ratios",
+          "title": "Simplifying ratios",
+          "level": 2,
+          "ref": "14.1",
+          "page_range": [
+            141,
+            142
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-14-2-sharing-in-a-ratio",
+          "title": "Sharing in a ratio",
+          "level": 2,
+          "ref": "14.2",
+          "page_range": [
+            143,
+            144
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-14-3-solving-problems",
+          "title": "Solving problems",
+          "level": 2,
+          "ref": "14.3",
+          "page_range": [
+            145,
+            146
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-14-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            147,
+            147
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-15-probability",
+      "title": "Probability",
+      "level": 1,
+      "ref": "Unit 15",
+      "page_range": [
+        148,
+        157
+      ],
+      "children": [
+        {
+          "id": "unit-15-1-the-probability-that-an-outcome-does-not-happen",
+          "title": "The probability that an outcome does not happen",
+          "level": 2,
+          "ref": "15.1",
+          "page_range": [
+            149,
+            149
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-15-2-equally-likely-outcomes",
+          "title": "Equally likely outcomes",
+          "level": 2,
+          "ref": "15.2",
+          "page_range": [
+            150,
+            151
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-15-3-listing-all-possible-outcomes",
+          "title": "Listing all possible outcomes",
+          "level": 2,
+          "ref": "15.3",
+          "page_range": [
+            152,
+            153
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-15-4-experimental-and-theoretical-probabilities",
+          "title": "Experimental and theoretical probabilities",
+          "level": 2,
+          "ref": "15.4",
+          "page_range": [
+            154,
+            156
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-15-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            157,
+            157
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-16-position-and-movement",
+      "title": "Position and movement",
+      "level": 1,
+      "ref": "Unit 16",
+      "page_range": [
+        158,
+        164
+      ],
+      "children": [
+        {
+          "id": "unit-16-1-transforming-shapes",
+          "title": "Transforming shapes",
+          "level": 2,
+          "ref": "16.1",
+          "page_range": [
+            159,
+            160
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-16-2-enlarging-shapes",
+          "title": "Enlarging shapes",
+          "level": 2,
+          "ref": "16.2",
+          "page_range": [
+            161,
+            163
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-16-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            164,
+            164
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-17-area-perimeter-and-volume",
+      "title": "Area, perimeter and volume",
+      "level": 1,
+      "ref": "Unit 17",
+      "page_range": [
+        165,
+        177
+      ],
+      "children": [
+        {
+          "id": "unit-17-1-the-area-of-a-triangle",
+          "title": "The area of a triangle",
+          "level": 2,
+          "ref": "17.1",
+          "page_range": [
+            166,
+            166
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-17-2-the-areas-of-a-parallelogram-and-trapezium",
+          "title": "The areas of a parallelogram and trapezium",
+          "level": 2,
+          "ref": "17.2",
+          "page_range": [
+            167,
+            168
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-17-3-the-area-and-circumference-of-a-circle",
+          "title": "The area and circumference of a circle",
+          "level": 2,
+          "ref": "17.3",
+          "page_range": [
+            169,
+            170
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-17-4-the-areas-of-compound-shapes",
+          "title": "The areas of compound shapes",
+          "level": 2,
+          "ref": "17.4",
+          "page_range": [
+            171,
+            172
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-17-5-the-volumes-and-surface-areas-of-cuboids",
+          "title": "The volumes and surface areas of cuboids",
+          "level": 2,
+          "ref": "17.5",
+          "page_range": [
+            173,
+            174
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-17-6-using-nets-of-solids-to-work-out-surface-areas",
+          "title": "Using nets of solids to work out surface areas",
+          "level": 2,
+          "ref": "17.6",
+          "page_range": [
+            175,
+            176
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-17-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            177,
+            177
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "unit-18-interpreting-and-discussing-results",
+      "title": "Interpreting and discussing results",
+      "level": 1,
+      "ref": "Unit 18",
+      "page_range": [
+        178,
+        191
+      ],
+      "children": [
+        {
+          "id": "unit-18-1-interpreting-and-drawing-frequency-diagrams",
+          "title": "Interpreting and drawing frequency diagrams",
+          "level": 2,
+          "ref": "18.1",
+          "page_range": [
+            179,
+            181
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-18-2-interpreting-and-drawing-pie-charts",
+          "title": "Interpreting and drawing pie charts",
+          "level": 2,
+          "ref": "18.2",
+          "page_range": [
+            182,
+            183
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-18-3-interpreting-and-drawing-line-graphs",
+          "title": "Interpreting and drawing line graphs",
+          "level": 2,
+          "ref": "18.3",
+          "page_range": [
+            184,
+            185
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-18-4-interpreting-and-drawing-stem-and-leaf-diagrams",
+          "title": "Interpreting and drawing stem-and-leaf diagrams",
+          "level": 2,
+          "ref": "18.4",
+          "page_range": [
+            186,
+            187
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-18-5-drawing-conclusions",
+          "title": "Drawing conclusions",
+          "level": 2,
+          "ref": "18.5",
+          "page_range": [
+            188,
+            190
+          ],
+          "children": []
+        },
+        {
+          "id": "unit-18-end-of-unit-review",
+          "title": "End-of-unit review",
+          "level": 2,
+          "ref": null,
+          "page_range": [
+            191,
+            191
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "end-of-year-review",
+      "title": "End-of-year review",
+      "level": 1,
+      "ref": null,
+      "page_range": [
+        192,
+        195
+      ],
+      "children": []
+    },
+    {
+      "id": "glossary-and-index",
+      "title": "Glossary and index",
+      "level": 1,
+      "ref": null,
+      "page_range": [
+        196,
+        null
+      ],
+      "children": []
+    }
+  ],
+  "toc_notes": [
+    "TOC appears complete."
+  ]
+}

@@ -1,0 +1,209 @@
+{
+  "blueprint_version": "1.0",
+  "chapter_id": "unit-2-sequences-expressions-and-formulae",
+  "chapter_title": "Sequences, expressions and formulae",
+  "domain": "Mathematics",
+  "regions": [
+    {
+      "region_id": "CH2_SEC_A",
+      "section_label": "2.1",
+      "section_title": "Generating sequences",
+      "theme_name": null,
+      "source_refs": [
+        {
+          "page": 19,
+          "kind": "text",
+          "note": null
+        },
+        {
+          "page": 20,
+          "kind": "text",
+          "note": null
+        }
+      ]
+    },
+    {
+      "region_id": "CH2_SEC_B",
+      "section_label": "2.2",
+      "section_title": "Finding rules for sequences",
+      "theme_name": null,
+      "source_refs": [
+        {
+          "page": 21,
+          "kind": "text",
+          "note": null
+        },
+        {
+          "page": 22,
+          "kind": "text",
+          "note": null
+        }
+      ]
+    },
+    {
+      "region_id": "CH2_SEC_C",
+      "section_label": "2.3",
+      "section_title": "Using the nth term",
+      "theme_name": null,
+      "source_refs": [
+        {
+          "page": 23,
+          "kind": "text",
+          "note": null
+        }
+      ]
+    },
+    {
+      "region_id": "CH2_SEC_D",
+      "section_label": "2.4",
+      "section_title": "Using functions and mappings",
+      "theme_name": null,
+      "source_refs": [
+        {
+          "page": 24,
+          "kind": "text",
+          "note": null
+        },
+        {
+          "page": 25,
+          "kind": "text",
+          "note": null
+        }
+      ]
+    },
+    {
+      "region_id": "CH2_SEC_E",
+      "section_label": "2.5",
+      "section_title": "Constructing linear expressions",
+      "theme_name": null,
+      "source_refs": [
+        {
+          "page": 26,
+          "kind": "text",
+          "note": null
+        }
+      ]
+    },
+    {
+      "region_id": "CH2_SEC_F",
+      "section_label": "2.6",
+      "section_title": "Deriving and using formulae",
+      "theme_name": null,
+      "source_refs": [
+        {
+          "page": 27,
+          "kind": "text",
+          "note": null
+        },
+        {
+          "page": 28,
+          "kind": "text",
+          "note": null
+        },
+        {
+          "page": 29,
+          "kind": "text",
+          "note": null
+        }
+      ]
+    },
+    {
+      "region_id": "CH2_SEC_G",
+      "section_label": null,
+      "section_title": "End-of-unit review",
+      "theme_name": null,
+      "source_refs": [
+        {
+          "page": 30,
+          "kind": "text",
+          "note": null
+        }
+      ]
+    }
+  ],
+  "node_plan": [
+    {
+      "node_id": "CH2_SCROLL_linear_sequence_introduction",
+      "node_type": "atomic_scroll",
+      "region_id": "CH2_SEC_A",
+      "textbook_ref": null,
+      "source_refs": [
+        {
+          "page": 19,
+          "kind": "text",
+          "note": "Self Tutor box: 'In a linear sequence the terms...'"
+        }
+      ]
+    },
+    {
+      "node_id": "CH2_SCROLL_worked_example_2_1",
+      "node_type": "atomic_scroll",
+      "region_id": "CH2_SEC_A",
+      "textbook_ref": "Worked example 2.1",
+      "source_refs": [
+        {
+          "page": 19,
+          "kind": "text",
+          "note": null
+        }
+      ]
+    },
+    {
+      "node_id": "CH2_EX_2_1",
+      "node_type": "exercise",
+      "region_id": "CH2_SEC_A",
+      "textbook_ref": "Exercise 2.1",
+      "source_refs": [
+        {
+          "page": 19,
+          "kind": "text",
+          "note": null
+        },
+        {
+          "page": 20,
+          "kind": "text",
+          "note": null
+        }
+      ]
+    },
+    {
+      "node_id": "CH2_BOSS_end_of_unit_review",
+      "node_type": "boss",
+      "region_id": "CH2_SEC_G",
+      "textbook_ref": "End-of-unit review",
+      "source_refs": [
+        {
+          "page": 30,
+          "kind": "text",
+          "note": null
+        }
+      ]
+    }
+  ],
+  "template_assignment": {
+    "region": "RegionTemplate",
+    "exercise": "ExerciseNodeTemplate",
+    "boss": "BossNodeTemplate",
+    "atomic_scroll": "AtomicScrollTemplate"
+  },
+  "extraction_targets": {
+    "questions": {
+      "include_full_text": true,
+      "include_latex": true
+    },
+    "hints": {
+      "include_self_tutor_scrolls": true,
+      "include_example_snippets": true
+    }
+  },
+  "laborer_prompt": "Extract content for Unit 2: Sequences, expressions and formulae. For each region, extract all introductory text and any general instructional content. For atomic scrolls, extract the full content of the designated boxes. For exercises and boss nodes, extract all questions, sub-questions, and associated images. Include any small hint boxes adjacent to problems as example snippets. Ensure full text and LaTeX are captured for questions, and self-tutor scrolls and example snippets for hints.",
+  "quality_rules": {
+    "no_hallucination": true,
+    "when_uncertain": "set_null_and_add_note"
+  },
+  "notes": [
+    "The input `chapter_context_text` page_range refers to the Table of Contents itself (pages 4-5). Based on the provided image files (pages 19, 20, 30), the target 'chapter' for this blueprint is inferred to be 'Unit 2: Sequences, expressions and formulae'.",
+    "Regions for sections 2.2, 2.3, 2.4, 2.5, 2.6 are created based on the Table of Contents, but no specific nodes (exercises, scrolls, bosses) are planned for them as no content images were provided for those pages. Nodes were only created for sections with accompanying image content (2.1 and End-of-unit review).",
+    "Small hint boxes adjacent to questions (e.g., on page 20) are intended to be captured as 'example_snippets' within the exercise extraction, not as separate Atomic Scroll nodes, as they function as contextual tips rather than standalone 'Self Tutor' or 'Worked Example' boxes."
+  ]
+}

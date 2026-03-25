@@ -11,22 +11,35 @@ import LeaderboardView from '@/views/LeaderboardView';
 import EmporiumView from '@/views/EmporiumView';
 import LogicGamesView from '@/views/LogicGamesView';
 import OnboardingPage from '@/pages/OnboardingPage';
+import ProgramMapView from '@/views/ProgramMapView';
 
-export type View = 'emporium' | 'warmup' | 'universe' | 'logic' | 'profile' | 'curriculum' | 'notifications' | 'friends';
+export type View =
+  | 'emporium'
+  | 'warmup'
+  | 'universe'
+  | 'logic'
+  | 'profile'
+  | 'curriculum'
+  | 'programMap'
+  | 'notifications'
+  | 'friends';
 
 export default function AppPage() {
   const { user, userData, loading, refreshUserData } = useAuth();
   const [, setLocation] = useLocation();
   const [view, setView] = useState<View>('universe');
   const [selectedSubject, setSelectedSubject] = useState<string | undefined>();
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
 
   useEffect(() => {
     function onSetView(e: Event) {
-      const ce = e as CustomEvent<{ view?: View }>;
+      const ce = e as CustomEvent<{ view?: View; programId?: string | null }>;
       const next = ce.detail?.view;
       if (!next) return;
       setView(next);
       if (next !== 'curriculum') setSelectedSubject(undefined);
+      if (next !== 'programMap') setSelectedProgramId(null);
+      if (next === 'programMap') setSelectedProgramId(ce.detail?.programId ?? null);
     }
 
     window.addEventListener('ll:setView', onSetView as EventListener);
@@ -75,6 +88,8 @@ export default function AppPage() {
             onBack={() => { setSelectedSubject(undefined); setView('universe'); }}
           />
         );
+      case 'programMap':
+        return <ProgramMapView onBack={() => setView('universe')} programId={selectedProgramId} />;
       case 'warmup':
         return null;
       case 'emporium':

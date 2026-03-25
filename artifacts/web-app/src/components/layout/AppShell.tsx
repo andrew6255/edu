@@ -13,7 +13,16 @@ import { useSession } from '@/contexts/SessionContext';
 import { forfeitSession } from '@/lib/gameSessionService';
 import type { AppNotification } from '@/lib/userService';
 
-type View = 'emporium' | 'warmup' | 'universe' | 'logic' | 'profile' | 'curriculum' | 'notifications' | 'friends';
+type View =
+  | 'emporium'
+  | 'warmup'
+  | 'universe'
+  | 'logic'
+  | 'profile'
+  | 'curriculum'
+  | 'programMap'
+  | 'notifications'
+  | 'friends';
 
 interface AppShellProps {
   view: View;
@@ -192,7 +201,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
       )}
 
       {/* Main content */}
-      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+      <div style={{ flex: 1, height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         {children}
       </div>
 

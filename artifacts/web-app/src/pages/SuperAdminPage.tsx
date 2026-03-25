@@ -6,8 +6,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getAllUsers, updateUserData, deleteUserData, updateEconomy, UserData, UserRole, computeLevel } from '@/lib/userService';
 import { getAllOrgs, createOrg, updateOrg, deleteOrg, addAdminToOrg, removeAdminFromOrg, OrgData } from '@/lib/orgService';
 import { getAllClasses } from '@/lib/classService';
+import { db } from '@/lib/firebase';
+import { collection, deleteDoc, doc, getDocs, orderBy, query, setDoc } from 'firebase/firestore';
 
-type Tab = 'overview' | 'users' | 'orgs' | 'requests';
+type Tab = 'overview' | 'users' | 'orgs' | 'requests' | 'programs';
 
 const ROLE_ORDER: UserRole[] = ['student', 'teacher', 'admin', 'superadmin'];
 const ROLE_COLORS: Record<UserRole, string> = {
@@ -158,6 +160,7 @@ export default function SuperAdminPage() {
     { id: 'users', icon: '👥', label: `Users (${users.length})` },
     { id: 'orgs', icon: '🏛️', label: `Orgs (${orgs.length})` },
     { id: 'requests', icon: '📬', label: 'Requests', badge: pendingRequestsCount },
+    { id: 'programs', icon: '📚', label: 'Programs' },
   ];
 
   return (
@@ -491,6 +494,11 @@ export default function SuperAdminPage() {
         {tab === 'requests' && (
           <CurriculumRequests />
         )}
+
+        {/* ── PROGRAMS ── */}
+        {tab === 'programs' && (
+          <ProgramsAdmin />
+        )}
       </div>
 
       {/* Create Org Modal */}
@@ -553,6 +561,169 @@ export default function SuperAdminPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function ProgramsAdmin() {
+  const [items, setItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string; toc?: unknown }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState('');
+  const [draftTitle, setDraftTitle] = useState('');
+  const [draftSubject, setDraftSubject] = useState('mathematics');
+  const [draftGradeBand, setDraftGradeBand] = useState('');
+  const [draftEmoji, setDraftEmoji] = useState('📘');
+  const [draftTocJson, setDraftTocJson] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const q = query(collection(db, 'public_programs'), orderBy('title'));
+    const snap = await getDocs(q);
+    const next = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as typeof items;
+    setItems(next);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  function resetDraft() {
+    setEditingId(null);
+    setDraftId('');
+    setDraftTitle('');
+    setDraftSubject('mathematics');
+    setDraftGradeBand('');
+    setDraftEmoji('📘');
+    setDraftTocJson('');
+  }
+
+  function startEdit(p: (typeof items)[number]) {
+    setEditingId(p.id);
+    setDraftId(p.id);
+    setDraftTitle((p.title as string) ?? '');
+    setDraftSubject((p.subject as string) ?? 'mathematics');
+    setDraftGradeBand((p.grade_band as string) ?? '');
+    setDraftEmoji((p.coverEmoji as string) ?? '📘');
+    setDraftTocJson(p.toc ? JSON.stringify(p.toc, null, 2) : '');
+  }
+
+  async function save() {
+    const id = draftId.trim();
+    if (!id) return;
+    setSaving(true);
+    try {
+      let toc: unknown = undefined;
+      if (draftTocJson.trim()) {
+        toc = JSON.parse(draftTocJson);
+      }
+
+      await setDoc(
+        doc(db, 'public_programs', id),
+        {
+          title: draftTitle.trim() || id,
+          subject: draftSubject.trim() || 'mathematics',
+          grade_band: draftGradeBand.trim() || undefined,
+          coverEmoji: draftEmoji.trim() || '📘',
+          toc,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      await load();
+      resetDraft();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!window.confirm('Delete this public program? This cannot be undone.')) return;
+    await deleteDoc(doc(db, 'public_programs', id));
+    await load();
+    if (editingId === id) resetDraft();
+  }
+
+  if (loading) return <div style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>Loading programs...</div>;
+
+  return (
+    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+        <h3 style={{ color: 'white', margin: 0, fontSize: 16 }}>📚 Programs ({items.length})</h3>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={load} className="ll-btn" style={{ padding: '7px 14px', fontSize: 12 }}>↺ Refresh</button>
+          <button onClick={resetDraft} className="ll-btn ll-btn-primary" style={{ padding: '7px 14px', fontSize: 12, background: '#a855f7', borderColor: '#7c3aed', color: 'white' }}>+ New</button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14 }}>
+        <div style={{ background: '#1e293b', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden' }}>
+          {items.length === 0 ? (
+            <div style={{ padding: 18, color: '#64748b' }}>No public programs yet.</div>
+          ) : (
+            items.map((p) => (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid #0f172a' }}>
+                <div style={{ width: 26, textAlign: 'center', fontSize: 18 }}>{(p.coverEmoji as string) ?? '📘'}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: 'white', fontWeight: 'bold', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {(p.title as string) ?? p.id}
+                  </div>
+                  <div style={{ color: '#64748b', fontSize: 11 }}>{(p.subject as string) ?? 'subject'}{p.grade_band ? ` • ${p.grade_band}` : ''}</div>
+                </div>
+                <button onClick={() => startEdit(p)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11 }}>Edit</button>
+                <button onClick={() => remove(p.id)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}>Delete</button>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div style={{ background: '#1e293b', borderRadius: 12, border: '1px solid #334155', padding: 14 }}>
+          <div style={{ color: '#94a3b8', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold', marginBottom: 10 }}>
+            {editingId ? `Edit Program: ${editingId}` : 'Create Program'}
+          </div>
+
+          <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Program ID</label>
+          <input value={draftId} onChange={(e) => setDraftId(e.target.value)} disabled={!!editingId}
+            style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'inherit', marginBottom: 10, outline: 'none', opacity: editingId ? 0.75 : 1 }} />
+
+          <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Title</label>
+          <input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)}
+            style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'inherit', marginBottom: 10, outline: 'none' }} />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+            <div>
+              <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Subject</label>
+              <input value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)}
+                style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'inherit', outline: 'none' }} />
+            </div>
+            <div>
+              <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Grade Band</label>
+              <input value={draftGradeBand} onChange={(e) => setDraftGradeBand(e.target.value)}
+                style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'inherit', outline: 'none' }} />
+            </div>
+          </div>
+
+          <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Cover Emoji</label>
+          <input value={draftEmoji} onChange={(e) => setDraftEmoji(e.target.value)}
+            style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'inherit', marginBottom: 10, outline: 'none' }} />
+
+          <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>TOC JSON</label>
+          <textarea value={draftTocJson} onChange={(e) => setDraftTocJson(e.target.value)} rows={10}
+            style={{ width: '100%', padding: '10px 10px', borderRadius: 12, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'monospace', fontSize: 12, marginBottom: 12, outline: 'none', resize: 'vertical' }} />
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={resetDraft} className="ll-btn" style={{ flex: 1, padding: '10px 12px' }}>Cancel</button>
+            <button onClick={save} disabled={!draftId.trim() || saving} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '10px 12px', background: '#10b981', borderColor: '#059669', color: 'white' }}>
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

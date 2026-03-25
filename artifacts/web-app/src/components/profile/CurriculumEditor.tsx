@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { updateUserData } from '@/lib/userService';
+import { getPublicProgram } from '@/lib/programMaps';
 
 const defaultSubjects = {
   mathematics: { textbook: '', isVisible: true },
@@ -14,8 +15,38 @@ export default function CurriculumEditor() {
   const [editingCurr, setEditingCurr] = useState(false);
   const [currDraft, setCurrDraft] = useState<any>(null);
   const [savingCurr, setSavingCurr] = useState(false);
+  const [activePrograms, setActivePrograms] = useState<Array<{ id: string; title: string; coverEmoji?: string }>>([]);
 
   if (!user || !userData) return null;
+
+  const activeProgramId = userData.activeProgramId;
+  const activeProgramIds = userData.activeProgramIds;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const ids = (activeProgramIds && Array.isArray(activeProgramIds))
+        ? activeProgramIds
+        : (activeProgramId ? [activeProgramId] : []);
+
+      if (ids.length === 0) {
+        setActivePrograms([]);
+        return;
+      }
+
+      const progs = await Promise.all(ids.map((pid) => getPublicProgram(pid).then((p) => ({ pid, p }))));
+      if (cancelled) return;
+
+      setActivePrograms(
+        progs.map(({ pid, p }) => ({ id: pid, title: p?.title ?? pid, coverEmoji: p?.coverEmoji }))
+      );
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProgramId, activeProgramIds]);
 
   return (
     <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid #334155' }}>
@@ -85,6 +116,22 @@ export default function CurriculumEditor() {
                 );
               })}
             </div>
+
+            {activePrograms.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ color: '#64748b', fontSize: 10, marginBottom: 6, textTransform: 'uppercase', fontWeight: 'bold', letterSpacing: 1 }}>
+                  Active Programs
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {activePrograms.map(p => (
+                    <div key={p.id} style={{ background: '#0f172a', borderRadius: 10, padding: '10px 12px', border: '1px solid rgba(59,130,246,0.35)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ fontSize: 16, width: 22, textAlign: 'center' }}>{p.coverEmoji || '📘'}</div>
+                      <div style={{ color: 'white', fontWeight: 'bold', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ color: '#94a3b8', fontSize: 13, padding: '10px 0', textAlign: 'center' }}>

@@ -1,0 +1,562 @@
+{
+  "chapter_id": "unit-2-sequences-expressions-and-formulae",
+  "title": "Sequences, expressions and formulae",
+  "created_at": "2026-03-24T23:17:40.382129+00:00",
+  "source": {
+    "pdf_name": null,
+    "page_range": [
+      4,
+      5
+    ]
+  },
+  "rendering": {
+    "math_format": {
+      "raw_text": true,
+      "latex": true
+    }
+  },
+  "atomic_scrolls": [
+    {
+      "scroll_id": "CH2_SCROLL_linear_sequence_introduction",
+      "title": "In a linear sequence",
+      "raw_text": "In a linear sequence the terms in the sequence can increase or decrease by the same amount each time.",
+      "latex": null,
+      "source_ref": {
+        "page": null,
+        "kind": "image",
+        "note": "missing source_ref for atomic_scrolls[0]"
+      },
+      "snippets": []
+    },
+    {
+      "scroll_id": "CH2_SCROLL_worked_example_2_1",
+      "title": "Worked example 2.1",
+      "raw_text": "a The first term of a sequence is 4. The term-to-term rule of the sequence is 'subtract 3'. Write down the first three terms of the sequence.\nb The position-to-term rule of a sequence is: term = 4 × position number + 1. Work out the first three terms of the sequence.\n\na First three terms are 4, 1, –2.\nWrite down the first term, which is 4, then use the term-to-term rule to work out the second and third terms.\n2nd term = 4 – 3 = 1, 3rd term = 1 – 3 = –2.\nb First three terms are 5, 9, 13.\nUse the position-to-term rule to work out each term.\n1st term = 4 × 1 + 1 = 5, 2nd term = 4 × 2 + 1 = 9, 3rd term = 4 × 3 + 1 = 13.",
+      "latex": "a The first term of a sequence is 4. The term-to-term rule of the sequence is 'subtract 3'. Write down the first three terms of the sequence.\nb The position-to-term rule of a sequence is: $ \\text{term} = 4 \\times \\text{position number} + 1 $. Work out the first three terms of the sequence.\n\na First three terms are 4, 1, –2.\nWrite down the first term, which is 4, then use the term-to-term rule to work out the second and third terms.\n$ 2\\text{nd term} = 4 - 3 = 1 $, $ 3\\text{rd term} = 1 - 3 = -2 $.\nb First three terms are 5, 9, 13.\nUse the position-to-term rule to work out each term.\n$ 1\\text{st term} = 4 \\times 1 + 1 = 5 $, $ 2\\text{nd term} = 4 \\times 2 + 1 = 9 $, $ 3\\text{rd term} = 4 \\times 3 + 1 = 13 $.",
+      "source_ref": {
+        "page": null,
+        "kind": "image",
+        "note": "missing source_ref for atomic_scrolls[1]"
+      },
+      "snippets": []
+    }
+  ],
+  "regions": [
+    {
+      "region_id": "CH2_SEC_A",
+      "section_label": "2.1",
+      "section_title": "Generating sequences",
+      "theme_name": null
+    },
+    {
+      "region_id": "CH2_SEC_B",
+      "section_label": "2.2",
+      "section_title": "Finding rules for sequences",
+      "theme_name": null
+    },
+    {
+      "region_id": "CH2_SEC_C",
+      "section_label": "2.3",
+      "section_title": "Using the nth term",
+      "theme_name": null
+    },
+    {
+      "region_id": "CH2_SEC_D",
+      "section_label": "2.4",
+      "section_title": "Using functions and mappings",
+      "theme_name": null
+    },
+    {
+      "region_id": "CH2_SEC_E",
+      "section_label": "2.5",
+      "section_title": "Constructing linear expressions",
+      "theme_name": null
+    },
+    {
+      "region_id": "CH2_SEC_F",
+      "section_label": "2.6",
+      "section_title": "Deriving and using formulae",
+      "theme_name": null
+    },
+    {
+      "region_id": "CH2_SEC_G",
+      "section_label": null,
+      "section_title": "End-of-unit review",
+      "theme_name": null
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": "CH2_SCROLL_linear_sequence_introduction",
+      "node_type": "atomic_scroll",
+      "region_id": "CH2_SEC_A",
+      "textbook_ref": null,
+      "tags": [],
+      "question_count": null,
+      "questions": []
+    },
+    {
+      "node_id": "CH2_SCROLL_worked_example_2_1",
+      "node_type": "atomic_scroll",
+      "region_id": "CH2_SEC_A",
+      "textbook_ref": "Worked example 2.1",
+      "tags": [],
+      "question_count": null,
+      "questions": []
+    },
+    {
+      "node_id": "CH2_EX_2_1",
+      "node_type": "exercise",
+      "region_id": "CH2_SEC_A",
+      "textbook_ref": "Exercise 2.1",
+      "tags": [],
+      "question_count": null,
+      "questions": [
+        {
+          "question_id": "Q1",
+          "raw_text": "Write down the first three terms of each sequence.",
+          "latex": null,
+          "parts": [
+            {
+              "part_id": "a",
+              "raw_text": "first term: 1 term-to-term rule: ‘add 5’",
+              "latex": null
+            },
+            {
+              "part_id": "b",
+              "raw_text": "first term: 20 term-to-term rule: ‘subtract 4’",
+              "latex": null
+            },
+            {
+              "part_id": "c",
+              "raw_text": "first term: 2 term-to-term rule: ‘add 12’",
+              "latex": null
+            },
+            {
+              "part_id": "d",
+              "raw_text": "first term: 6 term-to-term rule: ‘subtract 5’",
+              "latex": null
+            },
+            {
+              "part_id": "e",
+              "raw_text": "first term: –3 term-to-term rule: ‘add 2’",
+              "latex": null
+            },
+            {
+              "part_id": "f",
+              "raw_text": "first term: –5 term-to-term rule: ‘subtract 6’",
+              "latex": null
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[2].questions[0]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q2",
+          "raw_text": "The first term of a sequence is 15. The term-to-term rule is add 7. What is the fifth term of the sequence? Explain how you worked out your answer.",
+          "latex": null,
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[2].questions[1]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q3",
+          "raw_text": "This is part of Zalika’s homework.\na Is Zalika’s answer correct?\nb Explain how her method works.\nc The first term of a sequence is 5. The term-to-term rule is ‘add 8’. Use Zalika’s method to work out:\ni the 10th term\nii the 20th term\niii the 50th term of the sequence.",
+          "latex": null,
+          "parts": [
+            {
+              "part_id": "a",
+              "raw_text": "Is Zalika’s answer correct?",
+              "latex": null
+            },
+            {
+              "part_id": "b",
+              "raw_text": "Explain how her method works.",
+              "latex": null
+            },
+            {
+              "part_id": "c",
+              "raw_text": "The first term of a sequence is 5. The term-to-term rule is ‘add 8’. Use Zalika’s method to work out:\ni the 10th term\nii the 20th term\niii the 50th term of the sequence.",
+              "latex": null
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[2].questions[2]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q4",
+          "raw_text": "Ahmad is trying to solve this problem. Work out the answer to the problem. Explain how you solved the problem.",
+          "latex": null,
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[2].questions[3]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q5",
+          "raw_text": "Mia is trying to solve this problem. Work out the answer to the problem. Explain how you solved the problem.",
+          "latex": null,
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[2].questions[4]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q6",
+          "raw_text": "The table shows two of the terms in a sequence. Position-to-term rule: term = position number + 7 Copy the table. Use the position-to-term rule to work out the missing numbers.\n\nPosition number | 1 | 2 | 3 | 4 | 5 | 10 | 20\nTerm | | 9 | | | | | 17",
+          "latex": "The table shows two of the terms in a sequence. Position-to-term rule: $ \\text{term} = \\text{position number} + 7 $. Copy the table. Use the position-to-term rule to work out the missing numbers.\n\n$ \\begin{array}{|l|c|c|c|c|c|c|c|}\n\\hline\n\\text{Position number} & 1 & 2 & 3 & 4 & 5 & 10 & 20 \\\\\n\\hline\n\\text{Term} & & 9 & & & & & 17 \\\\\n\\hline\n\\end{array} $",
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[2].questions[5]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q7",
+          "raw_text": "Use the position-to-term rule to work out the first four terms of each sequence.\na term = 6 × position number\nb term = position number – 4\nc term = 2 × position number + 1\nd term = 3 × position number – 1",
+          "latex": "Use the position-to-term rule to work out the first four terms of each sequence.\na $ \\text{term} = 6 \\times \\text{position number} $\nb $ \\text{term} = \\text{position number} - 4 $\nc $ \\text{term} = 2 \\times \\text{position number} + 1 $\nd $ \\text{term} = 3 \\times \\text{position number} - 1 $",
+          "parts": [
+            {
+              "part_id": "a",
+              "raw_text": "term = 6 × position number",
+              "latex": "$ \\text{term} = 6 \\times \\text{position number} $"
+            },
+            {
+              "part_id": "b",
+              "raw_text": "term = position number – 4",
+              "latex": "$ \\text{term} = \\text{position number} - 4 $"
+            },
+            {
+              "part_id": "c",
+              "raw_text": "term = 2 × position number + 1",
+              "latex": "$ \\text{term} = 2 \\times \\text{position number} + 1 $"
+            },
+            {
+              "part_id": "d",
+              "raw_text": "term = 3 × position number – 1",
+              "latex": "$ \\text{term} = 3 \\times \\text{position number} - 1 $"
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[2].questions[6]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q8",
+          "raw_text": "Use the position-to-term rules to work out:\ni the 10th term\nii the 20th term\niii the 100th term of each sequence.\na term = position number + 5\nb term = 2 × position number\nc term = 4 × position number + 8\nd term = 5 × position number – 25",
+          "latex": "Use the position-to-term rules to work out:\ni the 10th term\nii the 20th term\niii the 100th term of each sequence.\na $ \\text{term} = \\text{position number} + 5 $\nb $ \\text{term} = 2 \\times \\text{position number} $\nc $ \\text{term} = 4 \\times \\text{position number} + 8 $\nd $ \\text{term} = 5 \\times \\text{position number} - 25 $",
+          "parts": [
+            {
+              "part_id": "i",
+              "raw_text": "the 10th term",
+              "latex": null
+            },
+            {
+              "part_id": "ii",
+              "raw_text": "the 20th term",
+              "latex": null
+            },
+            {
+              "part_id": "iii",
+              "raw_text": "the 100th term of each sequence.\na term = position number + 5\nb term = 2 × position number\nc term = 4 × position number + 8\nd term = 5 × position number – 25",
+              "latex": "the 100th term of each sequence.\na $ \\text{term} = \\text{position number} + 5 $\nb $ \\text{term} = 2 \\times \\text{position number} $\nc $ \\text{term} = 4 \\times \\text{position number} + 8 $\nd $ \\text{term} = 5 \\times \\text{position number} - 25 $"
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[2].questions[7]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q9",
+          "raw_text": "The fourth term of a sequence is 11. The seventh term of the sequence is 20. Which of these position-to-term rules is the correct one for the sequence? A term = position number + 7 B term = 2 × position number + 3 C term = 3 × position number – 1 D term = 4 × position number – 5 Show how you worked out your answer.",
+          "latex": "The fourth term of a sequence is 11. The seventh term of the sequence is 20. Which of these position-to-term rules is the correct one for the sequence?\nA $ \\text{term} = \\text{position number} + 7 $ \nB $ \\text{term} = 2 \\times \\text{position number} + 3 $ \nC $ \\text{term} = 3 \\times \\text{position number} - 1 $ \nD $ \\text{term} = 4 \\times \\text{position number} - 5 $ \nShow how you worked out your answer.",
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[2].questions[8]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q10",
+          "raw_text": "This is part of Razi’s homework.",
+          "latex": null,
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[2].questions[9]"
+          },
+          "hint_refs": []
+        }
+      ]
+    },
+    {
+      "node_id": "CH2_BOSS_end_of_unit_review",
+      "node_type": "boss",
+      "region_id": "CH2_SEC_G",
+      "textbook_ref": "End-of-unit review",
+      "tags": [],
+      "question_count": null,
+      "questions": [
+        {
+          "question_id": "Q1",
+          "raw_text": "Write down the first three terms of each of the sequences described.",
+          "latex": null,
+          "parts": [
+            {
+              "part_id": "a",
+              "raw_text": "first term is 7, term-to-term rule is ‘add 3’",
+              "latex": null
+            },
+            {
+              "part_id": "b",
+              "raw_text": "first term is 11, term-to-term rule is ‘subtract 5’",
+              "latex": null
+            },
+            {
+              "part_id": "c",
+              "raw_text": "position-to-term rule is term = 8 × position number",
+              "latex": "$ \\text{position-to-term rule is term} = 8 \\times \\text{position number} $"
+            },
+            {
+              "part_id": "d",
+              "raw_text": "position-to-term rule is term = 4 × position number – 3",
+              "latex": "$ \\text{position-to-term rule is term} = 4 \\times \\text{position number} - 3 $"
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[3].questions[0]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q2",
+          "raw_text": "The third term of a sequence is 9. The eighth term of the sequence is 19. Which of these position-to-term rules is the correct one for the sequence? Show how you worked out your answer.\nA term = position number + 9\nB term = 2 × position number + 3\nC term = 3 × position number\nD term = 4 × position number – 3",
+          "latex": "The third term of a sequence is 9. The eighth term of the sequence is 19. Which of these position-to-term rules is the correct one for the sequence? Show how you worked out your answer.\nA $ \\text{term} = \\text{position number} + 9 $\nB $ \\text{term} = 2 \\times \\text{position number} + 3 $\nC $ \\text{term} = 3 \\times \\text{position number} $\nD $ \\text{term} = 4 \\times \\text{position number} - 3 $",
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[3].questions[1]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q3",
+          "raw_text": "For each sequence of numbers:\ni write down the term-to-term rule\nii write the sequence of numbers in a table\niii work out the position-to-term rule\niv check your rule works for the first three terms.\na 12, 18, 24, ...\nb 6, 11, 16, 21, ...\nc 8, 9, 10, 11, ...",
+          "latex": null,
+          "parts": [
+            {
+              "part_id": "i",
+              "raw_text": "write down the term-to-term rule",
+              "latex": null
+            },
+            {
+              "part_id": "ii",
+              "raw_text": "write the sequence of numbers in a table",
+              "latex": null
+            },
+            {
+              "part_id": "iii",
+              "raw_text": "work out the position-to-term rule",
+              "latex": null
+            },
+            {
+              "part_id": "iv",
+              "raw_text": "check your rule works for the first three terms.",
+              "latex": null
+            },
+            {
+              "part_id": "a",
+              "raw_text": "12, 18, 24, ...",
+              "latex": null
+            },
+            {
+              "part_id": "b",
+              "raw_text": "6, 11, 16, 21, ...",
+              "latex": null
+            },
+            {
+              "part_id": "c",
+              "raw_text": "8, 9, 10, 11, ...",
+              "latex": null
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[3].questions[2]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q4",
+          "raw_text": "This pattern is made from dots.\nPattern 1 [image: three rows of 4, 3, 2, 1 dots, making a triangle; then an additional row of 3 dots]\nPattern 2 [image: three rows of 5, 4, 3, 2, 1 dots, making a triangle; then an additional row of 3 dots]\nPattern 3 [image: three rows of 6, 5, 4, 3, 2, 1 dots, making a triangle; then an additional row of 3 dots]\nPattern 4 [image: three rows of 7, 6, 5, 4, 3, 2, 1 dots, making a triangle; then an additional row of 3 dots]\nAlicia thinks that the nth term for the sequence of numbers of dots is 3n + 3. Is Alicia correct? Explain how you worked out your answer.",
+          "latex": "This pattern is made from dots.\nPattern 1 [image: three rows of 4, 3, 2, 1 dots, making a triangle; then an additional row of 3 dots]\nPattern 2 [image: three rows of 5, 4, 3, 2, 1 dots, making a triangle; then an additional row of 3 dots]\nPattern 3 [image: three rows of 6, 5, 4, 3, 2, 1 dots, making a triangle; then an additional row of 3 dots]\nPattern 4 [image: three rows of 7, 6, 5, 4, 3, 2, 1 dots, making a triangle; then an additional row of 3 dots]\nAlicia thinks that the $n$th term for the sequence of numbers of dots is $3n + 3$. Is Alicia correct? Explain how you worked out your answer.",
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[3].questions[3]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q5",
+          "raw_text": "Copy and complete the table of values for each function machine.\ni [function machine: x → +9 → y]\nx | 1 | 2 | 8\ny | | 14 |\nii [function machine: x → ×2 → –3 → y]\nx | 1 | 2\ny | | 7 | 19",
+          "latex": "Copy and complete the table of values for each function machine.\ni [function machine: $ x \\rightarrow +9 \\rightarrow y $]\n$ \\begin{array}{|c|c|c|c|}\n\\hline\nx & 1 & 2 & 8 \\\\\n\\hline\ny & & 14 & \\\\\n\\hline\n\\end{array} $\nii [function machine: $ x \\rightarrow \\times 2 \\rightarrow -3 \\rightarrow y $]\n$ \\begin{array}{|c|c|c|}\n\\hline\nx & 1 & 2 \\\\\n\\hline\ny & & 7 \\quad 19 \\\\\n\\hline\n\\end{array} $",
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[3].questions[4]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q6",
+          "raw_text": "Ahmad thinks of a number, x. Write an expression for the number Ahmad gets when he:\na multiplies the number by 4\nb multiplies the number by 2 then adds 7\nc divides the number by 3 then subtracts 10\nd adds 4 to the number then multiplies by 5.",
+          "latex": "Ahmad thinks of a number, $x$. Write an expression for the number Ahmad gets when he:\na multiplies the number by 4\nb multiplies the number by 2 then adds 7\nc divides the number by 3 then subtracts 10\nd adds 4 to the number then multiplies by 5.",
+          "parts": [
+            {
+              "part_id": "a",
+              "raw_text": "multiplies the number by 4",
+              "latex": null
+            },
+            {
+              "part_id": "b",
+              "raw_text": "multiplies the number by 2 then adds 7",
+              "latex": null
+            },
+            {
+              "part_id": "c",
+              "raw_text": "divides the number by 3 then subtracts 10",
+              "latex": null
+            },
+            {
+              "part_id": "d",
+              "raw_text": "adds 4 to the number then multiplies by 5.",
+              "latex": null
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[3].questions[5]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q7",
+          "raw_text": "Work out the value of each expression.\na x + 7 when x = –12\nb 3x – 4y when x = 2 and y = 7\nc 3n + 1 when n = –6\nd 30 – 5k when k = –2\ne x^2 – 10 when x = 3\nf 4y^2 when y = 2",
+          "latex": "Work out the value of each expression.\na $x + 7$ when $x = -12$\nb $3x - 4y$ when $x = 2$ and $y = 7$\nc $3n + 1$ when $n = -6$\nd $30 - 5k$ when $k = -2$\ne $x^2 - 10$ when $x = 3$\nf $4y^2$ when $y = 2$",
+          "parts": [
+            {
+              "part_id": "a",
+              "raw_text": "x + 7 when x = –12",
+              "latex": "$x + 7$ when $x = -12$"
+            },
+            {
+              "part_id": "b",
+              "raw_text": "3x – 4y when x = 2 and y = 7",
+              "latex": "$3x - 4y$ when $x = 2$ and $y = 7$"
+            },
+            {
+              "part_id": "c",
+              "raw_text": "3n + 1 when n = –6",
+              "latex": "$3n + 1$ when $n = -6$"
+            },
+            {
+              "part_id": "d",
+              "raw_text": "30 – 5k when k = –2",
+              "latex": "$30 - 5k$ when $k = -2$"
+            },
+            {
+              "part_id": "e",
+              "raw_text": "x^2 – 10 when x = 3",
+              "latex": "$x^2 - 10$ when $x = 3$"
+            },
+            {
+              "part_id": "f",
+              "raw_text": "4y^2 when y = 2",
+              "latex": "$4y^2$ when $y = 2$"
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[3].questions[6]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q8",
+          "raw_text": "Use the formula P = mgh to work out P when m = 5, g = 10 and h = 3.",
+          "latex": "Use the formula $P = mgh$ to work out $P$ when $m = 5$, $g = 10$ and $h = 3$.",
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[3].questions[7]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q9",
+          "raw_text": "Zalika uses the formula V = u^2 + 2as.\nWhen she substitutes u = 4, a = 3 and s = 7 into the formula she gets the equation 8 = 6 + 14s. Is Zalika correct? Show how you worked out your answer.",
+          "latex": "Zalika uses the formula $V = u^2 + 2as$.\nWhen she substitutes $u = 4$, $a = 3$ and $s = 7$ into the formula she gets the equation $8 = 6 + 14s$. Is Zalika correct? Show how you worked out your answer.",
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[3].questions[8]"
+          },
+          "hint_refs": []
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "CH2_EX_2_1",
+      "to": "CH2_BOSS_end_of_unit_review",
+      "edge_type": "prereq"
+    }
+  ],
+  "notes": [
+    "The input `chapter_context_text` page_range refers to the Table of Contents itself (pages 4-5). Based on the provided image files (pages 19, 20, 30), the target 'chapter' for this blueprint is inferred to be 'Unit 2: Sequences, expressions and formulae'.",
+    "Regions for sections 2.2, 2.3, 2.4, 2.5, 2.6 are created based on the Table of Contents, but no specific nodes (exercises, scrolls, bosses) are planned for them as no content images were provided for those pages. Nodes were only created for sections with accompanying image content (2.1 and End-of-unit review).",
+    "Small hint boxes adjacent to questions (e.g., on page 20) are intended to be captured as 'example_snippets' within the exercise extraction, not as separate Atomic Scroll nodes, as they function as contextual tips rather than standalone 'Self Tutor' or 'Worked Example' boxes.",
+    "Edges auto-generated from blueprint ordering (MVP prereq chain)."
+  ]
+}

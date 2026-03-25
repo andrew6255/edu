@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getCurriculaForSubject } from '@/data/curriculum';
 import { getUserProgress, getCurriculumCompletedCount, UserProgress } from '@/lib/progressService';
+import { getPublicProgram } from '@/lib/programMaps';
+import { getProgramProgress } from '@/lib/programProgress';
+import MyProgramsModal from '@/components/universe/MyProgramsModal';
 
 interface HexUniverseViewProps {
   onSelectSubject: (subject: string) => void;
@@ -33,21 +36,82 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
   const { user, userData } = useAuth();
   const [progress, setProgress] = useState<UserProgress>({});
   const [loaded, setLoaded] = useState(false);
+  const [activeProgramTitle, setActiveProgramTitle] = useState<string | null>(null);
+  const [activePrograms, setActivePrograms] = useState<Array<{ id: string; title: string; coverEmoji?: string }>>([]);
+  const [programPctById, setProgramPctById] = useState<Record<string, number>>({});
+  const [programsOpen, setProgramsOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     getUserProgress(user.uid).then(p => { setProgress(p); setLoaded(true); });
   }, [user]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const ids = (userData?.activeProgramIds && Array.isArray(userData.activeProgramIds))
+        ? userData.activeProgramIds
+        : (userData?.activeProgramId ? [userData.activeProgramId] : []);
+
+      if (ids.length === 0) {
+        setActiveProgramTitle(null);
+        setActivePrograms([]);
+        return;
+      }
+
+      const progs = await Promise.all(ids.map((pid) => getPublicProgram(pid).then((p) => ({ pid, p }))));
+      if (cancelled) return;
+
+      const items = progs
+        .map(({ pid, p }) => ({ id: pid, title: p?.title ?? pid, coverEmoji: p?.coverEmoji }))
+        .filter((x) => !!x.id);
+
+      setActiveProgramTitle(items[0]?.title ?? 'My Book');
+      setActivePrograms(items);
+
+      if (user) {
+        const pctEntries = await Promise.all(
+          progs.map(async ({ pid, p }) => {
+            const unitIds: string[] = (p?.toc?.toc_tree ?? []).map((it: any, idx: number) => String(it?.id || idx));
+            const pp = await getProgramProgress(user.uid, pid);
+            const completedUnitIds = pp?.completedUnitIds ?? [];
+            const completedCount = unitIds.filter((id) => completedUnitIds.includes(id)).length;
+            const pct = unitIds.length > 0 ? Math.round((completedCount / unitIds.length) * 100) : 0;
+            return [pid, pct] as const;
+          })
+        );
+        if (!cancelled) {
+          const next: Record<string, number> = {};
+          for (const [pid, pct] of pctEntries) next[pid] = pct;
+          setProgramPctById(next);
+        }
+      } else {
+        setProgramPctById({});
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [userData?.activeProgramId, userData?.activeProgramIds]);
+
   const profile = userData?.curriculumProfile;
   const isNoSystem = !profile || profile.system === 'No System';
+
+  const subjects = profile?.subjects;
+  const subjectKeyByPortalId: Record<string, keyof NonNullable<typeof subjects>> = {
+    math: 'mathematics',
+    physics: 'physics',
+    chemistry: 'chemistry',
+    biology: 'biology',
+  };
 
   // Filter which portals to show based on curriculum profile
   const activePortals = PORTALS.filter(p => {
     if (isNoSystem) return false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const subj = profile?.subjects?.[p.profileKey as keyof any] as { isVisible: boolean } | undefined;
-    return subj && subj.isVisible;
+    const k = subjectKeyByPortalId[p.id];
+    const subj = k ? subjects?.[k] : undefined;
+    return !!subj?.isVisible;
   });
 
   return (
@@ -149,29 +213,101 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
         </div>
       )}
 
-      {/* Add Program Button */}
-      <div style={{ zIndex: 2, marginTop: isNoSystem ? 0 : 'auto', animation: 'fadeIn 0.5s ease' }}>
+      {/* Active Programs (portal-style cards) */}
+      {activePrograms.length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: 24,
+          width: '100%',
+          maxWidth: 800,
+          zIndex: 2,
+          marginBottom: 40,
+        }}>
+          {activePrograms.map((p, i) => (
+            <div
+              key={p.id}
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'programMap', programId: p.id } }));
+              }}
+              style={{
+                background: 'rgba(59,130,246,0.10)',
+                border: '2px solid rgba(59,130,246,0.45)',
+                borderRadius: 20,
+                padding: '30px 20px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.3s',
+                boxShadow: '0 0 20px rgba(59,130,246,0.20)',
+                animation: `fadeIn ${0.3 + i * 0.08}s ease`,
+                position: 'relative',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+              }}
+              onMouseEnter={(e) => {
+                const el = e.currentTarget as HTMLDivElement;
+                el.style.transform = 'scale(1.03) translateY(-6px)';
+                el.style.boxShadow = '0 15px 40px rgba(59,130,246,0.35)';
+              }}
+              onMouseLeave={(e) => {
+                const el = e.currentTarget as HTMLDivElement;
+                el.style.transform = '';
+                el.style.boxShadow = '0 0 20px rgba(59,130,246,0.20)';
+              }}
+            >
+              <div style={{ fontSize: 48, marginBottom: 12, color: '#60a5fa', textShadow: '0 0 20px rgba(96,165,250,0.55)' }}>
+                {p.coverEmoji || '📘'}
+              </div>
+              <div style={{ fontWeight: 'bold', fontSize: 20, color: 'white', marginBottom: 6 }}>
+                {p.title}
+              </div>
+              <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>
+                Program Map
+              </div>
+              <div style={{ width: '100%', marginTop: 'auto' }}>
+                <div style={{ height: 4, background: '#0f172a', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
+                  <div style={{ width: `${programPctById[p.id] ?? 0}%`, height: '100%', background: (programPctById[p.id] ?? 0) >= 100 ? '#fbbf24' : '#60a5fa', transition: '0.5s' }} />
+                </div>
+                <div style={{ fontSize: 12, color: (programPctById[p.id] ?? 0) >= 100 ? '#fbbf24' : '#60a5fa', fontWeight: 'bold' }}>
+                  {(programPctById[p.id] ?? 0) >= 100 ? 'Completed' : `${programPctById[p.id] ?? 0}% In Progress`}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ zIndex: 2, marginTop: isNoSystem ? 0 : 'auto', animation: 'fadeIn 0.5s ease', width: '100%', maxWidth: 420 }}>
         <button
-          onClick={() => alert("Custom Program Marketplace coming soon!")}
+          onClick={() => setProgramsOpen(true)}
           style={{
-            background: 'transparent', border: '2px dashed #475569', borderRadius: 12,
-            padding: '16px 32px', color: '#94a3b8', fontSize: 15, fontWeight: 'bold', cursor: 'pointer',
-            transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: 10
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.borderColor = '#64748b';
-            e.currentTarget.style.color = '#cbd5e1';
-            e.currentTarget.style.backgroundColor = 'rgba(71,85,105,0.1)';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.borderColor = '#475569';
-            e.currentTarget.style.color = '#94a3b8';
-            e.currentTarget.style.backgroundColor = 'transparent';
+            background: 'linear-gradient(90deg, rgba(168,85,247,0.20), rgba(59,130,246,0.18))',
+            border: '1px solid rgba(168,85,247,0.5)',
+            borderRadius: 12,
+            padding: '16px 32px',
+            color: 'white',
+            fontSize: 15,
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            width: '100%',
+            justifyContent: 'center',
           }}
         >
-          <span style={{ fontSize: 20 }}>+</span> Add Program
+          📚 My Programs
+          {activeProgramTitle ? (
+            <span style={{ color: '#cbd5e1', fontWeight: 600, fontSize: 12 }}>
+              ({activePrograms.length} active)
+            </span>
+          ) : null}
         </button>
       </div>
+
+      <MyProgramsModal open={programsOpen} onClose={() => setProgramsOpen(false)} />
 
       {/* Decorative orbs */}
       <div style={{

@@ -13,7 +13,7 @@ export interface SubjectConfig {
 export interface CurriculumProfile {
   system: string;
   year: string;
-  subjects: {
+  subjects?: {
     mathematics: SubjectConfig;
     physics: SubjectConfig;
     chemistry: SubjectConfig;
@@ -53,6 +53,12 @@ export interface UserData {
   progress?: Record<string, Record<string, Record<string, { mastered: boolean; xpAwarded: number; completedAt?: string }>>>;
   warmupVariantsMigrated?: boolean;
   last_active?: string;
+
+  // Program maps (public books)
+  assignedProgramIds?: string[];
+  activeProgramIds?: string[];
+  activeProgramId?: string | null;
+  completedProgramIds?: string[];
 }
 
 export interface AppNotification {
@@ -289,11 +295,30 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
     if (toUid === fromUid) return false;
 
     const toUserSnap = await getDoc(doc(db, 'users', toUid));
+    const fromUserSnap = await getDoc(doc(db, 'users', fromUid));
     if (toUserSnap.exists()) {
       const toData = toUserSnap.data() as Partial<UserData>;
+      const fromData = fromUserSnap.exists() ? (fromUserSnap.data() as Partial<UserData>) : ({} as Partial<UserData>);
       const friends = Array.isArray(toData.friends) ? toData.friends : [];
       const incoming = Array.isArray(toData.incomingRequests) ? toData.incomingRequests : [];
-      if (friends.includes(fromUid)) throw new Error('You are already friends');
+      const myFriends = Array.isArray(fromData.friends) ? fromData.friends : [];
+
+      const mutualFriends = friends.includes(fromUid) && myFriends.includes(toUid);
+      if (mutualFriends) throw new Error('You are already friends');
+
+      // If friendship is stale / one-sided (can happen after an unfriend permissions issue),
+      // clean it up before proceeding.
+      if (friends.includes(fromUid) && !myFriends.includes(toUid)) {
+        await updateDoc(doc(db, 'users', toUid), {
+          friends: friends.filter(x => x !== fromUid)
+        });
+      }
+      if (myFriends.includes(toUid) && !friends.includes(fromUid)) {
+        await updateDoc(doc(db, 'users', fromUid), {
+          friends: myFriends.filter(x => x !== toUid)
+        });
+      }
+
       if (incoming.includes(fromUid)) {
         // Request already pending; we'll just bump the existing notification below.
       }
@@ -408,6 +433,12 @@ export async function submitCurriculumRequest(uid: string, username: string, pro
   await setDoc(doc(db, 'curriculumRequests', `${uid}_${Date.now()}`), {
     uid, username, ...profile, requestedAt: new Date().toISOString(), status: 'pending'
   });
+}
+
+export async function submitProgramMapRequest(uid: string, username: string, profile: {
+  system: string; year: string; textbook: string;
+}): Promise<void> {
+  return submitCurriculumRequest(uid, username, profile);
 }
 
 export function computeLevel(xp: number): { level: number; title: string } {

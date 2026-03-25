@@ -189,6 +189,11 @@ service cloud.firestore {
         );
         allow delete: if isOwn(userId) || isAdmin();
       }
+
+      // Program map progress (per-user)
+      match /program_progress/{programId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
     }
 
     // ── Organisations ─────────────────────────────────────────────────────
@@ -197,6 +202,14 @@ service cloud.firestore {
     match /organisations/{orgId} {
       allow read: if isAuthed();
       allow create, update, delete: if isAdmin();
+    }
+
+    // ── Public Program Maps (Books) ───────────────────────────────────────
+    // Any authenticated user can read the public programs catalog.
+    // Only superadmins can create/update/delete.
+    match /public_programs/{programId} {
+      allow read: if isAuthed();
+      allow create, update, delete: if isSuperAdmin();
     }
 
     // ── Classes ───────────────────────────────────────────────────────────
