@@ -244,6 +244,28 @@ service cloud.firestore {
       allow read, write: if isAuthed();
     }
 
+    // ── Program Friend Sessions (Program Map: Play a Friend) ─────────────
+    // Join codes are the document IDs, so clients join via getDoc (no query).
+    // Security model:
+    // - deny list (prevents discovery)
+    // - allow get for authed users (needed to join by code)
+    // - writes restricted to participants/admins
+    match /programFriendSessions/{sessionId} {
+      allow list: if false;
+      allow get: if isAuthed();
+
+      allow create: if isAuthed() && (
+        isAdmin() ||
+        request.resource.data.host.uid == myUid()
+      );
+
+      allow update, delete: if isAuthed() && (
+        isAdmin() ||
+        resource.data.host.uid == myUid() ||
+        (resource.data.guest != null && resource.data.guest.uid == myUid())
+      );
+    }
+
     // ── Leaderboards (mini-game high-score aggregates) ────────────────────
     match /leaderboards/{gameId} {
       allow read: if isAuthed();

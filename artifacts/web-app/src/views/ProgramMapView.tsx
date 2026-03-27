@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import ReactFlow, { Background, Controls, MiniMap, type Edge, type Node } from 'reactflow';
-import 'reactflow/dist/style.css';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { getPublicProgram, setProgramCompletedForUser, type TocItem } from '@/lib/programMaps';
 import { applyRankedAnswer, getProgramProgress, markQuestionSolved, toggleUnitComplete } from '@/lib/programProgress';
 import { updateEconomy } from '@/lib/userService';
+import {
+  createProgramFriendSession,
+  joinProgramFriendSessionByCode,
+  listenProgramFriendSession,
+  submitProgramFriendAnswer,
+  leaveProgramFriendSession,
+  tryExpireWaitingProgramFriendSession,
+  tryCompleteInactiveProgramFriendSession,
+} from '@/lib/programFriendService';
+import type { ProgramFriendSession } from '@/types/programFriend';
 import {
   fetchProgramAnnotationsFromPublic,
   fetchProgramChapterFromPublic,
@@ -15,6 +23,79 @@ import {
 } from '@/lib/programQuestionBank';
 
 type Selected = { id: string; title: string; ref?: string | null } | null;
+
+type Screen = 'chapters' | 'subsections' | 'types' | 'practice';
+
+type PracticeMode = 'solo' | 'ranked' | 'friend';
+
+function ConfettiBurst({ fire }: { fire: number }) {
+  const pieces = useMemo(() => {
+    const rand = (seed: number) => {
+      const x = Math.sin(seed) * 10000;
+      return x - Math.floor(x);
+    };
+    const colors = ['#60a5fa', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#fb7185'];
+    const out = [] as Array<{
+      left: number;
+      delay: number;
+      dur: number;
+      rot: number;
+      drift: number;
+      color: string;
+    }>;
+    for (let i = 0; i < 26; i++) {
+      const s = fire * 97 + i * 13;
+      out.push({
+        left: Math.round(rand(s + 1) * 1000) / 10,
+        delay: Math.round(rand(s + 2) * 120) / 100,
+        dur: 0.9 + rand(s + 3) * 0.8,
+        rot: Math.round(rand(s + 4) * 720),
+        drift: (rand(s + 5) - 0.5) * 320,
+        color: colors[Math.floor(rand(s + 6) * colors.length)],
+      });
+    }
+    return out;
+  }, [fire]);
+
+  if (!fire) return null;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 50 }}>
+      <style>
+        {`@keyframes ll-confetti-fall {0%{transform:translate3d(var(--dx),-16px,0) rotate(var(--r));opacity:0}10%{opacity:1}100%{transform:translate3d(calc(var(--dx) * 1.15),110vh,0) rotate(calc(var(--r) + 520deg));opacity:0}}
+@keyframes ll-confetti-pop {0%{opacity:0}15%{opacity:1}100%{opacity:0}}
+        `}
+      </style>
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'radial-gradient(circle at 50% 40%, rgba(59,130,246,0.16), rgba(0,0,0,0))',
+          animation: 'll-confetti-pop 900ms ease forwards',
+        }}
+      />
+      {pieces.map((p, idx) => (
+        <div
+          key={idx}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: `${p.left}%`,
+            width: 8,
+            height: 10,
+            borderRadius: 2,
+            background: p.color,
+            boxShadow: `0 0 12px ${p.color}33`,
+            opacity: 0,
+            ['--dx' as any]: `${p.drift}px`,
+            ['--r' as any]: `${p.rot}deg`,
+            animation: `ll-confetti-fall ${p.dur.toFixed(2)}s ease-out ${p.delay.toFixed(2)}s forwards`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   if (!Array.isArray(items)) return [];
@@ -33,18 +114,15 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const uid = user?.uid ?? null;
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState<string>('Program Map');
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
+  const [screen, setScreen] = useState<Screen>('chapters');
+  const [practiceMode, setPracticeMode] = useState<PracticeMode | null>(null);
+  const [tocTree, setTocTree] = useState<TocItem[]>([]);
+  const [activeUnitId, setActiveUnitId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selected>(null);
-  const [includeSections, setIncludeSections] = useState(true);
   const [completedUnitIds, setCompletedUnitIds] = useState<string[]>([]);
   const [solvedQuestionIds, setSolvedQuestionIds] = useState<string[]>([]);
   const [rankedTrophies, setRankedTrophies] = useState<number>(0);
   const [rankedSolvedQuestionIds, setRankedSolvedQuestionIds] = useState<string[]>([]);
-  const [completionPct, setCompletionPct] = useState<number>(0);
-  const flowWrapRef = useRef<HTMLDivElement | null>(null);
-  const [flowReady, setFlowReady] = useState(false);
-  const [flowRect, setFlowRect] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [isNarrow, setIsNarrow] = useState<boolean>(() => (typeof window !== 'undefined' ? window.innerWidth < 760 : false));
   const [qbLoading, setQbLoading] = useState<boolean>(false);
   const [qbError, setQbError] = useState<string | null>(null);
@@ -54,6 +132,8 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const [qbRegions, setQbRegions] = useState<Array<{ regionId: string; title: string; label: string | null; theme: string | null }>>([]);
   const [qbQuestionTypes, setQbQuestionTypes] = useState<Array<{ id: string; title: string; treeOrder: number }>>([]);
 
+  const [mapRegionId, setMapRegionId] = useState<string | null>(null);
+
   const [soloActive, setSoloActive] = useState(false);
   const [soloRegionId, setSoloRegionId] = useState<string | null>(null);
   const [soloQuestionTypeId, setSoloQuestionTypeId] = useState<string | null>(null);
@@ -62,12 +142,25 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const [soloFeedback, setSoloFeedback] = useState<{ correct: boolean; correctIndex: number } | null>(null);
   const [soloAwarding, setSoloAwarding] = useState(false);
 
+  const [friendCode, setFriendCode] = useState('');
+  const [friendBusy, setFriendBusy] = useState(false);
+  const [friendError, setFriendError] = useState<string | null>(null);
+  const [friendSessionId, setFriendSessionId] = useState<string | null>(null);
+  const [friendSession, setFriendSession] = useState<ProgramFriendSession | null>(null);
+  const [friendCopied, setFriendCopied] = useState(false);
+  const [friendStatus, setFriendStatus] = useState<string | null>(null);
+
   const [rankedActive, setRankedActive] = useState(false);
   const [rankedRegionId, setRankedRegionId] = useState<string | null>(null);
   const [rankedQuestionTypeId, setRankedQuestionTypeId] = useState<string | null>(null);
   const [rankedQuestionId, setRankedQuestionId] = useState<string | null>(null);
   const [rankedFeedback, setRankedFeedback] = useState<{ correct: boolean; correctIndex: number } | null>(null);
   const [rankedSaving, setRankedSaving] = useState(false);
+
+  const lastRankedCompleteRef = useRef<Record<string, boolean>>({});
+  const lastRegionCompleteRef = useRef<Record<string, boolean>>({});
+  const lastChapterCompleteRef = useRef<Record<string, boolean>>({});
+  const [celebrateFire, setCelebrateFire] = useState(0);
 
   function difficultyRank(d: string | null): number {
     if (d === 'easy') return 1;
@@ -94,6 +187,8 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   }, [qbQuestions, rankedActive, rankedQuestionId]);
 
   function startRanked(regionId: string, questionTypeId: string) {
+    setPracticeMode('ranked');
+    setScreen('practice');
     setRankedActive(true);
     setRankedRegionId(regionId);
     setRankedQuestionTypeId(questionTypeId);
@@ -120,6 +215,17 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     setRankedQuestionId(null);
     setRankedFeedback(null);
     setRankedSaving(false);
+
+    setPracticeMode(null);
+    setScreen('types');
+
+    setFriendCode('');
+    setFriendBusy(false);
+    setFriendError(null);
+    setFriendSessionId(null);
+    setFriendSession(null);
+    setFriendCopied(false);
+    setFriendStatus(null);
   }
 
   function pickNextRankedQuestion() {
@@ -164,6 +270,43 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const activeProgramId = userData?.activeProgramId ?? null;
 
   const programId = programIdProp ?? activeProgramId;
+
+  function resetPracticeState() {
+    setSoloActive(false);
+    setRankedActive(false);
+    setPracticeMode(null);
+    setSoloRegionId(null);
+    setSoloQuestionTypeId(null);
+    setSoloQuestionId(null);
+    setSoloSeenIds([]);
+    setSoloFeedback(null);
+    setSoloAwarding(false);
+    setRankedRegionId(null);
+    setRankedQuestionTypeId(null);
+    setRankedQuestionId(null);
+    setRankedFeedback(null);
+    setRankedSaving(false);
+  }
+
+  function handleBack() {
+    if (screen === 'practice') {
+      resetPracticeState();
+      setScreen('types');
+      return;
+    }
+    if (screen === 'types') {
+      setScreen('subsections');
+      resetPracticeState();
+      return;
+    }
+    if (screen === 'subsections') {
+      setScreen('chapters');
+      setMapRegionId(null);
+      setSelected(null);
+      return;
+    }
+    onBack();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -220,38 +363,17 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   }, []);
 
   useEffect(() => {
-    setFlowReady(false);
-  }, [programId, includeSections]);
-
-  useEffect(() => {
-    const el = flowWrapRef.current;
-    if (!el) return;
-    const elNonNull = el;
-
-    function check() {
-      const r = elNonNull.getBoundingClientRect();
-      setFlowRect({ w: Math.round(r.width), h: Math.round(r.height) });
-      if (r.width > 0 && r.height > 0) setFlowReady(true);
-    }
-
-    check();
-    const ro = new ResizeObserver(() => check());
-    ro.observe(elNonNull);
-    return () => ro.disconnect();
-  }, [loading, nodes.length, edges.length]);
-
-  useEffect(() => {
     let cancelled = false;
 
     async function load() {
       if (!programId) {
         setTitle('Program Map');
-        setNodes([]);
-        setEdges([]);
+        setScreen('chapters');
+        setTocTree([]);
+        setActiveUnitId(null);
         setSelected(null);
         setCompletedUnitIds([]);
         setSolvedQuestionIds([]);
-        setCompletionPct(0);
         setLoading(false);
         return;
       }
@@ -277,134 +399,139 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
       if (!prog) {
         setTitle('Program Map');
-        setNodes([]);
-        setEdges([]);
+        setScreen('chapters');
+        setTocTree([]);
+        setActiveUnitId(null);
         setSelected(null);
         setLoading(false);
         return;
       }
 
       setTitle(prog.title);
-
-      const top = (prog.toc.toc_tree || []).filter((x) => x && typeof x === 'object');
-
-      const unitItemIds: string[] = top.map((it: any, idx: number) => String(it.id || idx));
-      const completedCount = unitItemIds.filter((id) => completedIds.includes(id)).length;
-      const pct = unitItemIds.length > 0 ? Math.round((completedCount / unitItemIds.length) * 100) : 0;
-      setCompletionPct(pct);
-
-      const unitNodes: Node[] = [];
-      const unitEdges: Edge[] = [];
-
-      const xStep = 260;
-      const y0 = 120;
-
-      const unitIds: string[] = [];
-      for (let i = 0; i < top.length; i++) {
-        const it = top[i];
-        const nodeId = `UNIT_${it.id || i}`;
-        const unitItemId = String(it.id || i);
-        unitIds.push(nodeId);
-        const done = completedIds.includes(unitItemId);
-        unitNodes.push({
-          id: nodeId,
-          type: 'default',
-          position: { x: i * xStep, y: y0 },
-          data: {
-            label: it.title,
-            _meta: { title: it.title, ref: it.ref ?? null, unitItemId },
-          },
-          style: {
-            background: done ? 'rgba(251,191,36,0.18)' : 'rgba(59,130,246,0.18)',
-            border: done ? '1px solid rgba(251,191,36,0.65)' : '1px solid rgba(59,130,246,0.55)',
-            color: 'white',
-            borderRadius: 12,
-            padding: 8,
-            width: 220,
-            textAlign: 'center',
-            fontWeight: 700,
-          },
-        });
-      }
-
-      for (let i = 0; i < unitIds.length - 1; i++) {
-        unitEdges.push({
-          id: `E_${unitIds[i]}_${unitIds[i + 1]}`,
-          source: unitIds[i],
-          target: unitIds[i + 1],
-          animated: false,
-          style: { stroke: 'rgba(148,163,184,0.9)', strokeWidth: 2 },
-        });
-      }
-
-      const sectionNodes: Node[] = [];
-      const sectionEdges: Edge[] = [];
-
-      if (includeSections) {
-        const ySection = 260;
-        for (let i = 0; i < top.length; i++) {
-          const it = top[i];
-          const unitId = unitIds[i];
-          const children = Array.isArray(it.children) ? it.children : [];
-          for (let j = 0; j < children.length; j++) {
-            const ch = children[j];
-            const sid = `SEC_${it.id || i}_${ch.id || j}`;
-            sectionNodes.push({
-              id: sid,
-              position: { x: i * xStep + (j % 2) * 40, y: ySection + j * 60 },
-              data: {
-                label: ch.title,
-                _meta: { title: ch.title, ref: ch.ref ?? null },
-              },
-              style: {
-                background: 'rgba(16,185,129,0.12)',
-                border: '1px solid rgba(16,185,129,0.45)',
-                color: 'white',
-                borderRadius: 10,
-                padding: 6,
-                width: 220,
-                fontSize: 12,
-              },
-            });
-            sectionEdges.push({
-              id: `E_${unitId}_${sid}`,
-              source: unitId,
-              target: sid,
-              style: { strokeDasharray: '6 4', stroke: 'rgba(16,185,129,0.75)' },
-            });
-          }
-        }
-      }
-
-      setNodes([...unitNodes, ...sectionNodes]);
-      setEdges([...unitEdges, ...sectionEdges]);
+      setScreen('chapters');
+      const nextToc = Array.isArray(prog.toc?.toc_tree) ? (prog.toc.toc_tree as TocItem[]) : [];
+      setTocTree(nextToc);
+      setActiveUnitId((prev) => {
+        if (prev && nextToc.some((u) => u.id === prev)) return prev;
+        const first = nextToc.find((u) => Array.isArray(u.children) && u.children.length > 0) ?? nextToc[0] ?? null;
+        return first?.id ?? null;
+      });
       setSelected(null);
+      setMapRegionId(null);
       setLoading(false);
-
-      // If user completed all units, record completion on profile
-      if (uid && unitItemIds.length > 0 && completedCount === unitItemIds.length) {
-        try {
-          await setProgramCompletedForUser(uid, programId, true);
-        } catch {
-          // ignore
-        }
-      }
     }
 
     load();
     return () => {
       cancelled = true;
     };
-  }, [programId, includeSections, uid]);
+  }, [programId, uid]);
 
-  const nodeById = useMemo(() => {
-    const m = new Map<string, { title: string; ref?: string | null }>();
-    for (const n of nodes) {
-      const meta = (n.data as any)?._meta as { title?: string; ref?: string | null } | undefined;
-      if (meta?.title) m.set(n.id, { title: meta.title, ref: meta.ref });
-    }
-    return m;
-  }, [nodes]);
+  function normalizeText(s: string | null | undefined): string {
+    return String(s ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function normalizedTokens(s: string | null | undefined): string[] {
+    const t = normalizeText(s);
+    if (!t) return [];
+    return t.split(' ').filter(Boolean);
+  }
+
+  function scoreRegionMatch(args: {
+    tocLabel: string | null;
+    tocTitleBody: string;
+    regionLabel: string | null;
+    regionTitle: string;
+  }): number {
+    const tocLabel = args.tocLabel;
+    const regionLabel = args.regionLabel;
+
+    if (tocLabel && regionLabel && tocLabel === regionLabel) return 1000;
+
+    const tocTitle = normalizeText(args.tocTitleBody);
+    const regTitle = normalizeText(args.regionTitle);
+    if (!tocTitle || !regTitle) return 0;
+
+    if (tocTitle === regTitle) return 900;
+    if (tocTitle.includes(regTitle) || regTitle.includes(tocTitle)) return 750;
+
+    const tocIsReview = tocTitle.includes('review');
+    const regIsReview = regTitle.includes('review');
+    if (tocIsReview && regIsReview) return 700;
+
+    const tocTokens = new Set(normalizedTokens(tocTitle));
+    const regTokens = new Set(normalizedTokens(regTitle));
+    if (tocTokens.size === 0 || regTokens.size === 0) return 0;
+
+    let overlap = 0;
+    for (const tok of tocTokens) if (regTokens.has(tok)) overlap++;
+    const denom = Math.max(tocTokens.size, regTokens.size);
+    const ratio = denom > 0 ? overlap / denom : 0;
+    return Math.round(ratio * 650);
+  }
+
+  function parseTocSectionTitle(t: string): { label: string | null; titleBody: string } {
+    const raw = String(t ?? '').trim();
+    const m = raw.match(/^([0-9]+(?:\.[0-9]+)*)\s+(.*)$/);
+    if (!m) return { label: null, titleBody: raw };
+    return { label: m[1], titleBody: (m[2] ?? '').trim() };
+  }
+
+  const tocUnits = useMemo(() => {
+    return Array.isArray(tocTree) ? tocTree : [];
+  }, [tocTree]);
+
+  const activeUnit = useMemo(() => {
+    if (!activeUnitId) return null;
+    return tocUnits.find((u) => u.id === activeUnitId) ?? null;
+  }, [activeUnitId, tocUnits]);
+
+  const tocSubsections = useMemo(() => {
+    const children = activeUnit?.children;
+    return Array.isArray(children) ? children : [];
+  }, [activeUnit]);
+
+  const tocSubsectionsWithRegions = useMemo(() => {
+    return tocSubsections.map((s) => {
+      const parsed = parseTocSectionTitle(s.title);
+      const label = parsed.label;
+      const titleBody = parsed.titleBody;
+
+      let region: (typeof qbRegions)[number] | null = null;
+      if (label) {
+        region = qbRegions.find((r) => r.label === label) ?? null;
+      }
+      if (!region) {
+        let best: (typeof qbRegions)[number] | null = null;
+        let bestScore = 0;
+        for (const r of qbRegions) {
+          const score = scoreRegionMatch({
+            tocLabel: label,
+            tocTitleBody: titleBody,
+            regionLabel: r.label,
+            regionTitle: r.title,
+          });
+          if (score > bestScore) {
+            bestScore = score;
+            best = r;
+          }
+        }
+        region = bestScore >= 500 ? best : null;
+      }
+      return {
+        toc: s,
+        label,
+        titleBody,
+        regionId: region?.regionId ?? null,
+        regionTitle: region?.title ?? null,
+        regionTheme: region?.theme ?? null,
+      };
+    });
+  }, [tocSubsections, qbRegions]);
 
   const qbCounts = useMemo(() => {
     const byRegion: Record<string, number> = {};
@@ -421,6 +548,20 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     }
 
     return { byRegion, byType, byRegionAndType };
+  }, [qbQuestions]);
+
+  const qbMcqCounts = useMemo(() => {
+    const byRegion: Record<string, number> = {};
+    const byRegionAndType: Record<string, Record<string, number>> = {};
+    for (const q of qbQuestions) {
+      if (!q.mcq) continue;
+      const rid = q.regionId ?? 'unassigned';
+      const tid = q.questionTypeId ?? 'untyped';
+      byRegion[rid] = (byRegion[rid] ?? 0) + 1;
+      byRegionAndType[rid] = byRegionAndType[rid] ?? {};
+      byRegionAndType[rid][tid] = (byRegionAndType[rid][tid] ?? 0) + 1;
+    }
+    return { byRegion, byRegionAndType };
   }, [qbQuestions]);
 
   const qbSolvedCounts = useMemo(() => {
@@ -444,16 +585,200 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
   const qbRankedSolvedCounts = useMemo(() => {
     const solvedSet = new Set(rankedSolvedQuestionIds);
+    const byRegion: Record<string, number> = {};
     const byRegionAndType: Record<string, Record<string, number>> = {};
     for (const q of qbQuestions) {
       if (!solvedSet.has(q.id)) continue;
       const rid = q.regionId ?? 'unassigned';
       const tid = q.questionTypeId ?? 'untyped';
+      byRegion[rid] = (byRegion[rid] ?? 0) + 1;
       byRegionAndType[rid] = byRegionAndType[rid] ?? {};
       byRegionAndType[rid][tid] = (byRegionAndType[rid][tid] ?? 0) + 1;
     }
-    return { byRegionAndType };
+    return { byRegion, byRegionAndType };
   }, [qbQuestions, rankedSolvedQuestionIds]);
+
+  const qbMcqRankedSolvedCounts = useMemo(() => {
+    const solvedSet = new Set(rankedSolvedQuestionIds);
+    const byRegion: Record<string, number> = {};
+    const byRegionAndType: Record<string, Record<string, number>> = {};
+    for (const q of qbQuestions) {
+      if (!q.mcq) continue;
+      if (!solvedSet.has(q.id)) continue;
+      const rid = q.regionId ?? 'unassigned';
+      const tid = q.questionTypeId ?? 'untyped';
+      byRegion[rid] = (byRegion[rid] ?? 0) + 1;
+      byRegionAndType[rid] = byRegionAndType[rid] ?? {};
+      byRegionAndType[rid][tid] = (byRegionAndType[rid][tid] ?? 0) + 1;
+    }
+    return { byRegion, byRegionAndType };
+  }, [qbQuestions, rankedSolvedQuestionIds]);
+
+  useEffect(() => {
+    if (!rankedRegionId || !rankedQuestionTypeId) return;
+    const total = qbMcqCounts.byRegionAndType[rankedRegionId]?.[rankedQuestionTypeId] ?? 0;
+    const solved = qbMcqRankedSolvedCounts.byRegionAndType[rankedRegionId]?.[rankedQuestionTypeId] ?? 0;
+    const key = `${rankedRegionId}::${rankedQuestionTypeId}`;
+    const complete = total > 0 && solved >= total;
+    const was = !!lastRankedCompleteRef.current[key];
+    if (!was && complete) {
+      setCelebrateFire((n) => n + 1);
+    }
+    lastRankedCompleteRef.current[key] = complete;
+  }, [rankedRegionId, rankedQuestionTypeId, qbMcqCounts.byRegionAndType, qbMcqRankedSolvedCounts.byRegionAndType]);
+
+  useEffect(() => {
+    if (!mapRegionId) return;
+    const total = qbMcqCounts.byRegion[mapRegionId] ?? 0;
+    const solved = qbMcqRankedSolvedCounts.byRegion[mapRegionId] ?? 0;
+    const complete = total > 0 && solved >= total;
+    const was = !!lastRegionCompleteRef.current[mapRegionId];
+    if (!was && complete) {
+      setCelebrateFire((n) => n + 1);
+    }
+    lastRegionCompleteRef.current[mapRegionId] = complete;
+  }, [mapRegionId, qbMcqCounts.byRegion, qbMcqRankedSolvedCounts.byRegion]);
+
+  const chapterCompletion = useMemo(() => {
+    const completeByUnitId: Record<string, boolean> = {};
+    for (const unit of tocUnits) {
+      const subs = Array.isArray(unit.children) ? unit.children : [];
+      let total = 0;
+      let solved = 0;
+      for (const s of subs) {
+        const parsed = parseTocSectionTitle(s.title);
+        const label = parsed.label;
+        const titleBody = parsed.titleBody;
+
+        let region: (typeof qbRegions)[number] | null = null;
+        if (label) region = qbRegions.find((r) => r.label === label) ?? null;
+        if (!region) {
+          let best: (typeof qbRegions)[number] | null = null;
+          let bestScore = 0;
+          for (const r of qbRegions) {
+            const score = scoreRegionMatch({
+              tocLabel: label,
+              tocTitleBody: titleBody,
+              regionLabel: r.label,
+              regionTitle: r.title,
+            });
+            if (score > bestScore) {
+              bestScore = score;
+              best = r;
+            }
+          }
+          region = bestScore >= 500 ? best : null;
+        }
+
+        const rid = region?.regionId ?? null;
+        if (!rid) continue;
+        total += qbMcqCounts.byRegion[rid] ?? 0;
+        solved += qbMcqRankedSolvedCounts.byRegion[rid] ?? 0;
+      }
+
+      completeByUnitId[unit.id] = total > 0 && solved >= total;
+    }
+    return completeByUnitId;
+  }, [tocUnits, qbRegions, qbMcqCounts.byRegion, qbMcqRankedSolvedCounts.byRegion]);
+
+  useEffect(() => {
+    if (!activeUnitId) return;
+    const complete = !!chapterCompletion[activeUnitId];
+    const was = !!lastChapterCompleteRef.current[activeUnitId];
+    if (!was && complete) setCelebrateFire((n) => n + 1);
+    lastChapterCompleteRef.current[activeUnitId] = complete;
+  }, [activeUnitId, chapterCompletion]);
+
+  const overallMcqRankedSolved = useMemo(() => {
+    return Object.values(qbMcqRankedSolvedCounts.byRegion).reduce((sum, n) => sum + (typeof n === 'number' ? n : 0), 0);
+  }, [qbMcqRankedSolvedCounts.byRegion]);
+
+  const overallSolved = solvedQuestionIds.length;
+  const overallTotal = qbQuestions.length;
+
+  const playableOverallTotal = useMemo(() => qbQuestions.filter((q) => !!q.mcq).length, [qbQuestions]);
+
+  const mapRegion = useMemo(() => {
+    if (!mapRegionId) return null;
+    return qbRegions.find((r) => r.regionId === mapRegionId) ?? null;
+  }, [mapRegionId, qbRegions]);
+
+  const regionTypeCounts = useMemo(() => {
+    if (!mapRegionId) return [] as Array<{ tid: string; count: number }>;
+    return Object.entries(qbMcqCounts.byRegionAndType[mapRegionId] ?? {})
+      .map(([tid, count]) => ({ tid, count }))
+      .sort((a, b) => (qbQuestionTypes.find((t) => t.id === a.tid)?.treeOrder ?? 999) - (qbQuestionTypes.find((t) => t.id === b.tid)?.treeOrder ?? 999));
+  }, [mapRegionId, qbMcqCounts.byRegionAndType, qbQuestionTypes]);
+
+  const chaptersPathFill = useMemo(() => {
+    const total = playableOverallTotal;
+    if (total <= 0) return 0;
+    const solved = overallMcqRankedSolved;
+    return Math.max(0, Math.min(1, solved / total));
+  }, [playableOverallTotal, overallMcqRankedSolved]);
+
+  const subsectionsPathFill = useMemo(() => {
+    if (!activeUnitId) return 0;
+    if (!Array.isArray(tocSubsectionsWithRegions) || tocSubsectionsWithRegions.length === 0) return 0;
+    let total = 0;
+    let solved = 0;
+    for (const s of tocSubsectionsWithRegions) {
+      const rid = s.regionId;
+      if (!rid) continue;
+      total += qbMcqCounts.byRegion[rid] ?? 0;
+      solved += qbMcqRankedSolvedCounts.byRegion[rid] ?? 0;
+    }
+    if (total <= 0) return 0;
+    return Math.max(0, Math.min(1, solved / total));
+  }, [activeUnitId, tocSubsectionsWithRegions, qbMcqCounts.byRegion, qbMcqRankedSolvedCounts.byRegion]);
+
+  function findBestRegionForTocSubsection(tocTitle: string): (typeof qbRegions)[number] | null {
+    const parsed = parseTocSectionTitle(tocTitle);
+    const label = parsed.label;
+    const titleBody = parsed.titleBody;
+
+    if (label) {
+      const byLabel = qbRegions.find((r) => r.label === label) ?? null;
+      if (byLabel) return byLabel;
+    }
+
+    let best: (typeof qbRegions)[number] | null = null;
+    let bestScore = 0;
+    for (const r of qbRegions) {
+      const score = scoreRegionMatch({
+        tocLabel: label,
+        tocTitleBody: titleBody,
+        regionLabel: r.label,
+        regionTitle: r.title,
+      });
+      if (score > bestScore) {
+        bestScore = score;
+        best = r;
+      }
+    }
+    return bestScore >= 500 ? best : null;
+  }
+
+  const unitRankedProgress = useMemo(() => {
+    const out: Record<string, { solved: number; total: number }> = {};
+
+    for (const u of tocUnits) {
+      const subs = Array.isArray(u.children) ? u.children : [];
+      let total = 0;
+      let solved = 0;
+
+      for (const s of subs) {
+        const region = findBestRegionForTocSubsection(s.title);
+        if (!region) continue;
+        total += qbMcqCounts.byRegion[region.regionId] ?? 0;
+        solved += qbMcqRankedSolvedCounts.byRegion[region.regionId] ?? 0;
+      }
+
+      out[u.id] = { solved, total };
+    }
+
+    return out;
+  }, [tocUnits, qbRegions, qbMcqCounts.byRegion, qbMcqRankedSolvedCounts.byRegion]);
 
   const soloCandidates = useMemo(() => {
     if (!soloActive || !soloRegionId || !soloQuestionTypeId) return [];
@@ -481,6 +806,8 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   }
 
   function startSolo(regionId: string, questionTypeId: string) {
+    setPracticeMode('solo');
+    setScreen('practice');
     setSoloActive(true);
     setSoloRegionId(regionId);
     setSoloQuestionTypeId(questionTypeId);
@@ -498,6 +825,210 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     setSoloSeenIds([]);
     setSoloFeedback(null);
     setSoloAwarding(false);
+    setPracticeMode(null);
+    setScreen('types');
+  }
+
+  async function rematchFriend() {
+    setFriendError(null);
+    setFriendSessionId(null);
+    setFriendSession(null);
+    setFriendCopied(false);
+    await createFriendSession();
+  }
+
+  function startFriend(regionId: string, questionTypeId: string) {
+    setPracticeMode('friend');
+    setScreen('practice');
+    setSoloActive(false);
+    setRankedActive(false);
+    setSoloRegionId(regionId);
+    setSoloQuestionTypeId(questionTypeId);
+    setRankedRegionId(regionId);
+    setRankedQuestionTypeId(questionTypeId);
+
+    setFriendError(null);
+    setFriendSessionId(null);
+    setFriendSession(null);
+    setFriendCode('');
+    setFriendCopied(false);
+    setFriendStatus(null);
+  }
+
+  async function copyFriendCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      setFriendCopied(true);
+      setTimeout(() => setFriendCopied(false), 1200);
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    if (practiceMode !== 'friend') return;
+    if (!friendSessionId) return;
+    const unsub = listenProgramFriendSession(friendSessionId, (s) => setFriendSession(s));
+    return () => unsub();
+  }, [practiceMode, friendSessionId]);
+
+  useEffect(() => {
+    if (practiceMode !== 'friend') return;
+    if (!friendSessionId) return;
+    if (!friendSession) return;
+
+    setFriendStatus(null);
+
+    let timer: number | null = null;
+
+    // Waiting room: auto-expire if nobody joins.
+    if (friendSession.state === 'waiting' && !friendSession.guest) {
+      const startedAt = Date.parse(friendSession.createdAt);
+      if (!Number.isFinite(startedAt)) return;
+      const msRemaining = Math.max(0, 3 * 60 * 1000 - (Date.now() - startedAt));
+      timer = window.setTimeout(async () => {
+        try {
+          await tryExpireWaitingProgramFriendSession(friendSessionId);
+          setFriendStatus('This match expired because nobody joined in time.');
+        } catch {
+          // ignore
+        }
+      }, msRemaining);
+    }
+
+    // Playing: auto-complete after inactivity (based on updatedAt).
+    if (friendSession.state === 'playing') {
+      const updatedAt = Date.parse(friendSession.updatedAt);
+      if (!Number.isFinite(updatedAt)) return;
+      const msRemaining = Math.max(0, 5 * 60 * 1000 - (Date.now() - updatedAt));
+      timer = window.setTimeout(async () => {
+        try {
+          await tryCompleteInactiveProgramFriendSession(friendSessionId);
+          setFriendStatus('Match ended due to inactivity.');
+        } catch {
+          // ignore
+        }
+      }, msRemaining);
+    }
+
+    return () => {
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [practiceMode, friendSessionId, friendSession]);
+
+  const friendCandidates = useMemo(() => {
+    const rid = soloRegionId;
+    const tid = soloQuestionTypeId;
+    if (!rid || !tid) return [] as FlatProgramQuestion[];
+    return qbQuestions
+      .filter((q) => q.regionId === rid && q.questionTypeId === tid && !!q.mcq)
+      .sort((a, b) => {
+        const da = difficultyRank(a.difficulty);
+        const db = difficultyRank(b.difficulty);
+        if (da !== db) return da - db;
+        return a.id.localeCompare(b.id);
+      });
+  }, [qbQuestions, soloRegionId, soloQuestionTypeId]);
+
+  const friendCurrent = useMemo(() => {
+    if (practiceMode !== 'friend') return null;
+    const qid = friendSession?.questionIds?.[friendSession.currentIndex] ?? null;
+    if (!qid) return null;
+    return qbQuestions.find((q) => q.id === qid) ?? null;
+  }, [practiceMode, friendSession, qbQuestions]);
+
+  const friendMyUid = uid;
+  const friendOppUid = useMemo(() => {
+    if (!friendSession || !friendMyUid) return null;
+    const h = friendSession.host.uid;
+    const g = friendSession.guest?.uid ?? null;
+    if (h && h !== friendMyUid) return h;
+    if (g && g !== friendMyUid) return g;
+    return null;
+  }, [friendSession, friendMyUid]);
+
+  async function createFriendSession() {
+    if (!uid || !programId) return;
+    if (!soloRegionId || !soloQuestionTypeId) return;
+    setFriendBusy(true);
+    setFriendError(null);
+    try {
+      const username = userData?.username || uid;
+      const ids = friendCandidates.slice(0, 12).map((q) => q.id);
+      if (ids.length === 0) {
+        setFriendError('No MCQs available for this question type yet.');
+        return;
+      }
+      const session = await createProgramFriendSession({
+        host: { uid, username },
+        programId,
+        regionId: soloRegionId,
+        questionTypeId: soloQuestionTypeId,
+        questionIds: ids,
+      });
+      setFriendSessionId(session.id);
+      setFriendSession(session);
+      setFriendCopied(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setFriendError(msg || 'Failed to create session');
+    } finally {
+      setFriendBusy(false);
+    }
+  }
+
+  async function joinFriendSession() {
+    if (!uid) return;
+    const code = friendCode.trim().toUpperCase();
+    if (!code) return;
+    setFriendBusy(true);
+    setFriendError(null);
+    try {
+      const username = userData?.username || uid;
+      const session = await joinProgramFriendSessionByCode({ code, guest: { uid, username } });
+      if (!session) {
+        setFriendError('Invalid code, or session is no longer joinable.');
+        return;
+      }
+      setFriendSessionId(session.id);
+      setFriendSession(session);
+      setFriendCopied(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setFriendError(msg || 'Failed to join session');
+    } finally {
+      setFriendBusy(false);
+    }
+  }
+
+  async function answerFriend(idx: number) {
+    if (practiceMode !== 'friend') return;
+    if (!friendMyUid || !friendSession || !friendCurrent?.mcq) return;
+    const qid = friendSession.questionIds?.[friendSession.currentIndex] ?? null;
+    if (!qid) return;
+    const already = friendSession.answers?.[qid]?.[friendMyUid];
+    if (already) return;
+
+    const correctIndex = friendCurrent.mcq.correctChoiceIndex;
+    const correct = idx === correctIndex;
+    await submitProgramFriendAnswer({
+      sessionId: friendSession.id,
+      uid: friendMyUid,
+      questionId: qid,
+      answer: { choiceIndex: idx, correct, answeredAt: new Date().toISOString() },
+    });
+  }
+
+  async function exitFriend() {
+    if (friendSessionId) {
+      try {
+        await leaveProgramFriendSession(friendSessionId);
+      } catch {
+        // ignore
+      }
+    }
+    resetPracticeState();
+    setScreen('types');
   }
 
   async function answerSolo(idx: number) {
@@ -532,22 +1063,19 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0b1220' }}>
+      <ConfettiBurst fire={celebrateFire} />
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '12px 14px', borderBottom: '1px solid #1f2a44',
         background: 'rgba(0,0,0,0.5)'
       }}>
-        <button onClick={onBack} className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }}>← Back</button>
+        <button onClick={handleBack} className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }}>← Back</button>
         <div style={{ color: 'white', fontWeight: 800, fontSize: 14, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {title}
         </div>
-        <div style={{ color: '#60a5fa', fontWeight: 800, fontSize: 12 }}>
-          {completionPct}%
+        <div style={{ color: '#34d399', fontWeight: 900, fontSize: 12 }}>
+          {playableOverallTotal > 0 ? `Solo ${overallSolved}/${playableOverallTotal} | Ranked ${rankedSolvedQuestionIds.length}/${playableOverallTotal}` : '—'}
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#94a3b8', fontSize: 12 }}>
-          <input type="checkbox" checked={includeSections} onChange={(e) => setIncludeSections(e.target.checked)} />
-          Sections
-        </label>
       </div>
 
       {!programId ? (
@@ -557,371 +1085,775 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       ) : loading ? (
         <div style={{ color: '#94a3b8', padding: 18 }}>Loading map...</div>
       ) : (
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: isNarrow ? 'column' : 'row',
-          overflow: 'hidden',
-          minHeight: 0,
-        }}>
-          <div
-            ref={flowWrapRef}
-            style={{
-              flex: 1,
-              height: isNarrow ? '100%' : '100%',
-              minHeight: 0,
-              minWidth: isNarrow ? 0 : 280,
-              width: '100%',
-              position: 'relative',
-            }}
-          >
-            <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5, fontSize: 11, color: '#94a3b8', background: 'rgba(2,6,23,0.7)', border: '1px solid #1f2a44', padding: '6px 8px', borderRadius: 8 }}>
-              size: {flowRect.w}×{flowRect.h} | nodes: {nodes.length} | edges: {edges.length}
-            </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ minHeight: 0, overflowY: 'auto', padding: 14 }}>
+            <div style={{
+              border: '1px solid #1f2a44',
+              borderRadius: 14,
+              background: 'rgba(2,6,23,0.5)',
+              padding: 14,
+            }}>
+              <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 10 }}>
+                {screen === 'chapters'
+                  ? 'Chapters'
+                  : screen === 'subsections'
+                    ? 'Subsections'
+                    : screen === 'types'
+                      ? 'Question Types'
+                      : 'Practice'}
+              </div>
 
-            {!flowReady ? (
-              <div style={{ color: '#94a3b8', padding: 18 }}>Loading map...</div>
-            ) : nodes.length === 0 ? (
-              <div style={{ color: '#94a3b8', padding: 18 }}>No nodes to render for this program (TOC may be missing).</div>
-            ) : (
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                fitView
-                style={{ width: '100%', height: '100%' }}
-                onNodeClick={(_, n) => {
-                  const meta = nodeById.get(n.id);
-                  if (meta) setSelected({ id: n.id, title: meta.title, ref: meta.ref });
-
-                  const unitItemId = (n.data as any)?._meta?.unitItemId as string | undefined;
-                  if (user && programId && unitItemId) {
-                    toggleUnitComplete(user.uid, programId, unitItemId)
-                      .then(() => getProgramProgress(user.uid, programId))
-                      .then((pp) => {
-                        setCompletedUnitIds(pp?.completedUnitIds ?? []);
-                        if ((pp?.completedUnitIds?.length ?? 0) === 0) {
-                          return setProgramCompletedForUser(user.uid, programId, false);
-                        }
-                        return undefined;
-                      })
-                      .catch(() => {
-                        // ignore
-                      });
-                  }
-                }}
-              >
-                <MiniMap pannable zoomable style={{ background: '#0f172a' }} />
-                <Controls />
-                <Background gap={18} color="rgba(148,163,184,0.15)" />
-              </ReactFlow>
-            )}
-          </div>
-
-          <div style={{
-            width: isNarrow ? '100%' : 320,
-            height: isNarrow ? 260 : 'auto',
-            borderLeft: isNarrow ? 'none' : '1px solid #1f2a44',
-            borderTop: isNarrow ? '1px solid #1f2a44' : 'none',
-            background: 'rgba(2,6,23,0.7)',
-            padding: 14,
-            color: 'white',
-            overflowY: 'auto',
-            flexShrink: 0,
-          }}>
-            {rankedActive ? (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-                  <div style={{ fontWeight: 900, fontSize: 13 }}>Ranked</div>
-                  <button onClick={exitRanked} className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }}>Exit</button>
-                </div>
-
-                <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>
-                  Trophies: <span style={{ color: '#fbbf24', fontWeight: 900 }}>{rankedTrophies}</span>
-                  <span style={{ color: '#64748b' }}>
-                    {' '}| Next checkpoint: {Math.ceil((rankedTrophies + 1) / 100) * 100}
-                  </span>
-                  {rankedSaving ? ' | Saving...' : ''}
-                </div>
-
-                {!rankedCurrent ? (
-                  <div style={{ color: '#94a3b8', fontSize: 13 }}>
-                    {rankedCandidates.length === 0 ? 'No MCQs found for this question type yet.' : 'All ranked questions solved!'}
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 900, fontSize: 14, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {screen === 'chapters' ? 'Select a chapter' : (activeUnit?.title ?? '—')}
+                    {(screen === 'types' || screen === 'practice') && mapRegion ? (
+                      <span style={{ color: '#94a3b8', fontWeight: 800 }}>
+                        {' '}› {selected?.title ?? mapRegion.title}
+                      </span>
+                    ) : null}
                   </div>
-                ) : (
-                  <div>
-                    <div style={{ fontWeight: 900, fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
-                      Ranked Question
-                    </div>
-                    <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
-                      {rankedCurrent.promptRawText ?? rankedCurrent.promptLatex ?? '—'}
-                    </div>
+                  <div style={{ color: '#64748b', fontSize: 12, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    Question Bank: {qbChapterId ?? '—'}
+                  </div>
+                </div>
+                <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                  {playableOverallTotal > 0 ? `${rankedSolvedQuestionIds.length}/${playableOverallTotal} ranked solved` : 'No playable questions'}
+                </div>
+              </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {rankedCurrent.mcq?.choices.map((c, idx) => {
-                        const disabled = !!rankedFeedback;
-                        const isCorrect = rankedFeedback?.correctIndex === idx;
-                        const isChosenWrong = rankedFeedback && !rankedFeedback.correct && idx !== rankedFeedback.correctIndex;
-                        const bg = !rankedFeedback
-                          ? 'rgba(15,23,42,0.6)'
-                          : isCorrect
-                            ? 'rgba(16,185,129,0.18)'
-                            : 'rgba(239,68,68,0.12)';
-                        const border = !rankedFeedback
-                          ? '1px solid #1f2a44'
-                          : isCorrect
-                            ? '1px solid rgba(16,185,129,0.55)'
-                            : '1px solid rgba(239,68,68,0.35)';
-                        return (
+              {qbLoading ? (
+                <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading questions...</div>
+              ) : qbError ? (
+                <div style={{ color: '#fca5a5', fontSize: 12 }}>{qbError}</div>
+              ) : tocUnits.length === 0 ? (
+                <div style={{ color: '#94a3b8', fontSize: 13 }}>No TOC found for this program.</div>
+              ) : screen === 'chapters' ? (
+                <div style={{ position: 'relative', padding: '6px 0 0' }}>
+                  <div style={{
+                    position: 'absolute',
+                    left: '50%',
+                    top: 10,
+                    bottom: 10,
+                    width: 3,
+                    transform: 'translateX(-50%)',
+                    background: 'linear-gradient(to bottom, rgba(59,130,246,0.0), rgba(59,130,246,0.35), rgba(59,130,246,0.0))',
+                    borderRadius: 999,
+                  }} />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: '50%',
+                      top: 10,
+                      width: 6,
+                      transform: 'translateX(-50%)',
+                      height: `calc(${(chaptersPathFill * 100).toFixed(2)}% - 20px)`,
+                      maxHeight: 'calc(100% - 20px)',
+                      background: 'linear-gradient(to bottom, rgba(96,165,250,0.0), rgba(96,165,250,0.95), rgba(96,165,250,0.0))',
+                      borderRadius: 999,
+                      boxShadow: '0 0 18px rgba(59,130,246,0.35)',
+                      transition: 'height 500ms ease',
+                      pointerEvents: 'none',
+                      opacity: 0.9,
+                    }}
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {tocUnits.map((u, i) => {
+                      const prog = unitRankedProgress[u.id] ?? { solved: 0, total: 0 };
+                      const isComplete = !!chapterCompletion[u.id];
+                      const sideLeft = i % 2 === 0;
+                      return (
+                        <div key={u.id} style={{ display: 'flex', justifyContent: sideLeft ? 'flex-start' : 'flex-end' }}>
                           <button
-                            key={idx}
-                            onClick={() => answerRanked(idx)}
-                            disabled={disabled}
                             className="ll-btn"
+                            onClick={() => {
+                              setActiveUnitId(u.id);
+                              setSelected({ id: u.id, title: u.title, ref: u.ref ?? null });
+                              setMapRegionId(null);
+                              setScreen('subsections');
+                            }}
                             style={{
-                              padding: '10px 10px',
-                              fontSize: 13,
+                              width: isNarrow ? '100%' : 420,
                               textAlign: 'left',
-                              background: bg,
-                              border,
-                              opacity: disabled && !isCorrect && isChosenWrong ? 0.75 : 1,
+                              padding: '12px 12px',
+                              borderRadius: 16,
+                              border: '1px solid rgba(59,130,246,0.4)',
+                              background: 'rgba(59,130,246,0.10)',
+                              color: 'white',
                             }}
                           >
-                            {c}
+                            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                              <div style={{ fontWeight: 900, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {u.title}
+                              </div>
+                              <div style={{ color: '#fbbf24', fontWeight: 900, fontSize: 12, flexShrink: 0 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                  {isComplete ? (
+                                    <span style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      padding: '2px 8px',
+                                      borderRadius: 999,
+                                      background: 'rgba(251,191,36,0.14)',
+                                      border: '1px solid rgba(251,191,36,0.35)',
+                                      color: '#fbbf24',
+                                      fontWeight: 900,
+                                      fontSize: 11,
+                                    }}>
+                                      Complete
+                                    </span>
+                                  ) : null}
+                                  <span>{prog.total > 0 ? `${prog.solved}/${prog.total}` : '—'}</span>
+                                </span>
+                              </div>
+                            </div>
+                            <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 12 }}>
+                              Tap to open subsections
+                            </div>
                           </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : screen === 'subsections' ? (
+                <div style={{ position: 'relative', padding: '6px 0 0' }}>
+                  <div style={{
+                    position: 'absolute',
+                    left: '50%',
+                    top: 10,
+                    bottom: 10,
+                    width: 3,
+                    transform: 'translateX(-50%)',
+                    background: 'linear-gradient(to bottom, rgba(16,185,129,0.0), rgba(16,185,129,0.30), rgba(16,185,129,0.0))',
+                    borderRadius: 999,
+                  }} />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: '50%',
+                      top: 10,
+                      width: 6,
+                      transform: 'translateX(-50%)',
+                      height: `calc(${(subsectionsPathFill * 100).toFixed(2)}% - 20px)`,
+                      maxHeight: 'calc(100% - 20px)',
+                      background: 'linear-gradient(to bottom, rgba(52,211,153,0.0), rgba(52,211,153,0.95), rgba(52,211,153,0.0))',
+                      borderRadius: 999,
+                      boxShadow: '0 0 18px rgba(16,185,129,0.30)',
+                      transition: 'height 500ms ease',
+                      pointerEvents: 'none',
+                      opacity: 0.9,
+                    }}
+                  />
+                  {tocSubsectionsWithRegions.length === 0 ? (
+                    <div style={{ color: '#94a3b8', fontSize: 13 }}>
+                      No subsections in this chapter.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {tocSubsectionsWithRegions.map((s, i) => {
+                        const sideLeft = i % 2 === 0;
+                        const rid = s.regionId;
+                        const total = rid ? (qbMcqCounts.byRegion[rid] ?? 0) : 0;
+                        const solved = rid ? (qbMcqRankedSolvedCounts.byRegion[rid] ?? 0) : 0;
+                        return (
+                          <div key={s.toc.id} style={{ display: 'flex', justifyContent: sideLeft ? 'flex-start' : 'flex-end' }}>
+                            <button
+                              className="ll-btn"
+                              onClick={() => {
+                                setSelected({ id: rid ?? s.toc.id, title: s.toc.title, ref: s.toc.ref ?? null });
+                                setMapRegionId(rid);
+                                setScreen('types');
+                              }}
+                              style={{
+                                width: isNarrow ? '100%' : 420,
+                                textAlign: 'left',
+                                padding: '12px 12px',
+                                borderRadius: 16,
+                                border: rid ? '1px solid rgba(16,185,129,0.45)' : '1px solid rgba(148,163,184,0.25)',
+                                background: rid ? 'rgba(16,185,129,0.10)' : 'rgba(15,23,42,0.35)',
+                                color: 'white',
+                                opacity: rid ? 1 : 0.7,
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                                <div style={{ fontWeight: 900, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {s.toc.title}
+                                </div>
+                                <div style={{ color: rid ? '#fbbf24' : '#64748b', fontWeight: 900, fontSize: 12, flexShrink: 0 }}>
+                                  {rid ? `${solved}/${total}` : '—'}
+                                </div>
+                              </div>
+                              <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 12 }}>
+                                {rid ? 'Tap to view question types' : 'No MCQs yet'}
+                              </div>
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
-
-                    {rankedFeedback && (
-                      <div style={{ marginTop: 12 }}>
-                        <div style={{
-                          color: rankedFeedback.correct ? '#34d399' : '#fca5a5',
-                          fontWeight: 900,
-                          marginBottom: 10,
-                        }}>
-                          {rankedFeedback.correct ? 'Correct! (+15)' : 'Wrong (−15) — try again'}
-                        </div>
-                        <button
-                          onClick={continueRanked}
-                          className="ll-btn ll-btn-primary"
-                          style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
-                        >
-                          {rankedFeedback.correct ? 'Next Ranked Question' : 'Try Again'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : soloActive ? (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-                  <div style={{ fontWeight: 900, fontSize: 13 }}>Solo Practice</div>
-                  <button onClick={exitSolo} className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }}>Exit</button>
+                  )}
                 </div>
-
-                <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>
-                  Seen: {soloSeenIds.length} / {soloCandidates.length}
-                  {soloAwarding ? ' | Awarding...' : ''}
-                </div>
-
-                {!soloCurrent ? (
-                  <div style={{ color: '#94a3b8', fontSize: 13 }}>
-                    No MCQs found for this question type yet.
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontWeight: 900, fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
-                      Question
+              ) : screen === 'types' ? (
+                <div>
+                  {!mapRegionId || !mapRegion ? (
+                    <div style={{ color: '#94a3b8', fontSize: 13 }}>
+                      No questions for this subsection yet.
                     </div>
-                    <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
-                      {soloCurrent.promptRawText ?? soloCurrent.promptLatex ?? '—'}
+                  ) : regionTypeCounts.length === 0 ? (
+                    <div style={{ color: '#94a3b8', fontSize: 13 }}>
+                      No question types labeled yet for this subsection.
                     </div>
-
+                  ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {soloCurrent.mcq?.choices.map((c, idx) => {
-                        const disabled = !!soloFeedback;
-                        const isCorrect = soloFeedback?.correctIndex === idx;
-                        const isChosenWrong = soloFeedback && !soloFeedback.correct && idx !== soloFeedback.correctIndex;
-                        const bg = !soloFeedback
-                          ? 'rgba(15,23,42,0.6)'
-                          : isCorrect
-                            ? 'rgba(16,185,129,0.18)'
-                            : 'rgba(239,68,68,0.12)';
-                        const border = !soloFeedback
-                          ? '1px solid #1f2a44'
-                          : isCorrect
-                            ? '1px solid rgba(16,185,129,0.55)'
-                            : '1px solid rgba(239,68,68,0.35)';
+                      {(() => {
+                        let lock = false;
+                        return regionTypeCounts.map(({ tid, count }) => {
+                          const tdef = qbQuestionTypes.find((t) => t.id === tid);
+                          const ttitle = tdef?.title ?? tid;
+                          const canPlay = qbQuestions.some((q) => q.regionId === mapRegionId && q.questionTypeId === tid && !!q.mcq);
+                          const solved = qbSolvedCounts.byRegionAndType[mapRegionId]?.[tid] ?? 0;
+                          const rankedSolved = qbMcqRankedSolvedCounts.byRegionAndType[mapRegionId]?.[tid] ?? 0;
+                          const complete = count > 0 && rankedSolved >= count;
+                          const locked = lock;
+                          if (!complete) lock = true;
 
-                        return (
-                          <button
-                            key={idx}
-                            onClick={() => answerSolo(idx)}
-                            disabled={disabled}
-                            className="ll-btn"
-                            style={{
-                              padding: '10px 10px',
-                              fontSize: 13,
-                              textAlign: 'left',
-                              background: bg,
-                              border,
-                              opacity: disabled && !isCorrect && isChosenWrong ? 0.75 : 1,
-                            }}
-                          >
-                            {c}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {soloFeedback && (
-                      <div style={{ marginTop: 12 }}>
-                        <div style={{
-                          color: soloFeedback.correct ? '#34d399' : '#fca5a5',
-                          fontWeight: 900,
-                          marginBottom: 10,
-                        }}>
-                          {soloFeedback.correct ? 'Correct!' : 'Not quite'}
-                        </div>
-                        <button onClick={nextSolo} className="ll-btn ll-btn-primary" style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}>
-                          Next Question
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div>
-                <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 10 }}>
-                  Node
-                </div>
-                {!selected ? (
-                  <div style={{ color: '#94a3b8', fontSize: 13 }}>
-                    Click a unit/section to inspect.
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 8 }}>{selected.title}</div>
-                    {selected.ref && (
-                      <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 12 }}>Ref: {selected.ref}</div>
-                    )}
-                    <div style={{ color: '#64748b', fontSize: 12 }}>ID: {selected.id}</div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div style={{ height: 1, background: '#1f2a44', margin: '14px 0' }} />
-
-            <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 10 }}>
-              Question Bank (Prototype)
-            </div>
-
-            {qbLoading ? (
-              <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading questions...</div>
-            ) : qbError ? (
-              <div style={{ color: '#fca5a5', fontSize: 12 }}>{qbError}</div>
-            ) : qbQuestions.length === 0 ? (
-              <div style={{ color: '#94a3b8', fontSize: 13 }}>
-                No questions loaded.
-              </div>
-            ) : (
-              <div>
-                <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>
-                  Chapter: {qbChapterId ?? '—'} | Questions: {qbQuestions.length}
-                </div>
-
-                <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
-                  Subsections
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-                  {qbRegions.map((r) => (
-                    <div key={r.regionId} style={{ border: '1px solid #1f2a44', borderRadius: 10, padding: '8px 10px', background: 'rgba(15,23,42,0.5)' }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-                        <div style={{ fontWeight: 800, fontSize: 13 }}>
-                          {(r.label ? `${r.label} ` : '')}{r.title}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexShrink: 0 }}>
-                          <div style={{ color: '#34d399', fontWeight: 900, fontSize: 12 }}>
-                            {(qbSolvedCounts.byRegion[r.regionId] ?? 0)}/{qbCounts.byRegion[r.regionId] ?? 0}
-                          </div>
-                          <div style={{ color: '#60a5fa', fontWeight: 800, fontSize: 12 }}>
-                            {qbCounts.byRegion[r.regionId] ?? 0}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {Object.entries(qbCounts.byRegionAndType[r.regionId] ?? {})
-                          .sort((a, b) => (qbQuestionTypes.find((t) => t.id === a[0])?.treeOrder ?? 999) - (qbQuestionTypes.find((t) => t.id === b[0])?.treeOrder ?? 999))
-                          .map(([tid, count]) => {
-                            const tdef = qbQuestionTypes.find((t) => t.id === tid);
-                            const title = tdef?.title ?? tid;
-                            const canPlay = qbQuestions.some((q) => q.regionId === r.regionId && q.questionTypeId === tid && !!q.mcq);
-                            const solved = qbSolvedCounts.byRegionAndType[r.regionId]?.[tid] ?? 0;
-                            const rankedSolved = qbRankedSolvedCounts.byRegionAndType[r.regionId]?.[tid] ?? 0;
-                            return (
-                              <div key={tid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, color: '#cbd5e1', fontSize: 12 }}>
-                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{title}</div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1.05 }}>
-                                    <div style={{ color: '#34d399', fontWeight: 900 }}>{solved}/{count}</div>
-                                    <div style={{ color: '#fbbf24', fontWeight: 900, fontSize: 11 }}>R {rankedSolved}/{count}</div>
+                          return (
+                            <div
+                              key={tid}
+                              style={{
+                                border: locked ? '1px solid rgba(148,163,184,0.25)' : '1px solid #1f2a44',
+                                borderRadius: 12,
+                                padding: 10,
+                                background: locked ? 'rgba(15,23,42,0.25)' : 'rgba(15,23,42,0.45)',
+                                opacity: locked ? 0.7 : 1,
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ color: 'white', fontWeight: 900, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {ttitle}
                                   </div>
+                                  <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>
+                                    Ranked {rankedSolved}/{count} | Solo {solved}/{count}
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                                   <button
-                                    className={canPlay ? 'll-btn ll-btn-primary' : 'll-btn'}
-                                    disabled={!canPlay}
-                                    onClick={() => startSolo(r.regionId, tid)}
+                                    className={canPlay && !locked ? 'll-btn ll-btn-primary' : 'll-btn'}
+                                    disabled={!canPlay || locked}
+                                    onClick={() => startSolo(mapRegionId, tid)}
                                     style={{
                                       padding: '6px 10px',
                                       fontSize: 11,
-                                      opacity: canPlay ? 1 : 0.55,
-                                      background: canPlay ? '#10b981' : undefined,
-                                      borderColor: canPlay ? '#059669' : undefined,
-                                      color: canPlay ? 'white' : undefined,
+                                      opacity: canPlay && !locked ? 1 : 0.55,
+                                      background: canPlay && !locked ? '#10b981' : undefined,
+                                      borderColor: canPlay && !locked ? '#059669' : undefined,
+                                      color: canPlay && !locked ? 'white' : undefined,
                                     }}
                                   >
                                     Play
                                   </button>
                                   <button
-                                    className={canPlay ? 'll-btn ll-btn-primary' : 'll-btn'}
-                                    disabled={!canPlay}
-                                    onClick={() => startRanked(r.regionId, tid)}
+                                    className={canPlay && !locked ? 'll-btn ll-btn-primary' : 'll-btn'}
+                                    disabled={!canPlay || locked}
+                                    onClick={() => startRanked(mapRegionId, tid)}
                                     style={{
                                       padding: '6px 10px',
                                       fontSize: 11,
-                                      opacity: canPlay ? 1 : 0.55,
-                                      background: canPlay ? 'rgba(251,191,36,0.95)' : undefined,
-                                      borderColor: canPlay ? 'rgba(217,119,6,1)' : undefined,
-                                      color: canPlay ? '#0b1220' : undefined,
+                                      opacity: canPlay && !locked ? 1 : 0.55,
+                                      background: canPlay && !locked ? 'rgba(251,191,36,0.95)' : undefined,
+                                      borderColor: canPlay && !locked ? 'rgba(217,119,6,1)' : undefined,
+                                      color: canPlay && !locked ? '#0b1220' : undefined,
                                     }}
                                   >
                                     Ranked
                                   </button>
+                                  <button
+                                    className={canPlay && !locked ? 'll-btn' : 'll-btn'}
+                                    disabled={!canPlay || locked}
+                                    onClick={() => startFriend(mapRegionId, tid)}
+                                    style={{
+                                      padding: '6px 10px',
+                                      fontSize: 11,
+                                      opacity: canPlay && !locked ? 1 : 0.55,
+                                    }}
+                                  >
+                                    Play a Friend
+                                  </button>
                                 </div>
                               </div>
-                            );
-                          })}
-
-                        {Object.keys(qbCounts.byRegionAndType[r.regionId] ?? {}).length === 0 && (
-                          <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                            No question types labeled yet.
-                          </div>
-                        )}
-                      </div>
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
-                  ))}
+                  )}
                 </div>
+              ) : (
+                <div style={{
+                  border: '1px solid #1f2a44',
+                  borderRadius: 14,
+                  padding: 14,
+                  background: 'rgba(15,23,42,0.45)',
+                }}>
+                  {practiceMode === 'friend' ? (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                        <div style={{ fontWeight: 900, fontSize: 13 }}>Play a Friend</div>
+                        <button onClick={exitFriend} className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }}>Exit</button>
+                      </div>
 
-                {Object.keys(qbAnnotations?.chapters?.[qbChapterId ?? '']?.annotations ?? {}).length === 0 && (
-                  <div style={{ color: '#94a3b8', fontSize: 12 }}>
-                    No annotations yet. Add entries to <code style={{ color: '#93c5fd' }}>/questionBanks/program.annotations.sample.v3.json</code>.
-                  </div>
-                )}
-              </div>
-            )}
+                      {friendError && (
+                        <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10 }}>{friendError}</div>
+                      )}
+
+                      {friendStatus && (
+                        <div style={{
+                          color: '#fbbf24',
+                          fontSize: 12,
+                          marginBottom: 10,
+                          border: '1px solid rgba(251,191,36,0.25)',
+                          background: 'rgba(251,191,36,0.08)',
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                        }}>
+                          {friendStatus}
+                        </div>
+                      )}
+
+                      {!friendSession ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          <div style={{
+                            border: '1px solid #1f2a44',
+                            borderRadius: 12,
+                            padding: 12,
+                            background: 'rgba(2,6,23,0.35)',
+                          }}>
+                            <div style={{ fontWeight: 900, marginBottom: 6 }}>Create a match</div>
+                            <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.35, marginBottom: 10 }}>
+                              Generates a join code. Your friend enters it to start.
+                            </div>
+                            <button
+                              onClick={createFriendSession}
+                              disabled={friendBusy}
+                              className="ll-btn ll-btn-primary"
+                              style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                            >
+                              {friendBusy ? 'Creating...' : 'Create match'}
+                            </button>
+                          </div>
+
+                          <div style={{
+                            border: '1px solid #1f2a44',
+                            borderRadius: 12,
+                            padding: 12,
+                            background: 'rgba(2,6,23,0.35)',
+                          }}>
+                            <div style={{ fontWeight: 900, marginBottom: 6 }}>Join a match</div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <input
+                                value={friendCode}
+                                onChange={(e) => setFriendCode(e.target.value.toUpperCase())}
+                                placeholder="Enter code"
+                                style={{
+                                  flex: 1,
+                                  padding: '10px 10px',
+                                  borderRadius: 10,
+                                  border: '1px solid #1f2a44',
+                                  background: 'rgba(15,23,42,0.6)',
+                                  color: 'white',
+                                  outline: 'none',
+                                  fontWeight: 800,
+                                  letterSpacing: 1,
+                                }}
+                              />
+                              <button
+                                onClick={joinFriendSession}
+                                disabled={friendBusy || !friendCode.trim()}
+                                className="ll-btn ll-btn-primary"
+                                style={{ padding: '10px 12px', fontSize: 13 }}
+                              >
+                                {friendBusy ? 'Joining...' : 'Join'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'baseline',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                            marginBottom: 10,
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                              <div style={{ color: '#94a3b8', fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                Code:{' '}
+                                <span style={{ color: '#93c5fd', fontWeight: 900, letterSpacing: 1 }}>{friendSession.code}</span>
+                              </div>
+                              <button
+                                onClick={() => copyFriendCode(friendSession.code)}
+                                className="ll-btn"
+                                style={{ padding: '5px 10px', fontSize: 12 }}
+                              >
+                                {friendCopied ? 'Copied' : 'Copy'}
+                              </button>
+                            </div>
+                            <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                              Score:{' '}
+                              <span style={{ color: '#34d399', fontWeight: 900 }}>{friendMyUid ? (friendSession.scores?.[friendMyUid] ?? 0) : 0}</span>
+                              {' '}—{' '}
+                              <span style={{ color: '#fbbf24', fontWeight: 900 }}>{friendOppUid ? (friendSession.scores?.[friendOppUid] ?? 0) : 0}</span>
+                            </div>
+                          </div>
+
+                          <div style={{
+                            border: '1px solid #1f2a44',
+                            borderRadius: 12,
+                            padding: 12,
+                            background: 'rgba(2,6,23,0.35)',
+                            marginBottom: 12,
+                          }}>
+                            <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 6 }}>
+                              Players
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13 }}>
+                              <div style={{ color: 'white', fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {friendSession.host.username}
+                              </div>
+                              <div style={{ color: friendSession.guest ? 'white' : '#94a3b8', fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {friendSession.guest ? friendSession.guest.username : 'Waiting for friend…'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {friendSession.state === 'waiting' || !friendSession.guest ? (
+                            <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.35 }}>
+                              Share the code above. This match starts once your friend joins.
+                            </div>
+                          ) : friendSession.state === 'complete' ? (
+                            <div style={{
+                              border: '1px solid #1f2a44',
+                              borderRadius: 12,
+                              padding: 12,
+                              background: 'rgba(15,23,42,0.55)',
+                            }}>
+                              <div style={{ fontWeight: 900, marginBottom: 6 }}>Match complete</div>
+                              <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+                                Final score: {friendMyUid ? (friendSession.scores?.[friendMyUid] ?? 0) : 0} — {friendOppUid ? (friendSession.scores?.[friendOppUid] ?? 0) : 0}
+                              </div>
+                              <div style={{ display: 'flex', gap: 10 }}>
+                                <button
+                                  onClick={rematchFriend}
+                                  className="ll-btn"
+                                  style={{ padding: '10px 12px', fontSize: 13, flex: 1 }}
+                                >
+                                  Rematch
+                                </button>
+                                <button
+                                  onClick={exitFriend}
+                                  className="ll-btn ll-btn-primary"
+                                  style={{ padding: '10px 12px', fontSize: 13, flex: 1 }}
+                                >
+                                  Back
+                                </button>
+                              </div>
+                            </div>
+                          ) : !friendCurrent ? (
+                            <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading question…</div>
+                          ) : (
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                                <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                                  Question {Math.min(friendSession.currentIndex + 1, friendSession.questionIds.length)} / {friendSession.questionIds.length}
+                                </div>
+                                <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                                  {(() => {
+                                    const qid = friendSession.questionIds?.[friendSession.currentIndex] ?? '';
+                                    const mine = friendMyUid ? friendSession.answers?.[qid]?.[friendMyUid] : null;
+                                    const opp = friendOppUid ? friendSession.answers?.[qid]?.[friendOppUid] : null;
+                                    return `${mine ? 'You ✓' : 'You…'} | ${opp ? 'Friend ✓' : 'Friend…'}`;
+                                  })()}
+                                </div>
+                              </div>
+
+                              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.35, marginBottom: 12, color: 'white' }}>
+                                {friendCurrent.promptRawText ?? friendCurrent.promptLatex ?? '—'}
+                              </div>
+
+                              {(() => {
+                                const qid = friendSession.questionIds?.[friendSession.currentIndex] ?? '';
+                                const mine = friendMyUid ? friendSession.answers?.[qid]?.[friendMyUid] : null;
+                                const disabledAll = !!mine || friendBusy;
+                                const correctIndex = friendCurrent.mcq?.correctChoiceIndex ?? 0;
+                                return (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {friendCurrent.mcq?.choices.map((c, idx) => {
+                                      const show = !!mine;
+                                      const bg = !show
+                                        ? 'rgba(15,23,42,0.6)'
+                                        : idx === correctIndex
+                                          ? 'rgba(16,185,129,0.18)'
+                                          : mine.choiceIndex === idx
+                                            ? 'rgba(239,68,68,0.12)'
+                                            : 'rgba(15,23,42,0.6)';
+                                      const border = !show
+                                        ? '1px solid #1f2a44'
+                                        : idx === correctIndex
+                                          ? '1px solid rgba(16,185,129,0.55)'
+                                          : mine.choiceIndex === idx
+                                            ? '1px solid rgba(239,68,68,0.35)'
+                                            : '1px solid #1f2a44';
+                                      return (
+                                        <button
+                                          key={idx}
+                                          onClick={() => answerFriend(idx)}
+                                          disabled={disabledAll}
+                                          className="ll-btn"
+                                          style={{
+                                            padding: '10px 10px',
+                                            fontSize: 13,
+                                            textAlign: 'left',
+                                            background: bg,
+                                            border,
+                                            opacity: disabledAll && !show ? 0.75 : 1,
+                                          }}
+                                        >
+                                          {c}
+                                        </button>
+                                      );
+                                    })}
+                                    {mine && (
+                                      <div style={{
+                                        marginTop: 8,
+                                        padding: '10px 10px',
+                                        borderRadius: 12,
+                                        border: '1px solid #1f2a44',
+                                        background: 'rgba(2,6,23,0.35)',
+                                        color: '#94a3b8',
+                                        fontSize: 12,
+                                        lineHeight: 1.35,
+                                      }}>
+                                        {(() => {
+                                          const opp = friendOppUid ? friendSession.answers?.[qid]?.[friendOppUid] : null;
+                                          const myText = friendCurrent.mcq?.choices?.[mine.choiceIndex] ?? '—';
+                                          const oppText = opp ? (friendCurrent.mcq?.choices?.[opp.choiceIndex] ?? '—') : '…';
+                                          const corrText = friendCurrent.mcq?.choices?.[correctIndex] ?? '—';
+                                          return (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                              <div><span style={{ color: '#e2e8f0', fontWeight: 900 }}>You:</span> {myText} {mine.correct ? '(correct)' : '(wrong)'}</div>
+                                              <div><span style={{ color: '#e2e8f0', fontWeight: 900 }}>Friend:</span> {oppText}</div>
+                                              <div><span style={{ color: '#34d399', fontWeight: 900 }}>Correct:</span> {corrText}</div>
+                                            </div>
+                                          );
+                                        })()}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+
+                              <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 12, lineHeight: 1.35 }}>
+                                Next question advances automatically once both players answer.
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : rankedActive ? (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                        <div style={{ fontWeight: 900, fontSize: 13 }}>Ranked</div>
+                        <button onClick={exitRanked} className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }}>Exit</button>
+                      </div>
+
+                      <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>
+                        Trophies: <span style={{ color: '#fbbf24', fontWeight: 900 }}>{rankedTrophies}</span>
+                        <span style={{ color: '#64748b' }}>
+                          {' '}| Next checkpoint: {Math.ceil((rankedTrophies + 1) / 100) * 100}
+                        </span>
+                        {rankedSaving ? ' | Saving...' : ''}
+                      </div>
+
+                      {!rankedCurrent ? (
+                        <div style={{
+                          border: '1px solid #1f2a44',
+                          borderRadius: 12,
+                          padding: 12,
+                          background: 'rgba(15,23,42,0.55)',
+                        }}>
+                          <div style={{ fontWeight: 900, marginBottom: 6 }}>
+                            {rankedCandidates.length === 0 ? 'No ranked questions yet' : 'Ranked complete'}
+                          </div>
+                          <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+                            {rankedCandidates.length === 0
+                              ? 'This question type does not have MCQs annotated yet. Try a different question type.'
+                              : 'You solved every ranked MCQ in this question type. Pick another one to keep climbing.'}
+                          </div>
+                          <button
+                            onClick={exitRanked}
+                            className="ll-btn ll-btn-primary"
+                            style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                          >
+                            Back to Question Types
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ fontWeight: 900, fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                            Ranked Question
+                          </div>
+                          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+                            {rankedCurrent.promptRawText ?? rankedCurrent.promptLatex ?? '—'}
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {rankedCurrent.mcq?.choices.map((c, idx) => {
+                              const disabled = !!rankedFeedback;
+                              const isCorrect = rankedFeedback?.correctIndex === idx;
+                              const isChosenWrong = rankedFeedback && !rankedFeedback.correct && idx !== rankedFeedback.correctIndex;
+                              const bg = !rankedFeedback
+                                ? 'rgba(15,23,42,0.6)'
+                                : isCorrect
+                                  ? 'rgba(16,185,129,0.18)'
+                                  : 'rgba(239,68,68,0.12)';
+                              const border = !rankedFeedback
+                                ? '1px solid #1f2a44'
+                                : isCorrect
+                                  ? '1px solid rgba(16,185,129,0.55)'
+                                  : '1px solid rgba(239,68,68,0.35)';
+                              return (
+                                <button
+                                  key={idx}
+                                  onClick={() => answerRanked(idx)}
+                                  disabled={disabled}
+                                  className="ll-btn"
+                                  style={{
+                                    padding: '10px 10px',
+                                    fontSize: 13,
+                                    textAlign: 'left',
+                                    background: bg,
+                                    border,
+                                    opacity: disabled && !isCorrect && isChosenWrong ? 0.75 : 1,
+                                  }}
+                                >
+                                  {c}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {rankedFeedback && (
+                            <div style={{ marginTop: 12 }}>
+                              <div style={{
+                                color: rankedFeedback.correct ? '#34d399' : '#fca5a5',
+                                fontWeight: 900,
+                                marginBottom: 10,
+                              }}>
+                                {rankedFeedback.correct ? 'Correct! (+15)' : 'Wrong (−15) — try again'}
+                              </div>
+                              <button
+                                onClick={continueRanked}
+                                className="ll-btn ll-btn-primary"
+                                style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                              >
+                                {rankedFeedback.correct ? 'Next Ranked Question' : 'Try Again'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : soloActive ? (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                        <div style={{ fontWeight: 900, fontSize: 13 }}>Solo Practice</div>
+                        <button onClick={exitSolo} className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }}>Exit</button>
+                      </div>
+
+                      <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>
+                        Seen: {soloSeenIds.length} / {soloCandidates.length}
+                        {soloAwarding ? ' | Awarding...' : ''}
+                      </div>
+
+                      {!soloCurrent ? (
+                        <div style={{ color: '#94a3b8', fontSize: 13 }}>
+                          No MCQs found for this question type yet.
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ fontWeight: 900, fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+                            Question
+                          </div>
+                          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+                            {soloCurrent.promptRawText ?? soloCurrent.promptLatex ?? '—'}
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {soloCurrent.mcq?.choices.map((c, idx) => {
+                              const disabled = !!soloFeedback;
+                              const isCorrect = soloFeedback?.correctIndex === idx;
+                              const isChosenWrong = soloFeedback && !soloFeedback.correct && idx !== soloFeedback.correctIndex;
+                              const bg = !soloFeedback
+                                ? 'rgba(15,23,42,0.6)'
+                                : isCorrect
+                                  ? 'rgba(16,185,129,0.18)'
+                                  : 'rgba(239,68,68,0.12)';
+                              const border = !soloFeedback
+                                ? '1px solid #1f2a44'
+                                : isCorrect
+                                  ? '1px solid rgba(16,185,129,0.55)'
+                                  : '1px solid rgba(239,68,68,0.35)';
+
+                              return (
+                                <button
+                                  key={idx}
+                                  onClick={() => answerSolo(idx)}
+                                  disabled={disabled}
+                                  className="ll-btn"
+                                  style={{
+                                    padding: '10px 10px',
+                                    fontSize: 13,
+                                    textAlign: 'left',
+                                    background: bg,
+                                    border,
+                                    opacity: disabled && !isCorrect && isChosenWrong ? 0.75 : 1,
+                                  }}
+                                >
+                                  {c}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {soloFeedback && (
+                            <div style={{ marginTop: 12 }}>
+                              <div style={{
+                                color: soloFeedback.correct ? '#34d399' : '#fca5a5',
+                                fontWeight: 900,
+                                marginBottom: 10,
+                              }}>
+                                {soloFeedback.correct ? 'Correct!' : 'Not quite'}
+                              </div>
+                              <button onClick={nextSolo} className="ll-btn ll-btn-primary" style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}>
+                                Next Question
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ color: '#94a3b8', fontSize: 13 }}>
+                      Choose a practice mode from Question Types.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
