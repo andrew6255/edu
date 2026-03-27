@@ -20,18 +20,6 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist"),
     emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return;
-          if (id.includes('firebase')) return 'firebase';
-          if (id.includes('@radix-ui')) return 'radix';
-          if (id.includes('framer-motion')) return 'motion';
-          if (id.includes('react')) return 'react-vendor';
-          return 'vendor';
-        },
-      },
-    },
   },
   server: {
     port: 3000,

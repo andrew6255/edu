@@ -72,7 +72,8 @@
     "vaul": "^1.1.2",
     "vite": "catalog:",
     "wouter": "^3.3.5",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "reactflow": "^11.11.4"
   },
   "dependencies": {
     "firebase": "^12.11.0"
