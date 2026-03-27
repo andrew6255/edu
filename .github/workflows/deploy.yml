@@ -33,7 +33,7 @@ jobs:
         run: npm install -g pnpm
 
       - name: Install Dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build Web App
         run: pnpm --filter @workspace/web-app run build
