@@ -1,4 +1,5 @@
 import { Switch, Route, Router as WouterRouter } from "wouter";
+import { useHashLocation } from "wouter/use-hash-location";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -13,12 +14,13 @@ import SuperAdminPage from "@/pages/SuperAdminPage";
 const queryClient = new QueryClient();
 
 function NotFound() {
+  const home = import.meta.env.BASE_URL || "/";
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a', textAlign: 'center' }}>
       <div>
         <div style={{ fontSize: 60, marginBottom: 20 }}>🌌</div>
         <h1 style={{ color: 'white', margin: '0 0 10px' }}>404 — Lost in the Universe</h1>
-        <a href="/" style={{ color: '#3b82f6', fontSize: 16 }}>← Return to Logic Lords</a>
+        <a href={home} style={{ color: '#3b82f6', fontSize: 16 }}>← Return to Logic Lords</a>
       </div>
     </div>
   );
@@ -38,12 +40,14 @@ function Router() {
 }
 
 function App() {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const isGhPages = base !== "";
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
           <SessionProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <WouterRouter base={base} hook={isGhPages ? useHashLocation : undefined}>
               <Router />
             </WouterRouter>
           </SessionProvider>
