@@ -43,6 +43,8 @@ type Screen = 'chapters' | 'subsections' | 'types' | 'practice';
 
 type PracticeMode = 'solo' | 'ranked' | 'friend' | 'study';
 
+type HeaderMode = 'solo' | 'ranked' | 'friend' | 'study';
+
 function ConfettiBurst({ fire }: { fire: number }) {
   const pieces = useMemo(() => {
     const rand = (seed: number) => {
@@ -131,6 +133,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const [title, setTitle] = useState<string>('Program Map');
   const [screen, setScreen] = useState<Screen>('chapters');
   const [practiceMode, setPracticeMode] = useState<PracticeMode | null>(null);
+  const [headerMode, setHeaderMode] = useState<HeaderMode>('solo');
   const [tocTree, setTocTree] = useState<TocItem[]>([]);
   const [activeUnitId, setActiveUnitId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selected>(null);
@@ -386,9 +389,50 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
         if (cancelled) return;
 
         const flat = flattenProgramChapter(chapter, annotations);
+
+        const existingHasMcq = new Set<string>();
+        for (const q of flat.questions) {
+          if (!q.mcq) continue;
+          if (!q.regionId || !q.questionTypeId) continue;
+          existingHasMcq.add(`${q.regionId}::${q.questionTypeId}`);
+        }
+
+        const dummyQuestions: FlatProgramQuestion[] = [];
+        for (const r of flat.regions) {
+          for (const t of flat.questionTypes) {
+            const key = `${r.regionId}::${t.id}`;
+            if (existingHasMcq.has(key)) continue;
+            for (let i = 0; i < 3; i++) {
+              const id = `DUMMY::${r.regionId}::${t.id}::${i + 1}`;
+              dummyQuestions.push({
+                id,
+                chapterId: flat.chapterId,
+                regionId: r.regionId,
+                nodeId: 'DUMMY_NODE',
+                nodeType: 'exercise',
+                questionId: `DUMMY_Q${i + 1}`,
+                partId: null,
+                stemRawText: null,
+                stemLatex: null,
+                partRawText: null,
+                partLatex: null,
+                promptRawText: `Dummy question (${t.title})`,
+                promptLatex: null,
+                annotationKey: id,
+                questionTypeId: t.id,
+                difficulty: 'easy',
+                mcq: {
+                  choices: ['Choice A', 'Choice B', 'Choice C', 'Choice D'],
+                  correctChoiceIndex: 0,
+                },
+              });
+            }
+          }
+        }
+
         setQbChapterId(flat.chapterId);
         setQbAnnotations(annotations);
-        setQbQuestions(flat.questions);
+        setQbQuestions([...flat.questions, ...dummyQuestions]);
         setQbRegions(flat.regions);
         setQbQuestionTypes(flat.questionTypes);
         setQbLoading(false);
@@ -412,6 +456,14 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     onResize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    const v = localStorage.getItem('ll:programMapHeaderMode');
+    if (v === 'solo' || v === 'ranked' || v === 'friend' || v === 'study') {
+      setHeaderMode(v);
+    }
+    if (v) localStorage.removeItem('ll:programMapHeaderMode');
   }, []);
 
   useEffect(() => {
@@ -573,6 +625,10 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
           }
         }
         region = bestScore >= 500 ? best : null;
+      }
+
+      if (!region && qbRegions.length > 0) {
+        region = qbRegions[0] ?? null;
       }
       return {
         toc: s,
@@ -1326,7 +1382,45 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
         <div style={{ color: 'white', fontWeight: 800, fontSize: 14, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {title}
         </div>
-        <div style={{ color: '#34d399', fontWeight: 900, fontSize: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 1 }}>
+          {(['solo', 'ranked', 'friend', 'study'] as const).map((m) => {
+            const active = headerMode === m;
+            const label = m === 'solo' ? 'Solo Practice' : m === 'ranked' ? 'Ranked' : m === 'friend' ? 'Play a Friend' : 'Study Session';
+            return (
+              <button
+                key={m}
+                onClick={() => setHeaderMode(m)}
+                className={active ? 'll-btn ll-btn-primary' : 'll-btn'}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: 12,
+                  background: active
+                    ? (m === 'solo'
+                      ? '#10b981'
+                      : m === 'ranked'
+                        ? 'rgba(251,191,36,0.95)'
+                        : m === 'study'
+                          ? 'rgba(16,185,129,0.14)'
+                          : undefined)
+                    : undefined,
+                  borderColor: active
+                    ? (m === 'solo'
+                      ? '#059669'
+                      : m === 'ranked'
+                        ? 'rgba(217,119,6,1)'
+                        : m === 'study'
+                          ? 'rgba(16,185,129,0.35)'
+                          : undefined)
+                    : undefined,
+                  color: active && m === 'ranked' ? '#0b1220' : undefined,
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ color: '#34d399', fontWeight: 900, fontSize: 12, flex: 1, textAlign: 'right' }}>
           {playableOverallTotal > 0 ? `Solo ${overallSolved}/${playableOverallTotal} | Ranked ${rankedSolvedQuestionIds.length}/${playableOverallTotal}` : '—'}
         </div>
       </div>
@@ -1538,7 +1632,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                 </div>
                               </div>
                               <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 12 }}>
-                                {rid ? 'Tap to view question types' : 'No MCQs yet'}
+                                Tap to view question types
                               </div>
                             </button>
                           </div>
@@ -1595,56 +1689,38 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                   <button
                                     className={canPlay && !locked ? 'll-btn ll-btn-primary' : 'll-btn'}
                                     disabled={!canPlay || locked}
-                                    onClick={() => startSolo(mapRegionId, tid)}
+                                    onClick={() => {
+                                      if (headerMode === 'solo') startSolo(mapRegionId, tid);
+                                      else if (headerMode === 'ranked') startRanked(mapRegionId, tid);
+                                      else if (headerMode === 'study') startStudy(mapRegionId, tid);
+                                      else startFriend(mapRegionId, tid);
+                                    }}
                                     style={{
                                       padding: '6px 10px',
                                       fontSize: 11,
                                       opacity: canPlay && !locked ? 1 : 0.55,
-                                      background: canPlay && !locked ? '#10b981' : undefined,
-                                      borderColor: canPlay && !locked ? '#059669' : undefined,
-                                      color: canPlay && !locked ? 'white' : undefined,
+                                      background: canPlay && !locked
+                                        ? (headerMode === 'solo'
+                                          ? '#10b981'
+                                          : headerMode === 'ranked'
+                                            ? 'rgba(251,191,36,0.95)'
+                                            : headerMode === 'study'
+                                              ? 'rgba(16,185,129,0.14)'
+                                              : undefined)
+                                        : undefined,
+                                      borderColor: canPlay && !locked
+                                        ? (headerMode === 'solo'
+                                          ? '#059669'
+                                          : headerMode === 'ranked'
+                                            ? 'rgba(217,119,6,1)'
+                                            : headerMode === 'study'
+                                              ? 'rgba(16,185,129,0.35)'
+                                              : undefined)
+                                        : undefined,
+                                      color: canPlay && !locked && headerMode === 'ranked' ? '#0b1220' : undefined,
                                     }}
                                   >
                                     Play
-                                  </button>
-                                  <button
-                                    className={canPlay && !locked ? 'll-btn ll-btn-primary' : 'll-btn'}
-                                    disabled={!canPlay || locked}
-                                    onClick={() => startRanked(mapRegionId, tid)}
-                                    style={{
-                                      padding: '6px 10px',
-                                      fontSize: 11,
-                                      opacity: canPlay && !locked ? 1 : 0.55,
-                                      background: canPlay && !locked ? 'rgba(251,191,36,0.95)' : undefined,
-                                      borderColor: canPlay && !locked ? 'rgba(217,119,6,1)' : undefined,
-                                      color: canPlay && !locked ? '#0b1220' : undefined,
-                                    }}
-                                  >
-                                    Ranked
-                                  </button>
-                                  <button
-                                    className={canPlay && !locked ? 'll-btn' : 'll-btn'}
-                                    disabled={!canPlay || locked}
-                                    onClick={() => startFriend(mapRegionId, tid)}
-                                    style={{
-                                      padding: '6px 10px',
-                                      fontSize: 11,
-                                      opacity: canPlay && !locked ? 1 : 0.55,
-                                    }}
-                                  >
-                                    Play a Friend
-                                  </button>
-                                  <button
-                                    className={canPlay && !locked ? 'll-btn' : 'll-btn'}
-                                    disabled={!canPlay || locked}
-                                    onClick={() => startStudy(mapRegionId, tid)}
-                                    style={{
-                                      padding: '6px 10px',
-                                      fontSize: 11,
-                                      opacity: canPlay && !locked ? 1 : 0.55,
-                                    }}
-                                  >
-                                    Study Session
                                   </button>
                                 </div>
                               </div>
