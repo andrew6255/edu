@@ -43,7 +43,7 @@ type Screen = 'chapters' | 'subsections' | 'types' | 'practice';
 
 type PracticeMode = 'solo' | 'ranked' | 'friend' | 'study';
 
-type HeaderMode = 'solo' | 'ranked' | 'friend' | 'study';
+type HeaderMode = 'solo' | 'ranked' | 'friend';
 
 function ConfettiBurst({ fire }: { fire: number }) {
   const pieces = useMemo(() => {
@@ -134,6 +134,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const [screen, setScreen] = useState<Screen>('chapters');
   const [practiceMode, setPracticeMode] = useState<PracticeMode | null>(null);
   const [headerMode, setHeaderMode] = useState<HeaderMode>('solo');
+  const [studyPickMode, setStudyPickMode] = useState(false);
   const [tocTree, setTocTree] = useState<TocItem[]>([]);
   const [activeUnitId, setActiveUnitId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selected>(null);
@@ -459,12 +460,39 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   }, []);
 
   useEffect(() => {
-    const v = localStorage.getItem('ll:programMapHeaderMode');
-    if (v === 'solo' || v === 'ranked' || v === 'friend' || v === 'study') {
-      setHeaderMode(v);
+    const createProgramId = localStorage.getItem('ll:studyCreateProgramId');
+    if (createProgramId && programId && createProgramId === programId) {
+      setStudyPickMode(true);
+      localStorage.removeItem('ll:studyCreateProgramId');
     }
-    if (v) localStorage.removeItem('ll:programMapHeaderMode');
-  }, []);
+
+    const resumeId = localStorage.getItem('ll:studyResumeSessionId');
+    if (resumeId) {
+      localStorage.removeItem('ll:studyResumeSessionId');
+      if (uid) {
+        const username = userData?.username || uid;
+        setStudyBusy(true);
+        setStudyError(null);
+        joinProgramStudySessionByCode({ code: resumeId, participant: { uid, username } })
+          .then((s) => {
+            if (!s) {
+              localStorage.removeItem('ll:ongoingStudySessionId');
+              localStorage.removeItem('ll:ongoingStudyProgramId');
+              return;
+            }
+            setPracticeMode('study');
+            setScreen('practice');
+            setStudySessionId(s.id);
+            setStudySession(s);
+          })
+          .catch(() => {
+            localStorage.removeItem('ll:ongoingStudySessionId');
+            localStorage.removeItem('ll:ongoingStudyProgramId');
+          })
+          .finally(() => setStudyBusy(false));
+      }
+    }
+  }, [programId, uid, userData?.username]);
 
   useEffect(() => {
     let cancelled = false;
@@ -981,6 +1009,13 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     setStudyCopied(false);
   }
 
+  useEffect(() => {
+    if (practiceMode !== 'study') return;
+    if (!studySessionId || !programId) return;
+    localStorage.setItem('ll:ongoingStudySessionId', studySessionId);
+    localStorage.setItem('ll:ongoingStudyProgramId', programId);
+  }, [practiceMode, studySessionId, programId]);
+
   async function copyFriendCode(code: string) {
     try {
       await navigator.clipboard.writeText(code);
@@ -1246,6 +1281,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       setStudySessionId(session.id);
       setStudySession(session);
       setStudyCopied(false);
+      setStudyPickMode(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setStudyError(msg || 'Failed to create session');
@@ -1383,9 +1419,9 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
           {title}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 1 }}>
-          {(['solo', 'ranked', 'friend', 'study'] as const).map((m) => {
+          {(['solo', 'ranked', 'friend'] as const).map((m) => {
             const active = headerMode === m;
-            const label = m === 'solo' ? 'Solo Practice' : m === 'ranked' ? 'Ranked' : m === 'friend' ? 'Play a Friend' : 'Study Session';
+            const label = m === 'solo' ? 'Solo Practice' : m === 'ranked' ? 'Ranked' : 'Play a Friend';
             return (
               <button
                 key={m}
@@ -1395,22 +1431,10 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                   padding: '6px 10px',
                   fontSize: 12,
                   background: active
-                    ? (m === 'solo'
-                      ? '#10b981'
-                      : m === 'ranked'
-                        ? 'rgba(251,191,36,0.95)'
-                        : m === 'study'
-                          ? 'rgba(16,185,129,0.14)'
-                          : undefined)
+                    ? (m === 'solo' ? '#10b981' : m === 'ranked' ? 'rgba(251,191,36,0.95)' : undefined)
                     : undefined,
                   borderColor: active
-                    ? (m === 'solo'
-                      ? '#059669'
-                      : m === 'ranked'
-                        ? 'rgba(217,119,6,1)'
-                        : m === 'study'
-                          ? 'rgba(16,185,129,0.35)'
-                          : undefined)
+                    ? (m === 'solo' ? '#059669' : m === 'ranked' ? 'rgba(217,119,6,1)' : undefined)
                     : undefined,
                   color: active && m === 'ranked' ? '#0b1220' : undefined,
                 }}
@@ -1653,6 +1677,19 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {studyPickMode && (
+                        <div style={{
+                          border: '1px solid rgba(16,185,129,0.35)',
+                          background: 'rgba(16,185,129,0.10)',
+                          borderRadius: 14,
+                          padding: 12,
+                          color: 'white',
+                          fontSize: 13,
+                          fontWeight: 900,
+                        }}>
+                          Select a question type to create a Study Session
+                        </div>
+                      )}
                       {(() => {
                         let lock = false;
                         return regionTypeCounts.map(({ tid, count }) => {
@@ -1690,9 +1727,13 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                     className={canPlay && !locked ? 'll-btn ll-btn-primary' : 'll-btn'}
                                     disabled={!canPlay || locked}
                                     onClick={() => {
+                                      if (studyPickMode) {
+                                        startStudy(mapRegionId, tid);
+                                        void createStudySession();
+                                        return;
+                                      }
                                       if (headerMode === 'solo') startSolo(mapRegionId, tid);
                                       else if (headerMode === 'ranked') startRanked(mapRegionId, tid);
-                                      else if (headerMode === 'study') startStudy(mapRegionId, tid);
                                       else startFriend(mapRegionId, tid);
                                     }}
                                     style={{
@@ -1700,27 +1741,27 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                       fontSize: 11,
                                       opacity: canPlay && !locked ? 1 : 0.55,
                                       background: canPlay && !locked
-                                        ? (headerMode === 'solo'
-                                          ? '#10b981'
-                                          : headerMode === 'ranked'
-                                            ? 'rgba(251,191,36,0.95)'
-                                            : headerMode === 'study'
-                                              ? 'rgba(16,185,129,0.14)'
+                                        ? (studyPickMode
+                                          ? 'rgba(16,185,129,0.14)'
+                                          : headerMode === 'solo'
+                                            ? '#10b981'
+                                            : headerMode === 'ranked'
+                                              ? 'rgba(251,191,36,0.95)'
                                               : undefined)
                                         : undefined,
                                       borderColor: canPlay && !locked
-                                        ? (headerMode === 'solo'
-                                          ? '#059669'
-                                          : headerMode === 'ranked'
-                                            ? 'rgba(217,119,6,1)'
-                                            : headerMode === 'study'
-                                              ? 'rgba(16,185,129,0.35)'
+                                        ? (studyPickMode
+                                          ? 'rgba(16,185,129,0.35)'
+                                          : headerMode === 'solo'
+                                            ? '#059669'
+                                            : headerMode === 'ranked'
+                                              ? 'rgba(217,119,6,1)'
                                               : undefined)
                                         : undefined,
                                       color: canPlay && !locked && headerMode === 'ranked' ? '#0b1220' : undefined,
                                     }}
                                   >
-                                    Play
+                                    {studyPickMode ? 'Select' : 'Play'}
                                   </button>
                                 </div>
                               </div>

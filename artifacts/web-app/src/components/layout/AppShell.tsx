@@ -7,7 +7,7 @@ import { computeLevel } from '@/lib/userService';
 import { joinClassByCode } from '@/lib/classService';
 import NotificationsView from '@/views/NotificationsView';
 import FriendsView from '@/views/FriendsView';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useSession } from '@/contexts/SessionContext';
 import { forfeitSession } from '@/lib/gameSessionService';
@@ -21,6 +21,7 @@ type View =
   | 'profile'
   | 'curriculum'
   | 'programMap'
+  | 'studySessions'
   | 'notifications'
   | 'friends';
 
@@ -91,6 +92,9 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const role = userData?.role ?? 'student';
   const { level, title } = computeLevel(xp);
 
+  const studyOngoingSessionId = typeof window !== 'undefined' ? localStorage.getItem('ll:ongoingStudySessionId') : null;
+  const studyOngoingProgramId = typeof window !== 'undefined' ? localStorage.getItem('ll:ongoingStudyProgramId') : null;
+
   const ongoingBadge = ongoingWarmup && view !== 'warmup' ? 1 : 0;
   const hudBadgeCount = notifBadgeCount + ongoingBadge;
 
@@ -121,6 +125,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
     }
     setJoining(false);
   }
+
 
   const navTabs = [
     { id: 'emporium', icon: '🏪', label: 'Emporium' },
@@ -180,6 +185,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
               {hudBadgeCount > 99 ? '99+' : hudBadgeCount}
             </span>
           )}
+
         </button>
       </div>
 
@@ -326,14 +332,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
               <button
                 onClick={() => {
-                  const pid = (userData as any)?.activeProgramId ?? null;
-                  if (!pid) {
-                    setView('profile');
-                    setMenuOpen(false);
-                    return;
-                  }
-                  localStorage.setItem('ll:programMapHeaderMode', 'study');
-                  window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'programMap', programId: pid } }));
+                  setView('studySessions');
                   setMenuOpen(false);
                 }}
                 style={{
@@ -348,6 +347,30 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                   <span style={{ marginLeft: 'auto', color: '#34d399', fontWeight: 'bold' }}>→</span>
                 </span>
               </button>
+
+              {studyOngoingSessionId && studyOngoingProgramId && (
+                <button
+                  onClick={() => {
+                    localStorage.setItem('ll:studyResumeSessionId', studyOngoingSessionId);
+                    window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'programMap', programId: studyOngoingProgramId } }));
+                    setMenuOpen(false);
+                  }}
+                  style={{
+                    textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
+                    background: 'rgba(59,130,246,0.10)',
+                    border: '1px solid rgba(59,130,246,0.25)',
+                    borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>� Ongoing Study Session</span>
+                    <span style={{ marginLeft: 'auto', color: '#93c5fd', fontWeight: 'bold' }}>→</span>
+                  </span>
+                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+                    Code: {studyOngoingSessionId}
+                  </div>
+                </button>
+              )}
 
               {ongoingWarmup && view !== 'warmup' && (
                 <button

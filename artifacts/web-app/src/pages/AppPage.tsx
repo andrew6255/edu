@@ -12,6 +12,7 @@ import EmporiumView from '@/views/EmporiumView';
 import LogicGamesView from '@/views/LogicGamesView';
 import OnboardingPage from '@/pages/OnboardingPage';
 import ProgramMapView from '@/views/ProgramMapView';
+import StudySessionsView from '@/views/StudySessionsView';
 
 export type View =
   | 'emporium'
@@ -21,6 +22,7 @@ export type View =
   | 'profile'
   | 'curriculum'
   | 'programMap'
+  | 'studySessions'
   | 'notifications'
   | 'friends';
 
@@ -90,6 +92,8 @@ export default function AppPage() {
         );
       case 'programMap':
         return <ProgramMapView onBack={() => setView('universe')} programId={selectedProgramId} />;
+      case 'studySessions':
+        return <StudySessionsView onBack={() => setView('universe')} />;
       case 'warmup':
         return null;
       case 'emporium':
