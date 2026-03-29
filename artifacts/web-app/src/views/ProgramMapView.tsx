@@ -327,9 +327,11 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       setQbError(null);
 
       try {
+        const baseUrl = import.meta.env.BASE_URL || '/';
+        const p = (rel: string) => `${baseUrl.replace(/\/+$/, '/')}${rel.replace(/^\/+/, '')}`;
         const [chapter, annotations] = await Promise.all([
-          fetchProgramChapterFromPublic('/questionBanks/program.sample.v3.json'),
-          fetchProgramAnnotationsFromPublic('/questionBanks/program.annotations.sample.v3.json'),
+          fetchProgramChapterFromPublic(p('questionBanks/program.sample.v3.json')),
+          fetchProgramAnnotationsFromPublic(p('questionBanks/program.annotations.sample.v3.json')),
         ]);
         if (cancelled) return;
 
