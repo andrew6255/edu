@@ -38,7 +38,7 @@ jobs:
           version: 10.32.1
 
       - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build Web App
         run: pnpm --filter @workspace/web-app run build
@@ -47,6 +47,14 @@ jobs:
 
       - name: Copy index to 404 for SPA routing
         run: cp ./artifacts/web-app/dist/index.html ./artifacts/web-app/dist/404.html
+
+      - name: Add deep-link route fallbacks
+        run: |
+          mkdir -p ./artifacts/web-app/dist/app ./artifacts/web-app/dist/auth ./artifacts/web-app/dist/dashboard ./artifacts/web-app/dist/superadmin
+          cp ./artifacts/web-app/dist/index.html ./artifacts/web-app/dist/app/index.html
+          cp ./artifacts/web-app/dist/index.html ./artifacts/web-app/dist/auth/index.html
+          cp ./artifacts/web-app/dist/index.html ./artifacts/web-app/dist/dashboard/index.html
+          cp ./artifacts/web-app/dist/index.html ./artifacts/web-app/dist/superadmin/index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
