@@ -24,6 +24,46 @@
             "choices": ["36", "40", "42", "43"],
             "correctChoiceIndex": 3
           }
+        },
+        "CH2_EX_2_1::Q1::a": {
+          "question_type_id": "sequences.term_to_term",
+          "difficulty": "easy",
+          "mcq": {
+            "choices": ["1, 6, 11", "1, 5, 10", "1, 4, 9", "1, 7, 13"],
+            "correctChoiceIndex": 0
+          }
+        },
+        "CH2_EX_2_1::Q1::b": {
+          "question_type_id": "sequences.term_to_term",
+          "difficulty": "easy",
+          "mcq": {
+            "choices": ["20, 16, 12", "20, 14, 10", "20, 15, 11", "20, 18, 16"],
+            "correctChoiceIndex": 0
+          }
+        },
+        "CH2_EX_2_1::Q6": {
+          "question_type_id": "sequences.position_to_term",
+          "difficulty": "medium",
+          "mcq": {
+            "choices": ["8", "9", "10", "11"],
+            "correctChoiceIndex": 1
+          }
+        },
+        "CH2_EX_2_1::Q8::a": {
+          "question_type_id": "sequences.position_to_term",
+          "difficulty": "medium",
+          "mcq": {
+            "choices": ["15", "25", "105", "205"],
+            "correctChoiceIndex": 2
+          }
+        },
+        "CH2_EX_2_1::Q9": {
+          "question_type_id": "sequences.position_to_term",
+          "difficulty": "hard",
+          "mcq": {
+            "choices": ["A", "B", "C", "D"],
+            "correctChoiceIndex": 1
+          }
         }
       }
     }

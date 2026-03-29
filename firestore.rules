@@ -266,6 +266,48 @@ service cloud.firestore {
       );
     }
 
+    // ── Program Study Sessions (multi-user) ───────────────────────────────
+    // Join codes are the document IDs, so clients join via getDoc (no query).
+    // Disposable sessions: allow delete by host/admin.
+    match /programStudySessions/{sessionId} {
+      allow list: if false;
+      allow get: if isAuthed();
+
+      allow create: if isAuthed() && (
+        isAdmin() ||
+        request.resource.data.hostUid == myUid()
+      );
+
+      // Writes restricted to participants/admins. For the first update (resource == null)
+      // create is used above.
+      allow update: if isAuthed() && (
+        isAdmin() ||
+        resource.data.participants[myUid()] != null
+      );
+
+      allow delete: if isAuthed() && (
+        isAdmin() ||
+        resource.data.hostUid == myUid()
+      );
+
+      match /messages/{messageId} {
+        allow read: if isAuthed() && (
+          isAdmin() ||
+          get(/databases/$(database)/documents/programStudySessions/$(sessionId)).data.participants[myUid()] != null
+        );
+
+        allow create: if isAuthed() && (
+          isAdmin() ||
+          (
+            get(/databases/$(database)/documents/programStudySessions/$(sessionId)).data.participants[myUid()] != null &&
+            request.resource.data.fromUid == myUid()
+          )
+        );
+
+        allow update, delete: if false;
+      }
+    }
+
     // ── Leaderboards (mini-game high-score aggregates) ────────────────────
     match /leaderboards/{gameId} {
       allow read: if isAuthed();

@@ -15,6 +15,21 @@ import {
 } from '@/lib/programFriendService';
 import type { ProgramFriendSession } from '@/types/programFriend';
 import {
+  createProgramStudySession,
+  heartbeatProgramStudySession,
+  hostGoToIndex,
+  hostSetReveal,
+  hostStartProgramStudySession,
+  joinProgramStudySessionByCode,
+  listenProgramStudyMessages,
+  listenProgramStudySession,
+  leaveProgramStudySession,
+  sendProgramStudyMessage,
+  submitProgramStudyAnswer,
+  tryCleanupInactiveProgramStudySession,
+} from '@/lib/programStudySessionService';
+import type { ProgramStudyMessage, ProgramStudySession } from '@/types/programStudySession';
+import {
   fetchProgramAnnotationsFromPublic,
   fetchProgramChapterFromPublic,
   flattenProgramChapter,
@@ -26,7 +41,7 @@ type Selected = { id: string; title: string; ref?: string | null } | null;
 
 type Screen = 'chapters' | 'subsections' | 'types' | 'practice';
 
-type PracticeMode = 'solo' | 'ranked' | 'friend';
+type PracticeMode = 'solo' | 'ranked' | 'friend' | 'study';
 
 function ConfettiBurst({ fire }: { fire: number }) {
   const pieces = useMemo(() => {
@@ -149,6 +164,15 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const [friendSession, setFriendSession] = useState<ProgramFriendSession | null>(null);
   const [friendCopied, setFriendCopied] = useState(false);
   const [friendStatus, setFriendStatus] = useState<string | null>(null);
+
+  const [studyCode, setStudyCode] = useState('');
+  const [studyBusy, setStudyBusy] = useState(false);
+  const [studyError, setStudyError] = useState<string | null>(null);
+  const [studySessionId, setStudySessionId] = useState<string | null>(null);
+  const [studySession, setStudySession] = useState<ProgramStudySession | null>(null);
+  const [studyMessages, setStudyMessages] = useState<ProgramStudyMessage[]>([]);
+  const [studyChatText, setStudyChatText] = useState('');
+  const [studyCopied, setStudyCopied] = useState(false);
 
   const [rankedActive, setRankedActive] = useState(false);
   const [rankedRegionId, setRankedRegionId] = useState<string | null>(null);
@@ -286,6 +310,21 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     setRankedQuestionId(null);
     setRankedFeedback(null);
     setRankedSaving(false);
+    setFriendCode('');
+    setFriendBusy(false);
+    setFriendError(null);
+    setFriendSessionId(null);
+    setFriendSession(null);
+    setFriendCopied(false);
+    setFriendStatus(null);
+    setStudyCode('');
+    setStudyBusy(false);
+    setStudyError(null);
+    setStudySessionId(null);
+    setStudySession(null);
+    setStudyMessages([]);
+    setStudyChatText('');
+    setStudyCopied(false);
   }
 
   function handleBack() {
@@ -329,9 +368,20 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       try {
         const baseUrl = import.meta.env.BASE_URL || '/';
         const p = (rel: string) => `${baseUrl.replace(/\/+$/, '/')}${rel.replace(/^\/+/, '')}`;
+
+        const prog = await getPublicProgram(programId);
+        const rawChapterPath = prog?.questionBankPath || 'questionBanks/program.sample.v3.json';
+        const rawAnnPath = prog?.annotationsPath || 'questionBanks/program.annotations.sample.v3.json';
+
+        const chapterPath = rawChapterPath.startsWith('http')
+          ? rawChapterPath
+          : rawChapterPath.startsWith('/')
+            ? p(rawChapterPath)
+            : p(rawChapterPath);
+        const annPath = rawAnnPath.startsWith('http') ? rawAnnPath : rawAnnPath.startsWith('/') ? p(rawAnnPath) : p(rawAnnPath);
         const [chapter, annotations] = await Promise.all([
-          fetchProgramChapterFromPublic(p('questionBanks/program.sample.v3.json')),
-          fetchProgramAnnotationsFromPublic(p('questionBanks/program.annotations.sample.v3.json')),
+          fetchProgramChapterFromPublic(chapterPath),
+          fetchProgramAnnotationsFromPublic(annPath),
         ]);
         if (cancelled) return;
 
@@ -857,6 +907,24 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     setFriendStatus(null);
   }
 
+  function startStudy(regionId: string, questionTypeId: string) {
+    setPracticeMode('study');
+    setScreen('practice');
+    setSoloActive(false);
+    setRankedActive(false);
+    setSoloRegionId(regionId);
+    setSoloQuestionTypeId(questionTypeId);
+    setRankedRegionId(regionId);
+    setRankedQuestionTypeId(questionTypeId);
+
+    setStudyError(null);
+    setStudySessionId(null);
+    setStudySession(null);
+    setStudyMessages([]);
+    setStudyCode('');
+    setStudyCopied(false);
+  }
+
   async function copyFriendCode(code: string) {
     try {
       await navigator.clipboard.writeText(code);
@@ -873,6 +941,48 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     const unsub = listenProgramFriendSession(friendSessionId, (s) => setFriendSession(s));
     return () => unsub();
   }, [practiceMode, friendSessionId]);
+
+  useEffect(() => {
+    if (practiceMode !== 'study') return;
+    if (!studySessionId) return;
+    const unsub = listenProgramStudySession(studySessionId, (s) => setStudySession(s));
+    return () => unsub();
+  }, [practiceMode, studySessionId]);
+
+  useEffect(() => {
+    if (practiceMode !== 'study') return;
+    if (!studySessionId) return;
+    const unsub = listenProgramStudyMessages(studySessionId, (m) => setStudyMessages(m));
+    return () => unsub();
+  }, [practiceMode, studySessionId]);
+
+  useEffect(() => {
+    if (practiceMode !== 'study') return;
+    if (!studySessionId) return;
+    if (!uid) return;
+
+    let alive = true;
+    const tick = async () => {
+      try {
+        await heartbeatProgramStudySession(studySessionId, uid);
+      } catch {
+        // ignore
+      }
+      try {
+        await tryCleanupInactiveProgramStudySession(studySessionId);
+      } catch {
+        // ignore
+      }
+      if (!alive) return;
+      window.setTimeout(tick, 10_000);
+    };
+
+    const id = window.setTimeout(tick, 2_000);
+    return () => {
+      alive = false;
+      window.clearTimeout(id);
+    };
+  }, [practiceMode, studySessionId, uid]);
 
   useEffect(() => {
     if (practiceMode !== 'friend') return;
@@ -938,6 +1048,19 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     if (!qid) return null;
     return qbQuestions.find((q) => q.id === qid) ?? null;
   }, [practiceMode, friendSession, qbQuestions]);
+
+  const studyCurrent = useMemo(() => {
+    if (practiceMode !== 'study') return null;
+    const qid = studySession?.questionIds?.[studySession.currentIndex] ?? null;
+    if (!qid) return null;
+    return qbQuestions.find((q) => q.id === qid) ?? null;
+  }, [practiceMode, studySession, qbQuestions]);
+
+  const studyIsHost = useMemo(() => {
+    if (practiceMode !== 'study') return false;
+    if (!uid || !studySession) return false;
+    return studySession.hostUid === uid;
+  }, [practiceMode, uid, studySession]);
 
   const friendMyUid = uid;
   const friendOppUid = useMemo(() => {
@@ -1031,6 +1154,134 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     }
     resetPracticeState();
     setScreen('types');
+  }
+
+  async function exitStudy() {
+    if (studySessionId && uid) {
+      try {
+        await leaveProgramStudySession(studySessionId, uid);
+      } catch {
+        // ignore
+      }
+    }
+    resetPracticeState();
+    setScreen('types');
+  }
+
+  async function createStudySession() {
+    if (!uid || !programId) return;
+    if (!soloRegionId || !soloQuestionTypeId) return;
+    setStudyBusy(true);
+    setStudyError(null);
+    try {
+      const username = userData?.username || uid;
+      const ids = friendCandidates.slice(0, 16).map((q) => q.id);
+      if (ids.length === 0) {
+        setStudyError('No MCQs available for this question type yet.');
+        return;
+      }
+      const session = await createProgramStudySession({
+        host: { uid, username },
+        programId,
+        regionId: soloRegionId,
+        questionTypeId: soloQuestionTypeId,
+        questionIds: ids,
+      });
+      setStudySessionId(session.id);
+      setStudySession(session);
+      setStudyCopied(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setStudyError(msg || 'Failed to create session');
+    } finally {
+      setStudyBusy(false);
+    }
+  }
+
+  async function joinStudySession() {
+    if (!uid) return;
+    const code = studyCode.trim().toUpperCase();
+    if (!code) return;
+    setStudyBusy(true);
+    setStudyError(null);
+    try {
+      const username = userData?.username || uid;
+      const session = await joinProgramStudySessionByCode({ code, participant: { uid, username } });
+      if (!session) {
+        setStudyError('Invalid code, or session is full/ended.');
+        return;
+      }
+      setStudySessionId(session.id);
+      setStudySession(session);
+      setStudyCopied(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setStudyError(msg || 'Failed to join session');
+    } finally {
+      setStudyBusy(false);
+    }
+  }
+
+  async function startStudySessionNow() {
+    if (!studySessionId || !uid) return;
+    await hostStartProgramStudySession(studySessionId, uid);
+  }
+
+  async function toggleStudyReveal() {
+    if (!studySessionId || !uid || !studySession) return;
+    await hostSetReveal(studySessionId, uid, !studySession.reveal);
+  }
+
+  async function studyPrev() {
+    if (!studySessionId || !uid || !studySession) return;
+    await hostGoToIndex(studySessionId, uid, Math.max(0, (studySession.currentIndex ?? 0) - 1));
+  }
+
+  async function studyNext() {
+    if (!studySessionId || !uid || !studySession) return;
+    await hostGoToIndex(
+      studySessionId,
+      uid,
+      Math.min((studySession.currentIndex ?? 0) + 1, Math.max(0, (studySession.questionIds?.length ?? 1) - 1))
+    );
+  }
+
+  async function answerStudy(idx: number) {
+    if (practiceMode !== 'study') return;
+    if (!uid || !studySession || !studyCurrent?.mcq) return;
+    const qid = studySession.questionIds?.[studySession.currentIndex] ?? null;
+    if (!qid) return;
+    const already = studySession.answers?.[qid]?.[uid];
+    if (already) return;
+    await submitProgramStudyAnswer({
+      sessionId: studySession.id,
+      uid,
+      questionId: qid,
+      answer: { choiceIndex: idx, answeredAt: new Date().toISOString() },
+    });
+  }
+
+  async function sendStudyChat() {
+    if (!studySessionId || !uid) return;
+    const username = userData?.username || uid;
+    const text = studyChatText.trim();
+    if (!text) return;
+    setStudyChatText('');
+    try {
+      await sendProgramStudyMessage({ sessionId: studySessionId, fromUid: uid, fromUsername: username, text });
+    } catch {
+      // ignore
+    }
+  }
+
+  async function copyStudyCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      setStudyCopied(true);
+      window.setTimeout(() => setStudyCopied(false), 1200);
+    } catch {
+      // ignore
+    }
   }
 
   async function answerSolo(idx: number) {
@@ -1383,6 +1634,18 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                   >
                                     Play a Friend
                                   </button>
+                                  <button
+                                    className={canPlay && !locked ? 'll-btn' : 'll-btn'}
+                                    disabled={!canPlay || locked}
+                                    onClick={() => startStudy(mapRegionId, tid)}
+                                    style={{
+                                      padding: '6px 10px',
+                                      fontSize: 11,
+                                      opacity: canPlay && !locked ? 1 : 0.55,
+                                    }}
+                                  >
+                                    Study Session
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -1399,7 +1662,9 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                   padding: 14,
                   background: 'rgba(15,23,42,0.45)',
                 }}>
-                  {practiceMode === 'friend' ? (
+                  {(() => {
+                    if (practiceMode === 'friend') {
+                      return (
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
                         <div style={{ fontWeight: 900, fontSize: 13 }}>Play a Friend</div>
@@ -1665,7 +1930,11 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                         </div>
                       )}
                     </div>
-                  ) : rankedActive ? (
+                      );
+                    }
+
+                    if (rankedActive) {
+                      return (
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
                         <div style={{ fontWeight: 900, fontSize: 13 }}>Ranked</div>
@@ -1769,7 +2038,330 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                         </div>
                       )}
                     </div>
-                  ) : soloActive ? (
+                      );
+                    }
+
+                    if (practiceMode === 'study') {
+                      return (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                        <div style={{ fontWeight: 900, fontSize: 13 }}>Study Session</div>
+                        <button onClick={exitStudy} className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }}>Exit</button>
+                      </div>
+
+                      {studyError && (
+                        <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10 }}>{studyError}</div>
+                      )}
+
+                      {!studySession ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          <div style={{
+                            border: '1px solid #1f2a44',
+                            borderRadius: 12,
+                            padding: 12,
+                            background: 'rgba(2,6,23,0.35)',
+                          }}>
+                            <div style={{ fontWeight: 900, marginBottom: 6 }}>Create a session</div>
+                            <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.35, marginBottom: 10 }}>
+                              Generates a 5-digit code. Anyone can join.
+                            </div>
+                            <button
+                              onClick={createStudySession}
+                              disabled={studyBusy}
+                              className="ll-btn ll-btn-primary"
+                              style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                            >
+                              {studyBusy ? 'Creating...' : 'Create session'}
+                            </button>
+                          </div>
+
+                          <div style={{
+                            border: '1px solid #1f2a44',
+                            borderRadius: 12,
+                            padding: 12,
+                            background: 'rgba(2,6,23,0.35)',
+                          }}>
+                            <div style={{ fontWeight: 900, marginBottom: 6 }}>Join a session</div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <input
+                                value={studyCode}
+                                onChange={(e) => setStudyCode(e.target.value.toUpperCase())}
+                                placeholder="Enter code"
+                                style={{
+                                  flex: 1,
+                                  padding: '10px 10px',
+                                  borderRadius: 10,
+                                  border: '1px solid #1f2a44',
+                                  background: 'rgba(15,23,42,0.6)',
+                                  color: 'white',
+                                  outline: 'none',
+                                  fontWeight: 800,
+                                  letterSpacing: 1,
+                                }}
+                              />
+                              <button
+                                onClick={joinStudySession}
+                                disabled={studyBusy || !studyCode.trim()}
+                                className="ll-btn ll-btn-primary"
+                                style={{ padding: '10px 12px', fontSize: 13 }}
+                              >
+                                {studyBusy ? 'Joining...' : 'Join'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'baseline',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                              <div style={{ color: '#94a3b8', fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                Code:{' '}
+                                <span style={{ color: '#93c5fd', fontWeight: 900, letterSpacing: 1 }}>{studySession.code}</span>
+                              </div>
+                              <button
+                                onClick={() => copyStudyCode(studySession.code)}
+                                className="ll-btn"
+                                style={{ padding: '5px 10px', fontSize: 12 }}
+                              >
+                                {studyCopied ? 'Copied' : 'Copy'}
+                              </button>
+                            </div>
+                            <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                              {Object.keys(studySession.participants ?? {}).length}/5
+                            </div>
+                          </div>
+
+                          <div style={{
+                            border: '1px solid #1f2a44',
+                            borderRadius: 12,
+                            padding: 12,
+                            background: 'rgba(2,6,23,0.35)',
+                          }}>
+                            <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 6 }}>
+                              Participants
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {Object.values(studySession.participants ?? {}).map((p) => (
+                                <div key={p.uid} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13 }}>
+                                  <div style={{ color: 'white', fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {p.username}
+                                    {studySession.hostUid === p.uid ? (
+                                      <span style={{ color: '#fbbf24', fontWeight: 900 }}>{' '}· Host</span>
+                                    ) : null}
+                                  </div>
+                                  <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                                    {(() => {
+                                      const ts = Date.parse(p.lastActiveAt);
+                                      if (!Number.isFinite(ts)) return '—';
+                                      const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+                                      return s <= 8 ? 'Online' : `${s}s`;
+                                    })()}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {studySession.state === 'complete' ? (
+                            <div style={{
+                              border: '1px solid #1f2a44',
+                              borderRadius: 12,
+                              padding: 12,
+                              background: 'rgba(15,23,42,0.55)',
+                            }}>
+                              <div style={{ fontWeight: 900, marginBottom: 6 }}>Session ended</div>
+                              <button
+                                onClick={exitStudy}
+                                className="ll-btn ll-btn-primary"
+                                style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                              >
+                                Back
+                              </button>
+                            </div>
+                          ) : studySession.state === 'lobby' ? (
+                            <div style={{
+                              border: '1px solid #1f2a44',
+                              borderRadius: 12,
+                              padding: 12,
+                              background: 'rgba(15,23,42,0.55)',
+                            }}>
+                              <div style={{ fontWeight: 900, marginBottom: 6 }}>Lobby</div>
+                              <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+                                Host starts when everyone is ready.
+                              </div>
+                              {studyIsHost ? (
+                                <button
+                                  onClick={startStudySessionNow}
+                                  className="ll-btn ll-btn-primary"
+                                  style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                                >
+                                  Start session
+                                </button>
+                              ) : (
+                                <div style={{ color: '#94a3b8', fontSize: 13 }}>Waiting for host…</div>
+                              )}
+                            </div>
+                          ) : !studyCurrent ? (
+                            <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading question…</div>
+                          ) : (
+                            <div style={{
+                              border: '1px solid #1f2a44',
+                              borderRadius: 12,
+                              padding: 12,
+                              background: 'rgba(2,6,23,0.35)',
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 10, alignItems: 'center' }}>
+                                <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                                  Question {Math.min((studySession.currentIndex ?? 0) + 1, studySession.questionIds.length)} / {studySession.questionIds.length}
+                                </div>
+                                {studyIsHost ? (
+                                  <div style={{ display: 'flex', gap: 8 }}>
+                                    <button onClick={studyPrev} className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }}>
+                                      ←
+                                    </button>
+                                    <button onClick={studyNext} className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }}>
+                                      →
+                                    </button>
+                                    <button
+                                      onClick={toggleStudyReveal}
+                                      className={studySession.reveal ? 'll-btn ll-btn-primary' : 'll-btn'}
+                                      style={{ padding: '6px 10px', fontSize: 12 }}
+                                    >
+                                      {studySession.reveal ? 'Hide' : 'Reveal'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                                    {studySession.reveal ? 'Answer revealed' : 'Answer hidden'}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.35, marginBottom: 12, color: 'white' }}>
+                                {studyCurrent.promptRawText ?? studyCurrent.promptLatex ?? '—'}
+                              </div>
+
+                              {studyCurrent.mcq ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                  {studyCurrent.mcq.choices.map((c, idx) => {
+                                    const qid = studySession.questionIds?.[studySession.currentIndex] ?? '';
+                                    const myAns = uid ? studySession.answers?.[qid]?.[uid] : null;
+                                    const chosen = myAns?.choiceIndex === idx;
+                                    const correctIdx = studyCurrent.mcq?.correctChoiceIndex;
+                                    const showCorrect = studySession.reveal;
+                                    const isCorrect = showCorrect && correctIdx === idx;
+                                    const border = isCorrect
+                                      ? '1px solid rgba(34,197,94,0.55)'
+                                      : chosen
+                                        ? '1px solid rgba(59,130,246,0.55)'
+                                        : '1px solid #1f2a44';
+                                    const bg = isCorrect
+                                      ? 'rgba(34,197,94,0.12)'
+                                      : chosen
+                                        ? 'rgba(59,130,246,0.10)'
+                                        : 'rgba(15,23,42,0.55)';
+                                    return (
+                                      <button
+                                        key={idx}
+                                        onClick={() => answerStudy(idx)}
+                                        disabled={!!myAns}
+                                        className="ll-btn"
+                                        style={{
+                                          textAlign: 'left',
+                                          padding: '10px 10px',
+                                          borderRadius: 12,
+                                          border,
+                                          background: bg,
+                                          color: 'white',
+                                          opacity: !myAns ? 1 : (chosen || isCorrect ? 1 : 0.7),
+                                        }}
+                                      >
+                                        {c}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div style={{ color: '#94a3b8', fontSize: 13 }}>This question type is not supported yet.</div>
+                              )}
+
+                              <div style={{ marginTop: 12, color: '#94a3b8', fontSize: 12 }}>
+                                {(() => {
+                                  const qid = studySession.questionIds?.[studySession.currentIndex] ?? '';
+                                  const ans = studySession.answers?.[qid] ?? {};
+                                  const parts = Object.values(studySession.participants ?? {}).map((p) => {
+                                    const a = ans[p.uid];
+                                    return `${p.username}: ${a ? String.fromCharCode(65 + a.choiceIndex) : '…'}`;
+                                  });
+                                  return parts.join(' | ');
+                                })()}
+                              </div>
+                            </div>
+                          )}
+
+                          <div style={{
+                            border: '1px solid #1f2a44',
+                            borderRadius: 12,
+                            padding: 12,
+                            background: 'rgba(2,6,23,0.35)',
+                          }}>
+                            <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 8 }}>
+                              Chat
+                            </div>
+                            <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                              {studyMessages.length === 0 ? (
+                                <div style={{ color: '#94a3b8', fontSize: 12 }}>No messages yet.</div>
+                              ) : (
+                                studyMessages.map((m) => (
+                                  <div key={m.id} style={{ fontSize: 12, lineHeight: 1.35 }}>
+                                    <span style={{ color: '#93c5fd', fontWeight: 900 }}>{m.fromUsername}</span>
+                                    <span style={{ color: '#64748b' }}> · </span>
+                                    <span style={{ color: '#e2e8f0' }}>{m.text}</span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <input
+                                value={studyChatText}
+                                onChange={(e) => setStudyChatText(e.target.value)}
+                                placeholder="Message"
+                                style={{
+                                  flex: 1,
+                                  padding: '10px 10px',
+                                  borderRadius: 10,
+                                  border: '1px solid #1f2a44',
+                                  background: 'rgba(15,23,42,0.6)',
+                                  color: 'white',
+                                  outline: 'none',
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') sendStudyChat();
+                                }}
+                              />
+                              <button
+                                onClick={sendStudyChat}
+                                disabled={!studyChatText.trim()}
+                                className="ll-btn ll-btn-primary"
+                                style={{ padding: '10px 12px', fontSize: 13 }}
+                              >
+                                Send
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                      );
+                    }
+
+                    if (soloActive) {
+                      return (
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
                         <div style={{ fontWeight: 900, fontSize: 13 }}>Solo Practice</div>
@@ -1848,11 +2440,15 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <div style={{ color: '#94a3b8', fontSize: 13 }}>
-                      Choose a practice mode from Question Types.
-                    </div>
-                  )}
+                      );
+                    }
+
+                    return (
+                      <div style={{ color: '#94a3b8', fontSize: 13 }}>
+                        Choose a practice mode from Question Types.
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>

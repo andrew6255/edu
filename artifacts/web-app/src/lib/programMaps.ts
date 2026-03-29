@@ -31,6 +31,8 @@ export type PublicProgram = {
   subject?: string;
   grade_band?: string;
   coverEmoji?: string;
+  questionBankPath?: string;
+  annotationsPath?: string;
   toc: TocData;
 };
 
@@ -45,6 +47,8 @@ export async function listPublicPrograms(): Promise<PublicProgram[]> {
         subject: data.subject,
         grade_band: data.grade_band,
         coverEmoji: data.coverEmoji,
+        questionBankPath: typeof (data as any).questionBankPath === 'string' ? ((data as any).questionBankPath as string) : undefined,
+        annotationsPath: typeof (data as any).annotationsPath === 'string' ? ((data as any).annotationsPath as string) : undefined,
         toc: (data.toc as TocData)!,
       } satisfies PublicProgram;
     })
@@ -63,6 +67,8 @@ export async function getPublicProgram(programId: string): Promise<PublicProgram
     subject: data.subject,
     grade_band: data.grade_band,
     coverEmoji: data.coverEmoji,
+    questionBankPath: typeof (data as any).questionBankPath === 'string' ? ((data as any).questionBankPath as string) : undefined,
+    annotationsPath: typeof (data as any).annotationsPath === 'string' ? ((data as any).annotationsPath as string) : undefined,
     toc,
   };
 }
