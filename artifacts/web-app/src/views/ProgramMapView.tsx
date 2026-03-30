@@ -142,6 +142,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const [solvedQuestionIds, setSolvedQuestionIds] = useState<string[]>([]);
   const [rankedTrophies, setRankedTrophies] = useState<number>(0);
   const [rankedSolvedQuestionIds, setRankedSolvedQuestionIds] = useState<string[]>([]);
+  const [rankedIncorrectQuestionIds, setRankedIncorrectQuestionIds] = useState<string[]>([]);
   const [isNarrow, setIsNarrow] = useState<boolean>(() => (typeof window !== 'undefined' ? window.innerWidth < 760 : false));
   const [qbLoading, setQbLoading] = useState<boolean>(false);
   const [qbError, setQbError] = useState<string | null>(null);
@@ -197,6 +198,23 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     return 9;
   }
 
+  function computeRankInfo(args: { trophies: number; totalQuestions: number }): { name: string; tier: number; tierSize: number } {
+    const rankNames = [
+      'Bronze I', 'Bronze II', 'Bronze III',
+      'Silver I', 'Silver II', 'Silver III',
+      'Gold I', 'Gold II', 'Gold III',
+      'Platinum I', 'Platinum II', 'Platinum III',
+      'Diamond I', 'Diamond II', 'Diamond III',
+      'Scholar', 'Master', 'Genius',
+    ];
+
+    const total = Math.max(0, args.totalQuestions);
+    const totalTrophies = total * 15;
+    const tierSize = Math.max(1, Math.floor(totalTrophies / 18));
+    const tier = Math.max(0, Math.min(17, Math.floor(Math.max(0, args.trophies) / tierSize)));
+    return { name: rankNames[tier] ?? 'Bronze I', tier, tierSize };
+  }
+
   const rankedCandidates = useMemo(() => {
     if (!rankedActive || !rankedRegionId || !rankedQuestionTypeId) return [];
     return qbQuestions
@@ -221,19 +239,8 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     setRankedRegionId(regionId);
     setRankedQuestionTypeId(questionTypeId);
     setRankedFeedback(null);
-
-    const ordered = qbQuestions
-      .filter((q) => q.regionId === regionId && q.questionTypeId === questionTypeId && !!q.mcq)
-      .sort((a, b) => {
-        const da = difficultyRank(a.difficulty);
-        const db = difficultyRank(b.difficulty);
-        if (da !== db) return da - db;
-        return a.id.localeCompare(b.id);
-      });
-
-    const solvedSet = new Set(rankedSolvedQuestionIds);
-    const firstUnsolved = ordered.find((q) => !solvedSet.has(q.id)) ?? ordered[0] ?? null;
-    setRankedQuestionId(firstUnsolved?.id ?? null);
+    setRankedQuestionId(null);
+    pickNextRankedQuestion({ regionId, questionTypeId });
   }
 
   function exitRanked() {
@@ -256,18 +263,39 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     setFriendStatus(null);
   }
 
-  function pickNextRankedQuestion() {
-    if (!rankedRegionId || !rankedQuestionTypeId) return;
-    const ordered = qbQuestions
-      .filter((q) => q.regionId === rankedRegionId && q.questionTypeId === rankedQuestionTypeId && !!q.mcq)
+  function pickNextRankedQuestion(args?: { regionId?: string; questionTypeId?: string }) {
+    const regionId = args?.regionId ?? rankedRegionId;
+    const questionTypeId = args?.questionTypeId ?? rankedQuestionTypeId;
+    if (!regionId || !questionTypeId) return;
+
+    const all = qbQuestions
+      .filter((q) => q.regionId === regionId && q.questionTypeId === questionTypeId && !!q.mcq)
       .sort((a, b) => {
         const da = difficultyRank(a.difficulty);
         const db = difficultyRank(b.difficulty);
         if (da !== db) return da - db;
         return a.id.localeCompare(b.id);
       });
-    const solvedSet = new Set(rankedSolvedQuestionIds);
-    const next = ordered.find((q) => !solvedSet.has(q.id)) ?? null;
+
+    const correctSet = new Set(rankedSolvedQuestionIds);
+    const incorrectSet = new Set(rankedIncorrectQuestionIds);
+
+    const stageIds = (rank: number) => all.filter((q) => difficultyRank(q.difficulty) === rank).map((q) => q.id);
+    const stageOrder = [1, 2, 3, 9];
+    const stageRank =
+      stageOrder.find((r) => {
+        const ids = stageIds(r);
+        if (ids.length === 0) return false;
+        return ids.some((id) => !correctSet.has(id));
+      }) ?? stageOrder.find((r) => stageIds(r).length > 0) ?? 1;
+
+    const candidates = all.filter((q) => difficultyRank(q.difficulty) === stageRank);
+    const unsolved = candidates.filter((q) => !correctSet.has(q.id) && !incorrectSet.has(q.id));
+    const incorrect = candidates.filter((q) => !correctSet.has(q.id) && incorrectSet.has(q.id));
+
+    const pickFrom = (pool: typeof candidates) => pool[Math.floor(Math.random() * pool.length)] ?? null;
+
+    const next = unsolved.length > 0 ? pickFrom(unsolved) : (incorrect.length > 0 ? pickFrom(incorrect) : null);
     setRankedQuestionId(next?.id ?? null);
   }
 
@@ -281,7 +309,8 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       setRankedSaving(true);
       const r = await applyRankedAnswer(uid, programId, rankedCurrent.id, correct);
       setRankedTrophies(r.trophies);
-      setRankedSolvedQuestionIds(r.solvedIds);
+      setRankedSolvedQuestionIds(r.correctIds);
+      setRankedIncorrectQuestionIds(r.incorrectIds);
     } catch {
       // ignore
     } finally {
@@ -290,9 +319,8 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   }
 
   function continueRanked() {
-    const wasCorrect = rankedFeedback?.correct ?? false;
     setRankedFeedback(null);
-    if (wasCorrect) pickNextRankedQuestion();
+    pickNextRankedQuestion();
   }
 
   const activeProgramId = userData?.activeProgramId ?? null;
@@ -528,6 +556,9 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
       const rsolved = uid ? ((pp as any)?.rankedSolvedQuestionIds ?? []) : [];
       setRankedSolvedQuestionIds(Array.isArray(rsolved) ? (rsolved as string[]) : []);
+
+      const rinc = uid ? ((pp as any)?.rankedIncorrectQuestionIds ?? []) : [];
+      setRankedIncorrectQuestionIds(Array.isArray(rinc) ? (rinc as string[]) : []);
 
       if (!prog) {
         setTitle('Program Map');
@@ -916,6 +947,19 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     return out;
   }, [tocUnits, qbRegions, qbMcqCounts.byRegion, qbMcqRankedSolvedCounts.byRegion]);
 
+  const tocUnitsWithQuestions = useMemo(() => {
+    return tocUnits.filter((u) => (unitRankedProgress[u.id]?.total ?? 0) > 0);
+  }, [tocUnits, unitRankedProgress]);
+
+  useEffect(() => {
+    if (!activeUnitId) return;
+    if (tocUnitsWithQuestions.some((u) => u.id === activeUnitId)) return;
+    setActiveUnitId(null);
+    setSelected(null);
+    setMapRegionId(null);
+    setScreen('chapters');
+  }, [activeUnitId, tocUnitsWithQuestions]);
+
   const soloCandidates = useMemo(() => {
     if (!soloActive || !soloRegionId || !soloQuestionTypeId) return [];
     return qbQuestions.filter((q) => q.regionId === soloRegionId && q.questionTypeId === soloQuestionTypeId && !!q.mcq);
@@ -926,10 +970,9 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     return qbQuestions.find((q) => q.id === soloQuestionId) ?? null;
   }, [qbQuestions, soloActive, soloQuestionId]);
 
-  function pickNextSoloQuestion(seen: string[]) {
-    if (!soloRegionId || !soloQuestionTypeId) return;
-    const candidates = qbQuestions.filter((q) => q.regionId === soloRegionId && q.questionTypeId === soloQuestionTypeId && !!q.mcq);
-    const unseen = candidates.filter((q) => !seen.includes(q.id));
+  function pickNextSoloQuestion(args: { regionId: string; questionTypeId: string; seen: string[] }) {
+    const candidates = qbQuestions.filter((q) => q.regionId === args.regionId && q.questionTypeId === args.questionTypeId && !!q.mcq);
+    const unseen = candidates.filter((q) => !args.seen.includes(q.id));
     const unsolvedUnseen = unseen.filter((q) => !solvedQuestionIds.includes(q.id));
     const unsolvedAny = candidates.filter((q) => !solvedQuestionIds.includes(q.id));
     const pool = unsolvedUnseen.length > 0 ? unsolvedUnseen : (unsolvedAny.length > 0 ? unsolvedAny : (unseen.length > 0 ? unseen : candidates));
@@ -950,7 +993,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     setSoloSeenIds([]);
     setSoloFeedback(null);
     setSoloQuestionId(null);
-    pickNextSoloQuestion([]);
+    pickNextSoloQuestion({ regionId, questionTypeId, seen: [] });
   }
 
   function exitSolo() {
@@ -1403,11 +1446,12 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     const nextSeen = soloSeenIds.includes(soloCurrent.id) ? soloSeenIds : [...soloSeenIds, soloCurrent.id];
     setSoloSeenIds(nextSeen);
     setSoloFeedback(null);
-    pickNextSoloQuestion(nextSeen);
+    if (!soloRegionId || !soloQuestionTypeId) return;
+    pickNextSoloQuestion({ regionId: soloRegionId, questionTypeId: soloQuestionTypeId, seen: nextSeen });
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0b1220' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0b1220' }}>
       <ConfettiBurst fire={celebrateFire} />
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
@@ -1422,14 +1466,20 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
           {(['solo', 'ranked', 'friend'] as const).map((m) => {
             const active = headerMode === m;
             const label = m === 'solo' ? 'Solo Practice' : m === 'ranked' ? 'Ranked' : 'Play a Friend';
+            const modeLocked = screen === 'practice' && !studyPickMode;
             return (
               <button
                 key={m}
-                onClick={() => setHeaderMode(m)}
+                onClick={() => {
+                  if (modeLocked) return;
+                  setHeaderMode(m);
+                }}
                 className={active ? 'll-btn ll-btn-primary' : 'll-btn'}
+                disabled={modeLocked}
                 style={{
                   padding: '6px 10px',
                   fontSize: 12,
+                  opacity: modeLocked ? 0.6 : 1,
                   background: active
                     ? (m === 'solo' ? '#10b981' : m === 'ranked' ? 'rgba(251,191,36,0.95)' : undefined)
                     : undefined,
@@ -1445,7 +1495,11 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
           })}
         </div>
         <div style={{ color: '#34d399', fontWeight: 900, fontSize: 12, flex: 1, textAlign: 'right' }}>
-          {playableOverallTotal > 0 ? `Solo ${overallSolved}/${playableOverallTotal} | Ranked ${rankedSolvedQuestionIds.length}/${playableOverallTotal}` : '—'}
+          {(() => {
+            if (playableOverallTotal <= 0) return '—';
+            const r = computeRankInfo({ trophies: rankedTrophies, totalQuestions: playableOverallTotal });
+            return `🏆 ${rankedTrophies} • ${r.name}`;
+          })()}
         </div>
       </div>
 
@@ -1456,8 +1510,8 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       ) : loading ? (
         <div style={{ color: '#94a3b8', padding: 18 }}>Loading map...</div>
       ) : (
-        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          <div style={{ minHeight: 0, overflowY: 'auto', padding: 14 }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }}>
             <div style={{
               border: '1px solid #1f2a44',
               borderRadius: 14,
@@ -1497,7 +1551,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                 <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading questions...</div>
               ) : qbError ? (
                 <div style={{ color: '#fca5a5', fontSize: 12 }}>{qbError}</div>
-              ) : tocUnits.length === 0 ? (
+              ) : tocUnitsWithQuestions.length === 0 ? (
                 <div style={{ color: '#94a3b8', fontSize: 13 }}>No TOC found for this program.</div>
               ) : screen === 'chapters' ? (
                 <div style={{ position: 'relative', padding: '6px 0 0' }}>
@@ -1529,7 +1583,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                     }}
                   />
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                    {tocUnits.map((u, i) => {
+                    {tocUnitsWithQuestions.map((u, i) => {
                       const prog = unitRankedProgress[u.id] ?? { solved: 0, total: 0 };
                       const isComplete = !!chapterCompletion[u.id];
                       const sideLeft = i % 2 === 0;
@@ -1622,46 +1676,59 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                      {tocSubsectionsWithRegions.map((s, i) => {
-                        const sideLeft = i % 2 === 0;
-                        const rid = s.regionId;
-                        const total = rid ? (qbMcqCounts.byRegion[rid] ?? 0) : 0;
-                        const solved = rid ? (qbMcqRankedSolvedCounts.byRegion[rid] ?? 0) : 0;
-                        return (
-                          <div key={s.toc.id} style={{ display: 'flex', justifyContent: sideLeft ? 'flex-start' : 'flex-end' }}>
-                            <button
-                              className="ll-btn"
-                              onClick={() => {
-                                setSelected({ id: rid ?? s.toc.id, title: s.toc.title, ref: s.toc.ref ?? null });
-                                setMapRegionId(rid);
-                                setScreen('types');
-                              }}
-                              style={{
-                                width: isNarrow ? '100%' : 420,
-                                textAlign: 'left',
-                                padding: '12px 12px',
-                                borderRadius: 16,
-                                border: rid ? '1px solid rgba(16,185,129,0.45)' : '1px solid rgba(148,163,184,0.25)',
-                                background: rid ? 'rgba(16,185,129,0.10)' : 'rgba(15,23,42,0.35)',
-                                color: 'white',
-                                opacity: rid ? 1 : 0.7,
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-                                <div style={{ fontWeight: 900, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {s.toc.title}
+                      {(() => {
+                        const rankedLockEnabled = headerMode === 'ranked' && !studyPickMode;
+                        let lock = false;
+                        return tocSubsectionsWithRegions.map((s, i) => {
+                          const sideLeft = i % 2 === 0;
+                          const rid = s.regionId;
+                          const total = rid ? (qbMcqCounts.byRegion[rid] ?? 0) : 0;
+                          const solved = rid ? (qbMcqRankedSolvedCounts.byRegion[rid] ?? 0) : 0;
+                          const complete = rid ? (total > 0 && solved >= total) : false;
+                          const locked = rankedLockEnabled ? lock : false;
+                          if (rankedLockEnabled && !complete) lock = true;
+                          return (
+                            <div key={s.toc.id} style={{ display: 'flex', justifyContent: sideLeft ? 'flex-start' : 'flex-end' }}>
+                              <button
+                                className="ll-btn"
+                                disabled={locked}
+                                onClick={() => {
+                                  if (locked) return;
+                                  setSelected({ id: rid ?? s.toc.id, title: s.toc.title, ref: s.toc.ref ?? null });
+                                  setMapRegionId(rid);
+                                  setScreen('types');
+                                }}
+                                style={{
+                                  width: isNarrow ? '100%' : 420,
+                                  textAlign: 'left',
+                                  padding: '12px 12px',
+                                  borderRadius: 16,
+                                  border: locked
+                                    ? '1px solid rgba(148,163,184,0.25)'
+                                    : (rid ? '1px solid rgba(16,185,129,0.45)' : '1px solid rgba(148,163,184,0.25)'),
+                                  background: locked
+                                    ? 'rgba(15,23,42,0.20)'
+                                    : (rid ? 'rgba(16,185,129,0.10)' : 'rgba(15,23,42,0.35)'),
+                                  color: 'white',
+                                  opacity: locked ? 0.55 : 1,
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                                  <div style={{ fontWeight: 900, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {s.toc.title}
+                                  </div>
+                                  <div style={{ color: rid ? '#fbbf24' : '#64748b', fontWeight: 900, fontSize: 12, flexShrink: 0 }}>
+                                    {rid ? `${solved}/${total}` : '—'}
+                                  </div>
                                 </div>
-                                <div style={{ color: rid ? '#fbbf24' : '#64748b', fontWeight: 900, fontSize: 12, flexShrink: 0 }}>
-                                  {rid ? `${solved}/${total}` : '—'}
+                                <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 12 }}>
+                                  Tap to view question types
                                 </div>
-                              </div>
-                              <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 12 }}>
-                                Tap to view question types
-                              </div>
                             </button>
                           </div>
                         );
-                      })}
+                        });
+                      })()}
                     </div>
                   )}
                 </div>
@@ -1699,8 +1766,9 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                           const solved = qbSolvedCounts.byRegionAndType[mapRegionId]?.[tid] ?? 0;
                           const rankedSolved = qbMcqRankedSolvedCounts.byRegionAndType[mapRegionId]?.[tid] ?? 0;
                           const complete = count > 0 && rankedSolved >= count;
-                          const locked = lock;
+                          const rankedLocked = lock;
                           if (!complete) lock = true;
+                          const locked = headerMode === 'ranked' && !studyPickMode ? rankedLocked : false;
 
                           return (
                             <div
@@ -2061,6 +2129,9 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                       <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>
                         Trophies: <span style={{ color: '#fbbf24', fontWeight: 900 }}>{rankedTrophies}</span>
                         <span style={{ color: '#64748b' }}>
+                          {' '}| Rank: {computeRankInfo({ trophies: rankedTrophies, totalQuestions: playableOverallTotal }).name}
+                        </span>
+                        <span style={{ color: '#64748b' }}>
                           {' '}| Next checkpoint: {Math.ceil((rankedTrophies + 1) / 100) * 100}
                         </span>
                         {rankedSaving ? ' | Saving...' : ''}
@@ -2141,14 +2212,14 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                 fontWeight: 900,
                                 marginBottom: 10,
                               }}>
-                                {rankedFeedback.correct ? 'Correct! (+15)' : 'Wrong (−15) — try again'}
+                                {rankedFeedback.correct ? 'Correct! (+14–16)' : 'Wrong (−14–16) — will appear again'}
                               </div>
                               <button
                                 onClick={continueRanked}
                                 className="ll-btn ll-btn-primary"
                                 style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
                               >
-                                {rankedFeedback.correct ? 'Next Ranked Question' : 'Try Again'}
+                                Continue
                               </button>
                             </div>
                           )}

@@ -56,7 +56,7 @@ export default function StudySessionsView({ onBack }: { onBack: () => void }) {
         <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>Study Sessions</div>
       </div>
 
-      <div style={{ padding: 16, maxWidth: 820, margin: '0 auto', width: '100%' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 16, maxWidth: 820, margin: '0 auto', width: '100%' }}>
         {step === 'home' && (
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <button

@@ -14,6 +14,7 @@ export type ProgramProgressDoc = {
   solvedQuestionIds?: string[];
   rankedTrophies?: number;
   rankedSolvedQuestionIds?: string[];
+  rankedIncorrectQuestionIds?: string[];
   updatedAt: string;
 };
 
@@ -27,6 +28,7 @@ export async function getProgramProgress(uid: string, programId: string): Promis
     solvedQuestionIds: Array.isArray((data as any).solvedQuestionIds) ? ((data as any).solvedQuestionIds as string[]) : [],
     rankedTrophies: typeof (data as any).rankedTrophies === 'number' ? ((data as any).rankedTrophies as number) : 0,
     rankedSolvedQuestionIds: Array.isArray((data as any).rankedSolvedQuestionIds) ? ((data as any).rankedSolvedQuestionIds as string[]) : [],
+    rankedIncorrectQuestionIds: Array.isArray((data as any).rankedIncorrectQuestionIds) ? ((data as any).rankedIncorrectQuestionIds as string[]) : [],
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
   };
 }
@@ -42,6 +44,7 @@ export async function listProgramProgress(uid: string): Promise<Record<string, P
       solvedQuestionIds: Array.isArray((data as any).solvedQuestionIds) ? ((data as any).solvedQuestionIds as string[]) : [],
       rankedTrophies: typeof (data as any).rankedTrophies === 'number' ? ((data as any).rankedTrophies as number) : 0,
       rankedSolvedQuestionIds: Array.isArray((data as any).rankedSolvedQuestionIds) ? ((data as any).rankedSolvedQuestionIds as string[]) : [],
+      rankedIncorrectQuestionIds: Array.isArray((data as any).rankedIncorrectQuestionIds) ? ((data as any).rankedIncorrectQuestionIds as string[]) : [],
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
     };
   }
@@ -76,46 +79,62 @@ export async function applyRankedAnswer(
   uid: string,
   programId: string,
   questionId: string,
-  correct: boolean,
-  trophyDeltaCorrect = 15,
-  trophyDeltaWrong = -15
-): Promise<{ trophies: number; solvedIds: string[] }> {
+  correct: boolean
+): Promise<{ trophies: number; correctIds: string[]; incorrectIds: string[] }> {
   const ref = doc(db, 'users', uid, 'program_progress', programId);
   const snap = await getDoc(ref);
   const now = new Date().toISOString();
 
+  const trophyMagnitude = 14 + Math.floor(Math.random() * 3);
+  const delta = correct ? trophyMagnitude : -trophyMagnitude;
+
   if (!snap.exists()) {
-    const raw = correct ? trophyDeltaCorrect : trophyDeltaWrong;
-    const trophies = Math.max(0, raw);
-    const solvedIds = correct ? [questionId] : [];
+    const trophies = Math.max(0, delta);
+    const correctIds = correct ? [questionId] : [];
+    const incorrectIds = correct ? [] : [questionId];
     await setDoc(ref, {
       programId,
       completedUnitIds: [],
       solvedQuestionIds: [],
       rankedTrophies: trophies,
-      rankedSolvedQuestionIds: solvedIds,
+      rankedSolvedQuestionIds: correctIds,
+      rankedIncorrectQuestionIds: incorrectIds,
       updatedAt: now,
     } satisfies ProgramProgressDoc);
-    return { trophies, solvedIds };
+    return { trophies, correctIds, incorrectIds };
   }
 
   const data = snap.data() as {
     rankedTrophies?: unknown;
     rankedSolvedQuestionIds?: unknown;
+    rankedIncorrectQuestionIds?: unknown;
   };
   const currentTrophies = typeof data.rankedTrophies === 'number' ? (data.rankedTrophies as number) : 0;
   const currentSolved = Array.isArray(data.rankedSolvedQuestionIds) ? (data.rankedSolvedQuestionIds as string[]) : [];
 
-  const delta = correct ? trophyDeltaCorrect : trophyDeltaWrong;
+  const currentIncorrect = Array.isArray(data.rankedIncorrectQuestionIds) ? (data.rankedIncorrectQuestionIds as string[]) : [];
+
   const checkpointFloor = Math.floor(Math.max(0, currentTrophies) / 100) * 100;
   const raw = currentTrophies + delta;
-  const trophies = Math.max(checkpointFloor, raw, 0);
-  const solvedIds = correct
+  const trophies = delta < 0 ? Math.max(checkpointFloor, raw, 0) : Math.max(raw, 0);
+
+  const correctIds = correct
     ? (currentSolved.includes(questionId) ? currentSolved : Array.from(new Set([...currentSolved, questionId])))
     : currentSolved;
 
-  await updateDoc(ref, { rankedTrophies: trophies, rankedSolvedQuestionIds: solvedIds, updatedAt: now });
-  return { trophies, solvedIds };
+  const incorrectIds = correct
+    ? currentIncorrect.filter((id) => id !== questionId)
+    : (currentSolved.includes(questionId)
+      ? currentIncorrect
+      : (currentIncorrect.includes(questionId) ? currentIncorrect : Array.from(new Set([...currentIncorrect, questionId]))));
+
+  await updateDoc(ref, {
+    rankedTrophies: trophies,
+    rankedSolvedQuestionIds: correctIds,
+    rankedIncorrectQuestionIds: incorrectIds,
+    updatedAt: now,
+  });
+  return { trophies, correctIds, incorrectIds };
 }
 
 export async function toggleUnitComplete(uid: string, programId: string, unitId: string): Promise<void> {
