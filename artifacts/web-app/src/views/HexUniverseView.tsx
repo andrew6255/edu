@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getCurriculaForSubject } from '@/data/curriculum';
 import { getUserProgress, getCurriculumCompletedCount, UserProgress } from '@/lib/progressService';
-import { getPublicProgram } from '@/lib/programMaps';
+import { getPublicProgram, purgeProgramFromUser } from '@/lib/programMaps';
 import { getProgramProgress } from '@/lib/programProgress';
 import MyProgramsModal from '@/components/universe/MyProgramsModal';
 
@@ -62,7 +62,17 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
       const progs = await Promise.all(ids.map((pid) => getPublicProgram(pid).then((p) => ({ pid, p }))));
       if (cancelled) return;
 
-      const items = progs
+      // Lazy cleanup: if a program is deleted, remove it from this user's profile and skip rendering it.
+      if (user) {
+        const missing = progs.filter(({ p }) => !p).map(({ pid }) => pid);
+        if (missing.length > 0) {
+          await Promise.all(missing.map((pid) => purgeProgramFromUser(user.uid, pid)));
+        }
+      }
+
+      const visibleProgs = progs.filter(({ p }) => !!p);
+
+      const items = visibleProgs
         .map(({ pid, p }) => ({ id: pid, title: p?.title ?? pid, coverEmoji: p?.coverEmoji }))
         .filter((x) => !!x.id);
 
@@ -71,12 +81,21 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
 
       if (user) {
         const pctEntries = await Promise.all(
-          progs.map(async ({ pid, p }) => {
-            const unitIds: string[] = (p?.toc?.toc_tree ?? []).map((it: any, idx: number) => String(it?.id || idx));
+          visibleProgs.map(async ({ pid, p }) => {
             const pp = await getProgramProgress(user.uid, pid);
-            const completedUnitIds = pp?.completedUnitIds ?? [];
-            const completedCount = unitIds.filter((id) => completedUnitIds.includes(id)).length;
-            const pct = unitIds.length > 0 ? Math.round((completedCount / unitIds.length) * 100) : 0;
+            const solved = pp?.rankedSolvedQuestionIds?.length ?? 0;
+            const total = typeof (p as any)?.rankedTotalQuestionCount === 'number' ? ((p as any).rankedTotalQuestionCount as number) : 0;
+
+            let pct = 0;
+            if (total > 0) {
+              pct = Math.round((solved / total) * 100);
+            } else {
+              // Fallback to unit-based completion if question total isn't available.
+              const unitIds: string[] = (p?.toc?.toc_tree ?? []).map((it: any, idx: number) => String(it?.id || idx));
+              const completedUnitIds = pp?.completedUnitIds ?? [];
+              const completedCount = unitIds.filter((id) => completedUnitIds.includes(id)).length;
+              pct = unitIds.length > 0 ? Math.round((completedCount / unitIds.length) * 100) : 0;
+            }
             return [pid, pct] as const;
           })
         );

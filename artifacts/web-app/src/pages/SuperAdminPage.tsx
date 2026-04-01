@@ -7,9 +7,25 @@ import { getAllUsers, updateUserData, deleteUserData, updateEconomy, UserData, U
 import { getAllOrgs, createOrg, updateOrg, deleteOrg, addAdminToOrg, removeAdminFromOrg, OrgData } from '@/lib/orgService';
 import { getAllClasses } from '@/lib/classService';
 import { db } from '@/lib/firebase';
-import { collection, deleteDoc, doc, getDocs, orderBy, query, setDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, orderBy, query, setDoc, updateDoc } from 'firebase/firestore';
+import { convertNestedProgramToInternal, parseNestedProgramJson } from '@/lib/programNestedImport';
+import ProgramMapView from '@/views/ProgramMapView';
+import {
+  BUILDER_DIVISION_LABELS,
+  convertBuilderToInternal,
+  ensureFixedFirstDivisionContainer,
+  FIXED_FIRST_DIVISION_NODE_ID,
+  makeIdFromTitle,
+  makeStableId,
+  newBuilderSpec,
+  type BuilderDivisionLabel,
+  type BuilderNode,
+  type BuilderQuestionTypeFile,
+  type BuilderSpec,
+} from '@/lib/programBuilder';
+import { setDraftProgram } from '@/lib/draftProgramStore';
 
-type Tab = 'overview' | 'users' | 'orgs' | 'requests' | 'programs';
+type Tab = 'overview' | 'users' | 'orgs' | 'programs';
 
 const ROLE_ORDER: UserRole[] = ['student', 'teacher', 'admin', 'superadmin'];
 const ROLE_COLORS: Record<UserRole, string> = {
@@ -44,22 +60,10 @@ export default function SuperAdminPage() {
   const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string } | null>(null);
   const [applyingEcon, setApplyingEcon] = useState(false);
 
-  // Pending curriculum requests count for badge
-  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
-
   useEffect(() => {
     if (userData && userData.role !== 'superadmin') setLocation('/');
     else loadData();
   }, [userData]);
-
-  useEffect(() => {
-    import('firebase/firestore').then(async ({ getDocs, collection, query, where }) => {
-      const { db } = await import('@/lib/firebase');
-      const q = query(collection(db, 'curriculumRequests'), where('status', '==', 'pending'));
-      const snap = await getDocs(q);
-      setPendingRequestsCount(snap.size);
-    });
-  }, []);
 
   async function loadData() {
     setLoading(true);
@@ -159,7 +163,6 @@ export default function SuperAdminPage() {
     { id: 'overview', icon: '📊', label: 'Overview' },
     { id: 'users', icon: '👥', label: `Users (${users.length})` },
     { id: 'orgs', icon: '🏛️', label: `Orgs (${orgs.length})` },
-    { id: 'requests', icon: '📬', label: 'Requests', badge: pendingRequestsCount },
     { id: 'programs', icon: '📚', label: 'Programs' },
   ];
 
@@ -232,7 +235,7 @@ export default function SuperAdminPage() {
                 }}>
                   <div style={{ fontSize: 22, marginBottom: 4 }}>{stat.icon}</div>
                   <div style={{ fontSize: 20, fontWeight: 'bold', color: stat.color }}>{stat.value}</div>
-                  <div style={{ color: '#64748b', fontSize: 10, marginTop: 3 }}>{stat.label}</div>
+                  <div style={{ color: '#64748b', fontSize: 10 }}>{stat.label}</div>
                 </div>
               ))}
             </div>
@@ -490,11 +493,6 @@ export default function SuperAdminPage() {
           </div>
         )}
 
-        {/* ── REQUESTS ── */}
-        {tab === 'requests' && (
-          <CurriculumRequests />
-        )}
-
         {/* ── PROGRAMS ── */}
         {tab === 'programs' && (
           <ProgramsAdmin />
@@ -566,8 +564,11 @@ export default function SuperAdminPage() {
 }
 
 function ProgramsAdmin() {
-  const [items, setItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string; toc?: unknown }>>([]);
+  const [items, setItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string }>>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [view, setView] = useState<'list' | 'builder' | 'preview'>('list');
+  const [previewReturnView, setPreviewReturnView] = useState<'list' | 'builder'>('list');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftId, setDraftId] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
@@ -575,13 +576,24 @@ function ProgramsAdmin() {
   const [draftGradeBand, setDraftGradeBand] = useState('');
   const [draftEmoji, setDraftEmoji] = useState('📘');
   const [draftTocJson, setDraftTocJson] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [draftQuestionBankJson, setDraftQuestionBankJson] = useState('');
+  const [draftAnnotationsJson, setDraftAnnotationsJson] = useState('');
+  const [draftProgramMetaJson, setDraftProgramMetaJson] = useState('');
+  const [draftNestedJson, setDraftNestedJson] = useState('');
+  const [nestedGenStatus, setNestedGenStatus] = useState<string>('');
+
+  const [builder, setBuilder] = useState<BuilderSpec>(() => newBuilderSpec());
+  const [builderPathIds, setBuilderPathIds] = useState<string[]>(['root']);
+  const [builderSelectedQuestionTypeId, setBuilderSelectedQuestionTypeId] = useState<string | null>(null);
+  const [previewProgramId, setPreviewProgramId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
     const q = query(collection(db, 'public_programs'), orderBy('title'));
     const snap = await getDocs(q);
-    const next = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as typeof items;
+    const next = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as any) }))
+      .filter((p: any) => !(typeof p?.deletedAt === 'string' && p.deletedAt)) as typeof items;
     setItems(next);
     setLoading(false);
   }
@@ -592,22 +604,181 @@ function ProgramsAdmin() {
 
   function resetDraft() {
     setEditingId(null);
+    setView('list');
     setDraftId('');
     setDraftTitle('');
     setDraftSubject('mathematics');
     setDraftGradeBand('');
     setDraftEmoji('📘');
     setDraftTocJson('');
+    setDraftQuestionBankJson('');
+    setDraftAnnotationsJson('');
+    setDraftProgramMetaJson('');
+    setDraftNestedJson('');
+    setNestedGenStatus('');
+
+    setBuilder(newBuilderSpec());
+    setBuilderPathIds(['root']);
+    setBuilderSelectedQuestionTypeId(null);
   }
 
-  function startEdit(p: (typeof items)[number]) {
+  function startNewBuilder() {
+    const b = newBuilderSpec();
+    setEditingId(null);
+    setView('builder');
+    setBuilder(b);
+    setBuilderPathIds(['root']);
+    setBuilderSelectedQuestionTypeId(null);
+  }
+
+  function startEditBuilder(p: (typeof items)[number]) {
     setEditingId(p.id);
-    setDraftId(p.id);
-    setDraftTitle((p.title as string) ?? '');
-    setDraftSubject((p.subject as string) ?? 'mathematics');
-    setDraftGradeBand((p.grade_band as string) ?? '');
-    setDraftEmoji((p.coverEmoji as string) ?? '📘');
-    setDraftTocJson(p.toc ? JSON.stringify(p.toc, null, 2) : '');
+    const spec = (p as any).builderSpec as BuilderSpec | undefined;
+    const next = spec && typeof spec === 'object' && spec.version === '1.0'
+      ? spec
+      : (() => {
+          const b = newBuilderSpec();
+          b.programId = p.id;
+          b.programTitle = (p.title as string) ?? p.id;
+          b.subject = (p.subject as string) ?? 'mathematics';
+          b.gradeBand = (p.grade_band as string) ?? '';
+          b.coverEmoji = (p.coverEmoji as string) ?? '📘';
+          b.root.title = (p.title as string) ?? p.id;
+          return b;
+        })();
+    setBuilder(ensureFixedFirstDivisionContainer(next));
+    setBuilderPathIds(['root']);
+    setBuilderSelectedQuestionTypeId(null);
+    setView('builder');
+  }
+
+  function setBuilderAtNode(nodeId: string, fn: (n: BuilderNode) => BuilderNode) {
+    setBuilder((prev) => {
+      function mapNode(n: BuilderNode): BuilderNode {
+        if (n.id === nodeId) return fn(n);
+        return { ...n, children: n.children.map(mapNode) };
+      }
+      return ensureFixedFirstDivisionContainer({ ...prev, root: mapNode(prev.root) });
+    });
+  }
+
+  function findNodeByPath(b: BuilderSpec, pathIds: string[]): BuilderNode | null {
+    const normalized = ensureFixedFirstDivisionContainer(b);
+    const fixed = normalized.root.children.find((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID) ?? null;
+
+    let cur: BuilderNode = normalized.root;
+    for (const id of pathIds.slice(1)) {
+      const pool = cur.id === 'root' && fixed ? fixed.children : cur.children;
+      const next = pool.find((c) => c.id === id);
+      if (!next) return null;
+      cur = next;
+    }
+    return cur;
+  }
+
+  function pathNodes(b: BuilderSpec, pathIds: string[]): BuilderNode[] {
+    const normalized = ensureFixedFirstDivisionContainer(b);
+    const fixed = normalized.root.children.find((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID) ?? null;
+
+    const nodes: BuilderNode[] = [];
+    let cur: BuilderNode = normalized.root;
+    nodes.push(cur);
+
+    for (const id of pathIds.slice(1)) {
+      const pool = cur.id === 'root' && fixed ? fixed.children : cur.children;
+      const next = pool.find((c) => c.id === id);
+      if (!next) break;
+      nodes.push(next);
+      cur = next;
+    }
+    return nodes;
+  }
+
+  function ensureProgramIdAndTitle() {
+    const title = builder.programTitle.trim() || builder.root.title.trim();
+    const id = builder.programId.trim() || makeIdFromTitle(title) || 'program';
+    setBuilder((prev) => ({ ...prev, programId: id, programTitle: title, root: { ...prev.root, title } }));
+  }
+
+  async function publishBuilder() {
+    ensureProgramIdAndTitle();
+    const programId = (editingId || (builder.programId.trim() || makeIdFromTitle(builder.programTitle) || '')).trim();
+    if (!programId) {
+      window.alert('Missing program id');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const internal = convertBuilderToInternal({ ...builder, programId, programTitle: builder.programTitle.trim() || programId });
+      const payload: Record<string, unknown> = {
+        title: builder.programTitle.trim() || programId,
+        subject: builder.subject ?? 'mathematics',
+        coverEmoji: builder.coverEmoji ?? '📘',
+        toc: internal.toc,
+        annotations: internal.annotations,
+        programMeta: internal.programMeta,
+        questionBanksByChapter: internal.questionBanksByChapter,
+        rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+        builderSpec: { ...builder, programId, programTitle: builder.programTitle.trim() || programId },
+        updatedAt: new Date().toISOString(),
+      };
+      const gb = (builder.gradeBand ?? '').trim();
+      if (gb) payload.grade_band = gb;
+
+      await setDoc(doc(db, 'public_programs', programId), payload, { merge: true });
+      await load();
+      setView('list');
+      setEditingId(programId);
+      window.alert('Published');
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function previewBuilder() {
+    try {
+      const title = builder.programTitle.trim() || builder.root.title.trim() || 'Draft Program';
+      const programId = (builder.programId.trim() || makeIdFromTitle(title) || 'draft-program').trim();
+      const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
+
+      const key = `${Date.now()}`;
+      setDraftProgram(key, {
+        id: programId,
+        title,
+        subject: builder.subject ?? 'mathematics',
+        grade_band: (builder.gradeBand ?? '').trim() || undefined,
+        coverEmoji: builder.coverEmoji ?? '📘',
+        toc: internal.toc,
+        questionBanksByChapter: internal.questionBanksByChapter,
+        annotations: internal.annotations,
+        programMeta: internal.programMeta,
+        rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+      });
+
+      const pid = `ll-draft:${key}`;
+      setPreviewProgramId(pid);
+      setPreviewReturnView('builder');
+      setView('preview');
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function generateFromNested() {
+    const nested = parseNestedProgramJson(draftNestedJson);
+    const converted = convertNestedProgramToInternal(nested);
+    setDraftId(nested.program_id);
+    setDraftTitle(nested.book_name);
+    setDraftTocJson(JSON.stringify(converted.toc, null, 2));
+    const firstChapterId = Object.keys(converted.questionBanksByChapter)[0] ?? null;
+    if (firstChapterId) {
+      setDraftQuestionBankJson(JSON.stringify(converted.questionBanksByChapter[firstChapterId], null, 2));
+    }
+    setDraftAnnotationsJson(JSON.stringify(converted.annotations, null, 2));
+    setDraftProgramMetaJson(JSON.stringify(converted.programMeta, null, 2));
   }
 
   async function save() {
@@ -620,18 +791,52 @@ function ProgramsAdmin() {
         toc = JSON.parse(draftTocJson);
       }
 
-      await setDoc(
-        doc(db, 'public_programs', id),
-        {
-          title: draftTitle.trim() || id,
-          subject: draftSubject.trim() || 'mathematics',
-          grade_band: draftGradeBand.trim() || undefined,
-          coverEmoji: draftEmoji.trim() || '📘',
-          toc,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      let questionBank: unknown = undefined;
+      if (draftQuestionBankJson.trim()) {
+        questionBank = JSON.parse(draftQuestionBankJson);
+      }
+
+      let annotations: unknown = undefined;
+      if (draftAnnotationsJson.trim()) {
+        annotations = JSON.parse(draftAnnotationsJson);
+      }
+
+      let programMeta: unknown = undefined;
+      if (draftProgramMetaJson.trim()) {
+        programMeta = JSON.parse(draftProgramMetaJson);
+      }
+
+      const payload: Record<string, unknown> = {
+        title: draftTitle.trim() || id,
+        subject: draftSubject.trim() || 'mathematics',
+        coverEmoji: draftEmoji.trim() || '📘',
+        toc,
+        questionBank,
+        annotations,
+        programMeta,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const gb = draftGradeBand.trim();
+      if (gb) payload.grade_band = gb;
+
+      if (draftNestedJson.trim()) {
+        const nested = parseNestedProgramJson(draftNestedJson);
+        const converted = convertNestedProgramToInternal(nested);
+        payload.questionBanksByChapter = converted.questionBanksByChapter;
+
+        let total = 0;
+        for (const ch of Object.values(converted.questionBanksByChapter)) {
+          const nodes = Array.isArray((ch as any)?.nodes) ? ((ch as any).nodes as any[]) : [];
+          for (const n of nodes) {
+            const qs = Array.isArray(n?.questions) ? (n.questions as any[]) : [];
+            total += qs.length;
+          }
+        }
+        payload.rankedTotalQuestionCount = total;
+      }
+
+      await setDoc(doc(db, 'public_programs', id), payload, { merge: true });
 
       await load();
       resetDraft();
@@ -643,136 +848,400 @@ function ProgramsAdmin() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm('Delete this public program? This cannot be undone.')) return;
-    await deleteDoc(doc(db, 'public_programs', id));
+    if (!window.confirm('are you sure you want to delete this?')) return;
+    await updateDoc(doc(db, 'public_programs', id), { deletedAt: new Date().toISOString() });
     await load();
     if (editingId === id) resetDraft();
+  }
+
+  function previewProgram(programId: string) {
+    setPreviewProgramId(programId);
+    setPreviewReturnView('list');
+    setView('preview');
   }
 
   if (loading) return <div style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>Loading programs...</div>;
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      {view === 'preview' ? (
+        <div style={{ background: '#0f172a', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, borderBottom: '1px solid #1f2a44', background: '#1e293b' }}>
+            <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>👁️ Preview</div>
+            <button
+              className="ll-btn"
+              style={{ padding: '7px 12px', fontSize: 12 }}
+              onClick={() => setView(previewReturnView)}
+            >
+              ← Back
+            </button>
+          </div>
+          <div style={{ height: 'calc(100vh - 260px)', minHeight: 560 }}>
+            {previewProgramId ? (
+              <ProgramMapView onBack={() => setView(previewReturnView)} programId={previewProgramId} />
+            ) : (
+              <div style={{ padding: 18, color: '#64748b' }}>No preview loaded.</div>
+            )}
+          </div>
+        </div>
+      ) : view === 'builder' ? (
+        <div style={{ background: '#1e293b', borderRadius: 12, border: '1px solid #334155', padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>🧱 Program Builder</div>
+            <button className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }} onClick={() => setView('list')}>← Back</button>
+            <button className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }} onClick={previewBuilder}>
+              Preview
+            </button>
+            <button
+              className="ll-btn ll-btn-primary"
+              style={{ padding: '7px 12px', fontSize: 12, background: '#10b981', borderColor: '#059669', color: 'white' }}
+              onClick={publishBuilder}
+              disabled={saving}
+            >
+              {saving ? 'Publishing...' : 'Publish'}
+            </button>
+          </div>
+
+          <div style={{ border: '1px solid #334155', borderRadius: 12, background: '#0f172a', padding: 12, marginBottom: 12 }}>
+            <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8, fontWeight: 900 }}>Division Path (ends with Question Types)</label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {builder.divisions.map((d, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <select
+                    value={d}
+                    onChange={(e) => {
+                      const v = e.target.value as BuilderDivisionLabel;
+                      setBuilder((p) => {
+                        const next = [...p.divisions];
+                        next[idx] = v;
+                        return ensureFixedFirstDivisionContainer({ ...p, divisions: next });
+                      });
+                    }}
+                    style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0b1220', color: 'white', outline: 'none', fontSize: 12, fontWeight: 900 }}
+                  >
+                    {BUILDER_DIVISION_LABELS.map((x) => (
+                      <option key={x} value={x}>{x}</option>
+                    ))}
+                  </select>
+                  <button
+                    className="ll-btn"
+                    style={{ padding: '6px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}
+                    onClick={() => {
+                      setBuilder((p) => ensureFixedFirstDivisionContainer({ ...p, divisions: p.divisions.filter((_, i) => i !== idx) }));
+                      setBuilderPathIds(['root']);
+                      setBuilderSelectedQuestionTypeId(null);
+                    }}
+                    disabled={builder.divisions.length <= 1}
+                    title={builder.divisions.length <= 1 ? 'At least one division is required' : 'Remove division'}
+                  >
+                    −
+                  </button>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>→</div>
+                </div>
+              ))}
+              <div style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 900 }}>Question Types</div>
+              <button
+                className="ll-btn"
+                style={{ padding: '6px 10px', fontSize: 11 }}
+                onClick={() => {
+                  setBuilder((p) => (p.divisions.length >= 5 ? p : ensureFixedFirstDivisionContainer({ ...p, divisions: [...p.divisions, 'Lessons'] })));
+                }}
+                disabled={builder.divisions.length >= 5}
+                title={builder.divisions.length >= 5 ? 'Max depth is 5' : 'Add a division'}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {(() => {
+            const normalized = ensureFixedFirstDivisionContainer(builder);
+            const fixedContainer = normalized.root.children.find((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID) ?? null;
+            const path = pathNodes(normalized, builderPathIds);
+            const cur = findNodeByPath(normalized, builderPathIds) ?? normalized.root;
+            const depth = builderPathIds.length - 1;
+            const isLeaf = depth === normalized.divisions.length;
+
+            function selectAtDivision(divisionIndex: number, nodeId: string) {
+              const next = ['root', ...builderPathIds.slice(1, divisionIndex + 1), nodeId];
+              setBuilderPathIds(next);
+              setBuilderSelectedQuestionTypeId(null);
+            }
+
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 12 }}>
+                <div style={{ border: '1px solid #334155', borderRadius: 12, background: '#0f172a', overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 12px', borderBottom: '1px solid #1f2a44', color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    Program Folder
+                  </div>
+                  <div style={{ padding: 12 }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: 10, border: '1px solid #334155', background: '#0b1220', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 16 }}>
+                        {(builder.coverEmoji ?? '📘').slice(0, 2)}
+                      </div>
+                      <input
+                        value={builder.root.title}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setBuilder((p) => ({ ...p, programTitle: v, root: { ...p.root, title: v } }));
+                        }}
+                        style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1px solid #334155', background: '#0b1220', color: 'white', outline: 'none', fontWeight: 900 }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {normalized.divisions.map((divisionLabel, divisionIndex) => {
+                        const containerNode = divisionIndex === 0
+                          ? fixedContainer
+                          : findNodeByPath(normalized, ['root', ...builderPathIds.slice(1, divisionIndex + 1)]);
+
+                        if (!containerNode) return null;
+
+                        const selectedId = builderPathIds[divisionIndex + 1] ?? null;
+                        const canAdd = divisionIndex < normalized.divisions.length;
+                        const children = containerNode.children;
+
+                        return (
+                          <div key={divisionLabel + ':' + divisionIndex} style={{ border: '1px solid #1f2a44', borderRadius: 12, overflow: 'hidden' }}>
+                            <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44', display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 900, flex: 1 }}>{divisionLabel}</div>
+                              {canAdd && (
+                                <button
+                                  className="ll-btn"
+                                  style={{ padding: '5px 9px', fontSize: 11 }}
+                                  onClick={() => {
+                                    const title = window.prompt(`New ${divisionLabel} name`);
+                                    if (!title) return;
+                                    const id = makeStableId('node');
+                                    setBuilderAtNode(containerNode.id, (n) => ({
+                                      ...n,
+                                      children: [...n.children, { id, title, children: [], questionTypes: [] }],
+                                    }));
+                                    selectAtDivision(divisionIndex, id);
+                                  }}
+                                >
+                                  + Folder
+                                </button>
+                              )}
+                            </div>
+                            <div style={{ padding: 10 }}>
+                              {children.length === 0 ? (
+                                <div style={{ color: '#64748b', fontSize: 12 }}>No folders.</div>
+                              ) : (
+                                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                  {children.map((child) => {
+                                    const active = selectedId === child.id;
+                                    return (
+                                      <div
+                                        key={child.id}
+                                        style={{
+                                          padding: '10px 10px',
+                                          borderRadius: 12,
+                                          border: `${active ? 2 : 1}px solid ${active ? 'rgba(59,130,246,0.85)' : '#334155'}`,
+                                          background: active ? 'rgba(59,130,246,0.22)' : '#0b1220',
+                                          boxShadow: active ? '0 0 0 3px rgba(59,130,246,0.18)' : undefined,
+                                          minWidth: 180,
+                                          cursor: 'pointer',
+                                        }}
+                                        onClick={() => selectAtDivision(divisionIndex, child.id)}
+                                      >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          <div style={{ color: 'white', fontWeight: 900, fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{child.title}</div>
+                                          {active && (
+                                            <div style={{ color: '#93c5fd', fontSize: 11, fontWeight: 900 }}>Selected</div>
+                                          )}
+                                          <button
+                                            className="ll-btn"
+                                            style={{ padding: '4px 8px', fontSize: 11 }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const nextTitle = window.prompt('Rename folder', child.title);
+                                              if (!nextTitle) return;
+                                              setBuilderAtNode(child.id, (n) => ({ ...n, title: nextTitle }));
+                                            }}
+                                          >
+                                            Rename
+                                          </button>
+                                          <button
+                                            className="ll-btn"
+                                            style={{ padding: '4px 8px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (!window.confirm('Delete this folder?')) return;
+                                              setBuilderAtNode(containerNode.id, (n) => ({ ...n, children: n.children.filter((c) => c.id !== child.id) }));
+                                              if (builderPathIds.includes(child.id)) {
+                                                setBuilderPathIds(['root', ...builderPathIds.slice(1, divisionIndex + 1)]);
+                                                setBuilderSelectedQuestionTypeId(null);
+                                              }
+                                            }}
+                                          >
+                                            Delete
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ border: '1px solid #334155', borderRadius: 12, background: '#0f172a', overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 12px', borderBottom: '1px solid #1f2a44', color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                    {isLeaf ? `Question Types (${cur.title})` : 'Open folders until the last division to manage Question Types'}
+                  </div>
+                  {isLeaf ? (
+                    <div style={{ padding: 12 }}>
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                        <button
+                          className="ll-btn"
+                          style={{ padding: '7px 12px', fontSize: 12 }}
+                          onClick={() => {
+                            const title = window.prompt('Question Type name (free-form)');
+                            if (!title) return;
+                            const id = makeStableId('qt');
+                            const qt: BuilderQuestionTypeFile = { id, title, jsonText: '[]' };
+                            setBuilderAtNode(cur.id, (n) => ({ ...n, questionTypes: [...n.questionTypes, qt] }));
+                            setBuilderSelectedQuestionTypeId(id);
+                          }}
+                        >
+                          + Add Question Type
+                        </button>
+                      </div>
+
+                      {cur.questionTypes.length === 0 ? (
+                        <div style={{ color: '#64748b', fontSize: 12 }}>No question types yet.</div>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12, alignItems: 'start' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {cur.questionTypes.map((qt) => {
+                              const active = builderSelectedQuestionTypeId === qt.id;
+                              return (
+                                <div
+                                  key={qt.id}
+                                  style={{
+                                    padding: '10px 10px',
+                                    borderRadius: 12,
+                                    border: `1px solid ${active ? 'rgba(168,85,247,0.65)' : '#334155'}`,
+                                    background: active ? 'rgba(168,85,247,0.12)' : '#0b1220',
+                                    cursor: 'pointer',
+                                  }}
+                                  onClick={() => setBuilderSelectedQuestionTypeId(qt.id)}
+                                >
+                                  <div style={{ color: 'white', fontWeight: 900, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{qt.title}</div>
+                                  <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                                    <button
+                                      className="ll-btn"
+                                      style={{ padding: '5px 10px', fontSize: 11 }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const nextTitle = window.prompt('Rename question type', qt.title);
+                                        if (!nextTitle) return;
+                                        setBuilderAtNode(cur.id, (n) => ({
+                                          ...n,
+                                          questionTypes: n.questionTypes.map((x) => x.id === qt.id ? { ...x, title: nextTitle } : x),
+                                        }));
+                                      }}
+                                    >
+                                      Rename
+                                    </button>
+                                    <button
+                                      className="ll-btn"
+                                      style={{ padding: '5px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!window.confirm('Delete this question type file?')) return;
+                                        setBuilderAtNode(cur.id, (n) => ({
+                                          ...n,
+                                          questionTypes: n.questionTypes.filter((x) => x.id !== qt.id),
+                                        }));
+                                        if (builderSelectedQuestionTypeId === qt.id) setBuilderSelectedQuestionTypeId(null);
+                                      }}
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div>
+                            {(() => {
+                              const qt = cur.questionTypes.find((x) => x.id === builderSelectedQuestionTypeId) ?? null;
+                              if (!qt) {
+                                return <div style={{ color: '#64748b', fontSize: 12 }}>Select a question type to edit its JSON.</div>;
+                              }
+                              return (
+                                <div>
+                                  <div style={{ color: 'white', fontWeight: 900, fontSize: 13, marginBottom: 8 }}>{qt.title} JSON</div>
+                                  <textarea
+                                    value={qt.jsonText}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setBuilderAtNode(cur.id, (n) => ({
+                                        ...n,
+                                        questionTypes: n.questionTypes.map((x) => x.id === qt.id ? { ...x, jsonText: v } : x),
+                                      }));
+                                    }}
+                                    rows={16}
+                                    style={{ width: '100%', padding: '10px 10px', borderRadius: 12, border: '1px solid #334155', background: '#0b1220', color: 'white', fontFamily: 'monospace', fontSize: 12, outline: 'none', resize: 'vertical' }}
+                                  />
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ padding: 12, color: '#64748b', fontSize: 12 }}>
+                      Current path:
+                      <div style={{ marginTop: 6, color: '#cbd5e1' }}>{path.map((x: BuilderNode) => x.title).join(' / ')}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      ) : (
+      <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <h3 style={{ color: 'white', margin: 0, fontSize: 16 }}>📚 Programs ({items.length})</h3>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={load} className="ll-btn" style={{ padding: '7px 14px', fontSize: 12 }}>↺ Refresh</button>
-          <button onClick={resetDraft} className="ll-btn ll-btn-primary" style={{ padding: '7px 14px', fontSize: 12, background: '#a855f7', borderColor: '#7c3aed', color: 'white' }}>+ New</button>
+          <button onClick={startNewBuilder} className="ll-btn ll-btn-primary" style={{ padding: '7px 14px', fontSize: 12, background: '#a855f7', borderColor: '#7c3aed', color: 'white' }}>+ New</button>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14 }}>
-        <div style={{ background: '#1e293b', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden' }}>
-          {items.length === 0 ? (
-            <div style={{ padding: 18, color: '#64748b' }}>No public programs yet.</div>
-          ) : (
-            items.map((p) => (
-              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid #0f172a' }}>
-                <div style={{ width: 26, textAlign: 'center', fontSize: 18 }}>{(p.coverEmoji as string) ?? '📘'}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: 'white', fontWeight: 'bold', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {(p.title as string) ?? p.id}
-                  </div>
-                  <div style={{ color: '#64748b', fontSize: 11 }}>{(p.subject as string) ?? 'subject'}{p.grade_band ? ` • ${p.grade_band}` : ''}</div>
+      <div style={{ background: '#1e293b', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden' }}>
+        {items.length === 0 ? (
+          <div style={{ padding: 18, color: '#64748b' }}>No public programs yet.</div>
+        ) : (
+          items.map((p) => (
+            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid #0f172a' }}>
+              <div style={{ width: 26, textAlign: 'center', fontSize: 18 }}>{(p.coverEmoji as string) ?? '📘'}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: 'white', fontWeight: 'bold', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {(p.title as string) ?? p.id}
                 </div>
-                <button onClick={() => startEdit(p)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11 }}>Edit</button>
-                <button onClick={() => remove(p.id)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}>Delete</button>
+                <div style={{ color: '#64748b', fontSize: 11 }}>{(p.subject as string) ?? 'subject'}{p.grade_band ? ` • ${p.grade_band}` : ''}</div>
               </div>
-            ))
-          )}
-        </div>
-
-        <div style={{ background: '#1e293b', borderRadius: 12, border: '1px solid #334155', padding: 14 }}>
-          <div style={{ color: '#94a3b8', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold', marginBottom: 10 }}>
-            {editingId ? `Edit Program: ${editingId}` : 'Create Program'}
-          </div>
-
-          <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Program ID</label>
-          <input value={draftId} onChange={(e) => setDraftId(e.target.value)} disabled={!!editingId}
-            style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'inherit', marginBottom: 10, outline: 'none', opacity: editingId ? 0.75 : 1 }} />
-
-          <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Title</label>
-          <input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)}
-            style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'inherit', marginBottom: 10, outline: 'none' }} />
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-            <div>
-              <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Subject</label>
-              <input value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)}
-                style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'inherit', outline: 'none' }} />
+              <button onClick={() => previewProgram(p.id)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11 }}>Preview</button>
+              <button onClick={() => startEditBuilder(p)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11 }}>Edit</button>
+              <button onClick={() => remove(p.id)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}>Delete</button>
             </div>
-            <div>
-              <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Grade Band</label>
-              <input value={draftGradeBand} onChange={(e) => setDraftGradeBand(e.target.value)}
-                style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'inherit', outline: 'none' }} />
-            </div>
-          </div>
-
-          <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Cover Emoji</label>
-          <input value={draftEmoji} onChange={(e) => setDraftEmoji(e.target.value)}
-            style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'inherit', marginBottom: 10, outline: 'none' }} />
-
-          <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>TOC JSON</label>
-          <textarea value={draftTocJson} onChange={(e) => setDraftTocJson(e.target.value)} rows={10}
-            style={{ width: '100%', padding: '10px 10px', borderRadius: 12, border: '1px solid #334155', background: '#0f172a', color: 'white', fontFamily: 'monospace', fontSize: 12, marginBottom: 12, outline: 'none', resize: 'vertical' }} />
-
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={resetDraft} className="ll-btn" style={{ flex: 1, padding: '10px 12px' }}>Cancel</button>
-            <button onClick={save} disabled={!draftId.trim() || saving} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '10px 12px', background: '#10b981', borderColor: '#059669', color: 'white' }}>
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </div>
+          ))
+        )}
       </div>
-    </div>
-  );
-}
-
-function CurriculumRequests() {
-  const [requests, setRequests] = useState<Array<{ id: string; uid: string; username: string; system: string; year: string; textbook: string; requestedAt: string; status: string }>>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    import('firebase/firestore').then(async ({ getDocs, collection, orderBy, query }) => {
-      const { db } = await import('@/lib/firebase');
-      const q = query(collection(db, 'curriculumRequests'));
-      const snap = await getDocs(q);
-      setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }) as typeof requests[0]));
-      setLoading(false);
-    });
-  }, []);
-
-  if (loading) return <div style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>Loading requests...</div>;
-
-  return (
-    <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <h3 style={{ color: 'white', margin: '0 0 14px', fontSize: 16 }}>📬 Curriculum Requests ({requests.length})</h3>
-      {requests.length === 0 ? (
-        <div style={{ textAlign: 'center', color: '#64748b', padding: '40px 0' }}>
-          <div style={{ fontSize: 44, marginBottom: 12 }}>📬</div>
-          <p>No curriculum requests yet.</p>
-        </div>
-      ) : requests.map(r => (
-        <div key={r.id} style={{ background: '#1e293b', borderRadius: 10, padding: '12px 16px', marginBottom: 8, border: '1px solid #334155' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ color: 'white', fontWeight: 'bold', fontSize: 13 }}>📖 {r.textbook}</div>
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>
-                {r.system} · {r.year} · by <span style={{ color: '#93c5fd' }}>{r.username}</span>
-              </div>
-              <div style={{ color: '#475569', fontSize: 11, marginTop: 3 }}>{new Date(r.requestedAt).toLocaleDateString()}</div>
-            </div>
-            <span style={{
-              fontSize: 10, padding: '3px 8px', borderRadius: 5, fontWeight: 'bold',
-              background: r.status === 'pending' ? 'rgba(251,191,36,0.1)' : 'rgba(16,185,129,0.1)',
-              border: `1px solid ${r.status === 'pending' ? 'rgba(251,191,36,0.3)' : 'rgba(16,185,129,0.3)'}`,
-              color: r.status === 'pending' ? '#fbbf24' : '#34d399', textTransform: 'capitalize'
-            }}>
-              {r.status}
-            </span>
-          </div>
-        </div>
-      ))}
+      </>
+      )}
     </div>
   );
 }

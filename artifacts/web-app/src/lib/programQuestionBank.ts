@@ -42,11 +42,58 @@ export type ProgramAnnotationsFile = {
           question_type_id?: string;
           difficulty?: ProgramDifficulty;
           mcq?: { choices: string[]; correctChoiceIndex: number };
+          time_limit_seconds?: number;
+          points?: number;
+          solution?: { raw_text?: string | null; latex?: string | null };
+          hints?: Array<{ raw_text?: string | null; latex?: string | null }>;
         }
       >;
     }
   >;
 };
+
+export type ProgramMetaFile = {
+  version: string;
+  program_id: string;
+  program_title?: string | null;
+  defaults?: {
+    time_limit_seconds?: number;
+    points?: number;
+  };
+};
+
+export function parseJsonText<T>(text: string, label: string): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Invalid ${label} JSON: ${msg}`);
+  }
+}
+
+export function isProgramChapter(x: unknown): x is ProgramChapter {
+  if (!x || typeof x !== 'object') return false;
+  const c = x as any;
+  if (typeof c.chapter_id !== 'string' && typeof c.chapter_id !== 'number') return false;
+  if (c.nodes != null && !Array.isArray(c.nodes)) return false;
+  return true;
+}
+
+export function isProgramAnnotationsFile(x: unknown): x is ProgramAnnotationsFile {
+  if (!x || typeof x !== 'object') return false;
+  const a = x as any;
+  if (typeof a.version !== 'string') return false;
+  if (!a.chapters || typeof a.chapters !== 'object') return false;
+  return true;
+}
+
+export function isProgramMetaFile(x: unknown): x is ProgramMetaFile {
+  if (!x || typeof x !== 'object') return false;
+  const m = x as any;
+  if (typeof m.version !== 'string') return false;
+  if (typeof m.program_id !== 'string') return false;
+  return true;
+}
 
 export type FlatProgramQuestion = {
   id: string;

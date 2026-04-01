@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '@/contexts/AuthContext';
-import { getPublicProgram, setProgramCompletedForUser, type TocItem } from '@/lib/programMaps';
+import { getPublicProgramOrDraft, setProgramCompletedForUser, type TocItem } from '@/lib/programMaps';
 import { applyRankedAnswer, getProgramProgress, markQuestionSolved, toggleUnitComplete } from '@/lib/programProgress';
 import { updateEconomy } from '@/lib/userService';
 import {
@@ -33,6 +33,8 @@ import {
   fetchProgramAnnotationsFromPublic,
   fetchProgramChapterFromPublic,
   flattenProgramChapter,
+  isProgramAnnotationsFile,
+  isProgramChapter,
   type FlatProgramQuestion,
   type ProgramAnnotationsFile,
 } from '@/lib/programQuestionBank';
@@ -401,23 +403,57 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
         const baseUrl = import.meta.env.BASE_URL || '/';
         const p = (rel: string) => `${baseUrl.replace(/\/+$/, '/')}${rel.replace(/^\/+/, '')}`;
 
-        const prog = await getPublicProgram(programId);
-        const rawChapterPath = prog?.questionBankPath || 'questionBanks/program.sample.v3.json';
-        const rawAnnPath = prog?.annotationsPath || 'questionBanks/program.annotations.sample.v3.json';
+        const prog = await getPublicProgramOrDraft(programId);
 
-        const chapterPath = rawChapterPath.startsWith('http')
-          ? rawChapterPath
-          : rawChapterPath.startsWith('/')
-            ? p(rawChapterPath)
-            : p(rawChapterPath);
-        const annPath = rawAnnPath.startsWith('http') ? rawAnnPath : rawAnnPath.startsWith('/') ? p(rawAnnPath) : p(rawAnnPath);
-        const [chapter, annotations] = await Promise.all([
-          fetchProgramChapterFromPublic(chapterPath),
-          fetchProgramAnnotationsFromPublic(annPath),
-        ]);
+        let chapter: unknown;
+        let annotations: unknown;
+
+        // Prefer per-chapter question banks if present.
+        if (prog?.questionBanksByChapter && typeof prog.questionBanksByChapter === 'object') {
+          const banks = prog.questionBanksByChapter as Record<string, unknown>;
+          const chapterId = activeUnitId && banks[activeUnitId] ? activeUnitId : Object.keys(banks)[0] ?? null;
+          if (chapterId) {
+            chapter = banks[chapterId];
+            annotations = prog.annotations;
+          }
+        }
+
+        // Fallback: single embedded question bank.
+        if (!chapter && prog?.questionBank) {
+          chapter = prog.questionBank;
+          annotations = prog.annotations;
+        }
+
+        // Fallback: load from public paths.
+        if (!chapter) {
+          const rawChapterPath = prog?.questionBankPath || 'questionBanks/program.sample.v3.json';
+          const rawAnnPath = prog?.annotationsPath || 'questionBanks/program.annotations.sample.v3.json';
+
+          const chapterPath = rawChapterPath.startsWith('http')
+            ? rawChapterPath
+            : rawChapterPath.startsWith('/')
+              ? p(rawChapterPath)
+              : p(rawChapterPath);
+          const annPath = rawAnnPath.startsWith('http') ? rawAnnPath : rawAnnPath.startsWith('/') ? p(rawAnnPath) : p(rawAnnPath);
+
+          const r = await Promise.all([
+            fetchProgramChapterFromPublic(chapterPath),
+            fetchProgramAnnotationsFromPublic(annPath),
+          ]);
+          chapter = r[0];
+          annotations = r[1];
+        }
+
+        if (!isProgramChapter(chapter)) {
+          throw new Error('Invalid program question bank');
+        }
+        if (annotations && !isProgramAnnotationsFile(annotations)) {
+          throw new Error('Invalid program annotations');
+        }
+
         if (cancelled) return;
 
-        const flat = flattenProgramChapter(chapter, annotations);
+        const flat = flattenProgramChapter(chapter, (annotations as ProgramAnnotationsFile | null) ?? null);
 
         const existingHasMcq = new Set<string>();
         for (const q of flat.questions) {
@@ -460,7 +496,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
         }
 
         setQbChapterId(flat.chapterId);
-        setQbAnnotations(annotations);
+        setQbAnnotations((annotations as ProgramAnnotationsFile | null) ?? null);
         setQbQuestions([...flat.questions, ...dummyQuestions]);
         setQbRegions(flat.regions);
         setQbQuestionTypes(flat.questionTypes);
@@ -476,7 +512,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     return () => {
       cancelled = true;
     };
-  }, [programId]);
+  }, [programId, activeUnitId]);
 
   useEffect(() => {
     function onResize() {
@@ -540,7 +576,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
       setLoading(true);
       const [prog, pp] = await Promise.all([
-        getPublicProgram(programId),
+        getPublicProgramOrDraft(programId),
         uid ? getProgramProgress(uid, programId) : Promise.resolve(null),
       ]);
       if (cancelled) return;

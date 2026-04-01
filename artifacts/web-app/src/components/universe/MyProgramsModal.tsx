@@ -5,9 +5,9 @@ import {
   listPublicPrograms,
   removeProgramFromUser,
   toggleActiveProgramForUser,
+  purgeProgramFromUser,
   type PublicProgram,
 } from '@/lib/programMaps';
-import { submitProgramMapRequest } from '@/lib/userService';
 
 export default function MyProgramsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user, userData, refreshUserData } = useAuth();
@@ -15,8 +15,6 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
   const [loading, setLoading] = useState(false);
   const [programs, setPrograms] = useState<PublicProgram[]>([]);
   const [query, setQuery] = useState('');
-  const [requestTitle, setRequestTitle] = useState('');
-  const [requesting, setRequesting] = useState(false);
 
   const assignedIds: string[] = userData?.assignedProgramIds ?? [];
   const activeIds: string[] = userData?.activeProgramIds ?? (userData?.activeProgramId ? [userData.activeProgramId] : []);
@@ -31,6 +29,22 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
         const items = await listPublicPrograms();
         if (!alive) return;
         setPrograms(items);
+
+        // Lazy cleanup: if user has program IDs that no longer exist / were deleted, purge them.
+        if (user && userData) {
+          const visible = new Set(items.map((p) => p.id));
+          const allIds = new Set<string>([
+            ...(userData.assignedProgramIds ?? []),
+            ...(userData.activeProgramIds ?? []),
+            ...((userData.activeProgramId ? [userData.activeProgramId] : []) as string[]),
+            ...(userData.completedProgramIds ?? []),
+          ]);
+          const missing = Array.from(allIds).filter((id) => id && !visible.has(id));
+          if (missing.length > 0) {
+            await Promise.all(missing.map((id) => purgeProgramFromUser(user.uid, id)));
+            await refreshUserData();
+          }
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -39,7 +53,7 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
     return () => {
       alive = false;
     };
-  }, [open]);
+  }, [open, user?.uid]);
 
   const programsById = useMemo(() => {
     const m = new Map<string, PublicProgram>();
@@ -60,7 +74,7 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
 
   const searchResults = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return [];
+    if (!q) return programs;
     return programs.filter((p) => p.title.toLowerCase().includes(q) || p.id.toLowerCase().includes(q));
   }, [programs, query]);
 
@@ -69,8 +83,6 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
   if (!user || !userData) return null;
 
   const uid = user.uid;
-  const username = userData.username;
-  const curriculumProfile = userData.curriculumProfile;
 
   function stop(e: React.MouseEvent) {
     e.stopPropagation();
@@ -90,23 +102,6 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
     if (!window.confirm('Remove this program from your profile?')) return;
     await removeProgramFromUser(uid, programId);
     await refreshUserData();
-  }
-
-  async function handleRequest() {
-    const title = requestTitle.trim();
-    if (!title) return;
-    setRequesting(true);
-    try {
-      await submitProgramMapRequest(uid, username, {
-        system: curriculumProfile?.system || 'other',
-        year: curriculumProfile?.year || 'Other',
-        textbook: title,
-      });
-      setRequestTitle('');
-      window.alert('Request submitted!');
-    } finally {
-      setRequesting(false);
-    }
   }
 
   const panelStyle: React.CSSProperties = {
@@ -162,10 +157,16 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
           </div>
         </div>
 
-        {showAssign && !assigned ? (
-          <button className="ll-btn ll-btn-primary" style={{ padding: '6px 10px', fontSize: 11 }} onClick={() => handleAssign(p.id)}>
-            Assign
-          </button>
+        {showAssign ? (
+          assigned ? (
+            <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 11, cursor: 'default', opacity: 0.7 }} disabled>
+              Assigned
+            </button>
+          ) : (
+            <button className="ll-btn ll-btn-primary" style={{ padding: '6px 10px', fontSize: 11 }} onClick={() => handleAssign(p.id)}>
+              Assign
+            </button>
+          )
         ) : assigned ? (
           <>
             <button
@@ -263,49 +264,19 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
                 />
               </div>
 
-              {query.trim() && searchResults.length === 0 && !loading && (
+              {searchResults.length === 0 && !loading && (
                 <div style={{ color: '#94a3b8' }}>
-                  No matches. You can request a custom program map below.
+                  No matches.
                 </div>
               )}
 
-              {query.trim() && searchResults.length > 0 && (
+              {searchResults.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {searchResults.slice(0, 30).map((p) => (
+                  {searchResults.map((p) => (
                     <ProgramRow key={p.id} p={p} showAssign={true} />
                   ))}
                 </div>
               )}
-
-              <div style={{ marginTop: 8, paddingTop: 12, borderTop: '1px solid #1f2a44' }}>
-                <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 8, fontWeight: 'bold' }}>Request a custom program map</div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <input
-                    value={requestTitle}
-                    onChange={(e) => setRequestTitle(e.target.value)}
-                    placeholder="Type your book name..."
-                    style={{
-                      flex: 1,
-                      minWidth: 220,
-                      padding: '10px 12px',
-                      borderRadius: 12,
-                      border: '1px solid #334155',
-                      background: '#0b1220',
-                      color: 'white',
-                      fontFamily: 'inherit',
-                      outline: 'none',
-                    }}
-                  />
-                  <button
-                    className="ll-btn ll-btn-primary"
-                    style={{ padding: '10px 14px', fontSize: 12, background: '#a855f7', borderColor: '#7c3aed', color: 'white' }}
-                    onClick={handleRequest}
-                    disabled={!requestTitle.trim() || requesting}
-                  >
-                    {requesting ? 'Requesting...' : 'Request'}
-                  </button>
-                </div>
-              </div>
             </div>
           )}
         </div>
