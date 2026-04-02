@@ -39,6 +39,7 @@ import {
   type FlatProgramQuestion,
   type ProgramAnnotationsFile,
 } from '@/lib/programQuestionBank';
+import { gradeInteraction } from '@/lib/interactionGrader';
 
 type Selected = { id: string; title: string; ref?: string | null } | null;
 
@@ -135,7 +136,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   return out;
 }
 
- export default function ProgramMapView({ onBack, programId: programIdProp }: { onBack: () => void; programId?: string | null }) {
+export default function ProgramMapView({ onBack, programId: programIdProp }: { onBack: () => void; programId?: string | null }) {
   const { user, userData } = useAuth();
   const uid = user?.uid ?? null;
   const [loading, setLoading] = useState(true);
@@ -349,45 +350,6 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
         })}
       </div>
     );
-  }
-
-  function gradeInteraction(
-    interaction: FlatProgramQuestion['interaction'] | null,
-    answer: { kind: 'mcq'; choiceIndex: number } | { kind: 'numeric'; valueText: string } | { kind: 'text'; valueText: string }
-  ): { correct: boolean; correctIndex: number } {
-    if (!interaction) return { correct: false, correctIndex: 0 };
-    if (interaction.type === 'mcq' && answer.kind === 'mcq') {
-      const correctIndex = interaction.correctChoiceIndex;
-      return { correct: answer.choiceIndex === correctIndex, correctIndex };
-    }
-    if (interaction.type === 'numeric' && answer.kind === 'numeric') {
-      const raw = String(answer.valueText ?? '').trim();
-      const parsed = raw === '' ? NaN : Number(raw);
-      const tol = typeof interaction.tolerance === 'number' ? interaction.tolerance : 0;
-      const corrects = Array.isArray(interaction.correct) ? interaction.correct : [interaction.correct];
-      const ok = Number.isFinite(parsed) && corrects.some((c) => {
-        const cc = Number(c);
-        if (!Number.isFinite(cc)) return false;
-        return tol > 0 ? Math.abs(parsed - cc) <= tol : parsed === cc;
-      });
-      return { correct: ok, correctIndex: 0 };
-    }
-    if (interaction.type === 'text' && answer.kind === 'text') {
-      const trim = interaction.trim !== false;
-      const caseSensitive = interaction.caseSensitive === true;
-      const v0 = String(answer.valueText ?? '');
-      const v1 = trim ? v0.trim() : v0;
-      const v = caseSensitive ? v1 : v1.toLowerCase();
-      const accepted = Array.isArray(interaction.accepted) ? interaction.accepted : [];
-      const ok = accepted.some((a) => {
-        const a0 = String(a ?? '');
-        const a1 = trim ? a0.trim() : a0;
-        const aa = caseSensitive ? a1 : a1.toLowerCase();
-        return aa === v;
-      });
-      return { correct: ok, correctIndex: 0 };
-    }
-    return { correct: false, correctIndex: 0 };
   }
 
   const rankedCandidates = useMemo(() => {
@@ -1132,6 +1094,28 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
   const playableOverallTotal = useMemo(() => qbQuestions.filter((q) => !!q.mcq).length, [qbQuestions]);
 
+  const rankRoadmapScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!showRankRoadmap) return;
+    const el = rankRoadmapScrollRef.current;
+    if (!el) return;
+
+    const totalQuestions = playableOverallTotal;
+    const totalTrophies = Math.max(0, totalQuestions * 15);
+    const pxPerTrophy = clamp(0.07, 0.05, 0.11);
+    const trackHeight = Math.max(900, totalTrophies * pxPerTrophy + 240);
+    const playerProgressPct = totalTrophies > 0 ? clamp(rankedTrophies / totalTrophies, 0, 1) : 0;
+    const playerY = playerProgressPct * (trackHeight - 120) + 50;
+
+    // Center the player position in the scroll viewport.
+    window.setTimeout(() => {
+      const viewport = el.clientHeight || 0;
+      const next = Math.max(0, playerY - viewport * 0.5);
+      el.scrollTo({ top: next, behavior: 'smooth' });
+    }, 50);
+  }, [showRankRoadmap, rankedTrophies, playableOverallTotal]);
+
   const mapRegion = useMemo(() => {
     if (!mapRegionId) return null;
     return qbRegions.find((r) => r.regionId === mapRegionId) ?? null;
@@ -1435,7 +1419,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     const tid = soloQuestionTypeId;
     if (!rid || !tid) return [] as FlatProgramQuestion[];
     return qbQuestions
-      .filter((q) => q.regionId === rid && q.questionTypeId === tid && !!q.mcq)
+      .filter((q) => q.regionId === rid && q.questionTypeId === tid && !!q.interaction)
       .sort((a, b) => {
         const da = difficultyRank(a.difficulty);
         const db = difficultyRank(b.difficulty);
@@ -1483,7 +1467,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       const username = userData?.username || uid;
       const ids = friendCandidates.slice(0, 12).map((q) => q.id);
       if (ids.length === 0) {
-        setFriendError('No MCQs available for this question type yet.');
+        setFriendError('No questions available for this question type yet.');
         return;
       }
       const session = await createProgramFriendSession({
@@ -1530,19 +1514,37 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
   async function answerFriend(idx: number) {
     if (practiceMode !== 'friend') return;
-    if (!friendMyUid || !friendSession || !friendCurrent?.mcq) return;
+    if (!friendMyUid || !friendSession || !friendCurrent?.interaction) return;
     const qid = friendSession.questionIds?.[friendSession.currentIndex] ?? null;
     if (!qid) return;
     const already = friendSession.answers?.[qid]?.[friendMyUid];
     if (already) return;
 
-    const correctIndex = friendCurrent.mcq.correctChoiceIndex;
-    const correct = idx === correctIndex;
+    const g = gradeInteraction(friendCurrent.interaction, { kind: 'mcq', choiceIndex: idx });
     await submitProgramFriendAnswer({
       sessionId: friendSession.id,
       uid: friendMyUid,
       questionId: qid,
-      answer: { choiceIndex: idx, correct, answeredAt: new Date().toISOString() },
+      answer: { kind: 'mcq', choiceIndex: idx, correct: g.correct, answeredAt: new Date().toISOString() },
+    });
+  }
+
+  async function answerFriendFreeform(kind: 'numeric' | 'text') {
+    if (practiceMode !== 'friend') return;
+    if (!friendMyUid || !friendSession || !friendCurrent?.interaction) return;
+    if (kind === 'numeric' && friendCurrent.interaction.type !== 'numeric') return;
+    if (kind === 'text' && friendCurrent.interaction.type !== 'text') return;
+    const qid = friendSession.questionIds?.[friendSession.currentIndex] ?? null;
+    if (!qid) return;
+    const already = friendSession.answers?.[qid]?.[friendMyUid];
+    if (already) return;
+
+    const g = gradeInteraction(friendCurrent.interaction, { kind, valueText: soloTextAnswer });
+    await submitProgramFriendAnswer({
+      sessionId: friendSession.id,
+      uid: friendMyUid,
+      questionId: qid,
+      answer: { kind, valueText: soloTextAnswer, correct: g.correct, answeredAt: new Date().toISOString() },
     });
   }
 
@@ -1579,7 +1581,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       const username = userData?.username || uid;
       const ids = friendCandidates.slice(0, 16).map((q) => q.id);
       if (ids.length === 0) {
-        setStudyError('No MCQs available for this question type yet.');
+        setStudyError('No questions available for this question type yet.');
         return;
       }
       const session = await createProgramStudySession({
@@ -1651,7 +1653,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
   async function answerStudy(idx: number) {
     if (practiceMode !== 'study') return;
-    if (!uid || !studySession || !studyCurrent?.mcq) return;
+    if (!uid || !studySession || !studyCurrent?.interaction) return;
     const qid = studySession.questionIds?.[studySession.currentIndex] ?? null;
     if (!qid) return;
     const already = studySession.answers?.[qid]?.[uid];
@@ -1660,7 +1662,25 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       sessionId: studySession.id,
       uid,
       questionId: qid,
-      answer: { choiceIndex: idx, answeredAt: new Date().toISOString() },
+      answer: { kind: 'mcq', choiceIndex: idx, answeredAt: new Date().toISOString() },
+    });
+  }
+
+  async function answerStudyFreeform(kind: 'numeric' | 'text') {
+    if (practiceMode !== 'study') return;
+    if (!uid || !studySession || !studyCurrent?.interaction) return;
+    if (kind === 'numeric' && studyCurrent.interaction.type !== 'numeric') return;
+    if (kind === 'text' && studyCurrent.interaction.type !== 'text') return;
+    const qid = studySession.questionIds?.[studySession.currentIndex] ?? null;
+    if (!qid) return;
+    const already = studySession.answers?.[qid]?.[uid];
+    if (already) return;
+
+    await submitProgramStudyAnswer({
+      sessionId: studySession.id,
+      uid,
+      questionId: qid,
+      answer: { kind, valueText: soloTextAnswer, answeredAt: new Date().toISOString() },
     });
   }
 
@@ -1895,6 +1915,15 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
               zIndex: 2001,
             }}
           >
+            <style>
+              {`@keyframes ll-road-pulse {0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)}}
+@keyframes ll-road-float {0%{transform:translateY(-50%) translateX(0)}50%{transform:translateY(-50%) translateX(3px)}100%{transform:translateY(-50%) translateX(0)}}
+.ll-road-reward{transition:transform 140ms ease,filter 140ms ease;}
+.ll-road-reward:hover{transform:translateY(-50%) scale(1.03);filter:brightness(1.05);} 
+.ll-road-friend{transition:transform 140ms ease,filter 140ms ease;}
+.ll-road-friend:hover{transform:translateY(-50%) scale(1.03);filter:brightness(1.06);} 
+`}
+            </style>
             <div style={{ padding: 14, borderBottom: '1px solid #1f2a44', display: 'flex', alignItems: 'center', gap: 10, background: '#111c33' }}>
               <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>🏁 Ranked Roadmap</div>
               <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setShowRankRoadmap(false)}>
@@ -2000,7 +2029,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                         <div style={{ color: '#94a3b8', fontSize: 11 }}>Scroll</div>
                       </div>
 
-                      <div style={{ height: 'min(560px, 70vh)', overflowY: 'auto', position: 'relative' }}>
+                      <div ref={rankRoadmapScrollRef} style={{ height: 'min(560px, 70vh)', overflowY: 'auto', position: 'relative' }}>
                         <div style={{ position: 'relative', height: trackHeight, padding: '40px 0' }}>
                           {rankNames.map((name, idx) => {
                             const floor = idx * tierSize;
@@ -2024,6 +2053,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                             );
                           })}
 
+                          {/* Track base */}
                           <div
                             style={{
                               position: 'absolute',
@@ -2031,13 +2061,37 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                               transform: 'translateX(-50%)',
                               bottom: 50,
                               top: 50,
-                              width: 10,
+                              width: 14,
                               borderRadius: 999,
-                              background: 'rgba(148,163,184,0.18)',
-                              border: '1px solid rgba(148,163,184,0.18)',
+                              background: 'linear-gradient(180deg, rgba(148,163,184,0.10), rgba(148,163,184,0.22), rgba(148,163,184,0.10))',
+                              border: '1px solid rgba(148,163,184,0.16)',
+                              boxShadow: '0 0 0 6px rgba(59,130,246,0.04), 0 0 22px rgba(59,130,246,0.10)',
                             }}
                           />
 
+                          {/* Track ticks */}
+                          {Array.from({ length: Math.min(90, Math.max(10, Math.floor(totalTrophies / 100))) }).map((_, i) => {
+                            const t = Math.round(((i + 1) / (Math.min(90, Math.max(10, Math.floor(totalTrophies / 100))) + 1)) * totalTrophies);
+                            const y = yForTrophy(t);
+                            return (
+                              <div
+                                key={`tick_${i}`}
+                                style={{
+                                  position: 'absolute',
+                                  left: '50%',
+                                  bottom: y,
+                                  transform: 'translate(-50%, -50%)',
+                                  width: i % 5 === 0 ? 26 : 18,
+                                  height: 2,
+                                  borderRadius: 999,
+                                  background: i % 5 === 0 ? 'rgba(148,163,184,0.40)' : 'rgba(148,163,184,0.22)',
+                                  opacity: 0.85,
+                                }}
+                              />
+                            );
+                          })}
+
+                          {/* Filled progress */}
                           <div
                             style={{
                               position: 'absolute',
@@ -2045,11 +2099,11 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                               transform: 'translateX(-50%)',
                               bottom: 50,
                               height: playerY - 50,
-                              width: 10,
+                              width: 14,
                               borderRadius: 999,
-                              background: 'linear-gradient(180deg, rgba(59,130,246,0.95), rgba(59,130,246,0.35))',
-                              boxShadow: '0 0 18px rgba(59,130,246,0.45)',
-                              transition: 'height 600ms ease',
+                              background: 'linear-gradient(180deg, rgba(59,130,246,0.0), rgba(59,130,246,0.95), rgba(96,165,250,0.55))',
+                              boxShadow: '0 0 28px rgba(59,130,246,0.35)',
+                              transition: 'height 650ms cubic-bezier(.2,.8,.2,1)',
                             }}
                           />
 
@@ -2059,12 +2113,12 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                               left: '50%',
                               transform: 'translateX(-50%)',
                               bottom: playerY,
-                              width: 18,
-                              height: 18,
+                              width: 20,
+                              height: 20,
                               borderRadius: 999,
-                              background: '#60a5fa',
-                              border: '2px solid rgba(255,255,255,0.65)',
-                              boxShadow: '0 0 18px rgba(59,130,246,0.6)',
+                              background: 'radial-gradient(circle at 40% 35%, rgba(255,255,255,0.9), rgba(96,165,250,0.95))',
+                              border: '2px solid rgba(255,255,255,0.75)',
+                              boxShadow: '0 0 24px rgba(59,130,246,0.65), 0 0 0 6px rgba(59,130,246,0.12)',
                             }}
                           />
 
@@ -2103,64 +2157,172 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                             const reached = rankedTrophies >= t;
                             const claimed = claimedRewardIds.includes(id);
                             const claimable = reached && !claimed;
+                            const locked = !reached;
+                            const gold = rewardGold(t);
                             return (
-                              <div
-                                key={id}
-                                style={{
-                                  position: 'absolute',
-                                  right: 18,
-                                  bottom: y,
-                                  transform: 'translateY(-50%)',
-                                  width: 160,
-                                }}
-                              >
-                                <button
-                                  className="ll-btn"
-                                  disabled={!claimable || !!claimingRewardId}
-                                  onClick={() => handleClaim(t)}
+                              <div key={id}>
+                                {/* connector: track dot */}
+                                <div
                                   style={{
-                                    width: '100%',
-                                    padding: '10px 12px',
-                                    borderRadius: 16,
-                                    background: claimable ? 'rgba(251,191,36,0.92)' : claimed ? 'rgba(16,185,129,0.16)' : 'rgba(30,41,59,0.7)',
-                                    border: `1px solid ${claimable ? 'rgba(251,191,36,0.95)' : claimed ? 'rgba(16,185,129,0.45)' : 'rgba(71,85,105,0.55)'}`,
-                                    color: claimable ? '#0b1220' : claimed ? '#34d399' : '#94a3b8',
-                                    fontWeight: 900,
-                                    fontSize: 12,
-                                    boxShadow: claimable ? '0 0 0 4px rgba(251,191,36,0.10), 0 10px 30px rgba(0,0,0,0.45)' : undefined,
-                                    animation: claimable ? 'll-pulse 1.2s ease-in-out infinite' : undefined,
+                                    position: 'absolute',
+                                    left: '50%',
+                                    bottom: y,
+                                    transform: 'translate(-50%, -50%)',
+                                    width: 10,
+                                    height: 10,
+                                    borderRadius: 999,
+                                    background: claimable
+                                      ? 'rgba(251,191,36,0.95)'
+                                      : claimed
+                                        ? 'rgba(16,185,129,0.75)'
+                                        : 'rgba(148,163,184,0.35)',
+                                    boxShadow: claimable
+                                      ? '0 0 18px rgba(251,191,36,0.45)'
+                                      : claimed
+                                        ? '0 0 16px rgba(16,185,129,0.35)'
+                                        : undefined,
+                                    border: '1px solid rgba(255,255,255,0.25)',
                                   }}
-                                  title={claimable ? 'Claim reward' : claimed ? 'Already claimed' : 'Reach this milestone to claim'}
+                                />
+
+                                {/* connector: line to reward */}
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    left: '50%',
+                                    right: 18 + 160,
+                                    bottom: y,
+                                    transform: 'translateY(-50%)',
+                                    height: 2,
+                                    borderRadius: 999,
+                                    background: claimable
+                                      ? 'linear-gradient(90deg, rgba(251,191,36,0.0), rgba(251,191,36,0.55), rgba(251,191,36,0.0))'
+                                      : claimed
+                                        ? 'linear-gradient(90deg, rgba(16,185,129,0.0), rgba(16,185,129,0.35), rgba(16,185,129,0.0))'
+                                        : 'linear-gradient(90deg, rgba(148,163,184,0.0), rgba(148,163,184,0.18), rgba(148,163,184,0.0))',
+                                    opacity: locked ? 0.55 : 0.9,
+                                  }}
+                                />
+
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    right: 18,
+                                    bottom: y,
+                                    transform: 'translateY(-50%)',
+                                    width: 160,
+                                  }}
                                 >
-                                  <style>
-                                    {`@keyframes ll-pulse {0%{transform:scale(1)}50%{transform:scale(1.04)}100%{transform:scale(1)}}`}
-                                  </style>
-                                  {claimed ? '✅ Claimed' : claimable ? `Claim +${rewardGold(t)} gold` : `Reward @ ${t}`}
-                                </button>
+                                  <button
+                                    className="ll-btn ll-road-reward"
+                                    disabled={!claimable || !!claimingRewardId}
+                                    onClick={() => handleClaim(t)}
+                                    style={{
+                                      width: '100%',
+                                      padding: '10px 12px',
+                                      borderRadius: 18,
+                                      background: claimable
+                                        ? 'linear-gradient(180deg, rgba(251,191,36,0.98), rgba(217,119,6,0.92))'
+                                        : claimed
+                                          ? 'rgba(16,185,129,0.14)'
+                                          : 'rgba(30,41,59,0.65)',
+                                      border: `1px solid ${claimable
+                                        ? 'rgba(251,191,36,0.95)'
+                                        : claimed
+                                          ? 'rgba(16,185,129,0.40)'
+                                          : 'rgba(71,85,105,0.55)'}`,
+                                      color: claimable ? '#0b1220' : claimed ? '#34d399' : '#94a3b8',
+                                      fontWeight: 900,
+                                      fontSize: 12,
+                                      boxShadow: claimable
+                                        ? '0 0 0 4px rgba(251,191,36,0.10), 0 14px 34px rgba(0,0,0,0.48)'
+                                        : claimed
+                                          ? '0 10px 26px rgba(0,0,0,0.28)'
+                                          : undefined,
+                                      animation: claimable ? 'll-road-pulse 1.2s ease-in-out infinite' : undefined,
+                                      opacity: locked ? 0.7 : 1,
+                                    }}
+                                    title={claimable ? 'Claim reward' : claimed ? 'Already claimed' : 'Reach this milestone to claim'}
+                                  >
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                        <div style={{ fontSize: 16 }}>
+                                          {claimed ? '✅' : claimable ? '🎁' : '🔒'}
+                                        </div>
+                                        <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {claimed ? 'Claimed' : claimable ? `Claim +${gold} gold` : `Reward @ ${t}`}
+                                        </div>
+                                      </div>
+                                      <div style={{ color: claimable ? 'rgba(15,23,42,0.7)' : '#64748b', fontSize: 11, fontWeight: 1000, flexShrink: 0 }}>
+                                        🏆 {t}
+                                      </div>
+                                    </div>
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}
 
                           {roadmapFriends.slice(0, 8).map((f, i) => {
                             const y = yForTrophy(f.trophies);
+                            const stack = i % 3;
+                            const x = 16 + stack * 18;
                             return (
                               <div
                                 key={f.uid}
+                                className="ll-road-friend"
                                 style={{
                                   position: 'absolute',
-                                  left: 18,
+                                  left: x,
                                   bottom: y,
                                   transform: 'translateY(-50%)',
                                   display: 'flex',
                                   alignItems: 'center',
                                   gap: 8,
                                   opacity: 0.95,
+                                  animation: i < 4 ? `ll-road-float ${1.8 + (i % 3) * 0.35}s ease-in-out infinite` : undefined,
                                 }}
                               >
-                                <div style={{ width: 30, height: 30, borderRadius: 999, background: `hsl(${(i * 53) % 360} 60% 40%)`, border: '2px solid rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 900, fontSize: 12 }}>
+                                <div
+                                  style={{
+                                    width: 34,
+                                    height: 34,
+                                    borderRadius: 999,
+                                    background: `radial-gradient(circle at 35% 30%, rgba(255,255,255,0.35), hsl(${(i * 53) % 360} 60% 42%))`,
+                                    border: '2px solid rgba(255,255,255,0.28)',
+                                    boxShadow: '0 10px 24px rgba(0,0,0,0.35)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'white',
+                                    fontWeight: 1000,
+                                    fontSize: 12,
+                                    position: 'relative',
+                                  }}
+                                >
                                   {(f.username || 'F').slice(0, 1).toUpperCase()}
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      right: -6,
+                                      bottom: -6,
+                                      padding: '2px 6px',
+                                      borderRadius: 999,
+                                      background: 'rgba(15,23,42,0.92)',
+                                      border: '1px solid rgba(148,163,184,0.25)',
+                                      color: '#fbbf24',
+                                      fontSize: 10,
+                                      fontWeight: 1000,
+                                      boxShadow: '0 8px 18px rgba(0,0,0,0.35)',
+                                    }}
+                                  >
+                                    🏆
+                                  </div>
                                 </div>
-                                <div style={{ color: '#cbd5e1', fontSize: 11, fontWeight: 900, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.username}</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                                  <div style={{ color: '#e2e8f0', fontSize: 11, fontWeight: 1000, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.username}</div>
+                                  <div style={{ color: '#64748b', fontSize: 10, fontWeight: 900 }}>🏆 {f.trophies}</div>
+                                </div>
                               </div>
                             );
                           })}
@@ -2761,52 +2923,116 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                 </div>
                               </div>
 
-                              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.35, marginBottom: 12, color: 'white' }}>
-                                {friendCurrent.promptRawText ?? friendCurrent.promptLatex ?? '—'}
+                              <div style={{ fontSize: 13, lineHeight: 1.35, marginBottom: 12, color: 'white' }}>
+                                {renderPromptBlocks(friendCurrent)}
                               </div>
 
                               {(() => {
                                 const qid = friendSession.questionIds?.[friendSession.currentIndex] ?? '';
                                 const mine = friendMyUid ? friendSession.answers?.[qid]?.[friendMyUid] : null;
                                 const disabledAll = !!mine || friendBusy;
-                                const correctIndex = friendCurrent.mcq?.correctChoiceIndex ?? 0;
+                                const correctIndex = friendCurrent.interaction?.type === 'mcq' ? friendCurrent.interaction.correctChoiceIndex : 0;
                                 return (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {friendCurrent.mcq?.choices.map((c, idx) => {
-                                      const show = !!mine;
-                                      const bg = !show
-                                        ? 'rgba(15,23,42,0.6)'
-                                        : idx === correctIndex
-                                          ? 'rgba(16,185,129,0.18)'
-                                          : mine.choiceIndex === idx
-                                            ? 'rgba(239,68,68,0.12)'
-                                            : 'rgba(15,23,42,0.6)';
-                                      const border = !show
-                                        ? '1px solid #1f2a44'
-                                        : idx === correctIndex
-                                          ? '1px solid rgba(16,185,129,0.55)'
-                                          : mine.choiceIndex === idx
-                                            ? '1px solid rgba(239,68,68,0.35)'
-                                            : '1px solid #1f2a44';
-                                      return (
-                                        <button
-                                          key={idx}
-                                          onClick={() => answerFriend(idx)}
+                                    {friendCurrent.interaction?.type === 'mcq' ? (
+                                      friendCurrent.interaction.choices.map((c, idx) => {
+                                        const show = !!mine;
+                                        const mineIdx = typeof (mine as any)?.choiceIndex === 'number' ? (mine as any).choiceIndex : -1;
+                                        const bg = !show
+                                          ? 'rgba(15,23,42,0.6)'
+                                          : idx === correctIndex
+                                            ? 'rgba(16,185,129,0.18)'
+                                            : mineIdx === idx
+                                              ? 'rgba(239,68,68,0.12)'
+                                              : 'rgba(15,23,42,0.6)';
+                                        const border = !show
+                                          ? '1px solid #1f2a44'
+                                          : idx === correctIndex
+                                            ? '1px solid rgba(16,185,129,0.55)'
+                                            : mineIdx === idx
+                                              ? '1px solid rgba(239,68,68,0.35)'
+                                              : '1px solid #1f2a44';
+                                        return (
+                                          <button
+                                            key={idx}
+                                            onClick={() => answerFriend(idx)}
+                                            disabled={disabledAll}
+                                            className="ll-btn"
+                                            style={{
+                                              padding: '10px 10px',
+                                              fontSize: 13,
+                                              textAlign: 'left',
+                                              background: bg,
+                                              border,
+                                              opacity: disabledAll && !show ? 0.75 : 1,
+                                            }}
+                                          >
+                                            {c}
+                                          </button>
+                                        );
+                                      })
+                                    ) : friendCurrent.interaction?.type === 'numeric' ? (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        <input
+                                          value={soloTextAnswer}
                                           disabled={disabledAll}
-                                          className="ll-btn"
+                                          onChange={(e) => setSoloTextAnswer(e.target.value)}
+                                          placeholder="Enter number"
                                           style={{
-                                            padding: '10px 10px',
-                                            fontSize: 13,
-                                            textAlign: 'left',
-                                            background: bg,
-                                            border,
-                                            opacity: disabledAll && !show ? 0.75 : 1,
+                                            width: '100%',
+                                            padding: '12px 12px',
+                                            borderRadius: 12,
+                                            border: '1px solid #1f2a44',
+                                            background: 'rgba(15,23,42,0.6)',
+                                            color: 'white',
+                                            outline: 'none',
+                                            fontSize: 14,
+                                            fontWeight: 900,
                                           }}
+                                        />
+                                        <button
+                                          className="ll-btn ll-btn-primary"
+                                          disabled={disabledAll || !soloTextAnswer.trim()}
+                                          onClick={() => answerFriendFreeform('numeric')}
+                                          style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
                                         >
-                                          {c}
+                                          Submit
                                         </button>
-                                      );
-                                    })}
+                                      </div>
+                                    ) : friendCurrent.interaction?.type === 'text' ? (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        <input
+                                          value={soloTextAnswer}
+                                          disabled={disabledAll}
+                                          onChange={(e) => setSoloTextAnswer(e.target.value)}
+                                          placeholder="Type your answer"
+                                          style={{
+                                            width: '100%',
+                                            padding: '12px 12px',
+                                            borderRadius: 12,
+                                            border: '1px solid #1f2a44',
+                                            background: 'rgba(15,23,42,0.6)',
+                                            color: 'white',
+                                            outline: 'none',
+                                            fontSize: 14,
+                                            fontWeight: 900,
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') answerFriendFreeform('text');
+                                          }}
+                                        />
+                                        <button
+                                          className="ll-btn ll-btn-primary"
+                                          disabled={disabledAll || !soloTextAnswer.trim()}
+                                          onClick={() => answerFriendFreeform('text')}
+                                          style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                                        >
+                                          Submit
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div style={{ color: '#94a3b8', fontSize: 13 }}>This question type is not supported yet.</div>
+                                    )}
                                     {mine && (
                                       <div style={{
                                         marginTop: 8,
@@ -2820,14 +3046,27 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                       }}>
                                         {(() => {
                                           const opp = friendOppUid ? friendSession.answers?.[qid]?.[friendOppUid] : null;
-                                          const myText = friendCurrent.mcq?.choices?.[mine.choiceIndex] ?? '—';
-                                          const oppText = opp ? (friendCurrent.mcq?.choices?.[opp.choiceIndex] ?? '—') : '…';
-                                          const corrText = friendCurrent.mcq?.choices?.[correctIndex] ?? '—';
+                                          const mineIdx = typeof (mine as any)?.choiceIndex === 'number' ? ((mine as any).choiceIndex as number) : null;
+                                          const oppIdx = typeof (opp as any)?.choiceIndex === 'number' ? ((opp as any).choiceIndex as number) : null;
+
+                                          const myText = mineIdx != null && friendCurrent.interaction?.type === 'mcq'
+                                            ? (friendCurrent.interaction.choices?.[mineIdx] ?? '—')
+                                            : (typeof (mine as any)?.valueText === 'string' ? String((mine as any).valueText) : '—');
+                                          const oppText = opp
+                                            ? (oppIdx != null && friendCurrent.interaction?.type === 'mcq'
+                                                ? (friendCurrent.interaction.choices?.[oppIdx] ?? '—')
+                                                : (typeof (opp as any)?.valueText === 'string' ? String((opp as any).valueText) : '✓'))
+                                            : '…';
+                                          const corrText = friendCurrent.interaction?.type === 'mcq'
+                                            ? (friendCurrent.interaction.choices?.[correctIndex] ?? '—')
+                                            : '—';
                                           return (
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                               <div><span style={{ color: '#e2e8f0', fontWeight: 900 }}>You:</span> {myText} {mine.correct ? '(correct)' : '(wrong)'}</div>
                                               <div><span style={{ color: '#e2e8f0', fontWeight: 900 }}>Friend:</span> {oppText}</div>
-                                              <div><span style={{ color: '#34d399', fontWeight: 900 }}>Correct:</span> {corrText}</div>
+                                              {friendCurrent.interaction?.type === 'mcq' && (
+                                                <div><span style={{ color: '#34d399', fontWeight: 900 }}>Correct:</span> {corrText}</div>
+                                              )}
                                             </div>
                                           );
                                         })()}
@@ -3226,17 +3465,18 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                 )}
                               </div>
 
-                              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.35, marginBottom: 12, color: 'white' }}>
-                                {studyCurrent.promptRawText ?? studyCurrent.promptLatex ?? '—'}
+                              <div style={{ fontSize: 13, lineHeight: 1.35, marginBottom: 12, color: 'white' }}>
+                                {renderPromptBlocks(studyCurrent)}
                               </div>
 
-                              {studyCurrent.mcq ? (
+                              {studyCurrent.interaction?.type === 'mcq' ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                  {studyCurrent.mcq.choices.map((c, idx) => {
+                                  {studyCurrent.interaction.choices.map((c, idx) => {
                                     const qid = studySession.questionIds?.[studySession.currentIndex] ?? '';
                                     const myAns = uid ? studySession.answers?.[qid]?.[uid] : null;
-                                    const chosen = myAns?.choiceIndex === idx;
-                                    const correctIdx = studyCurrent.mcq?.correctChoiceIndex;
+                                    const myIdx = typeof (myAns as any)?.choiceIndex === 'number' ? (myAns as any).choiceIndex : -1;
+                                    const chosen = myIdx === idx;
+                                    const correctIdx = studyCurrent.interaction?.type === 'mcq' ? studyCurrent.interaction.correctChoiceIndex : 0;
                                     const showCorrect = studySession.reveal;
                                     const isCorrect = showCorrect && correctIdx === idx;
                                     const border = isCorrect
@@ -3270,6 +3510,83 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                     );
                                   })}
                                 </div>
+                              ) : studyCurrent.interaction?.type === 'numeric' ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                  {(() => {
+                                    const qid = studySession.questionIds?.[studySession.currentIndex] ?? '';
+                                    const myAns = uid ? studySession.answers?.[qid]?.[uid] : null;
+                                    const disabled = !!myAns;
+                                    return (
+                                      <>
+                                        <input
+                                          value={soloTextAnswer}
+                                          disabled={disabled}
+                                          onChange={(e) => setSoloTextAnswer(e.target.value)}
+                                          placeholder="Enter number"
+                                          style={{
+                                            width: '100%',
+                                            padding: '12px 12px',
+                                            borderRadius: 12,
+                                            border: '1px solid #1f2a44',
+                                            background: 'rgba(15,23,42,0.6)',
+                                            color: 'white',
+                                            outline: 'none',
+                                            fontSize: 14,
+                                            fontWeight: 900,
+                                          }}
+                                        />
+                                        <button
+                                          className="ll-btn ll-btn-primary"
+                                          disabled={disabled || !soloTextAnswer.trim()}
+                                          onClick={() => answerStudyFreeform('numeric')}
+                                          style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                                        >
+                                          Submit
+                                        </button>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              ) : studyCurrent.interaction?.type === 'text' ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                  {(() => {
+                                    const qid = studySession.questionIds?.[studySession.currentIndex] ?? '';
+                                    const myAns = uid ? studySession.answers?.[qid]?.[uid] : null;
+                                    const disabled = !!myAns;
+                                    return (
+                                      <>
+                                        <input
+                                          value={soloTextAnswer}
+                                          disabled={disabled}
+                                          onChange={(e) => setSoloTextAnswer(e.target.value)}
+                                          placeholder="Type your answer"
+                                          style={{
+                                            width: '100%',
+                                            padding: '12px 12px',
+                                            borderRadius: 12,
+                                            border: '1px solid #1f2a44',
+                                            background: 'rgba(15,23,42,0.6)',
+                                            color: 'white',
+                                            outline: 'none',
+                                            fontSize: 14,
+                                            fontWeight: 900,
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') answerStudyFreeform('text');
+                                          }}
+                                        />
+                                        <button
+                                          className="ll-btn ll-btn-primary"
+                                          disabled={disabled || !soloTextAnswer.trim()}
+                                          onClick={() => answerStudyFreeform('text')}
+                                          style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                                        >
+                                          Submit
+                                        </button>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
                               ) : (
                                 <div style={{ color: '#94a3b8', fontSize: 13 }}>This question type is not supported yet.</div>
                               )}
@@ -3280,7 +3597,11 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                                   const ans = studySession.answers?.[qid] ?? {};
                                   const parts = Object.values(studySession.participants ?? {}).map((p) => {
                                     const a = ans[p.uid];
-                                    return `${p.username}: ${a ? String.fromCharCode(65 + a.choiceIndex) : '…'}`;
+                                    if (!a) return `${p.username}: …`;
+                                    const ci = typeof (a as any).choiceIndex === 'number' ? (a as any).choiceIndex : null;
+                                    if (ci != null) return `${p.username}: ${String.fromCharCode(65 + ci)}`;
+                                    const vt = typeof (a as any).valueText === 'string' ? (a as any).valueText : null;
+                                    return `${p.username}: ${vt != null && String(vt).trim() ? String(vt) : '✓'}`;
                                   });
                                   return parts.join(' | ');
                                 })()}

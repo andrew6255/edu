@@ -194,6 +194,11 @@ service cloud.firestore {
       match /program_progress/{programId} {
         allow read, write: if isOwn(userId) || isAdmin();
       }
+
+      // Logic games progress (per-user)
+      match /logic_games_progress/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
     }
 
     // ── Organisations ─────────────────────────────────────────────────────
@@ -215,6 +220,30 @@ service cloud.firestore {
     // ── Draft Program Maps (Super Admin Builder drafts) ───────────────────
     // Drafts are only visible/manageable by superadmins.
     match /draft_programs/{programId} {
+      allow read: if isSuperAdmin();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // ── Logic Games ──────────────────────────────────────────────────────
+    // Published nodes visible to all authed users. Draft nodes superadmin-only.
+    match /logic_game_nodes_public/{nodeId} {
+      allow read: if isAuthed();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    match /logic_game_nodes_draft/{nodeId} {
+      allow read: if isSuperAdmin();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Published question sets per node
+    match /logic_game_questions_public/{nodeId} {
+      allow read: if isAuthed();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Draft question sets per node (superadmin builder)
+    match /logic_game_questions_draft/{nodeId} {
       allow read: if isSuperAdmin();
       allow create, update, delete: if isSuperAdmin();
     }
@@ -270,6 +299,23 @@ service cloud.firestore {
         isAdmin() ||
         resource.data.host.uid == myUid() ||
         (resource.data.guest != null && resource.data.guest.uid == myUid())
+      );
+    }
+
+    // ── Logic Game Friend Matches (Logic Games: Play a Friend) ───────────
+    match /logicGameFriendMatches/{matchId} {
+      allow list: if false;
+      allow get: if isAuthed();
+
+      allow create: if isAuthed() && (
+        isAdmin() ||
+        request.resource.data.hostUid == myUid()
+      );
+
+      allow update, delete: if isAuthed() && (
+        isAdmin() ||
+        resource.data.hostUid == myUid() ||
+        resource.data.guestUid == myUid()
       );
     }
 

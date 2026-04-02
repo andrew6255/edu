@@ -1,19 +1,66 @@
-import { db } from './firebase';
+import { db } from '@/lib/firebase';
 import {
-  doc, getDoc, setDoc, updateDoc, deleteDoc,
-  collection, query, where, getDocs, writeBatch,
-  onSnapshot, Unsubscribe
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  writeBatch,
+  onSnapshot,
+  Unsubscribe,
 } from 'firebase/firestore';
-import {
-  GameSession, SessionPlayer, RoundResult,
-  MatchmakingEntry, Challenge
-} from '@/types/warmup';
+import { GameSession, Challenge, RoundResult, SessionPlayer } from '@/types/warmup';
+import { createLogicGameFriendMatch } from '@/lib/logicGameFriendService';
 
 const ROUNDS_TO_WIN = 3;
 const TOTAL_ROUNDS = 5;
 
+type MatchmakingEntry = {
+  uid: string;
+  username: string;
+  gameId: string;
+  joinedAt: string;
+  sessionId: string | null;
+};
+
 function makeId() {
   return Math.random().toString(36).slice(2, 11);
+}
+
+export async function respondToLogicGameChallenge(
+  challengeId: string,
+  accept: boolean,
+  respondentUid: string,
+  respondentUsername: string
+): Promise<{ matchId: string } | null> {
+  if (!accept) {
+    await updateDoc(doc(db, 'challenges', challengeId), { state: 'declined' });
+    return null;
+  }
+
+  const snap = await getDoc(doc(db, 'challenges', challengeId));
+  if (!snap.exists()) return null;
+  const challenge = snap.data() as Challenge;
+  if (challenge.kind !== 'logicGame') return null;
+  const nodeId = challenge.logicGameNodeId;
+  if (!nodeId) throw new Error('Missing logicGameNodeId');
+
+  const match = await createLogicGameFriendMatch({
+    nodeId,
+    host: { uid: challenge.fromUid, username: challenge.fromUsername },
+    guest: { uid: respondentUid, username: respondentUsername },
+  });
+
+  await updateDoc(doc(db, 'challenges', challengeId), {
+    state: 'accepted',
+    sessionId: match.id,
+  });
+
+  return { matchId: match.id };
 }
 
 function botPlayer(difficulty: 'easy' | 'medium' | 'hard' = 'medium'): SessionPlayer {
@@ -219,7 +266,8 @@ export async function sendChallenge(
   fromUsername: string,
   toUsername: string,
   gameId: string,
-  gameLabel: string
+  gameLabel: string,
+  opts?: { kind?: Challenge['kind']; logicGameNodeId?: string }
 ): Promise<{ success: boolean; challengeId?: string; error?: string }> {
   const trimmed = toUsername.trim();
   const normalized = trimmed.toLowerCase();
@@ -245,6 +293,8 @@ export async function sendChallenge(
       fromUid, fromUsername,
       toUid, toUsername: trimmed,
       gameId, gameLabel,
+      ...(opts?.kind ? { kind: opts.kind } : {}),
+      ...(opts?.logicGameNodeId ? { logicGameNodeId: opts.logicGameNodeId } : {}),
       state: 'pending',
       createdAt: new Date().toISOString()
     };
@@ -265,6 +315,8 @@ export async function sendChallenge(
       challengeId,
       gameId,
       gameLabel,
+      ...(opts?.kind ? { kind: opts.kind } : {}),
+      ...(opts?.logicGameNodeId ? { logicGameNodeId: opts.logicGameNodeId } : {}),
     });
 
     await batch.commit();

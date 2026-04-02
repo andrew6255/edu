@@ -6,7 +6,16 @@ export interface ProgramFriendPlayer {
 }
 
 export interface ProgramFriendAnswer {
-  choiceIndex: number;
+  // Backward-compatible MCQ fields
+  choiceIndex?: number;
+
+  // New: answer kind
+  kind?: 'mcq' | 'numeric' | 'text';
+
+  // New: freeform value (numeric/text)
+  valueText?: string;
+
+  // Whether the answer is correct (computed client-side for now)
   correct: boolean;
   answeredAt: string;
 }

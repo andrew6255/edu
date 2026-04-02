@@ -7,7 +7,14 @@ export interface ProgramStudyParticipant {
 }
 
 export interface ProgramStudyAnswer {
-  choiceIndex: number;
+  // Backward-compatible MCQ fields
+  choiceIndex?: number;
+
+  // New: answer kind
+  kind?: 'mcq' | 'numeric' | 'text';
+
+  // New: freeform value (numeric/text)
+  valueText?: string;
   answeredAt: string;
 }
 

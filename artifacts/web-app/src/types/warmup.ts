@@ -67,6 +67,8 @@ export interface Challenge {
   toUsername: string;
   gameId: string;
   gameLabel: string;
+  kind?: 'warmup' | 'logicGame';
+  logicGameNodeId?: string;
   state: 'pending' | 'accepted' | 'declined' | 'canceled';
   sessionId?: string;
   createdAt: string;

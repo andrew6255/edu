@@ -3,7 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { respondToFriendRequest, AppNotification } from '@/lib/userService';
 import { db } from '@/lib/firebase';
 import { collection, query, orderBy, onSnapshot, doc, writeBatch } from 'firebase/firestore';
-import { listenChallengeState, respondToChallenge } from '@/lib/gameSessionService';
+import { listenChallengeState, respondToChallenge, respondToLogicGameChallenge } from '@/lib/gameSessionService';
 
 interface Props {
   onClose?: () => void;
@@ -128,7 +128,24 @@ export default function NotificationsView({ onClose }: Props) {
       return;
     }
 
-    if (accept) {
+    const isLogicGame = (n as any).kind === 'logicGame' || String(n.gameId || '').startsWith('logicGame:');
+
+    if (accept && isLogicGame) {
+      const { getUserData } = await import('@/lib/userService');
+      const ud = await getUserData(user.uid);
+      const res = await respondToLogicGameChallenge(
+        n.challengeId,
+        true,
+        user.uid,
+        ud?.username || user.uid
+      );
+      if (res?.matchId) {
+        localStorage.setItem('ll:logicGameFriendMatchId', res.matchId);
+        if ((n as any).logicGameNodeId) localStorage.setItem('ll:logicGameNodeId', String((n as any).logicGameNodeId));
+        window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'logic' } }));
+        onClose?.();
+      }
+    } else if (accept) {
       const { getUserData } = await import('@/lib/userService');
       const ud = await getUserData(user.uid);
       const session = await respondToChallenge(
@@ -144,7 +161,11 @@ export default function NotificationsView({ onClose }: Props) {
         onClose?.();
       }
     } else {
-      await respondToChallenge(n.challengeId, false, user.uid, '');
+      if (isLogicGame) {
+        await respondToLogicGameChallenge(n.challengeId, false, user.uid, '');
+      } else {
+        await respondToChallenge(n.challengeId, false, user.uid, '');
+      }
     }
 
     await writeBatch(db)
