@@ -212,6 +212,13 @@ service cloud.firestore {
       allow create, update, delete: if isSuperAdmin();
     }
 
+    // ── Draft Program Maps (Super Admin Builder drafts) ───────────────────
+    // Drafts are only visible/manageable by superadmins.
+    match /draft_programs/{programId} {
+      allow read: if isSuperAdmin();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
     // ── Classes ───────────────────────────────────────────────────────────
     // Any authenticated user can read class docs (for join-by-code flow).
     // Teachers and above can create/update/delete classes.

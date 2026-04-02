@@ -7,10 +7,11 @@ import { getAllUsers, updateUserData, deleteUserData, updateEconomy, UserData, U
 import { getAllOrgs, createOrg, updateOrg, deleteOrg, addAdminToOrg, removeAdminFromOrg, OrgData } from '@/lib/orgService';
 import { getAllClasses } from '@/lib/classService';
 import { db } from '@/lib/firebase';
-import { collection, deleteDoc, doc, getDocs, orderBy, query, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, setDoc, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { convertNestedProgramToInternal, parseNestedProgramJson } from '@/lib/programNestedImport';
 import ProgramMapView from '@/views/ProgramMapView';
+import { clearDraftProgram } from '@/lib/draftProgramStore';
 import {
   BUILDER_DIVISION_LABELS,
   convertBuilderToInternal,
@@ -567,11 +568,13 @@ export default function SuperAdminPage() {
 function ProgramsAdmin() {
   const { userData } = useAuth();
   const [items, setItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string }>>([]);
+  const [draftItems, setDraftItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [view, setView] = useState<'list' | 'builder' | 'preview'>('list');
   const [previewReturnView, setPreviewReturnView] = useState<'list' | 'builder'>('list');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [draftId, setDraftId] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
   const [draftSubject, setDraftSubject] = useState('mathematics');
@@ -601,6 +604,12 @@ function ProgramsAdmin() {
       .map((d) => ({ id: d.id, ...(d.data() as any) }))
       .filter((p: any) => !(typeof p?.deletedAt === 'string' && p.deletedAt)) as typeof items;
     setItems(next);
+
+    const dq = query(collection(db, 'draft_programs'), orderBy('title'));
+    const dsnap = await getDocs(dq);
+    const dnext = dsnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as typeof draftItems;
+    setDraftItems(dnext);
+
     setLoading(false);
   }
 
@@ -610,6 +619,7 @@ function ProgramsAdmin() {
 
   function resetDraft() {
     setEditingId(null);
+    setEditingDraftId(null);
     setView('list');
     setDraftId('');
     setDraftTitle('');
@@ -631,6 +641,7 @@ function ProgramsAdmin() {
   function startNewBuilder() {
     const b = newBuilderSpec();
     setEditingId(null);
+    setEditingDraftId(null);
     setView('builder');
     setBuilder(b);
     setBuilderPathIds(['root']);
@@ -639,6 +650,7 @@ function ProgramsAdmin() {
 
   function startEditBuilder(p: (typeof items)[number]) {
     setEditingId(p.id);
+    setEditingDraftId(null);
     const spec = (p as any).builderSpec as BuilderSpec | undefined;
     const next = spec && typeof spec === 'object' && spec.version === '1.0'
       ? spec
@@ -656,6 +668,38 @@ function ProgramsAdmin() {
     setBuilderPathIds(['root']);
     setBuilderSelectedQuestionTypeId(null);
     setView('builder');
+  }
+
+  async function startEditDraftBuilder(d: (typeof draftItems)[number]) {
+    setEditingId(null);
+    setEditingDraftId(d.id);
+    try {
+      const snap = await getDoc(doc(db, 'draft_programs', d.id));
+      if (!snap.exists()) {
+        window.alert('Draft not found');
+        return;
+      }
+      const data = snap.data() as any;
+      const spec = data?.builderSpec as BuilderSpec | undefined;
+      const next = spec && typeof spec === 'object' && spec.version === '1.0'
+        ? spec
+        : (() => {
+            const b = newBuilderSpec();
+            b.programId = d.id;
+            b.programTitle = (data?.title as string) ?? d.id;
+            b.subject = (data?.subject as string) ?? 'mathematics';
+            b.gradeBand = (data?.grade_band as string) ?? '';
+            b.coverEmoji = (data?.coverEmoji as string) ?? '📘';
+            b.root.title = (data?.title as string) ?? d.id;
+            return b;
+          })();
+      setBuilder(ensureFixedFirstDivisionContainer(next));
+      setBuilderPathIds(['root']);
+      setBuilderSelectedQuestionTypeId(null);
+      setView('builder');
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    }
   }
 
   function setBuilderAtNode(nodeId: string, fn: (n: BuilderNode) => BuilderNode) {
@@ -700,25 +744,24 @@ function ProgramsAdmin() {
     return nodes;
   }
 
-  function ensureProgramIdAndTitle() {
+  function computeProgramIdAndTitle(): { id: string; title: string } {
     const title = builder.programTitle.trim() || builder.root.title.trim();
-    const id = builder.programId.trim() || makeIdFromTitle(title) || 'program';
-    setBuilder((prev) => ({ ...prev, programId: id, programTitle: title, root: { ...prev.root, title } }));
+    const idBase = builder.programId.trim() || makeIdFromTitle(title) || 'program';
+    const id = String(editingId || editingDraftId || idBase).trim() || idBase;
+    return { id, title: title || id };
   }
 
-  async function publishBuilder() {
-    ensureProgramIdAndTitle();
-    const programId = (editingId || (builder.programId.trim() || makeIdFromTitle(builder.programTitle) || '')).trim();
+  async function saveBuilderDraft() {
+    const { id: programId, title } = computeProgramIdAndTitle();
     if (!programId) {
       window.alert('Missing program id');
       return;
     }
-
     setSaving(true);
     try {
-      const internal = convertBuilderToInternal({ ...builder, programId, programTitle: builder.programTitle.trim() || programId });
+      const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
       const payload: Record<string, unknown> = {
-        title: builder.programTitle.trim() || programId,
+        title,
         subject: builder.subject ?? 'mathematics',
         coverEmoji: builder.coverEmoji ?? '📘',
         toc: internal.toc,
@@ -726,13 +769,54 @@ function ProgramsAdmin() {
         programMeta: internal.programMeta,
         questionBanksByChapter: internal.questionBanksByChapter,
         rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
-        builderSpec: { ...builder, programId, programTitle: builder.programTitle.trim() || programId },
+        builderSpec: { ...builder, programId, programTitle: title },
+        updatedAt: new Date().toISOString(),
+      };
+      const gb = (builder.gradeBand ?? '').trim();
+      if (gb) payload.grade_band = gb;
+
+      await setDoc(doc(db, 'draft_programs', programId), payload, { merge: true });
+      setEditingDraftId(programId);
+      await load();
+      window.alert('Draft saved');
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function publishBuilder() {
+    const { id: programId, title } = computeProgramIdAndTitle();
+    if (!programId) {
+      window.alert('Missing program id');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
+      const payload: Record<string, unknown> = {
+        title,
+        subject: builder.subject ?? 'mathematics',
+        coverEmoji: builder.coverEmoji ?? '📘',
+        toc: internal.toc,
+        annotations: internal.annotations,
+        programMeta: internal.programMeta,
+        questionBanksByChapter: internal.questionBanksByChapter,
+        rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+        builderSpec: { ...builder, programId, programTitle: title },
         updatedAt: new Date().toISOString(),
       };
       const gb = (builder.gradeBand ?? '').trim();
       if (gb) payload.grade_band = gb;
 
       await setDoc(doc(db, 'public_programs', programId), payload, { merge: true });
+      // If this was a draft, optionally remove it to avoid confusion.
+      if (editingDraftId) {
+        await deleteDoc(doc(db, 'draft_programs', editingDraftId));
+        setEditingDraftId(null);
+      }
       await load();
       setView('list');
       setEditingId(programId);
@@ -746,8 +830,7 @@ function ProgramsAdmin() {
 
   function previewBuilder() {
     try {
-      const title = builder.programTitle.trim() || builder.root.title.trim() || 'Draft Program';
-      const programId = (builder.programId.trim() || makeIdFromTitle(title) || 'draft-program').trim();
+      const { id: programId, title } = computeProgramIdAndTitle();
       const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
 
       const key = `${Date.now()}`;
@@ -771,6 +854,19 @@ function ProgramsAdmin() {
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  async function previewSavedDraft(programId: string) {
+    setPreviewProgramId(`ll-draftdb:${programId}`);
+    setPreviewReturnView('list');
+    setView('preview');
+  }
+
+  async function removeDraft(programId: string) {
+    if (!window.confirm('Delete this draft?')) return;
+    await deleteDoc(doc(db, 'draft_programs', programId));
+    await load();
+    if (editingDraftId === programId) resetDraft();
   }
 
   function generateFromNested() {
@@ -877,9 +973,15 @@ function ProgramsAdmin() {
             <button
               className="ll-btn"
               style={{ padding: '7px 12px', fontSize: 12 }}
-              onClick={() => setView(previewReturnView)}
+              onClick={() => {
+                if (previewProgramId && previewProgramId.startsWith('ll-draft:')) {
+                  const key = previewProgramId.slice('ll-draft:'.length);
+                  clearDraftProgram(key);
+                }
+                setView(previewReturnView);
+              }}
             >
-              ← Back
+              ← {previewReturnView === 'builder' ? 'Back to Builder' : 'Back'}
             </button>
           </div>
           <div style={{ height: 'calc(100vh - 260px)', minHeight: 560 }}>
@@ -897,6 +999,15 @@ function ProgramsAdmin() {
             <button className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }} onClick={() => setView('list')}>← Back</button>
             <button className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }} onClick={previewBuilder}>
               Preview
+            </button>
+            <button
+              className="ll-btn"
+              style={{ padding: '7px 12px', fontSize: 12 }}
+              onClick={saveBuilderDraft}
+              disabled={saving}
+              title="Save draft to Firestore (not published)"
+            >
+              {saving ? 'Saving...' : 'Save Draft'}
             </button>
             <button
               className="ll-btn ll-btn-primary"
@@ -1225,90 +1336,156 @@ function ProgramsAdmin() {
                               <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 8 }}>{uploadedImageErr}</div>
                             )}
 
-                            <input
-                              type="file"
-                              accept="image/*"
-                              disabled={uploadingImage}
-                              onChange={async (e) => {
-                                const f = e.target.files?.[0] ?? null;
-                                if (!f) return;
-                                if (!userData || userData.role !== 'superadmin') {
-                                  setUploadedImageErr('Only super admins can upload images.');
-                                  return;
-                                }
+                            {(() => {
+                              let parsed: any[] | null = null;
+                              try {
+                                const raw = qt.jsonText.trim() ? JSON.parse(qt.jsonText) : [];
+                                parsed = Array.isArray(raw) ? raw : null;
+                              } catch {
+                                parsed = null;
+                              }
 
-                                setUploadingImage(true);
-                                setUploadedImageErr('');
-                                setUploadedImageUrl('');
-                                try {
-                                  const programId = (builder.programId || makeIdFromTitle(builder.programTitle) || 'program').trim() || 'program';
-                                  const safeName = String(f.name || 'image')
-                                    .trim()
-                                    .toLowerCase()
-                                    .replace(/[^a-z0-9.]+/g, '-')
-                                    .replace(/^-+|-+$/g, '')
-                                    .slice(0, 80);
-                                  const path = `programAssets/${programId}/questions/${Date.now()}_${safeName}`;
-                                  const r = storageRef(storage, path);
-                                  await uploadBytes(r, f);
-                                  const url = await getDownloadURL(r);
-                                  setUploadedImageUrl(url);
+                              if (!parsed) {
+                                return (
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    disabled={uploadingImage}
+                                    onChange={async (e) => {
+                                      const f = e.target.files?.[0] ?? null;
+                                      if (!f) return;
+                                      if (!userData || userData.role !== 'superadmin') {
+                                        setUploadedImageErr('Only super admins can upload images.');
+                                        return;
+                                      }
 
-                                  // Auto-insert into JSON: add an image block to the first question's promptBlocks.
-                                  try {
-                                    const raw = qt.jsonText.trim() ? JSON.parse(qt.jsonText) : [];
-                                    if (!Array.isArray(raw)) throw new Error('Question Type JSON must be a JSON array');
-                                    const next = [...raw];
-                                    if (next.length === 0) {
-                                      next.push({
-                                        id: 'q_1',
-                                        question: 'Enter question text',
-                                        options: ['A', 'B'],
-                                        correct_option_index: 0,
-                                        difficulty: 'easy',
-                                        promptBlocks: [
-                                          { type: 'text', text: 'Enter question text' },
-                                          { type: 'image', url, alt: 'diagram' },
-                                        ],
-                                      });
-                                    } else {
-                                      const q0 = next[0] && typeof next[0] === 'object' ? { ...(next[0] as any) } : { id: 'q_1' };
-                                      const pb0 = Array.isArray((q0 as any).promptBlocks) ? ([...(q0 as any).promptBlocks] as any[]) : [];
-                                      pb0.push({ type: 'image', url, alt: 'diagram' });
-                                      (q0 as any).promptBlocks = pb0;
-                                      next[0] = q0;
-                                    }
+                                      setUploadingImage(true);
+                                      setUploadedImageErr('');
+                                      setUploadedImageUrl('');
+                                      try {
+                                        const programId = (builder.programId || makeIdFromTitle(builder.programTitle) || 'program').trim() || 'program';
+                                        const safeName = String(f.name || 'image')
+                                          .trim()
+                                          .toLowerCase()
+                                          .replace(/[^a-z0-9.]+/g, '-')
+                                          .replace(/^-+|-+$/g, '')
+                                          .slice(0, 80);
+                                        const path = `programAssets/${programId}/questions/${Date.now()}_${safeName}`;
+                                        const r = storageRef(storage, path);
+                                        await uploadBytes(r, f);
+                                        const url = await getDownloadURL(r);
+                                        setUploadedImageUrl(url);
+                                      } catch (err) {
+                                        setUploadedImageErr(err instanceof Error ? err.message : String(err));
+                                      } finally {
+                                        setUploadingImage(false);
+                                        e.target.value = '';
+                                      }
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      padding: '10px 10px',
+                                      borderRadius: 12,
+                                      border: '1px solid #334155',
+                                      background: '#0b1220',
+                                      color: 'white',
+                                      outline: 'none',
+                                      fontSize: 12,
+                                      marginBottom: 10,
+                                    }}
+                                  />
+                                );
+                              }
 
-                                    const nextText = JSON.stringify(next, null, 2);
-                                    setBuilderAtNode(cur.id, (n) => ({
-                                      ...n,
-                                      questionTypes: n.questionTypes.map((x) => x.id === qt.id ? { ...x, jsonText: nextText } : x),
-                                    }));
-                                  } catch (e2) {
-                                    setUploadedImageErr(e2 instanceof Error ? e2.message : String(e2));
-                                  }
-                                } catch (err) {
-                                  setUploadedImageErr(err instanceof Error ? err.message : String(err));
-                                } finally {
-                                  setUploadingImage(false);
-                                  e.target.value = '';
-                                }
-                              }}
-                              style={{
-                                width: '100%',
-                                padding: '10px 10px',
-                                borderRadius: 12,
-                                border: '1px solid #334155',
-                                background: '#0b1220',
-                                color: 'white',
-                                outline: 'none',
-                                fontSize: 12,
-                                marginBottom: 10,
-                              }}
-                            />
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                                  {parsed.length === 0 ? (
+                                    <div style={{ color: '#64748b', fontSize: 12 }}>Add at least one question in the JSON array to attach images to a specific question.</div>
+                                  ) : (
+                                    parsed.slice(0, 50).map((q: any, idx: number) => {
+                                      const qid = typeof q?.id === 'string' ? q.id : `q_${idx + 1}`;
+                                      const label = typeof q?.question === 'string' && q.question.trim()
+                                        ? q.question.trim().slice(0, 80)
+                                        : (Array.isArray(q?.promptBlocks) && q.promptBlocks.length > 0 && typeof q.promptBlocks?.[0]?.text === 'string'
+                                          ? String(q.promptBlocks[0].text).trim().slice(0, 80)
+                                          : '—');
+
+                                      return (
+                                        <div key={`${qid}_${idx}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 10px', border: '1px solid #1f2a44', borderRadius: 12, background: 'rgba(2,6,23,0.25)' }}>
+                                          <div style={{ minWidth: 0 }}>
+                                            <div style={{ color: 'white', fontWeight: 900, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{qid}</div>
+                                            <div style={{ color: '#94a3b8', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+                                          </div>
+                                          <input
+                                            type="file"
+                                            accept="image/*"
+                                            disabled={uploadingImage}
+                                            onChange={async (e) => {
+                                              const f = e.target.files?.[0] ?? null;
+                                              if (!f) return;
+                                              if (!userData || userData.role !== 'superadmin') {
+                                                setUploadedImageErr('Only super admins can upload images.');
+                                                return;
+                                              }
+
+                                              setUploadingImage(true);
+                                              setUploadedImageErr('');
+                                              setUploadedImageUrl('');
+                                              try {
+                                                const programId = (builder.programId || makeIdFromTitle(builder.programTitle) || 'program').trim() || 'program';
+                                                const safeName = String(f.name || 'image')
+                                                  .trim()
+                                                  .toLowerCase()
+                                                  .replace(/[^a-z0-9.]+/g, '-')
+                                                  .replace(/^-+|-+$/g, '')
+                                                  .slice(0, 80);
+                                                const path = `programAssets/${programId}/questions/${Date.now()}_${safeName}`;
+                                                const r = storageRef(storage, path);
+                                                await uploadBytes(r, f);
+                                                const url = await getDownloadURL(r);
+                                                setUploadedImageUrl(url);
+
+                                                const raw2 = qt.jsonText.trim() ? JSON.parse(qt.jsonText) : [];
+                                                if (!Array.isArray(raw2)) throw new Error('Question Type JSON must be a JSON array');
+                                                const next2 = [...raw2];
+                                                const q2 = next2[idx] && typeof next2[idx] === 'object' ? { ...(next2[idx] as any) } : { id: qid };
+                                                const pb2 = Array.isArray((q2 as any).promptBlocks) ? ([...(q2 as any).promptBlocks] as any[]) : [];
+                                                pb2.push({ type: 'image', url, alt: 'diagram' });
+                                                (q2 as any).promptBlocks = pb2;
+                                                next2[idx] = q2;
+                                                const nextText2 = JSON.stringify(next2, null, 2);
+                                                setBuilderAtNode(cur.id, (n) => ({
+                                                  ...n,
+                                                  questionTypes: n.questionTypes.map((x) => x.id === qt.id ? { ...x, jsonText: nextText2 } : x),
+                                                }));
+                                              } catch (err) {
+                                                setUploadedImageErr(err instanceof Error ? err.message : String(err));
+                                              } finally {
+                                                setUploadingImage(false);
+                                                e.target.value = '';
+                                              }
+                                            }}
+                                            style={{
+                                              width: 220,
+                                              padding: '8px 10px',
+                                              borderRadius: 12,
+                                              border: '1px solid #334155',
+                                              background: '#0b1220',
+                                              color: 'white',
+                                              outline: 'none',
+                                              fontSize: 12,
+                                            }}
+                                          />
+                                        </div>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              );
+                            })()}
 
                             <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>
-                              {uploadingImage ? 'Uploading…' : 'After upload, paste the block into `prompt.blocks`.'}
+                              {uploadingImage ? 'Uploading…' : 'Uploading will insert an image block into the selected question’s `promptBlocks` (when JSON is a valid array).'}
                             </div>
 
                             {uploadedImageUrl && (
@@ -1338,6 +1515,33 @@ function ProgramsAdmin() {
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={load} className="ll-btn" style={{ padding: '7px 14px', fontSize: 12 }}>↺ Refresh</button>
           <button onClick={startNewBuilder} className="ll-btn ll-btn-primary" style={{ padding: '7px 14px', fontSize: 12, background: '#a855f7', borderColor: '#7c3aed', color: 'white' }}>+ New</button>
+        </div>
+      </div>
+
+      <div style={{ background: '#0f172a', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden', marginBottom: 12 }}>
+        <div style={{ padding: '10px 12px', borderBottom: '1px solid #1f2a44', background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ color: 'white', fontWeight: 900, fontSize: 13 }}>📝 Drafts ({draftItems.length})</div>
+          <div style={{ color: '#64748b', fontSize: 11 }}>Only visible to superadmins</div>
+        </div>
+        <div style={{ padding: 12 }}>
+          {draftItems.length === 0 ? (
+            <div style={{ color: '#64748b', fontSize: 12 }}>No drafts yet. Use “Save Draft” inside the builder.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {draftItems.map((d) => (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.25)' }}>
+                  <div style={{ width: 26, textAlign: 'center', fontSize: 18 }}>{(d.coverEmoji as string) ?? '📝'}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: 'white', fontWeight: 'bold', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(d.title as string) ?? d.id}</div>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>{(d.subject as string) ?? 'subject'}{d.grade_band ? ` • ${d.grade_band}` : ''}</div>
+                  </div>
+                  <button onClick={() => previewSavedDraft(d.id)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11 }}>Preview</button>
+                  <button onClick={() => startEditDraftBuilder(d)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11 }}>Edit</button>
+                  <button onClick={() => removeDraft(d.id)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}>Delete</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

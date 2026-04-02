@@ -6,7 +6,8 @@ import { getStorage } from 'firebase/storage';
 const firebaseConfig = {
   apiKey: "AIzaSyBaNWmSxGWq3q3G7qm78Aj-npdGTaAy3tM",
   authDomain: "logiclords-mvp.firebaseapp.com",
-  projectId: "logiclords-mvp"
+  projectId: "logiclords-mvp",
+  storageBucket: "logiclords-mvp.appspot.com",
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();

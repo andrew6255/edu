@@ -45,6 +45,29 @@ export type PublicProgram = {
   draftKey?: string;
 };
 
+export async function getDraftProgramFromDb(programId: string): Promise<PublicProgram | null> {
+  const snap = await getDoc(doc(db, 'draft_programs', programId));
+  if (!snap.exists()) return null;
+  const data = snap.data() as Partial<PublicProgram>;
+  const toc = data.toc as TocData | undefined;
+  if (!toc || !Array.isArray(toc.toc_tree)) return null;
+  return {
+    id: snap.id,
+    title: (data.title as string) ?? snap.id,
+    subject: data.subject,
+    grade_band: data.grade_band,
+    coverEmoji: data.coverEmoji,
+    questionBankPath: typeof (data as any).questionBankPath === 'string' ? ((data as any).questionBankPath as string) : undefined,
+    annotationsPath: typeof (data as any).annotationsPath === 'string' ? ((data as any).annotationsPath as string) : undefined,
+    questionBank: (data as any).questionBank,
+    questionBanksByChapter: (data as any).questionBanksByChapter,
+    rankedTotalQuestionCount: typeof (data as any).rankedTotalQuestionCount === 'number' ? ((data as any).rankedTotalQuestionCount as number) : undefined,
+    annotations: (data as any).annotations,
+    programMeta: (data as any).programMeta,
+    toc,
+  };
+}
+
 export async function listPublicPrograms(): Promise<PublicProgram[]> {
   const snap = await getDocs(query(collection(db, 'public_programs')));
   return snap.docs
@@ -103,6 +126,11 @@ export async function getPublicProgramOrDraft(programId: string): Promise<Public
     const p = getDraftProgram(key);
     if (!p) return null;
     return { ...p, draftKey: key };
+  }
+  const dbPrefix = 'll-draftdb:';
+  if (programId.startsWith(dbPrefix)) {
+    const id = programId.slice(dbPrefix.length);
+    return getDraftProgramFromDb(id);
   }
   return getPublicProgram(programId);
 }
