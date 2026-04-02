@@ -15,6 +15,7 @@ export type ProgramProgressDoc = {
   rankedTrophies?: number;
   rankedSolvedQuestionIds?: string[];
   rankedIncorrectQuestionIds?: string[];
+  claimedRewardIds?: string[];
   updatedAt: string;
 };
 
@@ -29,6 +30,7 @@ export async function getProgramProgress(uid: string, programId: string): Promis
     rankedTrophies: typeof (data as any).rankedTrophies === 'number' ? ((data as any).rankedTrophies as number) : 0,
     rankedSolvedQuestionIds: Array.isArray((data as any).rankedSolvedQuestionIds) ? ((data as any).rankedSolvedQuestionIds as string[]) : [],
     rankedIncorrectQuestionIds: Array.isArray((data as any).rankedIncorrectQuestionIds) ? ((data as any).rankedIncorrectQuestionIds as string[]) : [],
+    claimedRewardIds: Array.isArray((data as any).claimedRewardIds) ? ((data as any).claimedRewardIds as string[]) : [],
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
   };
 }
@@ -45,10 +47,41 @@ export async function listProgramProgress(uid: string): Promise<Record<string, P
       rankedTrophies: typeof (data as any).rankedTrophies === 'number' ? ((data as any).rankedTrophies as number) : 0,
       rankedSolvedQuestionIds: Array.isArray((data as any).rankedSolvedQuestionIds) ? ((data as any).rankedSolvedQuestionIds as string[]) : [],
       rankedIncorrectQuestionIds: Array.isArray((data as any).rankedIncorrectQuestionIds) ? ((data as any).rankedIncorrectQuestionIds as string[]) : [],
+      claimedRewardIds: Array.isArray((data as any).claimedRewardIds) ? ((data as any).claimedRewardIds as string[]) : [],
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
     };
   }
   return out;
+}
+
+export async function claimRoadmapReward(uid: string, programId: string, rewardId: string): Promise<{ claimed: boolean }> {
+  const ref = doc(db, 'users', uid, 'program_progress', programId);
+  const snap = await getDoc(ref);
+  const now = new Date().toISOString();
+
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      programId,
+      completedUnitIds: [],
+      solvedQuestionIds: [],
+      rankedTrophies: 0,
+      rankedSolvedQuestionIds: [],
+      rankedIncorrectQuestionIds: [],
+      claimedRewardIds: [rewardId],
+      updatedAt: now,
+    } satisfies ProgramProgressDoc);
+    return { claimed: true };
+  }
+
+  const data = snap.data() as { claimedRewardIds?: unknown };
+  const current = Array.isArray(data.claimedRewardIds) ? (data.claimedRewardIds as string[]) : [];
+  if (current.includes(rewardId)) {
+    await updateDoc(ref, { updatedAt: now });
+    return { claimed: false };
+  }
+
+  await updateDoc(ref, { claimedRewardIds: Array.from(new Set([...current, rewardId])), updatedAt: now });
+  return { claimed: true };
 }
 
 export async function markQuestionSolved(uid: string, programId: string, questionId: string): Promise<void> {

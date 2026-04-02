@@ -1,5 +1,16 @@
 export type ProgramDifficulty = 'easy' | 'medium' | 'hard';
 
+export type ProgramPromptBlock =
+  | { type: 'text'; text: string }
+  | { type: 'math'; latex: string }
+  | { type: 'image'; url: string; alt?: string; caption?: string }
+  | { type: 'table'; rows: string[][]; headerRows?: number };
+
+export type ProgramInteractionSpec =
+  | { type: 'mcq'; choices: string[]; correctChoiceIndex: number }
+  | { type: 'numeric'; correct: number | number[]; tolerance?: number; format?: 'integer' | 'decimal' | 'fraction'; keypad?: 'basic' | 'scientific' }
+  | { type: 'text'; accepted: string[]; caseSensitive?: boolean; trim?: boolean };
+
 export type ProgramChapter = {
   chapter_id: string;
   title?: string | null;
@@ -42,6 +53,8 @@ export type ProgramAnnotationsFile = {
           question_type_id?: string;
           difficulty?: ProgramDifficulty;
           mcq?: { choices: string[]; correctChoiceIndex: number };
+          interaction?: ProgramInteractionSpec;
+          prompt?: { blocks: ProgramPromptBlock[] };
           time_limit_seconds?: number;
           points?: number;
           solution?: { raw_text?: string | null; latex?: string | null };
@@ -109,10 +122,12 @@ export type FlatProgramQuestion = {
   partLatex: string | null;
   promptRawText: string | null;
   promptLatex: string | null;
+  promptBlocks: ProgramPromptBlock[] | null;
   annotationKey: string;
   questionTypeId: string | null;
   difficulty: ProgramDifficulty | null;
   mcq: { choices: string[]; correctChoiceIndex: number } | null;
+  interaction: ProgramInteractionSpec | null;
 };
 
 function getText(x: unknown): string | null {
@@ -122,6 +137,7 @@ function getText(x: unknown): string | null {
 export function makeQuestionKey(nodeId: string, questionId: string, partId?: string | null): string {
   const base = `${nodeId}::${questionId}`;
   if (partId && String(partId).trim()) return `${base}::${partId}`;
+
   return base;
 }
 
@@ -166,6 +182,13 @@ export function flattenProgramChapter(
       if (parts.length === 0) {
         const key = makeQuestionKey(nodeId, qid, null);
         const a = ann[key];
+        const promptBlocks = Array.isArray((a as any)?.prompt?.blocks) ? (((a as any).prompt.blocks as unknown[]) as ProgramPromptBlock[]) : null;
+        const interaction: ProgramInteractionSpec | null =
+          (a as any)?.interaction && typeof (a as any).interaction === 'object'
+            ? ((a as any).interaction as ProgramInteractionSpec)
+            : (a?.mcq && Array.isArray(a.mcq.choices) && typeof a.mcq.correctChoiceIndex === 'number'
+              ? ({ type: 'mcq', choices: a.mcq.choices, correctChoiceIndex: a.mcq.correctChoiceIndex } satisfies ProgramInteractionSpec)
+              : null);
         questions.push({
           id: key,
           chapterId,
@@ -180,10 +203,12 @@ export function flattenProgramChapter(
           partLatex: null,
           promptRawText: stemRaw,
           promptLatex: stemLatex,
+          promptBlocks,
           annotationKey: key,
           questionTypeId: typeof a?.question_type_id === 'string' ? a.question_type_id : null,
           difficulty: (a?.difficulty as ProgramDifficulty) ?? null,
           mcq: a?.mcq && Array.isArray(a.mcq.choices) && typeof a.mcq.correctChoiceIndex === 'number' ? a.mcq : null,
+          interaction,
         });
       } else {
         for (const p of parts) {
@@ -192,6 +217,14 @@ export function flattenProgramChapter(
 
           // Fallback: allow annotation at question-level if part-level missing
           const a = ann[key] ?? ann[makeQuestionKey(nodeId, qid, null)];
+
+          const promptBlocks = Array.isArray((a as any)?.prompt?.blocks) ? (((a as any).prompt.blocks as unknown[]) as ProgramPromptBlock[]) : null;
+          const interaction: ProgramInteractionSpec | null =
+            (a as any)?.interaction && typeof (a as any).interaction === 'object'
+              ? ((a as any).interaction as ProgramInteractionSpec)
+              : (a?.mcq && Array.isArray(a.mcq.choices) && typeof a.mcq.correctChoiceIndex === 'number'
+                ? ({ type: 'mcq', choices: a.mcq.choices, correctChoiceIndex: a.mcq.correctChoiceIndex } satisfies ProgramInteractionSpec)
+                : null);
 
           const partRaw = getText(p.raw_text);
           const partLatex = getText(p.latex);
@@ -213,10 +246,12 @@ export function flattenProgramChapter(
             partLatex,
             promptRawText: promptRaw || null,
             promptLatex: promptLatex || null,
+            promptBlocks,
             annotationKey: key,
             questionTypeId: typeof a?.question_type_id === 'string' ? a.question_type_id : null,
             difficulty: (a?.difficulty as ProgramDifficulty) ?? null,
             mcq: a?.mcq && Array.isArray(a.mcq.choices) && typeof a.mcq.correctChoiceIndex === 'number' ? a.mcq : null,
+            interaction,
           });
         }
       }

@@ -3,6 +3,8 @@ import {
   type ProgramAnnotationsFile,
   type ProgramChapter,
   type ProgramDifficulty,
+  type ProgramInteractionSpec,
+  type ProgramPromptBlock,
   type ProgramMetaFile,
   parseJsonText,
 } from '@/lib/programQuestionBank';
@@ -34,6 +36,11 @@ export type BuilderQuestion = {
   hint?: string | string[] | null;
   solution?: string | null;
   points?: number;
+
+  // New schema (Phase 1): rich prompt blocks + interaction spec.
+  // Still allow legacy fields above to keep older JSON working.
+  promptBlocks?: ProgramPromptBlock[];
+  interaction?: ProgramInteractionSpec;
 };
 
 export type BuilderQuestionTypeFile = {
@@ -124,14 +131,39 @@ export function parseQuestionTypeJson(text: string): BuilderQuestion[] {
   return raw.map((q: any, idx: number) => {
     const id = typeof q?.id === 'string' ? q.id : String(q?.id ?? `q_${idx + 1}`);
     const question = typeof q?.question === 'string' ? q.question : '';
-    if (!question.trim()) throw new Error(`Question ${id} missing question text`);
 
+    const promptBlocksRaw = q?.promptBlocks;
+    const promptBlocks: ProgramPromptBlock[] | undefined = Array.isArray(promptBlocksRaw)
+      ? (promptBlocksRaw as unknown[]).filter(Boolean).map((b) => b as ProgramPromptBlock)
+      : undefined;
+
+    const interaction: ProgramInteractionSpec | undefined = q?.interaction && typeof q.interaction === 'object'
+      ? (q.interaction as ProgramInteractionSpec)
+      : undefined;
+
+    // Legacy MCQ fields (required unless interaction supplies it)
     const options = Array.isArray(q?.options) ? q.options.map((x: any) => String(x)) : [];
-    if (options.length < 2) throw new Error(`Question ${id} must have at least 2 options`);
-
     const correct_option_index = Number(q?.correct_option_index);
-    if (!Number.isFinite(correct_option_index) || correct_option_index < 0 || correct_option_index >= options.length) {
-      throw new Error(`Question ${id} has invalid correct_option_index`);
+
+    const hasLegacyMcq = options.length >= 2 && Number.isFinite(correct_option_index) && correct_option_index >= 0 && correct_option_index < options.length;
+    const hasInteraction = !!interaction && typeof (interaction as any).type === 'string';
+
+    // Require some form of prompt text (legacy `question` or promptBlocks)
+    const hasPrompt = (typeof question === 'string' && question.trim().length > 0) || (Array.isArray(promptBlocks) && promptBlocks.length > 0);
+    if (!hasPrompt) throw new Error(`Question ${id} missing prompt (question or promptBlocks)`);
+
+    // Require a gradable interaction. For now we allow either:
+    // - interaction spec
+    // - legacy mcq fields
+    if (!hasInteraction && !hasLegacyMcq) {
+      throw new Error(`Question ${id} missing interaction (provide interaction or legacy options/correct_option_index)`);
+    }
+
+    if (hasLegacyMcq) {
+      if (!Number.isFinite(correct_option_index) || correct_option_index < 0 || correct_option_index >= options.length) {
+        throw new Error(`Question ${id} has invalid correct_option_index`);
+      }
+      if (options.length < 2) throw new Error(`Question ${id} must have at least 2 options`);
     }
 
     const difficulty = q?.difficulty as ProgramDifficulty;
@@ -149,6 +181,8 @@ export function parseQuestionTypeJson(text: string): BuilderQuestion[] {
       hint: q?.hint ?? null,
       solution: q?.solution ?? null,
       points: q?.points != null ? Number(q.points) : undefined,
+      promptBlocks,
+      interaction,
     } satisfies BuilderQuestion;
   });
 }
@@ -260,10 +294,22 @@ export function convertBuilderToInternal(spec: BuilderSpec): {
           if (!annChapter.annotations) annChapter.annotations = {};
           const key = `${nodeId}::${q.id}`;
           const hintsArr = Array.isArray(q.hint) ? q.hint : q.hint ? [q.hint] : [];
+
+          const promptBlocks = Array.isArray(q.promptBlocks) && q.promptBlocks.length > 0 ? q.promptBlocks : undefined;
+          const interaction: ProgramInteractionSpec | undefined = q.interaction
+            ? q.interaction
+            : (q.options.length >= 2
+              ? ({ type: 'mcq', choices: q.options, correctChoiceIndex: q.correct_option_index } satisfies ProgramInteractionSpec)
+              : undefined);
+
           annChapter.annotations[key] = {
             question_type_id: typeId,
             difficulty: q.difficulty,
-            mcq: { choices: q.options, correctChoiceIndex: q.correct_option_index },
+            mcq: interaction && (interaction as any).type === 'mcq'
+              ? { choices: (interaction as any).choices ?? q.options, correctChoiceIndex: (interaction as any).correctChoiceIndex ?? q.correct_option_index }
+              : { choices: q.options, correctChoiceIndex: q.correct_option_index },
+            interaction,
+            prompt: promptBlocks ? { blocks: promptBlocks } : undefined,
             time_limit_seconds: q.time_required_seconds,
             points: q.points,
             solution: q.solution ? { raw_text: q.solution } : undefined,

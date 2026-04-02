@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { auth, storage } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAllUsers, updateUserData, deleteUserData, updateEconomy, UserData, UserRole, computeLevel } from '@/lib/userService';
 import { getAllOrgs, createOrg, updateOrg, deleteOrg, addAdminToOrg, removeAdminFromOrg, OrgData } from '@/lib/orgService';
 import { getAllClasses } from '@/lib/classService';
 import { db } from '@/lib/firebase';
 import { collection, deleteDoc, doc, getDocs, orderBy, query, setDoc, updateDoc } from 'firebase/firestore';
+import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { convertNestedProgramToInternal, parseNestedProgramJson } from '@/lib/programNestedImport';
 import ProgramMapView from '@/views/ProgramMapView';
 import {
@@ -564,6 +565,7 @@ export default function SuperAdminPage() {
 }
 
 function ProgramsAdmin() {
+  const { userData } = useAuth();
   const [items, setItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -586,6 +588,10 @@ function ProgramsAdmin() {
   const [builderPathIds, setBuilderPathIds] = useState<string[]>(['root']);
   const [builderSelectedQuestionTypeId, setBuilderSelectedQuestionTypeId] = useState<string | null>(null);
   const [previewProgramId, setPreviewProgramId] = useState<string | null>(null);
+
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('');
+  const [uploadedImageErr, setUploadedImageErr] = useState<string>('');
 
   async function load() {
     setLoading(true);
@@ -969,7 +975,7 @@ function ProgramsAdmin() {
             }
 
             return (
-              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
                 <div style={{ border: '1px solid #334155', borderRadius: 12, background: '#0f172a', overflow: 'hidden' }}>
                   <div style={{ padding: '10px 12px', borderBottom: '1px solid #1f2a44', color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
                     Program Folder
@@ -1087,125 +1093,240 @@ function ProgramsAdmin() {
                           </div>
                         );
                       })}
-                    </div>
-                  </div>
-                </div>
 
-                <div style={{ border: '1px solid #334155', borderRadius: 12, background: '#0f172a', overflow: 'hidden' }}>
-                  <div style={{ padding: '10px 12px', borderBottom: '1px solid #1f2a44', color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
-                    {isLeaf ? `Question Types (${cur.title})` : 'Open folders until the last division to manage Question Types'}
-                  </div>
-                  {isLeaf ? (
-                    <div style={{ padding: 12 }}>
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                        <button
-                          className="ll-btn"
-                          style={{ padding: '7px 12px', fontSize: 12 }}
-                          onClick={() => {
-                            const title = window.prompt('Question Type name (free-form)');
-                            if (!title) return;
-                            const id = makeStableId('qt');
-                            const qt: BuilderQuestionTypeFile = { id, title, jsonText: '[]' };
-                            setBuilderAtNode(cur.id, (n) => ({ ...n, questionTypes: [...n.questionTypes, qt] }));
-                            setBuilderSelectedQuestionTypeId(id);
-                          }}
-                        >
-                          + Add Question Type
-                        </button>
-                      </div>
-
-                      {cur.questionTypes.length === 0 ? (
-                        <div style={{ color: '#64748b', fontSize: 12 }}>No question types yet.</div>
-                      ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12, alignItems: 'start' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {cur.questionTypes.map((qt) => {
-                              const active = builderSelectedQuestionTypeId === qt.id;
-                              return (
-                                <div
-                                  key={qt.id}
-                                  style={{
-                                    padding: '10px 10px',
-                                    borderRadius: 12,
-                                    border: `1px solid ${active ? 'rgba(168,85,247,0.65)' : '#334155'}`,
-                                    background: active ? 'rgba(168,85,247,0.12)' : '#0b1220',
-                                    cursor: 'pointer',
-                                  }}
-                                  onClick={() => setBuilderSelectedQuestionTypeId(qt.id)}
-                                >
-                                  <div style={{ color: 'white', fontWeight: 900, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{qt.title}</div>
-                                  <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                                    <button
-                                      className="ll-btn"
-                                      style={{ padding: '5px 10px', fontSize: 11 }}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const nextTitle = window.prompt('Rename question type', qt.title);
-                                        if (!nextTitle) return;
-                                        setBuilderAtNode(cur.id, (n) => ({
-                                          ...n,
-                                          questionTypes: n.questionTypes.map((x) => x.id === qt.id ? { ...x, title: nextTitle } : x),
-                                        }));
-                                      }}
-                                    >
-                                      Rename
-                                    </button>
-                                    <button
-                                      className="ll-btn"
-                                      style={{ padding: '5px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (!window.confirm('Delete this question type file?')) return;
-                                        setBuilderAtNode(cur.id, (n) => ({
-                                          ...n,
-                                          questionTypes: n.questionTypes.filter((x) => x.id !== qt.id),
-                                        }));
-                                        if (builderSelectedQuestionTypeId === qt.id) setBuilderSelectedQuestionTypeId(null);
-                                      }}
-                                    >
-                                      Delete
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          <div>
-                            {(() => {
-                              const qt = cur.questionTypes.find((x) => x.id === builderSelectedQuestionTypeId) ?? null;
-                              if (!qt) {
-                                return <div style={{ color: '#64748b', fontSize: 12 }}>Select a question type to edit its JSON.</div>;
-                              }
-                              return (
-                                <div>
-                                  <div style={{ color: 'white', fontWeight: 900, fontSize: 13, marginBottom: 8 }}>{qt.title} JSON</div>
-                                  <textarea
-                                    value={qt.jsonText}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      setBuilderAtNode(cur.id, (n) => ({
-                                        ...n,
-                                        questionTypes: n.questionTypes.map((x) => x.id === qt.id ? { ...x, jsonText: v } : x),
-                                      }));
-                                    }}
-                                    rows={16}
-                                    style={{ width: '100%', padding: '10px 10px', borderRadius: 12, border: '1px solid #334155', background: '#0b1220', color: 'white', fontFamily: 'monospace', fontSize: 12, outline: 'none', resize: 'vertical' }}
-                                  />
-                                </div>
-                              );
-                            })()}
-                          </div>
+                      <div style={{ border: '1px solid #1f2a44', borderRadius: 12, overflow: 'hidden' }}>
+                        <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 900, flex: 1 }}>Question Types</div>
+                          {isLeaf && (
+                            <button
+                              className="ll-btn"
+                              style={{ padding: '5px 9px', fontSize: 11 }}
+                              onClick={() => {
+                                const title = window.prompt('Question Type name (free-form)');
+                                if (!title) return;
+                                const id = makeStableId('qt');
+                                const qt: BuilderQuestionTypeFile = { id, title, jsonText: '[]' };
+                                setBuilderAtNode(cur.id, (n) => ({ ...n, questionTypes: [...n.questionTypes, qt] }));
+                                setBuilderSelectedQuestionTypeId(id);
+                              }}
+                            >
+                              + Add
+                            </button>
+                          )}
                         </div>
-                      )}
+                        <div style={{ padding: 10 }}>
+                          {!isLeaf ? (
+                            <div style={{ color: '#64748b', fontSize: 12 }}>
+                              Open folders until the last division to manage Question Types.
+                              <div style={{ marginTop: 6, color: '#cbd5e1' }}>{path.map((x: BuilderNode) => x.title).join(' / ')}</div>
+                            </div>
+                          ) : cur.questionTypes.length === 0 ? (
+                            <div style={{ color: '#64748b', fontSize: 12 }}>No question types yet.</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              {cur.questionTypes.map((qt) => {
+                                const active = builderSelectedQuestionTypeId === qt.id;
+                                return (
+                                  <div
+                                    key={qt.id}
+                                    style={{
+                                      padding: '10px 10px',
+                                      borderRadius: 12,
+                                      border: `1px solid ${active ? 'rgba(168,85,247,0.65)' : '#334155'}`,
+                                      background: active ? 'rgba(168,85,247,0.12)' : '#0b1220',
+                                      cursor: 'pointer',
+                                    }}
+                                    onClick={() => setBuilderSelectedQuestionTypeId(qt.id)}
+                                  >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      <div style={{ color: 'white', fontWeight: 900, fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{qt.title}</div>
+                                      {active && <div style={{ color: '#d8b4fe', fontSize: 11, fontWeight: 900 }}>Selected</div>}
+                                    </div>
+                                    <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                      <button
+                                        className="ll-btn"
+                                        style={{ padding: '5px 10px', fontSize: 11 }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const nextTitle = window.prompt('Rename question type', qt.title);
+                                          if (!nextTitle) return;
+                                          setBuilderAtNode(cur.id, (n) => ({
+                                            ...n,
+                                            questionTypes: n.questionTypes.map((x) => x.id === qt.id ? { ...x, title: nextTitle } : x),
+                                          }));
+                                        }}
+                                      >
+                                        Rename
+                                      </button>
+                                      <button
+                                        className="ll-btn"
+                                        style={{ padding: '5px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (!window.confirm('Delete this question type file?')) return;
+                                          setBuilderAtNode(cur.id, (n) => ({
+                                            ...n,
+                                            questionTypes: n.questionTypes.filter((x) => x.id !== qt.id),
+                                          }));
+                                          if (builderSelectedQuestionTypeId === qt.id) setBuilderSelectedQuestionTypeId(null);
+                                        }}
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  ) : (
-                    <div style={{ padding: 12, color: '#64748b', fontSize: 12 }}>
-                      Current path:
-                      <div style={{ marginTop: 6, color: '#cbd5e1' }}>{path.map((x: BuilderNode) => x.title).join(' / ')}</div>
-                    </div>
-                  )}
+                  </div>
                 </div>
+
+                {isLeaf && (
+                  <div style={{ border: '1px solid #334155', borderRadius: 12, background: '#0f172a', overflow: 'hidden' }}>
+                    <div style={{ padding: '10px 12px', borderBottom: '1px solid #1f2a44', color: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}>
+                      Question Type JSON
+                    </div>
+                    <div style={{ padding: 12 }}>
+                      {(() => {
+                        const qt = cur.questionTypes.find((x) => x.id === builderSelectedQuestionTypeId) ?? null;
+                        if (!qt) {
+                          return <div style={{ color: '#64748b', fontSize: 12 }}>Select a question type above to edit its JSON.</div>;
+                        }
+                        return (
+                          <div>
+                            <div style={{ color: 'white', fontWeight: 900, fontSize: 13, marginBottom: 8 }}>{qt.title} JSON</div>
+                            <textarea
+                              value={qt.jsonText}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setBuilderAtNode(cur.id, (n) => ({
+                                  ...n,
+                                  questionTypes: n.questionTypes.map((x) => x.id === qt.id ? { ...x, jsonText: v } : x),
+                                }));
+                              }}
+                              rows={16}
+                              style={{ width: '100%', padding: '10px 10px', borderRadius: 12, border: '1px solid #334155', background: '#0b1220', color: 'white', fontFamily: 'monospace', fontSize: 12, outline: 'none', resize: 'vertical' }}
+                            />
+
+                            <div style={{ height: 1, background: '#1f2a44', margin: '14px 0' }} />
+
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                              <div style={{ color: '#cbd5e1', fontWeight: 900, fontSize: 12 }}>Upload image (Firebase Storage)</div>
+                              <div style={{ color: '#64748b', fontSize: 11 }}>
+                                Public read
+                              </div>
+                            </div>
+
+                            {uploadedImageErr && (
+                              <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 8 }}>{uploadedImageErr}</div>
+                            )}
+
+                            <input
+                              type="file"
+                              accept="image/*"
+                              disabled={uploadingImage}
+                              onChange={async (e) => {
+                                const f = e.target.files?.[0] ?? null;
+                                if (!f) return;
+                                if (!userData || userData.role !== 'superadmin') {
+                                  setUploadedImageErr('Only super admins can upload images.');
+                                  return;
+                                }
+
+                                setUploadingImage(true);
+                                setUploadedImageErr('');
+                                setUploadedImageUrl('');
+                                try {
+                                  const programId = (builder.programId || makeIdFromTitle(builder.programTitle) || 'program').trim() || 'program';
+                                  const safeName = String(f.name || 'image')
+                                    .trim()
+                                    .toLowerCase()
+                                    .replace(/[^a-z0-9.]+/g, '-')
+                                    .replace(/^-+|-+$/g, '')
+                                    .slice(0, 80);
+                                  const path = `programAssets/${programId}/questions/${Date.now()}_${safeName}`;
+                                  const r = storageRef(storage, path);
+                                  await uploadBytes(r, f);
+                                  const url = await getDownloadURL(r);
+                                  setUploadedImageUrl(url);
+
+                                  // Auto-insert into JSON: add an image block to the first question's promptBlocks.
+                                  try {
+                                    const raw = qt.jsonText.trim() ? JSON.parse(qt.jsonText) : [];
+                                    if (!Array.isArray(raw)) throw new Error('Question Type JSON must be a JSON array');
+                                    const next = [...raw];
+                                    if (next.length === 0) {
+                                      next.push({
+                                        id: 'q_1',
+                                        question: 'Enter question text',
+                                        options: ['A', 'B'],
+                                        correct_option_index: 0,
+                                        difficulty: 'easy',
+                                        promptBlocks: [
+                                          { type: 'text', text: 'Enter question text' },
+                                          { type: 'image', url, alt: 'diagram' },
+                                        ],
+                                      });
+                                    } else {
+                                      const q0 = next[0] && typeof next[0] === 'object' ? { ...(next[0] as any) } : { id: 'q_1' };
+                                      const pb0 = Array.isArray((q0 as any).promptBlocks) ? ([...(q0 as any).promptBlocks] as any[]) : [];
+                                      pb0.push({ type: 'image', url, alt: 'diagram' });
+                                      (q0 as any).promptBlocks = pb0;
+                                      next[0] = q0;
+                                    }
+
+                                    const nextText = JSON.stringify(next, null, 2);
+                                    setBuilderAtNode(cur.id, (n) => ({
+                                      ...n,
+                                      questionTypes: n.questionTypes.map((x) => x.id === qt.id ? { ...x, jsonText: nextText } : x),
+                                    }));
+                                  } catch (e2) {
+                                    setUploadedImageErr(e2 instanceof Error ? e2.message : String(e2));
+                                  }
+                                } catch (err) {
+                                  setUploadedImageErr(err instanceof Error ? err.message : String(err));
+                                } finally {
+                                  setUploadingImage(false);
+                                  e.target.value = '';
+                                }
+                              }}
+                              style={{
+                                width: '100%',
+                                padding: '10px 10px',
+                                borderRadius: 12,
+                                border: '1px solid #334155',
+                                background: '#0b1220',
+                                color: 'white',
+                                outline: 'none',
+                                fontSize: 12,
+                                marginBottom: 10,
+                              }}
+                            />
+
+                            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>
+                              {uploadingImage ? 'Uploading…' : 'After upload, paste the block into `prompt.blocks`.'}
+                            </div>
+
+                            {uploadedImageUrl && (
+                              <div style={{ border: '1px solid #1f2a44', borderRadius: 12, padding: 10, background: 'rgba(2,6,23,0.35)' }}>
+                                <div style={{ color: '#cbd5e1', fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Uploaded URL</div>
+                                <div style={{ color: '#93c5fd', fontSize: 12, wordBreak: 'break-all', marginBottom: 10 }}>{uploadedImageUrl}</div>
+                                <div style={{ color: '#cbd5e1', fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Prompt block snippet</div>
+                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'white', fontSize: 12, fontFamily: 'monospace' }}>
+{JSON.stringify({ type: 'image', url: uploadedImageUrl, alt: 'diagram' }, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}

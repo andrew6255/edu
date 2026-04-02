@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-
+import { useLocation } from 'wouter';
+import katex from 'katex';
 import { useAuth } from '@/contexts/AuthContext';
 import { getPublicProgramOrDraft, setProgramCompletedForUser, type TocItem } from '@/lib/programMaps';
-import { applyRankedAnswer, getProgramProgress, markQuestionSolved, toggleUnitComplete } from '@/lib/programProgress';
-import { updateEconomy } from '@/lib/userService';
+import { applyRankedAnswer, claimRoadmapReward, getProgramProgress, markQuestionSolved, toggleUnitComplete } from '@/lib/programProgress';
+import { getUserData, updateEconomy } from '@/lib/userService';
 import {
   createProgramFriendSession,
   joinProgramFriendSessionByCode,
@@ -46,6 +47,12 @@ type Screen = 'chapters' | 'subsections' | 'types' | 'practice';
 type PracticeMode = 'solo' | 'ranked' | 'friend' | 'study';
 
 type HeaderMode = 'solo' | 'ranked' | 'friend';
+
+type RoadmapFriendMarker = {
+  uid: string;
+  username: string;
+  trophies: number;
+};
 
 function ConfettiBurst({ fire }: { fire: number }) {
   const pieces = useMemo(() => {
@@ -145,6 +152,15 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const [rankedTrophies, setRankedTrophies] = useState<number>(0);
   const [rankedSolvedQuestionIds, setRankedSolvedQuestionIds] = useState<string[]>([]);
   const [rankedIncorrectQuestionIds, setRankedIncorrectQuestionIds] = useState<string[]>([]);
+  const [claimedRewardIds, setClaimedRewardIds] = useState<string[]>([]);
+  const [showRankRoadmap, setShowRankRoadmap] = useState(false);
+  const [roadmapFriends, setRoadmapFriends] = useState<RoadmapFriendMarker[]>([]);
+  const [claimingRewardId, setClaimingRewardId] = useState<string | null>(null);
+  const [chestOverlay, setChestOverlay] = useState<null | {
+    rewardId: string;
+    gold: number;
+    stage: 'opening' | 'revealed';
+  }>(null);
   const [isNarrow, setIsNarrow] = useState<boolean>(() => (typeof window !== 'undefined' ? window.innerWidth < 760 : false));
   const [qbLoading, setQbLoading] = useState<boolean>(false);
   const [qbError, setQbError] = useState<string | null>(null);
@@ -163,6 +179,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const [soloSeenIds, setSoloSeenIds] = useState<string[]>([]);
   const [soloFeedback, setSoloFeedback] = useState<{ correct: boolean; correctIndex: number } | null>(null);
   const [soloAwarding, setSoloAwarding] = useState(false);
+  const [soloTextAnswer, setSoloTextAnswer] = useState('');
 
   const [friendCode, setFriendCode] = useState('');
   const [friendBusy, setFriendBusy] = useState(false);
@@ -187,6 +204,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   const [rankedQuestionId, setRankedQuestionId] = useState<string | null>(null);
   const [rankedFeedback, setRankedFeedback] = useState<{ correct: boolean; correctIndex: number } | null>(null);
   const [rankedSaving, setRankedSaving] = useState(false);
+  const [rankedTextAnswer, setRankedTextAnswer] = useState('');
 
   const lastRankedCompleteRef = useRef<Record<string, boolean>>({});
   const lastRegionCompleteRef = useRef<Record<string, boolean>>({});
@@ -200,16 +218,16 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     return 9;
   }
 
-  function computeRankInfo(args: { trophies: number; totalQuestions: number }): { name: string; tier: number; tierSize: number } {
-    const rankNames = [
-      'Bronze I', 'Bronze II', 'Bronze III',
-      'Silver I', 'Silver II', 'Silver III',
-      'Gold I', 'Gold II', 'Gold III',
-      'Platinum I', 'Platinum II', 'Platinum III',
-      'Diamond I', 'Diamond II', 'Diamond III',
-      'Scholar', 'Master', 'Genius',
-    ];
+  const rankNames = [
+    'Bronze I', 'Bronze II', 'Bronze III',
+    'Silver I', 'Silver II', 'Silver III',
+    'Gold I', 'Gold II', 'Gold III',
+    'Platinum I', 'Platinum II', 'Platinum III',
+    'Diamond I', 'Diamond II', 'Diamond III',
+    'Scholar', 'Master', 'Genius',
+  ];
 
+  function computeRankInfo(args: { trophies: number; totalQuestions: number }): { name: string; tier: number; tierSize: number } {
     const total = Math.max(0, args.totalQuestions);
     const totalTrophies = total * 15;
     const tierSize = Math.max(1, Math.floor(totalTrophies / 18));
@@ -217,10 +235,165 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     return { name: rankNames[tier] ?? 'Bronze I', tier, tierSize };
   }
 
+  function clamp(n: number, a: number, b: number) {
+    return Math.max(a, Math.min(b, n));
+  }
+
+  function renderPromptText(q: FlatProgramQuestion | null): string {
+    if (!q) return '—';
+    if (Array.isArray(q.promptBlocks) && q.promptBlocks.length > 0) {
+      const lines: string[] = [];
+      for (const b of q.promptBlocks) {
+        if (!b || typeof b !== 'object') continue;
+        if ((b as any).type === 'text') lines.push(String((b as any).text ?? ''));
+        else if ((b as any).type === 'math') lines.push(String((b as any).latex ?? ''));
+        else if ((b as any).type === 'image') lines.push(String((b as any).caption ?? (b as any).url ?? ''));
+        else if ((b as any).type === 'table') lines.push('[table]');
+      }
+      const t = lines.map((x) => String(x || '').trim()).filter(Boolean).join('\n');
+      if (t) return t;
+    }
+    return q.promptRawText ?? q.promptLatex ?? '—';
+  }
+
+  function renderPromptBlocks(q: FlatProgramQuestion | null) {
+    if (!q) return <div>—</div>;
+    const blocks = Array.isArray(q.promptBlocks) ? q.promptBlocks : null;
+    if (!blocks || blocks.length === 0) {
+      return <div style={{ whiteSpace: 'pre-wrap' }}>{q.promptRawText ?? q.promptLatex ?? '—'}</div>;
+    }
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {blocks.map((b: any, idx: number) => {
+          if (!b || typeof b !== 'object') return null;
+          if (b.type === 'text') {
+            return <div key={idx} style={{ whiteSpace: 'pre-wrap' }}>{String(b.text ?? '')}</div>;
+          }
+          if (b.type === 'math') {
+            const latex = String(b.latex ?? '');
+            let html = '';
+            try {
+              html = latex ? katex.renderToString(latex, { throwOnError: false, displayMode: true }) : '';
+            } catch {
+              html = '';
+            }
+            return html ? (
+              <div
+                key={idx}
+                style={{ overflowX: 'auto' }}
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
+            ) : (
+              <div key={idx} style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{latex}</div>
+            );
+          }
+          if (b.type === 'image') {
+            const url = String(b.url ?? '');
+            const alt = String(b.alt ?? b.caption ?? 'image');
+            return (
+              <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {url ? (
+                  <img
+                    src={url}
+                    alt={alt}
+                    style={{ width: '100%', maxHeight: 320, objectFit: 'contain', borderRadius: 12, border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.35)' }}
+                  />
+                ) : (
+                  <div style={{ color: '#94a3b8', fontSize: 12 }}>[missing image url]</div>
+                )}
+                {(b.caption || b.alt) && (
+                  <div style={{ color: '#94a3b8', fontSize: 12 }}>{String(b.caption ?? b.alt ?? '')}</div>
+                )}
+              </div>
+            );
+          }
+          if (b.type === 'table') {
+            const rows: string[][] = Array.isArray(b.rows) ? b.rows.map((r: any) => (Array.isArray(r) ? r.map((c: any) => String(c ?? '')) : [])) : [];
+            const headerRows = typeof b.headerRows === 'number' ? Math.max(0, Math.min(3, b.headerRows)) : 0;
+            return (
+              <div key={idx} style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #1f2a44' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 420, background: 'rgba(2,6,23,0.35)' }}>
+                  <tbody>
+                    {rows.map((r, ri) => (
+                      <tr key={ri}>
+                        {r.map((c, ci) => {
+                          const isHeader = ri < headerRows;
+                          const Cell: any = isHeader ? 'th' : 'td';
+                          return (
+                            <Cell
+                              key={ci}
+                              style={{
+                                borderBottom: '1px solid #1f2a44',
+                                borderRight: '1px solid #1f2a44',
+                                padding: '8px 10px',
+                                fontSize: 12,
+                                color: 'white',
+                                fontWeight: isHeader ? 900 : 600,
+                                textAlign: 'left',
+                                whiteSpace: 'pre-wrap',
+                              }}
+                            >
+                              {c}
+                            </Cell>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          }
+          return <div key={idx} style={{ color: '#94a3b8', fontSize: 12 }}>[unsupported block]</div>;
+        })}
+      </div>
+    );
+  }
+
+  function gradeInteraction(
+    interaction: FlatProgramQuestion['interaction'] | null,
+    answer: { kind: 'mcq'; choiceIndex: number } | { kind: 'numeric'; valueText: string } | { kind: 'text'; valueText: string }
+  ): { correct: boolean; correctIndex: number } {
+    if (!interaction) return { correct: false, correctIndex: 0 };
+    if (interaction.type === 'mcq' && answer.kind === 'mcq') {
+      const correctIndex = interaction.correctChoiceIndex;
+      return { correct: answer.choiceIndex === correctIndex, correctIndex };
+    }
+    if (interaction.type === 'numeric' && answer.kind === 'numeric') {
+      const raw = String(answer.valueText ?? '').trim();
+      const parsed = raw === '' ? NaN : Number(raw);
+      const tol = typeof interaction.tolerance === 'number' ? interaction.tolerance : 0;
+      const corrects = Array.isArray(interaction.correct) ? interaction.correct : [interaction.correct];
+      const ok = Number.isFinite(parsed) && corrects.some((c) => {
+        const cc = Number(c);
+        if (!Number.isFinite(cc)) return false;
+        return tol > 0 ? Math.abs(parsed - cc) <= tol : parsed === cc;
+      });
+      return { correct: ok, correctIndex: 0 };
+    }
+    if (interaction.type === 'text' && answer.kind === 'text') {
+      const trim = interaction.trim !== false;
+      const caseSensitive = interaction.caseSensitive === true;
+      const v0 = String(answer.valueText ?? '');
+      const v1 = trim ? v0.trim() : v0;
+      const v = caseSensitive ? v1 : v1.toLowerCase();
+      const accepted = Array.isArray(interaction.accepted) ? interaction.accepted : [];
+      const ok = accepted.some((a) => {
+        const a0 = String(a ?? '');
+        const a1 = trim ? a0.trim() : a0;
+        const aa = caseSensitive ? a1 : a1.toLowerCase();
+        return aa === v;
+      });
+      return { correct: ok, correctIndex: 0 };
+    }
+    return { correct: false, correctIndex: 0 };
+  }
+
   const rankedCandidates = useMemo(() => {
     if (!rankedActive || !rankedRegionId || !rankedQuestionTypeId) return [];
     return qbQuestions
-      .filter((q) => q.regionId === rankedRegionId && q.questionTypeId === rankedQuestionTypeId && !!q.mcq)
+      .filter((q) => q.regionId === rankedRegionId && q.questionTypeId === rankedQuestionTypeId && !!q.interaction)
       .sort((a, b) => {
         const da = difficultyRank(a.difficulty);
         const db = difficultyRank(b.difficulty);
@@ -271,7 +444,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     if (!regionId || !questionTypeId) return;
 
     const all = qbQuestions
-      .filter((q) => q.regionId === regionId && q.questionTypeId === questionTypeId && !!q.mcq)
+      .filter((q) => q.regionId === regionId && q.questionTypeId === questionTypeId && !!q.interaction)
       .sort((a, b) => {
         const da = difficultyRank(a.difficulty);
         const db = difficultyRank(b.difficulty);
@@ -301,15 +474,35 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     setRankedQuestionId(next?.id ?? null);
   }
 
-  async function answerRanked(idx: number) {
-    if (!rankedCurrent?.mcq || rankedFeedback || !uid || !programId) return;
-    const correctIndex = rankedCurrent.mcq.correctChoiceIndex;
-    const correct = idx === correctIndex;
-    setRankedFeedback({ correct, correctIndex });
+  async function answerRankedMcq(idx: number) {
+    if (!rankedCurrent?.interaction || rankedCurrent.interaction.type !== 'mcq' || rankedFeedback || !uid || !programId) return;
+    const g = gradeInteraction(rankedCurrent.interaction, { kind: 'mcq', choiceIndex: idx });
+    setRankedFeedback(g);
 
     try {
       setRankedSaving(true);
-      const r = await applyRankedAnswer(uid, programId, rankedCurrent.id, correct);
+      const r = await applyRankedAnswer(uid, programId, rankedCurrent.id, g.correct);
+      setRankedTrophies(r.trophies);
+      setRankedSolvedQuestionIds(r.correctIds);
+      setRankedIncorrectQuestionIds(r.incorrectIds);
+    } catch {
+      // ignore
+    } finally {
+      setRankedSaving(false);
+    }
+  }
+
+  async function answerRankedFreeform(kind: 'numeric' | 'text') {
+    if (!rankedCurrent?.interaction || rankedFeedback || !uid || !programId) return;
+    if (kind === 'numeric' && rankedCurrent.interaction.type !== 'numeric') return;
+    if (kind === 'text' && rankedCurrent.interaction.type !== 'text') return;
+
+    const g = gradeInteraction(rankedCurrent.interaction, { kind, valueText: rankedTextAnswer });
+    setRankedFeedback(g);
+
+    try {
+      setRankedSaving(true);
+      const r = await applyRankedAnswer(uid, programId, rankedCurrent.id, g.correct);
       setRankedTrophies(r.trophies);
       setRankedSolvedQuestionIds(r.correctIds);
       setRankedIncorrectQuestionIds(r.incorrectIds);
@@ -322,6 +515,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
   function continueRanked() {
     setRankedFeedback(null);
+    setRankedTextAnswer('');
     pickNextRankedQuestion();
   }
 
@@ -483,6 +677,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                 partLatex: null,
                 promptRawText: `Dummy question (${t.title})`,
                 promptLatex: null,
+                promptBlocks: null,
                 annotationKey: id,
                 questionTypeId: t.id,
                 difficulty: 'easy',
@@ -490,6 +685,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                   choices: ['Choice A', 'Choice B', 'Choice C', 'Choice D'],
                   correctChoiceIndex: 0,
                 },
+                interaction: { type: 'mcq', choices: ['Choice A', 'Choice B', 'Choice C', 'Choice D'], correctChoiceIndex: 0 },
               });
             }
           }
@@ -590,6 +786,9 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       const rt = uid ? ((pp as any)?.rankedTrophies ?? 0) : 0;
       setRankedTrophies(typeof rt === 'number' ? (rt as number) : 0);
 
+      const cr = uid ? ((pp as any)?.claimedRewardIds ?? []) : [];
+      setClaimedRewardIds(Array.isArray(cr) ? (cr as string[]) : []);
+
       const rsolved = uid ? ((pp as any)?.rankedSolvedQuestionIds ?? []) : [];
       setRankedSolvedQuestionIds(Array.isArray(rsolved) ? (rsolved as string[]) : []);
 
@@ -625,6 +824,38 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
       cancelled = true;
     };
   }, [programId, uid]);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadFriends() {
+      if (!showRankRoadmap) return;
+      if (!programId) return;
+      if (!userData?.friends || userData.friends.length === 0) {
+        if (alive) setRoadmapFriends([]);
+        return;
+      }
+
+      const out = await Promise.all(
+        userData.friends.map(async (fid) => {
+          const [d, pp] = await Promise.all([
+            getUserData(fid),
+            getProgramProgress(fid, programId),
+          ]);
+          const username = (d as any)?.username ? String((d as any).username) : 'Friend';
+          const trophies = typeof (pp as any)?.rankedTrophies === 'number' ? ((pp as any).rankedTrophies as number) : 0;
+          return { uid: fid, username, trophies } satisfies RoadmapFriendMarker;
+        })
+      );
+
+      out.sort((a, b) => b.trophies - a.trophies);
+      if (alive) setRoadmapFriends(out);
+    }
+
+    loadFriends();
+    return () => {
+      alive = false;
+    };
+  }, [showRankRoadmap, userData?.friends, programId]);
 
   function normalizeText(s: string | null | undefined): string {
     return String(s ?? '')
@@ -998,7 +1229,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
   const soloCandidates = useMemo(() => {
     if (!soloActive || !soloRegionId || !soloQuestionTypeId) return [];
-    return qbQuestions.filter((q) => q.regionId === soloRegionId && q.questionTypeId === soloQuestionTypeId && !!q.mcq);
+    return qbQuestions.filter((q) => q.regionId === soloRegionId && q.questionTypeId === soloQuestionTypeId && !!q.interaction);
   }, [qbQuestions, soloActive, soloRegionId, soloQuestionTypeId]);
 
   const soloCurrent = useMemo(() => {
@@ -1007,7 +1238,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
   }, [qbQuestions, soloActive, soloQuestionId]);
 
   function pickNextSoloQuestion(args: { regionId: string; questionTypeId: string; seen: string[] }) {
-    const candidates = qbQuestions.filter((q) => q.regionId === args.regionId && q.questionTypeId === args.questionTypeId && !!q.mcq);
+    const candidates = qbQuestions.filter((q) => q.regionId === args.regionId && q.questionTypeId === args.questionTypeId && !!q.interaction);
     const unseen = candidates.filter((q) => !args.seen.includes(q.id));
     const unsolvedUnseen = unseen.filter((q) => !solvedQuestionIds.includes(q.id));
     const unsolvedAny = candidates.filter((q) => !solvedQuestionIds.includes(q.id));
@@ -1028,6 +1259,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     setSoloQuestionTypeId(questionTypeId);
     setSoloSeenIds([]);
     setSoloFeedback(null);
+    setSoloTextAnswer('');
     setSoloQuestionId(null);
     pickNextSoloQuestion({ regionId, questionTypeId, seen: [] });
   }
@@ -1455,13 +1687,36 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     }
   }
 
-  async function answerSolo(idx: number) {
-    if (!soloCurrent?.mcq || soloFeedback) return;
-    const correctIndex = soloCurrent.mcq.correctChoiceIndex;
-    const correct = idx === correctIndex;
-    setSoloFeedback({ correct, correctIndex });
+  async function answerSoloMcq(idx: number) {
+    if (!soloCurrent?.interaction || soloCurrent.interaction.type !== 'mcq' || soloFeedback) return;
+    const g = gradeInteraction(soloCurrent.interaction, { kind: 'mcq', choiceIndex: idx });
+    setSoloFeedback(g);
 
-    if (correct && uid) {
+    if (g.correct && uid) {
+      try {
+        setSoloAwarding(true);
+        if (programId) {
+          await markQuestionSolved(uid, programId, soloCurrent.id);
+          setSolvedQuestionIds((prev) => (prev.includes(soloCurrent.id) ? prev : [...prev, soloCurrent.id]));
+        }
+        await updateEconomy(uid, 1, 5);
+      } catch {
+        // ignore
+      } finally {
+        setSoloAwarding(false);
+      }
+    }
+  }
+
+  async function answerSoloFreeform(kind: 'numeric' | 'text') {
+    if (!soloCurrent?.interaction || soloFeedback) return;
+    if (kind === 'numeric' && soloCurrent.interaction.type !== 'numeric') return;
+    if (kind === 'text' && soloCurrent.interaction.type !== 'text') return;
+
+    const g = gradeInteraction(soloCurrent.interaction, { kind, valueText: soloTextAnswer });
+    setSoloFeedback(g);
+
+    if (g.correct && uid) {
       try {
         setSoloAwarding(true);
         if (programId) {
@@ -1482,12 +1737,443 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
     const nextSeen = soloSeenIds.includes(soloCurrent.id) ? soloSeenIds : [...soloSeenIds, soloCurrent.id];
     setSoloSeenIds(nextSeen);
     setSoloFeedback(null);
+    setSoloTextAnswer('');
     if (!soloRegionId || !soloQuestionTypeId) return;
     pickNextSoloQuestion({ regionId: soloRegionId, questionTypeId: soloQuestionTypeId, seen: nextSeen });
   }
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0b1220' }}>
+      {chestOverlay && (
+        <>
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 2600,
+              background: 'rgba(0,0,0,0.82)',
+              backdropFilter: 'blur(6px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 18,
+            }}
+          >
+            <style>
+              {`@keyframes ll-chest-bob {0%{transform:translateY(0)}50%{transform:translateY(-10px)}100%{transform:translateY(0)}}
+@keyframes ll-chest-pop {0%{transform:scale(0.92);opacity:0}100%{transform:scale(1);opacity:1}}
+@keyframes ll-rays-spin {0%{transform:translate(-50%,-50%) rotate(0deg)}100%{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes ll-glow-pulse {0%{opacity:0.35}50%{opacity:0.85}100%{opacity:0.35}}`}
+            </style>
+
+            <div
+              style={{
+                width: 'min(720px, 96vw)',
+                borderRadius: 20,
+                border: '1px solid rgba(148,163,184,0.25)',
+                background: 'radial-gradient(circle at 50% 30%, rgba(59,130,246,0.22), rgba(15,23,42,0.95))',
+                boxShadow: '0 30px 100px rgba(0,0,0,0.7)',
+                overflow: 'hidden',
+                animation: 'll-chest-pop 250ms ease forwards',
+              }}
+            >
+              <div style={{ padding: 16, borderBottom: '1px solid rgba(148,163,184,0.18)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>🎁 Chest</div>
+                {chestOverlay.stage === 'revealed' && (
+                  <button
+                    className="ll-btn"
+                    style={{ padding: '7px 12px', fontSize: 12, background: 'rgba(251,191,36,0.95)', borderColor: 'rgba(251,191,36,0.95)', color: '#0b1220', fontWeight: 900 }}
+                    onClick={() => setChestOverlay(null)}
+                  >
+                    Collect
+                  </button>
+                )}
+              </div>
+
+              <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr', gap: 16, placeItems: 'center' }}>
+                <div style={{ position: 'relative', width: 260, height: 260, display: 'grid', placeItems: 'center' }}>
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      borderRadius: 999,
+                      background: 'radial-gradient(circle at 50% 50%, rgba(251,191,36,0.22), rgba(251,191,36,0))',
+                      opacity: chestOverlay.stage === 'revealed' ? 1 : 0.35,
+                      animation: 'll-glow-pulse 1.4s ease-in-out infinite',
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: '50%',
+                      top: '50%',
+                      width: 260,
+                      height: 260,
+                      borderRadius: 999,
+                      background: 'conic-gradient(from 90deg, rgba(251,191,36,0.0), rgba(251,191,36,0.35), rgba(59,130,246,0.0))',
+                      opacity: chestOverlay.stage === 'revealed' ? 1 : 0,
+                      animation: chestOverlay.stage === 'revealed' ? 'll-rays-spin 6s linear infinite' : undefined,
+                      transform: 'translate(-50%,-50%)',
+                    }}
+                  />
+
+                  <button
+                    className="ll-btn"
+                    style={{
+                      width: 180,
+                      height: 180,
+                      borderRadius: 28,
+                      border: '2px solid rgba(251,191,36,0.65)',
+                      background: 'linear-gradient(180deg, rgba(251,191,36,0.95), rgba(217,119,6,0.95))',
+                      boxShadow: '0 25px 60px rgba(0,0,0,0.55)',
+                      display: 'grid',
+                      placeItems: 'center',
+                      cursor: chestOverlay.stage === 'opening' ? 'pointer' : 'default',
+                      animation: chestOverlay.stage === 'opening' ? 'll-chest-bob 1.15s ease-in-out infinite' : undefined,
+                    }}
+                    onClick={() => {
+                      if (chestOverlay.stage !== 'opening') return;
+                      setChestOverlay((p) => (p ? { ...p, stage: 'revealed' } : p));
+                    }}
+                  >
+                    <div style={{ textAlign: 'center', padding: 10 }}>
+                      <div style={{ fontSize: 52, marginBottom: 6 }}>🧰</div>
+                      <div style={{ color: '#0b1220', fontWeight: 1000, fontSize: 13, letterSpacing: 0.6 }}>
+                        {chestOverlay.stage === 'opening' ? 'TAP TO OPEN' : 'OPENED'}
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                {chestOverlay.stage === 'opening' ? (
+                  <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', maxWidth: 520 }}>
+                    You reached a reward milestone. Tap the chest to reveal your loot.
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ color: '#fbbf24', fontWeight: 1000, fontSize: 34, letterSpacing: 0.4 }}>
+                      +{chestOverlay.gold}
+                    </div>
+                    <div style={{ color: '#94a3b8', fontSize: 13 }}>Gold added to your account.</div>
+                  </div>
+                )}
+
+                {chestOverlay.stage === 'opening' && (
+                  <button
+                    className="ll-btn"
+                    style={{ padding: '10px 14px', fontSize: 13, background: 'rgba(59,130,246,0.18)', borderColor: 'rgba(59,130,246,0.35)', color: '#93c5fd', fontWeight: 900 }}
+                    onClick={() => setChestOverlay((p) => (p ? { ...p, stage: 'revealed' } : p))}
+                  >
+                    Open
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {showRankRoadmap && (
+        <>
+          <div
+            onClick={() => setShowRankRoadmap(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 2000 }}
+          />
+          <div
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%,-50%)',
+              width: 'min(860px, 96vw)',
+              maxHeight: 'min(760px, 88vh)',
+              overflow: 'auto',
+              background: '#0f172a',
+              borderRadius: 16,
+              border: '1px solid #334155',
+              boxShadow: '0 30px 80px rgba(0,0,0,0.6)',
+              zIndex: 2001,
+            }}
+          >
+            <div style={{ padding: 14, borderBottom: '1px solid #1f2a44', display: 'flex', alignItems: 'center', gap: 10, background: '#111c33' }}>
+              <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>🏁 Ranked Roadmap</div>
+              <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setShowRankRoadmap(false)}>
+                Close
+              </button>
+            </div>
+            {(() => {
+              const totalQuestions = playableOverallTotal;
+              const totalTrophies = Math.max(0, totalQuestions * 15);
+              const r = computeRankInfo({ trophies: rankedTrophies, totalQuestions });
+              const tierSize = r.tierSize;
+              const pxPerTrophy = clamp(0.07, 0.05, 0.11);
+              const trackHeight = Math.max(900, totalTrophies * pxPerTrophy + 240);
+
+              const playerProgressPct = totalTrophies > 0 ? clamp(rankedTrophies / totalTrophies, 0, 1) : 0;
+              const playerY = playerProgressPct * (trackHeight - 120) + 50;
+
+              const rewardEvery = 100;
+              const rewardMilestones = Array.from({ length: Math.floor(totalTrophies / rewardEvery) + 1 })
+                .map((_, i) => i * rewardEvery)
+                .filter((t) => t > 0);
+
+              const rewardGold = (t: number) => {
+                if (t >= 9000) return 600;
+                if (t >= 5000) return 300;
+                if (t >= 2000) return 150;
+                return 75;
+              };
+
+              const gateMilestones = rankNames.map((name, idx) => ({
+                id: `gate_${idx}`,
+                name,
+                floor: idx * tierSize,
+              }));
+
+              const arenaColors = [
+                'rgba(148,163,184,0.06)',
+                'rgba(59,130,246,0.07)',
+                'rgba(16,185,129,0.07)',
+                'rgba(251,191,36,0.07)',
+                'rgba(168,85,247,0.07)',
+                'rgba(244,63,94,0.06)',
+              ];
+
+              function yForTrophy(t: number) {
+                if (totalTrophies <= 0) return 60;
+                const pct = clamp(t / totalTrophies, 0, 1);
+                return pct * (trackHeight - 120) + 50;
+              }
+
+              async function handleClaim(t: number) {
+                if (!uid || !programId) return;
+                const rewardId = `reward_${t}`;
+                if (claimingRewardId) return;
+                setClaimingRewardId(rewardId);
+                try {
+                  const res = await claimRoadmapReward(uid, programId, rewardId);
+                  if (!res.claimed) return;
+                  const gold = rewardGold(t);
+                  await updateEconomy(uid, gold, 0);
+                  setClaimedRewardIds((prev) => (prev.includes(rewardId) ? prev : [...prev, rewardId]));
+                  setChestOverlay({ rewardId, gold, stage: 'opening' });
+                } finally {
+                  setClaimingRewardId(null);
+                }
+              }
+
+              return (
+                <div style={{ padding: 14 }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+                    <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                      Your trophies: <span style={{ color: '#fbbf24', fontWeight: 900 }}>{rankedTrophies}</span>
+                      <span style={{ color: '#64748b' }}> · Current rank: </span>
+                      <span style={{ color: 'white', fontWeight: 900 }}>{r.name}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12, alignItems: 'start' }}>
+                    <div style={{ border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.35)', borderRadius: 14, padding: 12 }}>
+                      <div style={{ color: 'white', fontWeight: 900, fontSize: 13, marginBottom: 10 }}>Friends</div>
+                      {roadmapFriends.length === 0 ? (
+                        <div style={{ color: '#64748b', fontSize: 12 }}>No friends to show.</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {roadmapFriends.slice(0, 10).map((f) => (
+                            <div key={f.uid} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{ width: 30, height: 30, borderRadius: 999, background: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 900, fontSize: 12, border: '1px solid #475569' }}>
+                                {(f.username || 'F').slice(0, 1).toUpperCase()}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ color: '#e2e8f0', fontWeight: 900, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.username}</div>
+                                <div style={{ color: '#64748b', fontSize: 11 }}>🏆 {f.trophies}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.35)', borderRadius: 14, overflow: 'hidden' }}>
+                      <div style={{ padding: 12, borderBottom: '1px solid #1f2a44', display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ color: 'white', fontWeight: 900, fontSize: 13, flex: 1 }}>Road</div>
+                        <div style={{ color: '#94a3b8', fontSize: 11 }}>Scroll</div>
+                      </div>
+
+                      <div style={{ height: 'min(560px, 70vh)', overflowY: 'auto', position: 'relative' }}>
+                        <div style={{ position: 'relative', height: trackHeight, padding: '40px 0' }}>
+                          {rankNames.map((name, idx) => {
+                            const floor = idx * tierSize;
+                            const nextFloor = (idx + 1) * tierSize;
+                            const top = yForTrophy(nextFloor);
+                            const bottom = yForTrophy(floor);
+                            const height = Math.max(80, top - bottom);
+                            const color = arenaColors[idx % arenaColors.length];
+                            return (
+                              <div
+                                key={name}
+                                style={{
+                                  position: 'absolute',
+                                  left: 0,
+                                  right: 0,
+                                  bottom,
+                                  height,
+                                  background: `linear-gradient(180deg, ${color}, rgba(0,0,0,0))`,
+                                }}
+                              />
+                            );
+                          })}
+
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              bottom: 50,
+                              top: 50,
+                              width: 10,
+                              borderRadius: 999,
+                              background: 'rgba(148,163,184,0.18)',
+                              border: '1px solid rgba(148,163,184,0.18)',
+                            }}
+                          />
+
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              bottom: 50,
+                              height: playerY - 50,
+                              width: 10,
+                              borderRadius: 999,
+                              background: 'linear-gradient(180deg, rgba(59,130,246,0.95), rgba(59,130,246,0.35))',
+                              boxShadow: '0 0 18px rgba(59,130,246,0.45)',
+                              transition: 'height 600ms ease',
+                            }}
+                          />
+
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              bottom: playerY,
+                              width: 18,
+                              height: 18,
+                              borderRadius: 999,
+                              background: '#60a5fa',
+                              border: '2px solid rgba(255,255,255,0.65)',
+                              boxShadow: '0 0 18px rgba(59,130,246,0.6)',
+                            }}
+                          />
+
+                          {gateMilestones.map((g, idx) => {
+                            const y = yForTrophy(g.floor);
+                            const isCurrentGate = idx === r.tier;
+                            return (
+                              <div
+                                key={g.id}
+                                style={{
+                                  position: 'absolute',
+                                  left: 14,
+                                  right: 14,
+                                  bottom: y,
+                                  transform: 'translateY(-50%)',
+                                  height: 44,
+                                  borderRadius: 14,
+                                  background: isCurrentGate ? 'rgba(251,191,36,0.18)' : 'rgba(30,41,59,0.65)',
+                                  border: `1px solid ${isCurrentGate ? 'rgba(251,191,36,0.55)' : 'rgba(71,85,105,0.55)'}`,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  padding: '0 12px',
+                                  gap: 10,
+                                }}
+                              >
+                                <div style={{ color: isCurrentGate ? '#fbbf24' : '#94a3b8', fontWeight: 900, fontSize: 12 }}>Arena Gate</div>
+                                <div style={{ color: 'white', fontWeight: 900, fontSize: 12, flex: 1 }}>{g.name}</div>
+                                <div style={{ color: '#94a3b8', fontSize: 11 }}>🏆 {g.floor}</div>
+                              </div>
+                            );
+                          })}
+
+                          {rewardMilestones.map((t) => {
+                            const y = yForTrophy(t);
+                            const id = `reward_${t}`;
+                            const reached = rankedTrophies >= t;
+                            const claimed = claimedRewardIds.includes(id);
+                            const claimable = reached && !claimed;
+                            return (
+                              <div
+                                key={id}
+                                style={{
+                                  position: 'absolute',
+                                  right: 18,
+                                  bottom: y,
+                                  transform: 'translateY(-50%)',
+                                  width: 160,
+                                }}
+                              >
+                                <button
+                                  className="ll-btn"
+                                  disabled={!claimable || !!claimingRewardId}
+                                  onClick={() => handleClaim(t)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '10px 12px',
+                                    borderRadius: 16,
+                                    background: claimable ? 'rgba(251,191,36,0.92)' : claimed ? 'rgba(16,185,129,0.16)' : 'rgba(30,41,59,0.7)',
+                                    border: `1px solid ${claimable ? 'rgba(251,191,36,0.95)' : claimed ? 'rgba(16,185,129,0.45)' : 'rgba(71,85,105,0.55)'}`,
+                                    color: claimable ? '#0b1220' : claimed ? '#34d399' : '#94a3b8',
+                                    fontWeight: 900,
+                                    fontSize: 12,
+                                    boxShadow: claimable ? '0 0 0 4px rgba(251,191,36,0.10), 0 10px 30px rgba(0,0,0,0.45)' : undefined,
+                                    animation: claimable ? 'll-pulse 1.2s ease-in-out infinite' : undefined,
+                                  }}
+                                  title={claimable ? 'Claim reward' : claimed ? 'Already claimed' : 'Reach this milestone to claim'}
+                                >
+                                  <style>
+                                    {`@keyframes ll-pulse {0%{transform:scale(1)}50%{transform:scale(1.04)}100%{transform:scale(1)}}`}
+                                  </style>
+                                  {claimed ? '✅ Claimed' : claimable ? `Claim +${rewardGold(t)} gold` : `Reward @ ${t}`}
+                                </button>
+                              </div>
+                            );
+                          })}
+
+                          {roadmapFriends.slice(0, 8).map((f, i) => {
+                            const y = yForTrophy(f.trophies);
+                            return (
+                              <div
+                                key={f.uid}
+                                style={{
+                                  position: 'absolute',
+                                  left: 18,
+                                  bottom: y,
+                                  transform: 'translateY(-50%)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  opacity: 0.95,
+                                }}
+                              >
+                                <div style={{ width: 30, height: 30, borderRadius: 999, background: `hsl(${(i * 53) % 360} 60% 40%)`, border: '2px solid rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 900, fontSize: 12 }}>
+                                  {(f.username || 'F').slice(0, 1).toUpperCase()}
+                                </div>
+                                <div style={{ color: '#cbd5e1', fontSize: 11, fontWeight: 900, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.username}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </>
+      )}
       <ConfettiBurst fire={celebrateFire} />
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
@@ -1530,12 +2216,20 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
             );
           })}
         </div>
-        <div style={{ color: '#34d399', fontWeight: 900, fontSize: 12, flex: 1, textAlign: 'right' }}>
-          {(() => {
-            if (playableOverallTotal <= 0) return '—';
-            const r = computeRankInfo({ trophies: rankedTrophies, totalQuestions: playableOverallTotal });
-            return `🏆 ${rankedTrophies} • ${r.name}`;
-          })()}
+        <div style={{ flex: 1, textAlign: 'right' }}>
+          <button
+            className="ll-btn"
+            style={{ padding: '6px 10px', fontSize: 12, fontWeight: 900, color: '#fbbf24', borderColor: 'rgba(251,191,36,0.35)' }}
+            onClick={() => setShowRankRoadmap(true)}
+            disabled={playableOverallTotal <= 0}
+            title={playableOverallTotal <= 0 ? 'No ranked progress available yet' : 'View ranks roadmap'}
+          >
+            {(() => {
+              if (playableOverallTotal <= 0) return '🏆 —';
+              const r = computeRankInfo({ trophies: rankedTrophies, totalQuestions: playableOverallTotal });
+              return `🏆 ${rankedTrophies} • ${r.name}`;
+            })()}
+          </button>
         </div>
       </div>
 
@@ -2153,12 +2847,11 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                     </div>
                       );
                     }
-
                     if (rankedActive) {
                       return (
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-                        <div style={{ fontWeight: 900, fontSize: 13 }}>Ranked</div>
+                        <div style={{ fontWeight: 900, fontSize: 13 }}>Ranked Practice</div>
                         <button onClick={exitRanked} className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }}>Exit</button>
                       </div>
 
@@ -2174,72 +2867,139 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
                       </div>
 
                       {!rankedCurrent ? (
-                        <div style={{
-                          border: '1px solid #1f2a44',
-                          borderRadius: 12,
-                          padding: 12,
-                          background: 'rgba(15,23,42,0.55)',
-                        }}>
-                          <div style={{ fontWeight: 900, marginBottom: 6 }}>
-                            {rankedCandidates.length === 0 ? 'No ranked questions yet' : 'Ranked complete'}
-                          </div>
-                          <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
-                            {rankedCandidates.length === 0
-                              ? 'This question type does not have MCQs annotated yet. Try a different question type.'
-                              : 'You solved every ranked MCQ in this question type. Pick another one to keep climbing.'}
-                          </div>
-                          <button
-                            onClick={exitRanked}
-                            className="ll-btn ll-btn-primary"
-                            style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
-                          >
-                            Back to Question Types
-                          </button>
+                        <div style={{ color: '#94a3b8', fontSize: 13 }}>
+                          {rankedCandidates.length === 0 ? 'No ranked questions yet' : 'Ranked complete'}
                         </div>
                       ) : (
                         <div>
                           <div style={{ fontWeight: 900, fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
                             Ranked Question
                           </div>
-                          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
-                            {rankedCurrent.promptRawText ?? rankedCurrent.promptLatex ?? '—'}
+                          <div style={{ fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+                            {renderPromptBlocks(rankedCurrent)}
                           </div>
 
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {rankedCurrent.mcq?.choices.map((c, idx) => {
-                              const disabled = !!rankedFeedback;
-                              const isCorrect = rankedFeedback?.correctIndex === idx;
-                              const isChosenWrong = rankedFeedback && !rankedFeedback.correct && idx !== rankedFeedback.correctIndex;
-                              const bg = !rankedFeedback
-                                ? 'rgba(15,23,42,0.6)'
-                                : isCorrect
-                                  ? 'rgba(16,185,129,0.18)'
-                                  : 'rgba(239,68,68,0.12)';
-                              const border = !rankedFeedback
-                                ? '1px solid #1f2a44'
-                                : isCorrect
-                                  ? '1px solid rgba(16,185,129,0.55)'
-                                  : '1px solid rgba(239,68,68,0.35)';
-                              return (
-                                <button
-                                  key={idx}
-                                  onClick={() => answerRanked(idx)}
-                                  disabled={disabled}
-                                  className="ll-btn"
-                                  style={{
-                                    padding: '10px 10px',
-                                    fontSize: 13,
-                                    textAlign: 'left',
-                                    background: bg,
-                                    border,
-                                    opacity: disabled && !isCorrect && isChosenWrong ? 0.75 : 1,
-                                  }}
-                                >
-                                  {c}
-                                </button>
-                              );
-                            })}
-                          </div>
+                          {rankedCurrent.interaction?.type === 'mcq' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              {rankedCurrent.interaction.choices.map((c, idx) => {
+                                const disabled = !!rankedFeedback;
+                                const isCorrect = rankedFeedback?.correctIndex === idx;
+                                const isChosenWrong = rankedFeedback && !rankedFeedback.correct && idx !== rankedFeedback.correctIndex;
+                                const bg = !rankedFeedback
+                                  ? 'rgba(15,23,42,0.6)'
+                                  : isCorrect
+                                    ? 'rgba(16,185,129,0.18)'
+                                    : 'rgba(239,68,68,0.12)';
+                                const border = !rankedFeedback
+                                  ? '1px solid #1f2a44'
+                                  : isCorrect
+                                    ? '1px solid rgba(16,185,129,0.55)'
+                                    : '1px solid rgba(239,68,68,0.35)';
+                                return (
+                                  <button
+                                    key={idx}
+                                    onClick={() => answerRankedMcq(idx)}
+                                    disabled={disabled}
+                                    className="ll-btn"
+                                    style={{
+                                      padding: '10px 10px',
+                                      fontSize: 13,
+                                      textAlign: 'left',
+                                      background: bg,
+                                      border,
+                                      opacity: disabled && !isCorrect && isChosenWrong ? 0.75 : 1,
+                                    }}
+                                  >
+                                    {c}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : rankedCurrent.interaction?.type === 'numeric' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                              <input
+                                value={rankedTextAnswer}
+                                disabled={!!rankedFeedback}
+                                inputMode="decimal"
+                                onChange={(e) => setRankedTextAnswer(e.target.value)}
+                                placeholder="Enter answer"
+                                style={{
+                                  width: '100%',
+                                  padding: '12px 12px',
+                                  borderRadius: 12,
+                                  border: '1px solid #1f2a44',
+                                  background: 'rgba(15,23,42,0.6)',
+                                  color: 'white',
+                                  outline: 'none',
+                                  fontSize: 14,
+                                  fontWeight: 900,
+                                }}
+                              />
+
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                                {['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '⌫'].map((k) => (
+                                  <button
+                                    key={k}
+                                    className="ll-btn"
+                                    disabled={!!rankedFeedback}
+                                    onClick={() => {
+                                      if (rankedFeedback) return;
+                                      if (k === '⌫') {
+                                        setRankedTextAnswer((p) => p.slice(0, -1));
+                                      } else {
+                                        setRankedTextAnswer((p) => `${p}${k}`);
+                                      }
+                                    }}
+                                    style={{ padding: '12px 10px', fontSize: 14, fontWeight: 1000, borderRadius: 14, background: 'rgba(30,41,59,0.7)' }}
+                                  >
+                                    {k}
+                                  </button>
+                                ))}
+                              </div>
+
+                              <button
+                                className="ll-btn ll-btn-primary"
+                                disabled={!!rankedFeedback || rankedSaving || !rankedTextAnswer.trim()}
+                                onClick={() => answerRankedFreeform('numeric')}
+                                style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                              >
+                                Submit
+                              </button>
+                            </div>
+                          ) : rankedCurrent.interaction?.type === 'text' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                              <input
+                                value={rankedTextAnswer}
+                                disabled={!!rankedFeedback}
+                                onChange={(e) => setRankedTextAnswer(e.target.value)}
+                                placeholder="Type your answer"
+                                style={{
+                                  width: '100%',
+                                  padding: '12px 12px',
+                                  borderRadius: 12,
+                                  border: '1px solid #1f2a44',
+                                  background: 'rgba(15,23,42,0.6)',
+                                  color: 'white',
+                                  outline: 'none',
+                                  fontSize: 14,
+                                  fontWeight: 900,
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') answerRankedFreeform('text');
+                                }}
+                              />
+                              <button
+                                className="ll-btn ll-btn-primary"
+                                disabled={!!rankedFeedback || rankedSaving || !rankedTextAnswer.trim()}
+                                onClick={() => answerRankedFreeform('text')}
+                                style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                              >
+                                Submit
+                              </button>
+                            </div>
+                          ) : (
+                            <div style={{ color: '#94a3b8', fontSize: 13 }}>This question type is not supported yet.</div>
+                          )}
 
                           {rankedFeedback && (
                             <div style={{ marginTop: 12 }}>
@@ -2599,53 +3359,139 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 
                       {!soloCurrent ? (
                         <div style={{ color: '#94a3b8', fontSize: 13 }}>
-                          No MCQs found for this question type yet.
+                          No questions found for this question type yet.
                         </div>
                       ) : (
                         <div>
                           <div style={{ fontWeight: 900, fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
                             Question
                           </div>
-                          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
-                            {soloCurrent.promptRawText ?? soloCurrent.promptLatex ?? '—'}
+                          <div style={{ fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+                            {renderPromptBlocks(soloCurrent)}
                           </div>
 
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {soloCurrent.mcq?.choices.map((c, idx) => {
-                              const disabled = !!soloFeedback;
-                              const isCorrect = soloFeedback?.correctIndex === idx;
-                              const isChosenWrong = soloFeedback && !soloFeedback.correct && idx !== soloFeedback.correctIndex;
-                              const bg = !soloFeedback
-                                ? 'rgba(15,23,42,0.6)'
-                                : isCorrect
-                                  ? 'rgba(16,185,129,0.18)'
-                                  : 'rgba(239,68,68,0.12)';
-                              const border = !soloFeedback
-                                ? '1px solid #1f2a44'
-                                : isCorrect
-                                  ? '1px solid rgba(16,185,129,0.55)'
-                                  : '1px solid rgba(239,68,68,0.35)';
+                          {soloCurrent.interaction?.type === 'mcq' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              {soloCurrent.interaction.choices.map((c, idx) => {
+                                const disabled = !!soloFeedback;
+                                const isCorrect = soloFeedback?.correctIndex === idx;
+                                const isChosenWrong = soloFeedback && !soloFeedback.correct && idx !== soloFeedback.correctIndex;
+                                const bg = !soloFeedback
+                                  ? 'rgba(15,23,42,0.6)'
+                                  : isCorrect
+                                    ? 'rgba(16,185,129,0.18)'
+                                    : 'rgba(239,68,68,0.12)';
+                                const border = !soloFeedback
+                                  ? '1px solid #1f2a44'
+                                  : isCorrect
+                                    ? '1px solid rgba(16,185,129,0.55)'
+                                    : '1px solid rgba(239,68,68,0.35)';
 
-                              return (
-                                <button
-                                  key={idx}
-                                  onClick={() => answerSolo(idx)}
-                                  disabled={disabled}
-                                  className="ll-btn"
-                                  style={{
-                                    padding: '10px 10px',
-                                    fontSize: 13,
-                                    textAlign: 'left',
-                                    background: bg,
-                                    border,
-                                    opacity: disabled && !isCorrect && isChosenWrong ? 0.75 : 1,
-                                  }}
-                                >
-                                  {c}
-                                </button>
-                              );
-                            })}
-                          </div>
+                                return (
+                                  <button
+                                    key={idx}
+                                    onClick={() => answerSoloMcq(idx)}
+                                    disabled={disabled}
+                                    className="ll-btn"
+                                    style={{
+                                      padding: '10px 10px',
+                                      fontSize: 13,
+                                      textAlign: 'left',
+                                      background: bg,
+                                      border,
+                                      opacity: disabled && !isCorrect && isChosenWrong ? 0.75 : 1,
+                                    }}
+                                  >
+                                    {c}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : soloCurrent.interaction?.type === 'numeric' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                              <input
+                                value={soloTextAnswer}
+                                disabled={!!soloFeedback}
+                                inputMode="decimal"
+                                onChange={(e) => setSoloTextAnswer(e.target.value)}
+                                placeholder="Enter answer"
+                                style={{
+                                  width: '100%',
+                                  padding: '12px 12px',
+                                  borderRadius: 12,
+                                  border: '1px solid #1f2a44',
+                                  background: 'rgba(15,23,42,0.6)',
+                                  color: 'white',
+                                  outline: 'none',
+                                  fontSize: 14,
+                                  fontWeight: 900,
+                                }}
+                              />
+
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                                {['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '⌫'].map((k) => (
+                                  <button
+                                    key={k}
+                                    className="ll-btn"
+                                    disabled={!!soloFeedback}
+                                    onClick={() => {
+                                      if (soloFeedback) return;
+                                      if (k === '⌫') {
+                                        setSoloTextAnswer((p) => p.slice(0, -1));
+                                      } else {
+                                        setSoloTextAnswer((p) => `${p}${k}`);
+                                      }
+                                    }}
+                                    style={{ padding: '12px 10px', fontSize: 14, fontWeight: 1000, borderRadius: 14, background: 'rgba(30,41,59,0.7)' }}
+                                  >
+                                    {k}
+                                  </button>
+                                ))}
+                              </div>
+
+                              <button
+                                className="ll-btn ll-btn-primary"
+                                disabled={!!soloFeedback || !soloTextAnswer.trim()}
+                                onClick={() => answerSoloFreeform('numeric')}
+                                style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                              >
+                                Submit
+                              </button>
+                            </div>
+                          ) : soloCurrent.interaction?.type === 'text' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                              <input
+                                value={soloTextAnswer}
+                                disabled={!!soloFeedback}
+                                onChange={(e) => setSoloTextAnswer(e.target.value)}
+                                placeholder="Type your answer"
+                                style={{
+                                  width: '100%',
+                                  padding: '12px 12px',
+                                  borderRadius: 12,
+                                  border: '1px solid #1f2a44',
+                                  background: 'rgba(15,23,42,0.6)',
+                                  color: 'white',
+                                  outline: 'none',
+                                  fontSize: 14,
+                                  fontWeight: 900,
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') answerSoloFreeform('text');
+                                }}
+                              />
+                              <button
+                                className="ll-btn ll-btn-primary"
+                                disabled={!!soloFeedback || !soloTextAnswer.trim()}
+                                onClick={() => answerSoloFreeform('text')}
+                                style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                              >
+                                Submit
+                              </button>
+                            </div>
+                          ) : (
+                            <div style={{ color: '#94a3b8', fontSize: 13 }}>This question type is not supported yet.</div>
+                          )}
 
                           {soloFeedback && (
                             <div style={{ marginTop: 12 }}>
