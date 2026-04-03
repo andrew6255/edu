@@ -11,7 +11,6 @@ import katex from 'katex';
 import { gradeInteraction } from '@/lib/interactionGrader';
 import { getUserData } from '@/lib/userService';
 import {
-  bumpLogicGameFriendDeadline,
   listenLogicGameFriendMatch,
   sendLogicGameFriendChallenge,
   submitLogicGameFriendAttempt,
@@ -31,6 +30,8 @@ export default function LogicGamesView() {
   const [nodes, setNodes] = useState<LogicGameNode[]>([]);
   const [progress, setProgress] = useState<LogicGamesProgressDoc | null>(null);
 
+  const [previewUnlockAll, setPreviewUnlockAll] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const [openNode, setOpenNode] = useState<LogicGameNode | null>(null);
@@ -48,6 +49,8 @@ export default function LogicGamesView() {
   const [rankedSecondsLeft, setRankedSecondsLeft] = useState<number>(0);
   const rankedTimerRef = useRef<number | null>(null);
 
+  const [rankedApplyIq, setRankedApplyIq] = useState(true);
+
   const [friendBusy, setFriendBusy] = useState(false);
   const [friendErr, setFriendErr] = useState<string | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -59,6 +62,7 @@ export default function LogicGamesView() {
   const [friendMatchId, setFriendMatchId] = useState<string | null>(null);
   const [friendMatch, setFriendMatch] = useState<LogicGameFriendMatch | null>(null);
   const friendMatchRef = useRef<LogicGameFriendMatch | null>(null);
+  const friendAutoTimeoutKeyRef = useRef<string | null>(null);
   const friendMatchUnsubRef = useRef<(() => void) | null>(null);
   const friendTickRef = useRef<number | null>(null);
   const [friendSecondsLeft, setFriendSecondsLeft] = useState(0);
@@ -91,6 +95,15 @@ export default function LogicGamesView() {
       alive = false;
     };
   }, [uid]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const flag = localStorage.getItem('ll:logicGamePreviewUnlockAll');
+    if (flag === '1') {
+      localStorage.removeItem('ll:logicGamePreviewUnlockAll');
+      setPreviewUnlockAll(true);
+    }
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -128,6 +141,19 @@ export default function LogicGamesView() {
     out.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     return out;
   }, [nodes]);
+
+  // Superadmin preview: open a node modal automatically if requested.
+  useEffect(() => {
+    if (sorted.length === 0) return;
+    const pid = typeof window !== 'undefined' ? localStorage.getItem('ll:logicGamePreviewNodeId') : null;
+    if (!pid) return;
+    localStorage.removeItem('ll:logicGamePreviewNodeId');
+    const node = sorted.find((n) => n.id === pid) ?? null;
+    if (node) {
+      setOpenNode(node);
+      setMode('ranked');
+    }
+  }, [sorted]);
 
   // Resume a match accepted via NotificationsView
   useEffect(() => {
@@ -173,6 +199,7 @@ export default function LogicGamesView() {
   }, [sorted.length, currentUnlockedIdx]);
 
   const canOpen = (n: LogicGameNode) => {
+    if (previewUnlockAll) return true;
     const iq = n.iq ?? 0;
     return iq <= floorIq;
   };
@@ -251,7 +278,7 @@ export default function LogicGamesView() {
     if (rankedFeedback) return;
     stopRankedTimer();
     setRankedFeedback({ correct: false, timedOut: true });
-    await applyIqDelta(rankedCurrent.iqDeltaWrong);
+    if (rankedApplyIq) await applyIqDelta(rankedCurrent.iqDeltaWrong);
   }
 
   async function submitRankedAnswer() {
@@ -273,7 +300,7 @@ export default function LogicGamesView() {
         : gradeInteraction(interaction, { kind: 'text', valueText: rankedAnswerText });
 
     setRankedFeedback({ correct: g.correct });
-    await applyIqDelta(g.correct ? rankedCurrent.iqDeltaCorrect : rankedCurrent.iqDeltaWrong);
+    if (rankedApplyIq) await applyIqDelta(g.correct ? rankedCurrent.iqDeltaCorrect : rankedCurrent.iqDeltaWrong);
   }
 
   function continueRanked() {
@@ -281,26 +308,22 @@ export default function LogicGamesView() {
     pickNextRankedQuestion(rankedQuestions, rankedCurrent.id);
   }
 
-  async function startRanked(node: LogicGameNode) {
+  async function startRanked(node: LogicGameNode, opts: { applyIq: boolean }) {
     if (!uid) return;
     setRankedLoading(true);
     setRankedError(null);
-    setActiveNode(node);
-    setScreen('ranked');
+    setRankedApplyIq(!!opts.applyIq);
     try {
       const qdoc = await getPublishedLogicGameQuestions(node.id);
-      const qs = Array.isArray(qdoc?.questions) ? (qdoc!.questions as LogicGameQuestion[]) : [];
-      if (qs.length === 0) {
-        setRankedQuestions([]);
-        setRankedCurrent(null);
-        setRankedError('No questions published for this node yet.');
-        return;
-      }
+      const qs = Array.isArray(qdoc?.questions) ? qdoc!.questions : [];
+      if (qs.length === 0) throw new Error('No questions found for this node');
       setRankedQuestions(qs);
-      pickNextRankedQuestion(qs, null);
+      setActiveNode(node);
+      setScreen('ranked');
+      pickNextRankedQuestion(qs);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setRankedError(msg || 'Failed to load questions');
+      setRankedError(msg || 'Failed to start ranked');
     } finally {
       setRankedLoading(false);
     }
@@ -384,9 +407,14 @@ export default function LogicGamesView() {
 
   function handleStart() {
     if (!openNode) return;
+    if (mode === 'solo') {
+      setOpenNode(null);
+      void startRanked(openNode, { applyIq: false });
+      return;
+    }
     if (mode === 'ranked') {
       setOpenNode(null);
-      void startRanked(openNode);
+      void startRanked(openNode, { applyIq: true });
       return;
     }
     if (mode === 'friend') {
@@ -397,7 +425,6 @@ export default function LogicGamesView() {
       setScreen('friend_waiting');
       return;
     }
-    window.alert(`Start: ${openNode.label} (${mode})`);
   }
 
   function cleanupFriendListeners() {
@@ -422,6 +449,7 @@ export default function LogicGamesView() {
     setFriendAnswerText('');
     setFriendChoiceIndex(null);
     setFriendLocalFeedback(null);
+    friendAutoTimeoutKeyRef.current = null;
   }, [screen, friendMatch?.currentRound?.questionId]);
 
   useEffect(() => {
@@ -440,7 +468,22 @@ export default function LogicGamesView() {
     friendTickRef.current = window.setInterval(() => {
       const dl = friendMatchRef.current?.currentRound?.deadlineAt;
       if (!dl) return;
-      setFriendSecondsLeft(computeFriendSecondsLeft(dl));
+      const sec = computeFriendSecondsLeft(dl);
+      setFriendSecondsLeft(sec);
+
+      const m = friendMatchRef.current;
+      if (!m || !uid) return;
+      if (m.state !== 'playing') return;
+      const round = m.currentRound;
+      const already = !!round?.attempts?.[uid];
+      if (already) return;
+
+      if (sec <= 0) {
+        const key = `${m.id}:${round.roundIndex}:${round.questionId}:${uid}`;
+        if (friendAutoTimeoutKeyRef.current === key) return;
+        friendAutoTimeoutKeyRef.current = key;
+        void submitLogicGameFriendAttempt({ matchId: m.id, uid, status: 'timeout' });
+      }
     }, 250);
 
     return () => {
@@ -448,30 +491,6 @@ export default function LogicGamesView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, friendMatchId]);
-
-  // Update local per-round deadline based on real per-question timeLimitSec
-  useEffect(() => {
-    if (screen !== 'friend_match') return;
-    if (!uid || !friendMatch || !activeNode) return;
-    const qid = friendMatch.currentRound?.questionId;
-    if (!qid) return;
-
-    // Load questions doc and set deadline
-    getPublishedLogicGameQuestions(activeNode.id)
-      .then((doc0) => {
-        const qs = Array.isArray(doc0?.questions) ? (doc0!.questions as LogicGameQuestion[]) : [];
-        const q = qs.find((x) => x.id === qid) ?? null;
-        const sec = q ? Math.max(1, Math.floor(q.timeLimitSec)) : 30;
-        const deadlineAt = new Date(Date.parse(friendMatch.currentRound.startedAt) + sec * 1000).toISOString();
-        if (friendMatch.currentRound.deadlineAt !== deadlineAt) {
-          void bumpLogicGameFriendDeadline({ matchId: friendMatch.id, uid, deadlineAt });
-        }
-      })
-      .catch(() => {
-        // ignore
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen, friendMatch?.currentRound?.questionId, friendMatch?.currentRound?.startedAt, activeNode?.id, uid]);
 
   async function sendFriendInvite() {
     if (!uid || !userData || !activeNode) return;

@@ -1,5 +1,6 @@
 import { db } from '@/lib/firebase';
 import {
+  Transaction,
   Unsubscribe,
   collection,
   doc,
@@ -120,6 +121,20 @@ function uidToKey(match: LogicGameFriendMatch, uid: string): 'host' | 'guest' | 
   return null;
 }
 
+async function getQuestionTimeLimitSecTx(args: {
+  tx: Transaction;
+  nodeId: string;
+  questionId: string;
+}): Promise<number> {
+  const snap = await args.tx.get(doc(db, 'logic_game_questions_public', args.nodeId));
+  if (!snap.exists()) return 30;
+  const data = snap.data() as { questions?: LogicGameQuestion[] };
+  const qs = Array.isArray(data?.questions) ? data.questions : [];
+  const q = qs.find((x) => x?.id === args.questionId) ?? null;
+  const sec = q ? Math.max(1, Math.floor(q.timeLimitSec)) : 30;
+  return sec;
+}
+
 export async function submitLogicGameFriendAttempt(args: {
   matchId: string;
   uid: string;
@@ -171,10 +186,9 @@ export async function submitLogicGameFriendAttempt(args: {
         const nextPtr = ((match.questionPtr ?? 0) + 1) % Math.max(1, (match.questionIds ?? []).length);
         const nextQid = (match.questionIds ?? [round.questionId])[nextPtr] ?? round.questionId;
 
-        // deadline will be recomputed client-side by submitting a timeout attempt if needed.
-        // We keep a default 30s if missing; actual per-question time comes from question doc in UI.
         const startedAt = nowIso();
-        const deadlineAt = new Date(Date.now() + 30 * 1000).toISOString();
+        const sec = await getQuestionTimeLimitSecTx({ tx, nodeId: match.nodeId, questionId: nextQid });
+        const deadlineAt = new Date(Date.now() + sec * 1000).toISOString();
 
         nextMatch = {
           ...nextMatch,
@@ -199,7 +213,8 @@ export async function submitLogicGameFriendAttempt(args: {
       const nextPtr = ((match.questionPtr ?? 0) + 1) % Math.max(1, (match.questionIds ?? []).length);
       const nextQid = (match.questionIds ?? [round.questionId])[nextPtr] ?? round.questionId;
       const startedAt = nowIso();
-      const deadlineAt = new Date(Date.now() + 30 * 1000).toISOString();
+      const sec = await getQuestionTimeLimitSecTx({ tx, nodeId: match.nodeId, questionId: nextQid });
+      const deadlineAt = new Date(Date.now() + sec * 1000).toISOString();
 
       tx.update(ref, {
         ...nextMatch,

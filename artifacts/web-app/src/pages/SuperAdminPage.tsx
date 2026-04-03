@@ -19,6 +19,9 @@ import {
   upsertDraftLogicGameNode,
   publishLogicGameQuestions,
   upsertDraftLogicGameQuestions,
+  deleteDraftLogicGameNode,
+  deletePublishedLogicGameNode,
+  listPublishedLogicGameNodes,
 } from '@/lib/logicGamesService';
 import type { LogicGameNode, LogicGameQuestionsDoc } from '@/types/logicGames';
 import {
@@ -582,34 +585,33 @@ export default function SuperAdminPage() {
 
 function LogicGamesAdmin() {
   const { userData } = useAuth();
+  const [, setLocation] = useLocation();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  const [nodes, setNodes] = useState<LogicGameNode[]>([]);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [draftNodes, setDraftNodes] = useState<LogicGameNode[]>([]);
+  const [selectedDraftNodeId, setSelectedDraftNodeId] = useState<string | null>(null);
 
-  const [editIq, setEditIq] = useState('80');
-  const [editOrder, setEditOrder] = useState('0');
+  const [draftQuestionsJson, setDraftQuestionsJson] = useState('');
+  const [draftQuestionsStatus, setDraftQuestionsStatus] = useState<string | null>(null);
 
-  const [newIq, setNewIq] = useState('80');
-  const [newOrder, setNewOrder] = useState('0');
-
-  const [questionsJson, setQuestionsJson] = useState('');
-  const [questionsStatus, setQuestionsStatus] = useState<string | null>(null);
+  const [publishedNodes, setPublishedNodes] = useState<LogicGameNode[]>([]);
 
   async function load() {
     setLoading(true);
     setErr(null);
     setStatus(null);
     try {
-      const items = await listDraftLogicGameNodes();
-      setNodes(items);
-      if (!selectedNodeId && items.length > 0) setSelectedNodeId(items[0].id);
-      if (selectedNodeId && items.every((n) => n.id !== selectedNodeId)) {
-        setSelectedNodeId(items[0]?.id ?? null);
+      const [draft, pub] = await Promise.all([listDraftLogicGameNodes(), listPublishedLogicGameNodes()]);
+      setDraftNodes(draft);
+      setPublishedNodes(pub);
+
+      if (!selectedDraftNodeId && draft.length > 0) setSelectedDraftNodeId(draft[0].id);
+      if (selectedDraftNodeId && draft.every((n) => n.id !== selectedDraftNodeId)) {
+        setSelectedDraftNodeId(draft[0]?.id ?? null);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -619,154 +621,236 @@ function LogicGamesAdmin() {
     }
   }
 
+  async function renameDraftNode(nodeId: string) {
+    const n = draftNodes.find((x) => x.id === nodeId);
+    if (!n) return;
+    const next = window.prompt('Enter node name', n.label ?? '') ?? '';
+    const label = next.trim();
+
+    setSaving(true);
+    setErr(null);
+    setStatus(null);
+    try {
+      await upsertDraftLogicGameNode({ ...n, label });
+      setDraftNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, label } : x)));
+      setStatus('✅ Renamed');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(msg || 'Failed to rename node');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const n = selectedNodeId ? nodes.find((x) => x.id === selectedNodeId) : null;
+    let alive = true;
+    async function loadDraftQuestions() {
+      if (!selectedDraftNodeId) return;
+      setSaving(true);
+      setErr(null);
+      setDraftQuestionsStatus(null);
+      try {
+        const doc0 = await getDraftLogicGameQuestions(selectedDraftNodeId);
+        const arr = Array.isArray(doc0?.questions) ? doc0!.questions : [];
+        if (!alive) return;
+        setDraftQuestionsJson(JSON.stringify(arr, null, 2));
+        setDraftQuestionsStatus('Loaded draft JSON');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!alive) return;
+        setErr(msg || 'Failed to load draft questions');
+      } finally {
+        if (alive) setSaving(false);
+      }
+    }
+    void loadDraftQuestions();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDraftNodeId]);
+
+  function validateQuestionsJson(arr: any[]): string | null {
+    for (let i = 0; i < arr.length; i++) {
+      const q = arr[i];
+      if (!q || typeof q !== 'object') return `Question at index ${i} must be an object`;
+      if (typeof q.id !== 'string' || !q.id.trim()) return `Question at index ${i} is missing a string 'id'`;
+      if (!q.interaction || typeof q.interaction !== 'object') return `Question ${q.id} is missing 'interaction'`;
+      if (typeof q.timeLimitSec !== 'number' || !Number.isFinite(q.timeLimitSec)) return `Question ${q.id} is missing numeric 'timeLimitSec'`;
+      if (typeof q.iqDeltaCorrect !== 'number' || !Number.isFinite(q.iqDeltaCorrect)) return `Question ${q.id} is missing numeric 'iqDeltaCorrect'`;
+      if (typeof q.iqDeltaWrong !== 'number' || !Number.isFinite(q.iqDeltaWrong)) return `Question ${q.id} is missing numeric 'iqDeltaWrong'`;
+    }
+    return null;
+  }
+
+  async function saveDraftQuestions() {
+    if (!selectedDraftNodeId) return;
+    setSaving(true);
+    setErr(null);
+    setDraftQuestionsStatus(null);
+    try {
+      const raw = draftQuestionsJson.trim() ? JSON.parse(draftQuestionsJson) : [];
+      if (!Array.isArray(raw)) throw new Error('JSON must be an array of questions');
+      const validationErr = validateQuestionsJson(raw);
+      if (validationErr) throw new Error(validationErr);
+      await upsertDraftLogicGameQuestions(selectedDraftNodeId, {
+        questions: raw,
+        updatedAt: new Date().toISOString(),
+      } satisfies Omit<LogicGameQuestionsDoc, 'nodeId'>);
+      setDraftQuestionsStatus('✅ Saved successfully');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(msg || 'Failed to save draft JSON');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function addDraftNode() {
+    setSaving(true);
+    setErr(null);
+    setStatus(null);
+    try {
+      const nextOrder = draftNodes.length > 0 ? Math.max(...draftNodes.map((n) => n.order ?? 0)) + 1 : 0;
+      const nextIq = draftNodes.length > 0 ? (draftNodes[draftNodes.length - 1].iq ?? 80) + 10 : 80;
+      const id = `iq-${nextIq}`;
+      const node: LogicGameNode = { id, iq: nextIq, order: nextOrder, label: '' };
+      await upsertDraftLogicGameNode(node);
+      await upsertDraftLogicGameQuestions(id, { questions: [], updatedAt: new Date().toISOString() });
+
+      setDraftNodes((prev) => {
+        const next = prev.some((n) => n.id === node.id) ? prev : [...prev, node];
+        return next.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      });
+      setSelectedDraftNodeId(id);
+      setStatus('✅ Node added');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(msg || 'Failed to add node');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function setDraftNodeIq(nodeId: string, nextIqRaw: string) {
+    const nextIq = Number(nextIqRaw);
+    if (!Number.isFinite(nextIq)) return;
+    const n = draftNodes.find((x) => x.id === nodeId);
     if (!n) return;
-    setEditIq(String(n.iq ?? 80));
-    setEditOrder(String(n.order ?? 0));
-  }, [selectedNodeId, nodes]);
-
-  async function createNode() {
-    const iq = Number(newIq);
-    const order = Number(newOrder);
-    if (!Number.isFinite(iq)) {
-      setErr('IQ must be a number');
-      return;
-    }
-    const safe = String(iq).replace(/[^0-9.]+/g, '_');
-    const id = `iq_${safe}`;
     setSaving(true);
     setErr(null);
     setStatus(null);
     try {
-      await upsertDraftLogicGameNode({ id, iq, order: Number.isFinite(order) ? order : 0, label: `IQ ${iq}` });
-      await load();
-      setSelectedNodeId(id);
-      setStatus('✅ Node created (draft)');
+      await upsertDraftLogicGameNode({ ...n, iq: nextIq });
+
+      setDraftNodes((prev) =>
+        prev
+          .map((x) => (x.id === nodeId ? { ...x, iq: nextIq } : x))
+          .slice()
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      );
+      setStatus('✅ Node IQ saved');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setErr(msg || 'Failed to create node');
+      setErr(msg || 'Failed to save node IQ');
     } finally {
       setSaving(false);
     }
   }
 
-  async function saveNode() {
-    if (!selectedNodeId) return;
-    const iq = Number(editIq);
-    const order = Number(editOrder);
-    if (!Number.isFinite(iq)) {
-      setErr('IQ must be a number');
-      return;
-    }
+  async function deleteDraftNode(nodeId: string) {
+    if (!window.confirm('Delete this draft node + its draft questions?')) return;
     setSaving(true);
     setErr(null);
     setStatus(null);
     try {
-      await upsertDraftLogicGameNode({ id: selectedNodeId, iq, order: Number.isFinite(order) ? order : 0, label: `IQ ${iq}` });
-      await load();
-      setStatus('✅ Node saved');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setErr(msg || 'Failed to save node');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deleteNode() {
-    if (!selectedNodeId) return;
-    if (!window.confirm('Delete this draft node?')) return;
-    setSaving(true);
-    setErr(null);
-    setStatus(null);
-    try {
-      await deleteDoc(doc(db, 'logic_game_nodes_draft', selectedNodeId));
-      await deleteDoc(doc(db, 'logic_game_questions_draft', selectedNodeId));
-      setQuestionsJson('');
-      setQuestionsStatus(null);
-      setSelectedNodeId(null);
+      await deleteDraftLogicGameNode(nodeId);
+      if (selectedDraftNodeId === nodeId) setSelectedDraftNodeId(null);
+      setDraftQuestionsJson('');
+      setDraftQuestionsStatus(null);
       await load();
       setStatus('✅ Draft node deleted');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setErr(msg || 'Failed to delete node');
+      setErr(msg || 'Failed to delete draft node');
     } finally {
       setSaving(false);
     }
   }
 
-  async function publishNode() {
-    if (!selectedNodeId) return;
+  function openPreviewAll() {
+    localStorage.setItem('ll:logicGamePreviewUnlockAll', '1');
+    setLocation('/logic-preview');
+  }
+
+  function openPreviewPublishedAll() {
+    localStorage.setItem('ll:logicGamePreviewUnlockAll', '1');
+    setLocation('/logic-preview');
+  }
+
+  async function publishSelectedDraftNode() {
+    if (!selectedDraftNodeId) return;
     setSaving(true);
     setErr(null);
     setStatus(null);
     try {
-      await publishLogicGameNode(selectedNodeId);
-      setStatus('✅ Node published');
+      await publishLogicGameNode(selectedDraftNodeId);
+      await publishLogicGameQuestions(selectedDraftNodeId);
+      await load();
+      setStatus('✅ Published');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setErr(msg || 'Failed to publish node');
+      setErr(msg || 'Failed to publish');
     } finally {
       setSaving(false);
     }
   }
 
-  async function loadDraftQuestions() {
-    if (!selectedNodeId) return;
+  async function publishAllDraftNodes() {
+    if (draftNodes.length === 0) return;
     setSaving(true);
     setErr(null);
-    setQuestionsStatus(null);
+    setStatus(null);
     try {
-      const doc0 = await getDraftLogicGameQuestions(selectedNodeId);
-      const arr = Array.isArray(doc0?.questions) ? doc0!.questions : [];
-      setQuestionsJson(JSON.stringify(arr, null, 2));
-      setQuestionsStatus('Loaded draft questions');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setErr(msg || 'Failed to load draft questions');
-    } finally {
-      setSaving(false);
-    }
-  }
+      if (selectedDraftNodeId) {
+        const raw = draftQuestionsJson.trim() ? JSON.parse(draftQuestionsJson) : [];
+        if (!Array.isArray(raw)) throw new Error('JSON must be an array of questions');
+        const validationErr = validateQuestionsJson(raw);
+        if (validationErr) throw new Error(validationErr);
+        await upsertDraftLogicGameQuestions(selectedDraftNodeId, {
+          questions: raw,
+          updatedAt: new Date().toISOString(),
+        } satisfies Omit<LogicGameQuestionsDoc, 'nodeId'>);
+        setDraftQuestionsStatus('✅ Saved successfully');
+      }
 
-  async function saveDraftQuestions() {
-    if (!selectedNodeId) return;
-    setSaving(true);
-    setErr(null);
-    setQuestionsStatus(null);
-    try {
-      const raw = questionsJson.trim() ? JSON.parse(questionsJson) : [];
-      if (!Array.isArray(raw)) throw new Error('Questions JSON must be an array');
-      await upsertDraftLogicGameQuestions(selectedNodeId, {
-        questions: raw,
-        updatedAt: new Date().toISOString(),
-      } satisfies Omit<LogicGameQuestionsDoc, 'nodeId'>);
-      setQuestionsStatus('✅ Draft questions saved');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setErr(msg || 'Failed to save questions');
-    } finally {
-      setSaving(false);
-    }
-  }
+      const sorted = draftNodes.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      for (const n of sorted) {
+        await publishLogicGameNode(n.id);
+        try {
+          await publishLogicGameQuestions(n.id);
+        } catch (e) {
+          const existing = await getDraftLogicGameQuestions(n.id);
+          if (!existing) {
+            await upsertDraftLogicGameQuestions(n.id, { questions: [], updatedAt: new Date().toISOString() });
+            await publishLogicGameQuestions(n.id);
+          } else {
+            throw e;
+          }
+        }
+      }
 
-  async function publishQuestions() {
-    if (!selectedNodeId) return;
-    setSaving(true);
-    setErr(null);
-    setQuestionsStatus(null);
-    try {
-      await publishLogicGameQuestions(selectedNodeId);
-      setQuestionsStatus('✅ Questions published');
+      const pub = await listPublishedLogicGameNodes();
+      setPublishedNodes(pub);
+      setStatus(`✅ Published ${sorted.length} nodes`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setErr(msg || 'Failed to publish questions');
+      setErr(msg || 'Failed to publish draft nodes');
     } finally {
       setSaving(false);
     }
@@ -786,52 +870,90 @@ function LogicGamesAdmin() {
       {err && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10 }}>{err}</div>}
       {status && <div style={{ color: '#34d399', fontSize: 12, marginBottom: 10 }}>{status}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 12, alignItems: 'start' }}>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '420px 1fr', gap: 12, alignItems: 'start' }}>
         <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: 12, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between' }}>
-            <div style={{ color: 'white', fontWeight: 900, fontSize: 13 }}>Draft Nodes</div>
-            <div style={{ color: '#64748b', fontSize: 11 }}>{nodes.length}</div>
+          <div style={{ padding: 12, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <div>
+              <div style={{ color: 'white', fontWeight: 900, fontSize: 13 }}>Current Nodes (Draft)</div>
+              <div style={{ color: '#64748b', fontSize: 11 }}>{draftNodes.length}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={addDraftNode} disabled={saving} className="ll-btn" style={{ padding: '7px 12px', fontSize: 12, fontWeight: 1000 }}>
+                +
+              </button>
+              <button onClick={publishAllDraftNodes} disabled={saving || draftNodes.length === 0} className="ll-btn ll-btn-primary" style={{ padding: '7px 12px', fontSize: 12 }}>
+                Publish
+              </button>
+            </div>
           </div>
 
           <div style={{ padding: 12 }}>
-            <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 900, marginBottom: 6 }}>Create node</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              <input value={newIq} onChange={(e) => setNewIq(e.target.value)} placeholder="IQ" style={{ flex: 1, padding: '9px 10px', borderRadius: 10, border: '1px solid #475569', background: '#0f172a', color: 'white', fontWeight: 900, outline: 'none' }} />
-              <input value={newOrder} onChange={(e) => setNewOrder(e.target.value)} placeholder="Order" style={{ width: 90, padding: '9px 10px', borderRadius: 10, border: '1px solid #475569', background: '#0f172a', color: 'white', fontWeight: 900, outline: 'none' }} />
-              <button onClick={createNode} disabled={saving} className="ll-btn ll-btn-primary" style={{ padding: '9px 10px', fontSize: 12 }}>
-                +
-              </button>
-            </div>
-
             {loading ? (
               <div style={{ color: '#94a3b8', fontSize: 12 }}>Loading…</div>
-            ) : nodes.length === 0 ? (
-              <div style={{ color: '#64748b', fontSize: 12 }}>No draft nodes yet.</div>
+            ) : draftNodes.length === 0 ? (
+              <div style={{ color: '#64748b', fontSize: 12 }}>No draft nodes yet. Click + to add one.</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {nodes
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {draftNodes
                   .slice()
                   .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-                  .map((n) => {
-                    const active = n.id === selectedNodeId;
+                  .map((n, idx, arr) => {
+                    const active = n.id === selectedDraftNodeId;
                     return (
-                      <button
-                        key={n.id}
-                        onClick={() => setSelectedNodeId(n.id)}
-                        className="ll-btn"
-                        style={{
-                          textAlign: 'left',
-                          padding: '10px 10px',
-                          borderRadius: 12,
-                          background: active ? 'rgba(168,85,247,0.18)' : 'rgba(15,23,42,0.55)',
-                          border: active ? '1px solid rgba(168,85,247,0.55)' : '1px solid #334155',
-                          color: active ? '#e9d5ff' : 'white',
-                          fontWeight: 900,
-                        }}
-                      >
-                        {n.label}
-                        <span style={{ color: '#64748b', fontWeight: 800, marginLeft: 8, fontSize: 11 }}>(order {n.order})</span>
-                      </button>
+                      <div key={n.id}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                          <button
+                            onClick={() => setSelectedDraftNodeId(n.id)}
+                            className="ll-btn"
+                            style={{
+                              flex: 1,
+                              textAlign: 'left',
+                              padding: '10px 10px',
+                              borderRadius: 12,
+                              background: active ? 'rgba(34,197,94,0.12)' : 'rgba(15,23,42,0.55)',
+                              border: active ? '1px solid rgba(34,197,94,0.45)' : '1px solid #334155',
+                              color: active ? '#bbf7d0' : 'white',
+                              fontWeight: 900,
+                            }}
+                          >
+                            {n.label}
+                          </button>
+
+                          <button
+                            className="ll-btn"
+                            title="Rename"
+                            onClick={() => void renameDraftNode(n.id)}
+                            style={{ padding: '0 10px', borderRadius: 12, fontWeight: 1000 }}
+                          >
+                            ✎
+                          </button>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 900 }}>Start IQ</div>
+                            <input
+                              defaultValue={String(n.iq ?? 80)}
+                              onBlur={(e) => void setDraftNodeIq(n.id, e.target.value)}
+                              style={{ width: 90, padding: '9px 10px', borderRadius: 10, border: '1px solid #475569', background: '#0f172a', color: 'white', fontWeight: 900, outline: 'none' }}
+                            />
+                          </div>
+
+                          <button
+                            className="ll-btn"
+                            title="Delete"
+                            onClick={() => void deleteDraftNode(n.id)}
+                            style={{ padding: '0 10px', borderRadius: 12, fontWeight: 1000, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}
+                          >
+                            🗑
+                          </button>
+                        </div>
+
+                        {idx < arr.length - 1 && (
+                          <div style={{ paddingLeft: 12, paddingTop: 8, color: '#64748b', fontWeight: 900 }}>
+                            →
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
               </div>
@@ -842,61 +964,102 @@ function LogicGamesAdmin() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-              <div style={{ color: 'white', fontWeight: 900, fontSize: 13 }}>Node Settings</div>
+              <div style={{ color: 'white', fontWeight: 900, fontSize: 13 }}>Selected Node JSON (Draft)</div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={saveNode} disabled={!selectedNodeId || saving} className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }}>Save</button>
-                <button onClick={publishNode} disabled={!selectedNodeId || saving} className="ll-btn ll-btn-primary" style={{ padding: '7px 12px', fontSize: 12 }}>Publish Node</button>
-                <button onClick={deleteNode} disabled={!selectedNodeId || saving} className="ll-btn" style={{ padding: '7px 12px', fontSize: 12, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}>Delete Draft</button>
+                <button onClick={openPreviewAll} className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }}>Preview</button>
+                <button onClick={saveDraftQuestions} disabled={!selectedDraftNodeId || saving} className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }}>Save</button>
               </div>
             </div>
 
-            {!selectedNodeId ? (
-              <div style={{ color: '#64748b', fontSize: 12 }}>Select a node.</div>
+            {draftQuestionsStatus && <div style={{ color: '#34d399', fontSize: 12, marginBottom: 10 }}>{draftQuestionsStatus}</div>}
+
+            {!selectedDraftNodeId ? (
+              <div style={{ color: '#64748b', fontSize: 12 }}>Select a draft node to edit its JSON.</div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div>
-                  <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 900, marginBottom: 6 }}>IQ</div>
-                  <input value={editIq} onChange={(e) => setEditIq(e.target.value)} style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #475569', background: '#0f172a', color: 'white', fontWeight: 900, outline: 'none' }} />
-                </div>
-                <div>
-                  <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 900, marginBottom: 6 }}>Order</div>
-                  <input value={editOrder} onChange={(e) => setEditOrder(e.target.value)} style={{ width: '100%', padding: '9px 10px', borderRadius: 10, border: '1px solid #475569', background: '#0f172a', color: 'white', fontWeight: 900, outline: 'none' }} />
-                </div>
-              </div>
+              <textarea
+                value={draftQuestionsJson}
+                onChange={(e) => setDraftQuestionsJson(e.target.value)}
+                placeholder='Paste JSON array of questions here. Each question must include: id, interaction, timeLimitSec, iqDeltaCorrect, iqDeltaWrong.'
+                spellCheck={false}
+                style={{
+                  width: '100%',
+                  minHeight: 420,
+                  padding: 12,
+                  borderRadius: 12,
+                  border: '1px solid #475569',
+                  background: '#0f172a',
+                  color: 'white',
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
             )}
           </div>
 
-          <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-              <div style={{ color: 'white', fontWeight: 900, fontSize: 13 }}>Draft Questions JSON</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={loadDraftQuestions} disabled={!selectedNodeId || saving} className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }}>Load Draft</button>
-                <button onClick={saveDraftQuestions} disabled={!selectedNodeId || saving} className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }}>Save Draft</button>
-                <button onClick={publishQuestions} disabled={!selectedNodeId || saving} className="ll-btn ll-btn-primary" style={{ padding: '7px 12px', fontSize: 12 }}>Publish Questions</button>
+          <div style={{ background: '#0b1220', border: '1px solid #1f2a44', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ padding: 12, borderBottom: '1px solid #1f2a44', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              <div style={{ color: 'white', fontWeight: 900, fontSize: 13 }}>Published Nodes</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ color: '#64748b', fontSize: 11 }}>{publishedNodes.length}</div>
+                <button onClick={openPreviewPublishedAll} className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }}>
+                  Preview
+                </button>
               </div>
             </div>
-
-            {questionsStatus && <div style={{ color: '#34d399', fontSize: 12, marginBottom: 10 }}>{questionsStatus}</div>}
-
-            <textarea
-              value={questionsJson}
-              onChange={(e) => setQuestionsJson(e.target.value)}
-              placeholder='Paste JSON array of questions here. Each question must include: id, interaction, timeLimitSec, iqDeltaCorrect, iqDeltaWrong.'
-              spellCheck={false}
-              style={{
-                width: '100%',
-                minHeight: 320,
-                padding: 12,
-                borderRadius: 12,
-                border: '1px solid #475569',
-                background: '#0f172a',
-                color: 'white',
-                fontFamily: 'monospace',
-                fontSize: 12,
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-            />
+            <div style={{ padding: 12 }}>
+              {publishedNodes.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: 12 }}>No published nodes yet.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {publishedNodes
+                    .slice()
+                    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+                    .map((n) => (
+                      <div key={n.id} style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+                        <div
+                          style={{
+                            flex: 1,
+                            padding: '10px 10px',
+                            borderRadius: 12,
+                            background: 'rgba(15,23,42,0.55)',
+                            border: '1px solid #334155',
+                            color: 'white',
+                            fontWeight: 900,
+                          }}
+                        >
+                          {n.label}
+                          <span style={{ color: '#64748b', fontWeight: 800, marginLeft: 8, fontSize: 11 }}>(order {n.order})</span>
+                        </div>
+                        <button
+                          className="ll-btn"
+                          title="Delete"
+                          onClick={async () => {
+                            if (!window.confirm('Delete this published node + its questions?')) return;
+                            setSaving(true);
+                            setErr(null);
+                            setStatus(null);
+                            try {
+                              await deletePublishedLogicGameNode(n.id);
+                              await load();
+                              setStatus('✅ Published node deleted');
+                            } catch (e) {
+                              const msg = e instanceof Error ? e.message : String(e);
+                              setErr(msg || 'Failed to delete node');
+                            } finally {
+                              setSaving(false);
+                            }
+                          }}
+                          style={{ padding: '0 10px', borderRadius: 12, fontWeight: 1000, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

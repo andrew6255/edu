@@ -9,6 +9,7 @@ import AuthPage from "@/pages/AuthPage";
 import AppPage from "@/pages/AppPage";
 import DashboardPage from "@/pages/DashboardPage";
 import SuperAdminPage from "@/pages/SuperAdminPage";
+import LogicGamesPreviewPage from "@/pages/LogicGamesPreviewPage";
 
 const queryClient = new QueryClient();
 
@@ -32,6 +33,7 @@ function Router() {
       <Route path="/app" component={AppPage} />
       <Route path="/dashboard" component={DashboardPage} />
       <Route path="/superadmin" component={SuperAdminPage} />
+      <Route path="/logic-preview" component={LogicGamesPreviewPage} />
       <Route component={NotFound} />
     </Switch>
   );

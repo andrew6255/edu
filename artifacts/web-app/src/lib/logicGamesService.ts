@@ -1,6 +1,7 @@
 import { db } from '@/lib/firebase';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -22,6 +23,21 @@ export async function listPublishedLogicGameNodes(): Promise<LogicGameNode[]> {
   return snap.docs
     .map((d) => ({ id: d.id, ...(d.data() as Omit<LogicGameNode, 'id'>) }))
     .filter((n) => typeof n.iq === 'number' && typeof n.order === 'number');
+}
+
+export async function upsertPublishedLogicGameNode(node: LogicGameNode): Promise<void> {
+  const now = new Date().toISOString();
+  await setDoc(doc(db, NODES_PUBLIC_COL, node.id), {
+    iq: node.iq,
+    label: node.label,
+    order: node.order,
+    updatedAt: now,
+  }, { merge: true });
+}
+
+export async function deletePublishedLogicGameNode(nodeId: string): Promise<void> {
+  await deleteDoc(doc(db, NODES_PUBLIC_COL, nodeId));
+  await deleteDoc(doc(db, QUESTIONS_PUBLIC_COL, nodeId));
 }
 
 export async function getLogicGamesProgress(uid: string): Promise<LogicGamesProgressDoc | null> {
@@ -70,6 +86,11 @@ export async function upsertDraftLogicGameNode(node: LogicGameNode): Promise<voi
   });
 }
 
+export async function deleteDraftLogicGameNode(nodeId: string): Promise<void> {
+  await deleteDoc(doc(db, NODES_DRAFT_COL, nodeId));
+  await deleteDoc(doc(db, QUESTIONS_DRAFT_COL, nodeId));
+}
+
 export async function publishLogicGameNode(nodeId: string): Promise<void> {
   const snap = await getDoc(doc(db, NODES_DRAFT_COL, nodeId));
   if (!snap.exists()) throw new Error('Draft node not found');
@@ -115,4 +136,12 @@ export async function publishLogicGameQuestions(nodeId: string): Promise<void> {
   const data = snap.data() as Omit<LogicGameQuestionsDoc, 'nodeId'>;
   const now = new Date().toISOString();
   await setDoc(doc(db, QUESTIONS_PUBLIC_COL, nodeId), { ...data, updatedAt: now, publishedAt: now });
+}
+
+export async function upsertPublishedLogicGameQuestions(nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>): Promise<void> {
+  const now = new Date().toISOString();
+  await setDoc(doc(db, QUESTIONS_PUBLIC_COL, nodeId), {
+    ...docData,
+    updatedAt: now,
+  }, { merge: true });
 }
