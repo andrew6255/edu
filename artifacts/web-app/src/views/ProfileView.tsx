@@ -3,6 +3,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { computeLevel } from '@/lib/userService';
 import { getOrgById } from '@/lib/orgService';
 import CurriculumEditor from '@/components/profile/CurriculumEditor';
+import { getUserInventory } from '@/lib/inventoryService';
+import type { UserInventoryDoc } from '@/types/battlePass';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -105,6 +107,7 @@ export default function ProfileView() {
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [showAllScores, setShowAllScores] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
+  const [inv, setInv] = useState<UserInventoryDoc | null>(null);
 
   useEffect(() => {
     if (userData?.organisationId) {
@@ -113,6 +116,27 @@ export default function ProfileView() {
       setOrgName(null);
     }
   }, [userData?.organisationId]);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadInv() {
+      const uid = user?.uid;
+      if (!uid) {
+        if (alive) setInv(null);
+        return;
+      }
+      try {
+        const doc0 = await getUserInventory(uid);
+        if (alive) setInv(doc0);
+      } catch {
+        if (alive) setInv(null);
+      }
+    }
+    loadInv();
+    return () => {
+      alive = false;
+    };
+  }, [user?.uid]);
 
   if (!userData) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#64748b' }}>
@@ -168,6 +192,20 @@ export default function ProfileView() {
             {initial}
           </div>
           <div style={{ fontSize: 22, fontWeight: 'bold', color: 'white' }}>{userData.username}</div>
+          {inv?.equipped?.title && (
+            <div style={{
+              marginTop: 6,
+              padding: '4px 12px',
+              borderRadius: 999,
+              background: 'rgba(168,85,247,0.14)',
+              border: '1px solid rgba(168,85,247,0.45)',
+              color: '#ddd6fe',
+              fontSize: 12,
+              fontWeight: 'bold',
+            }}>
+              {inv.equipped.title}
+            </div>
+          )}
           {(userData.firstName || userData.lastName) && (
             <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 2 }}>
               {userData.firstName} {userData.lastName}

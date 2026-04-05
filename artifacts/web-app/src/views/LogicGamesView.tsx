@@ -7,6 +7,7 @@ import {
   listPublishedLogicGameNodes,
   setLogicGamesIq,
 } from '@/lib/logicGamesService';
+import { emitSolveEvent } from '@/lib/battlePassEvents';
 import katex from 'katex';
 import { gradeInteraction } from '@/lib/interactionGrader';
 import { getUserData } from '@/lib/userService';
@@ -278,6 +279,13 @@ export default function LogicGamesView() {
     if (rankedFeedback) return;
     stopRankedTimer();
     setRankedFeedback({ correct: false, timedOut: true });
+    if (uid) {
+      try {
+        await emitSolveEvent(uid, { correct: false, kind: 'step', difficulty: 2 });
+      } catch {
+        // ignore battle pass errors
+      }
+    }
     if (rankedApplyIq) await applyIqDelta(rankedCurrent.iqDeltaWrong);
   }
 
@@ -300,6 +308,14 @@ export default function LogicGamesView() {
         : gradeInteraction(interaction, { kind: 'text', valueText: rankedAnswerText });
 
     setRankedFeedback({ correct: g.correct });
+    if (uid) {
+      try {
+        const k = interaction.type === 'mcq' ? 'mcq' : interaction.type === 'numeric' ? 'numeric' : 'text';
+        await emitSolveEvent(uid, { correct: g.correct, kind: k, difficulty: 2 });
+      } catch {
+        // ignore battle pass errors
+      }
+    }
     if (rankedApplyIq) await applyIqDelta(g.correct ? rankedCurrent.iqDeltaCorrect : rankedCurrent.iqDeltaWrong);
   }
 

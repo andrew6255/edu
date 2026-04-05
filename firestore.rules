@@ -199,6 +199,56 @@ service cloud.firestore {
       match /logic_games_progress/{docId} {
         allow read, write: if isOwn(userId) || isAdmin();
       }
+
+      // ── Battle Pass / Emporium (per-user) ───────────────────────────────
+      match /battlepass/{seasonId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
+      match /inventory/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
+      match /realm_state/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
+      match /drops/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
+      match /expedition_state/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
+      match /realm_upgrades/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
+      match /profile_room/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+    }
+
+    // ── Battle Pass Seasons (content) ─────────────────────────────────────
+    match /battlepass_seasons/{seasonId} {
+      allow read: if isAuthed();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // ── Expeditions (shared co-op docs) ───────────────────────────────────
+    match /expeditions/{expeditionId} {
+      // MVP: allow list because join-by-code uses a query (where code == ...).
+      allow list: if isAuthed();
+      allow get: if isAuthed();
+
+      allow create: if isAuthed();
+
+      // MVP rule: allow authenticated users to update expedition docs.
+      // (We cannot safely verify membership with the current members[] object shape.)
+      // TODO: add memberUids[] field and tighten rules to participants/admins.
+      allow update: if isAuthed();
+      allow delete: if isAdmin();
     }
 
     // ── Organisations ─────────────────────────────────────────────────────
