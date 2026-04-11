@@ -1,7 +1,15 @@
-import { ensureBattlePassSeason, ensureUserBattlePassProgress, getDefaultSeasonId, addBattlePassEnergy } from '@/lib/battlePassService';
+import {
+  addBattlePassEnergy,
+  ensureBattlePassSeason,
+  ensureUserBattlePassMeta,
+  ensureUserBattlePassProgress,
+  getDefaultSeasonId,
+  getUserActiveSeasonId,
+} from '@/lib/battlePassService';
 import { ensureUserInventory } from '@/lib/inventoryService';
 import { applySolveEventToQuests } from '@/lib/battlePassQuestService';
 import { applySolveToActiveExpedition } from '@/lib/expeditionService';
+import { applySolveToActiveDuel } from '@/lib/duelService';
 
 export type SolveEvent = {
   correct: boolean;
@@ -10,8 +18,10 @@ export type SolveEvent = {
 };
 
 export async function emitSolveEvent(uid: string, e: SolveEvent): Promise<void> {
-  const seasonId = getDefaultSeasonId();
-  await Promise.all([ensureBattlePassSeason(seasonId), ensureUserInventory(uid), ensureUserBattlePassProgress(uid, seasonId)]);
+  const fallback = getDefaultSeasonId();
+  await Promise.all([ensureUserBattlePassMeta(uid), ensureUserInventory(uid)]);
+  const seasonId = await getUserActiveSeasonId(uid).catch(() => fallback);
+  await Promise.all([ensureBattlePassSeason(seasonId), ensureUserBattlePassProgress(uid, seasonId)]);
 
   // Simple v1 scoring: correct answers give energy, wrong gives small energy.
   const d = typeof e.difficulty === 'number' && Number.isFinite(e.difficulty) ? Math.max(1, Math.min(5, Math.round(e.difficulty))) : 1;
@@ -30,5 +40,11 @@ export async function emitSolveEvent(uid: string, e: SolveEvent): Promise<void> 
     await applySolveToActiveExpedition(uid, seasonId);
   } catch {
     // ignore expedition errors
+  }
+
+  try {
+    await applySolveToActiveDuel(uid, seasonId);
+  } catch {
+    // ignore duel errors
   }
 }

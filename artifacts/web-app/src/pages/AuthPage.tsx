@@ -103,8 +103,6 @@ export default function AuthPage() {
     if (!loading && user && userData) {
       if (userData.role === 'superadmin') {
         setLocation('/superadmin');
-      } else if (userData.role === 'teacher' || userData.role === 'admin') {
-        setLocation('/dashboard');
       } else {
         setLocation('/app');
       }

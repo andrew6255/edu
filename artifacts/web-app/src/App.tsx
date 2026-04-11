@@ -7,9 +7,9 @@ import { SessionProvider } from "@/contexts/SessionContext";
 import Landing from "@/pages/Landing";
 import AuthPage from "@/pages/AuthPage";
 import AppPage from "@/pages/AppPage";
-import DashboardPage from "@/pages/DashboardPage";
 import SuperAdminPage from "@/pages/SuperAdminPage";
 import LogicGamesPreviewPage from "@/pages/LogicGamesPreviewPage";
+import ChronoBoardPage from "@/pages/ChronoBoardPage";
 
 const queryClient = new QueryClient();
 
@@ -31,7 +31,7 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/app" component={AppPage} />
-      <Route path="/dashboard" component={DashboardPage} />
+      <Route path="/chrono/board/:board" component={ChronoBoardPage} />
       <Route path="/superadmin" component={SuperAdminPage} />
       <Route path="/logic-preview" component={LogicGamesPreviewPage} />
       <Route component={NotFound} />

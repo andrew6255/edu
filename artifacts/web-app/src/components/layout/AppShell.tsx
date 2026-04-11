@@ -4,7 +4,6 @@ import { useLocation } from 'wouter';
 import { auth } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { computeLevel } from '@/lib/userService';
-import { joinClassByCode } from '@/lib/classService';
 import NotificationsView from '@/views/NotificationsView';
 import FriendsView from '@/views/FriendsView';
 import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
@@ -39,10 +38,6 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [notifBadgeCount, setNotifBadgeCount] = useState(0);
-  const [joinCodeOpen, setJoinCodeOpen] = useState(false);
-  const [joinCode, setJoinCode] = useState('');
-  const [joinMsg, setJoinMsg] = useState('');
-  const [joining, setJoining] = useState(false);
 
   const abandonTimerRef = useRef<number | null>(null);
 
@@ -88,6 +83,8 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const gold = userData?.economy?.gold ?? 0;
   const xp = userData?.economy?.global_xp ?? 0;
   const streak = userData?.economy?.streak ?? 0;
+  const energy = userData?.economy?.energy ?? 0;
+  const rankedEnergyStreak = userData?.economy?.rankedEnergyStreak ?? 0;
   const username = userData?.username ?? 'Student';
   const role = userData?.role ?? 'student';
   const { level, title } = computeLevel(xp);
@@ -102,40 +99,22 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const prevXP = (level - 1) * 1000;
   const xpPct = Math.min(100, ((xp - prevXP) / (maxXP - prevXP)) * 100);
 
+  const battery = Math.max(0, Math.min(3, Math.floor(rankedEnergyStreak)));
+
   async function handleLogout() {
     await signOut(auth);
     localStorage.clear();
     setLocation('/');
   }
 
-  async function handleJoinClass() {
-    if (!joinCode.trim()) return;
-    setJoining(true);
-    setJoinMsg('');
-    const { auth: firebaseAuth } = await import('@/lib/firebase');
-    const uid = firebaseAuth.currentUser?.uid;
-    if (!uid) { setJoinMsg('Not logged in.'); setJoining(false); return; }
-    const cls = await joinClassByCode(uid, joinCode.trim());
-    if (cls) {
-      setJoinMsg(`✅ Joined "${cls.name}" successfully!`);
-      await refreshUserData();
-      setTimeout(() => { setJoinCodeOpen(false); setJoinCode(''); setJoinMsg(''); }, 2000);
-    } else {
-      setJoinMsg('❌ Invalid code. Please check with your teacher.');
-    }
-    setJoining(false);
-  }
-
 
   const navTabs = [
-    { id: 'emporium', icon: '🏪', label: 'Emporium' },
+    { id: 'emporium', icon: '🕰️', label: 'Chrono Empires' },
     { id: 'warmup', icon: '⚡', label: 'Warmup' },
     { id: 'universe', icon: '🌌', label: 'Universe' },
     { id: 'logic', icon: '🧩', label: 'Logic Games' },
     { id: 'profile', icon: '👤', label: 'Profile' },
   ] as const;
-
-  const isDashboardRole = role === 'teacher' || role === 'admin';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0f172a', overflow: 'hidden' }}>
@@ -151,22 +130,25 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 14, overflow: 'hidden' }}>
           <span style={{ color: '#fbbf24', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🪙 {gold.toLocaleString()}</span>
-          <span style={{ color: '#f97316', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🔥 {streak}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-            <div style={{ width: 80, height: 7, background: '#1e293b', borderRadius: 3, overflow: 'hidden', border: '1px solid #334155', flexShrink: 0 }}>
-              <div style={{ width: `${xpPct}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #10b981)', transition: '0.5s' }} />
-            </div>
-            <span style={{ color: '#94a3b8', fontSize: 11, whiteSpace: 'nowrap', display: window.innerWidth > 500 ? 'block' : 'none' }}>
-              Lv.{level} {title}
+          <span style={{ color: '#a78bfa', fontWeight: 'bold', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }}>
+            ⚡ {Math.max(0, Math.floor(energy)).toLocaleString()}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <span style={{ width: 14, height: 8, borderRadius: 2, border: '1px solid rgba(148,163,184,0.7)', background: 'rgba(30,41,59,0.85)', overflow: 'hidden', display: 'inline-flex' }}>
+                <span style={{ width: 4, height: '100%', background: battery >= 1 ? '#a78bfa' : 'rgba(100,116,139,0.35)' }} />
+                <span style={{ width: 4, height: '100%', background: battery >= 2 ? '#a78bfa' : 'rgba(100,116,139,0.35)' }} />
+                <span style={{ width: 4, height: '100%', background: battery >= 3 ? '#a78bfa' : 'rgba(100,116,139,0.35)' }} />
+              </span>
+              <span style={{ width: 2, height: 5, borderRadius: 1, background: 'rgba(148,163,184,0.7)' }} />
             </span>
-          </div>
+          </span>
+          <span style={{ color: '#f97316', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🔥 {streak}</span>
         </div>
         <button
           onClick={() => setMenuOpen(!menuOpen)}
           style={{
             width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-            background: isDashboardRole ? 'rgba(16,185,129,0.2)' : '#1e293b',
-            border: isDashboardRole ? '2px solid #10b981' : '2px solid #475569',
+            background: '#1e293b',
+            border: '2px solid #475569',
             color: 'white', cursor: 'pointer', fontSize: 16,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             position: 'relative'
@@ -188,23 +170,6 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
         </button>
       </div>
-
-      {/* Dashboard role badge */}
-      {isDashboardRole && (
-        <button
-          onClick={() => setLocation('/dashboard')}
-          style={{
-            margin: '0', padding: '6px 0', width: '100%', flexShrink: 0,
-            background: role === 'admin' ? 'rgba(249,115,22,0.15)' : 'rgba(16,185,129,0.15)',
-            border: 'none', borderBottom: `1px solid ${role === 'admin' ? 'rgba(249,115,22,0.3)' : 'rgba(16,185,129,0.3)'}`,
-            color: role === 'admin' ? '#fb923c' : '#34d399',
-            cursor: 'pointer', fontWeight: 'bold', fontSize: 13, fontFamily: 'inherit',
-            letterSpacing: 0.5
-          }}
-        >
-          {role === 'admin' ? '⚙️' : '📚'} Open {role === 'admin' ? 'Admin' : 'Teacher'} Dashboard →
-        </button>
-      )}
 
       {/* Main content */}
       <div style={{ flex: 1, height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
@@ -258,8 +223,8 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
                 <div style={{
                   width: 48, height: 48, borderRadius: '50%',
-                  background: isDashboardRole ? 'rgba(16,185,129,0.2)' : 'rgba(59,130,246,0.2)',
-                  border: isDashboardRole ? '2px solid #10b981' : '2px solid #3b82f6',
+                  background: 'rgba(59,130,246,0.2)',
+                  border: '2px solid #3b82f6',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 22, fontWeight: 'bold', color: 'white'
                 }}>
@@ -270,14 +235,23 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                   <div style={{ color: '#94a3b8', fontSize: 12 }}>Level {level} • {title}</div>
                 </div>
               </div>
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 140, height: 8, background: '#0b1220', borderRadius: 999, overflow: 'hidden', border: '1px solid #334155', flexShrink: 0 }}>
+                  <div style={{ width: `${xpPct}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #10b981)', transition: '0.5s' }} />
+                </div>
+                <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>
+                  {Math.max(0, Math.floor(xp)).toLocaleString()} XP
+                </div>
+              </div>
               <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
                 <span style={{ color: '#fbbf24' }}>🪙 {gold.toLocaleString()}</span>
+                <span style={{ color: '#a78bfa' }}>⚡ {Math.max(0, Math.floor(energy)).toLocaleString()}</span>
                 <span style={{ color: '#f97316' }}>🔥 {streak}d</span>
                 <span style={{
                   marginLeft: 'auto', fontSize: 11, padding: '2px 9px', borderRadius: 6, fontWeight: 'bold',
-                  background: role === 'admin' ? 'rgba(249,115,22,0.15)' : role === 'teacher' ? 'rgba(16,185,129,0.15)' : 'rgba(59,130,246,0.15)',
-                  border: `1px solid ${role === 'admin' ? 'rgba(249,115,22,0.4)' : role === 'teacher' ? 'rgba(16,185,129,0.4)' : 'rgba(59,130,246,0.4)'}`,
-                  color: role === 'admin' ? '#fb923c' : role === 'teacher' ? '#34d399' : '#93c5fd'
+                  background: 'rgba(59,130,246,0.15)',
+                  border: '1px solid rgba(59,130,246,0.4)',
+                  color: '#93c5fd'
                 }}>
                   {role}
                 </span>
@@ -400,86 +374,11 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                 </button>
               )}
 
-              {isDashboardRole && (
-                <button
-                  onClick={() => { setMenuOpen(false); setLocation('/dashboard'); }}
-                  style={{
-                    textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
-                    background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)',
-                    borderRadius: 10, color: '#34d399', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 'bold'
-                  }}
-                >
-                  {role === 'admin' ? '⚙️ Admin Dashboard' : '📊 Teacher Dashboard'}
-                </button>
-              )}
-
-              {role === 'student' && !userData?.classId && (
-                <button
-                  onClick={() => { setMenuOpen(false); setJoinCodeOpen(true); }}
-                  style={{
-                    textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
-                    background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)',
-                    borderRadius: 10, color: '#fbbf24', cursor: 'pointer', fontFamily: 'inherit'
-                  }}
-                >
-                  🔑 Join a Class
-                </button>
-              )}
-              {role === 'student' && userData?.classId && (
-                <div style={{ padding: '11px 14px', fontSize: 13, background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 10, color: '#94a3b8' }}>
-                  ✅ Enrolled in a class
-                </div>
-              )}
             </div>
 
             <button onClick={handleLogout} className="ll-btn ll-btn-danger" style={{ width: '100%', padding: '12px', marginTop: 15 }}>
               🚪 Log Out
             </button>
-          </div>
-        </>
-      )}
-
-      {/* Join class modal */}
-      {joinCodeOpen && (
-        <>
-          <div onClick={() => setJoinCodeOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1010 }} />
-          <div style={{
-            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-            background: '#1e293b', borderRadius: 16, padding: 28, width: 'min(380px, 90vw)',
-            border: '2px solid #fbbf24', zIndex: 1011, boxShadow: '0 20px 50px rgba(0,0,0,0.7)',
-            animation: 'slideUp 0.2s ease', textAlign: 'center'
-          }}>
-            <div style={{ fontSize: 44, marginBottom: 12 }}>🔑</div>
-            <h3 style={{ color: 'white', margin: '0 0 8px', fontSize: 20 }}>Join a Class</h3>
-            <p style={{ color: '#94a3b8', margin: '0 0 20px', fontSize: 14 }}>Enter the 6-character code your teacher gave you</p>
-            <input
-              value={joinCode}
-              onChange={e => setJoinCode(e.target.value.toUpperCase().slice(0, 6))}
-              placeholder="e.g. XK7A2B"
-              maxLength={6}
-              style={{
-                width: '100%', padding: '14px', textAlign: 'center', fontSize: 24, letterSpacing: 5,
-                fontWeight: 'bold', borderRadius: 10, border: '2px solid #fbbf24',
-                background: '#0f172a', color: '#fbbf24', fontFamily: 'inherit',
-                boxSizing: 'border-box', marginBottom: 15, outline: 'none'
-              }}
-            />
-            {joinMsg && (
-              <div style={{
-                padding: '10px', marginBottom: 12, borderRadius: 8, fontSize: 14,
-                background: joinMsg.startsWith('✅') ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-                border: joinMsg.startsWith('✅') ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(239,68,68,0.3)',
-                color: joinMsg.startsWith('✅') ? '#10b981' : '#ef4444'
-              }}>
-                {joinMsg}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setJoinCodeOpen(false)} className="ll-btn" style={{ flex: 1, padding: '12px' }}>Cancel</button>
-              <button onClick={handleJoinClass} disabled={joining || joinCode.length < 6} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '12px' }}>
-                {joining ? 'Joining...' : 'Join Class'}
-              </button>
-            </div>
           </div>
         </>
       )}

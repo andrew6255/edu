@@ -205,7 +205,15 @@ service cloud.firestore {
         allow read, write: if isOwn(userId) || isAdmin();
       }
 
+      match /battlepass_meta/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
       match /inventory/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
+      match /shop_purchases/{purchaseId} {
         allow read, write: if isOwn(userId) || isAdmin();
       }
 
@@ -225,7 +233,23 @@ service cloud.firestore {
         allow read, write: if isOwn(userId) || isAdmin();
       }
 
+      match /duel_state/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
       match /profile_room/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
+      match /chrono_empires/{docId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
+      match /chrono_empires/{docId}/boards/{boardId} {
+        allow read, write: if isOwn(userId) || isAdmin();
+      }
+
+      match /chrono_empires/{docId}/boards/{boardId}/state/{stateId} {
         allow read, write: if isOwn(userId) || isAdmin();
       }
     }
@@ -233,6 +257,17 @@ service cloud.firestore {
     // ── Battle Pass Seasons (content) ─────────────────────────────────────
     match /battlepass_seasons/{seasonId} {
       allow read: if isAuthed();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // ── Emporium Config + Shop SKUs (content) ─────────────────────────────
+    match /emporium_config/{docId} {
+      allow read, list: if isAuthed();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    match /shop_skus/{skuId} {
+      allow read, list: if isAuthed();
       allow create, update, delete: if isSuperAdmin();
     }
 
@@ -244,10 +279,60 @@ service cloud.firestore {
 
       allow create: if isAuthed();
 
-      // MVP rule: allow authenticated users to update expedition docs.
-      // (We cannot safely verify membership with the current members[] object shape.)
-      // TODO: add memberUids[] field and tighten rules to participants/admins.
-      allow update: if isAuthed();
+      // Tightened: only members may update (or admin).
+      // Requires expedition docs to have memberUids: string[].
+      allow update: if isAdmin() || (
+        // Normal: existing members may update.
+        isAuthed() &&
+        (resource.data.memberUids is list) &&
+        (resource.data.memberUids.hasAny([myUid()]))
+      ) || (
+        // Allow a non-member to join by code with a constrained update:
+        // only append themselves to members + memberUids.
+        isAuthed() &&
+        (resource.data.status == 'active') &&
+        (resource.data.memberUids is list) &&
+        !(resource.data.memberUids.hasAny([myUid()])) &&
+        (request.resource.data.diff(resource.data).changedKeys().hasOnly(['members', 'memberUids'])) &&
+        (request.resource.data.members is list) &&
+        (request.resource.data.memberUids is list) &&
+        (request.resource.data.members.size() == resource.data.members.size() + 1) &&
+        (request.resource.data.memberUids.size() == resource.data.memberUids.size() + 1) &&
+        (request.resource.data.memberUids.hasAll(resource.data.memberUids)) &&
+        (request.resource.data.memberUids.hasAny([myUid()]))
+      );
+      allow delete: if isAdmin();
+    }
+
+    // ── Duels (shared competitive docs) ───────────────────────────────────
+    match /duels/{duelId} {
+      // MVP: allow list because join-by-code uses a query (where code == ...).
+      allow list: if isAuthed();
+      allow get: if isAuthed();
+      allow create: if isAuthed();
+
+      // Tightened: only participants may update (or admin).
+      // Requires duel docs to have participantUids: string[].
+      allow update: if isAdmin() || (
+        // Normal: existing participants may update.
+        isAuthed() &&
+        (resource.data.participantUids is list) &&
+        (resource.data.participantUids.hasAny([myUid()]))
+      ) || (
+        // Allow a non-participant to join as the guest with a constrained update:
+        // only set guest and append themselves to participantUids.
+        isAuthed() &&
+        (resource.data.status == 'active') &&
+        (resource.data.participantUids is list) &&
+        !(resource.data.participantUids.hasAny([myUid()])) &&
+        ((resource.data.guest == null) || (resource.data.guest.uid == null)) &&
+        (request.resource.data.guest.uid == myUid()) &&
+        (request.resource.data.diff(resource.data).changedKeys().hasOnly(['guest', 'participantUids'])) &&
+        (request.resource.data.participantUids is list) &&
+        (request.resource.data.participantUids.size() == resource.data.participantUids.size() + 1) &&
+        (request.resource.data.participantUids.hasAll(resource.data.participantUids)) &&
+        (request.resource.data.participantUids.hasAny([myUid()]))
+      );
       allow delete: if isAdmin();
     }
 

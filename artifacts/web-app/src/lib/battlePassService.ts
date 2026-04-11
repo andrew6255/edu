@@ -1,7 +1,9 @@
 import { db } from '@/lib/firebase';
 import {
+  collection,
   doc,
   getDoc,
+  getDocs,
   setDoc,
   updateDoc,
   increment,
@@ -19,6 +21,48 @@ export function getDefaultSeasonId(): string {
   return DEFAULT_SEASON_ID;
 }
 
+export type UserBattlePassMetaDoc = {
+  id: 'global';
+  activeSeasonId: string;
+  updatedAt: string;
+};
+
+export async function getUserBattlePassMeta(uid: string): Promise<UserBattlePassMetaDoc | null> {
+  const snap = await getDoc(doc(db, 'users', uid, 'battlepass_meta', 'global'));
+  if (!snap.exists()) return null;
+  const data = snap.data() as any;
+  return {
+    id: 'global',
+    activeSeasonId: typeof data.activeSeasonId === 'string' ? data.activeSeasonId : DEFAULT_SEASON_ID,
+    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+  };
+}
+
+export async function ensureUserBattlePassMeta(uid: string): Promise<UserBattlePassMetaDoc> {
+  const existing = await getUserBattlePassMeta(uid);
+  if (existing) return existing;
+  const init: UserBattlePassMetaDoc = {
+    id: 'global',
+    activeSeasonId: DEFAULT_SEASON_ID,
+    updatedAt: new Date().toISOString(),
+  };
+  await setDoc(doc(db, 'users', uid, 'battlepass_meta', 'global'), init);
+  return init;
+}
+
+export async function getUserActiveSeasonId(uid: string): Promise<string> {
+  const meta = await getUserBattlePassMeta(uid);
+  return meta?.activeSeasonId || DEFAULT_SEASON_ID;
+}
+
+export async function setUserActiveSeasonId(uid: string, seasonId: string): Promise<void> {
+  await setDoc(
+    doc(db, 'users', uid, 'battlepass_meta', 'global'),
+    { id: 'global', activeSeasonId: seasonId, updatedAt: new Date().toISOString() },
+    { merge: true },
+  );
+}
+
 export function computeTierFromEnergy(energyXp: number, energyPerTier: number): number {
   const ept = Math.max(1, Math.floor(energyPerTier));
   return Math.min(100, Math.max(0, Math.floor(energyXp / ept)) + 1);
@@ -30,6 +74,17 @@ export async function getBattlePassSeason(seasonId: string): Promise<BattlePassS
   const data = snap.data() as Partial<BattlePassSeasonDoc>;
   if (!data || typeof data.title !== 'string' || !Array.isArray((data as any).tiers)) return null;
   return { id: seasonId, ...(data as Omit<BattlePassSeasonDoc, 'id'>) };
+}
+
+export async function listBattlePassSeasons(): Promise<BattlePassSeasonDoc[]> {
+  const snaps = await getDocs(collection(db, 'battlepass_seasons'));
+  const out: BattlePassSeasonDoc[] = [];
+  for (const d of snaps.docs) {
+    const data = d.data() as any;
+    if (!data || typeof data.title !== 'string' || !Array.isArray(data.tiers)) continue;
+    out.push({ id: d.id, ...(data as Omit<BattlePassSeasonDoc, 'id'>) });
+  }
+  return out;
 }
 
 export async function ensureBattlePassSeason(seasonId: string): Promise<BattlePassSeasonDoc> {

@@ -17,6 +17,7 @@ export type ExpeditionDoc = {
   createdByUid: string;
   status: ExpeditionStatus;
   members: ExpeditionMember[];
+  memberUids: string[];
   progress: number;
   target: number;
   completedAt?: string;

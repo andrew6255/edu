@@ -1,9 +1,9 @@
 import { db } from './firebase';
 import {
-  doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, deleteDoc, writeBatch
+  doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, deleteDoc, writeBatch, runTransaction
 } from 'firebase/firestore';
 
-export type UserRole = 'student' | 'teacher' | 'admin' | 'superadmin';
+export type UserRole = 'student' | 'superadmin';
 
 export interface SubjectConfig {
   textbook: string;
@@ -33,9 +33,8 @@ export interface UserData {
   username: string;
   email: string;
   role: UserRole;
-  organisationId?: string;
   classId?: string;
-  economy: { gold: number; global_xp: number; streak: number };
+  economy: { gold: number; global_xp: number; streak: number; energy?: number; rankedEnergyStreak?: number };
   curriculums: Record<string, { trophies: number }>;
   curriculumProfile?: CurriculumProfile;
   onboardingComplete?: boolean;
@@ -83,7 +82,7 @@ const DEFAULT_USER: Partial<UserData> = {
   friends: [],
   incomingRequests: [],
   outgoingRequests: [],
-  economy: { gold: 200, global_xp: 0, streak: 0 },
+  economy: { gold: 200, global_xp: 0, streak: 0, energy: 0, rankedEnergyStreak: 0 },
   arenaStats: { wins: 0, losses: 0, highestStreak: 0 },
   curriculums: {},
   inventory: { stories: [], badges: ['badge_pioneer'], banners: ['default'], mapThemes: ['theme-standard', 'theme-hex'] },
@@ -210,6 +209,33 @@ export async function updateEconomy(uid: string, goldDelta: number, xpDelta: num
   });
 }
 
+export async function applyRankedEnergyProgress(uid: string, correct: boolean): Promise<{ energy: number; rankedEnergyStreak: number } | null> {
+  const ref = doc(db, 'users', uid);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return null;
+    const data = snap.data() as any;
+    const econ = (data.economy && typeof data.economy === 'object') ? data.economy : {};
+    const curEnergy = typeof econ.energy === 'number' && Number.isFinite(econ.energy) ? Math.max(0, Math.floor(econ.energy)) : 0;
+    const curStreak = typeof econ.rankedEnergyStreak === 'number' && Number.isFinite(econ.rankedEnergyStreak) ? Math.max(0, Math.min(3, Math.floor(econ.rankedEnergyStreak))) : 0;
+
+    let nextEnergy = curEnergy;
+    let nextStreak = correct ? curStreak + 1 : 0;
+    if (nextStreak >= 3) {
+      nextEnergy += 1;
+      nextStreak = 0;
+    }
+
+    tx.update(ref, {
+      'economy.energy': nextEnergy,
+      'economy.rankedEnergyStreak': nextStreak,
+      last_active: new Date().toISOString().split('T')[0],
+    } as any);
+
+    return { energy: nextEnergy, rankedEnergyStreak: nextStreak };
+  });
+}
+
 export async function findUserByUsername(username: string): Promise<{ email: string } | null> {
   const q = query(collection(db, 'users'), where('username', '==', username));
   const snap = await getDocs(q);
@@ -228,20 +254,8 @@ export async function getAllUsers(): Promise<Array<UserData & { uid: string }>> 
   return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
 }
 
-export async function getUsersByRole(role: UserRole): Promise<Array<UserData & { uid: string }>> {
-  const q = query(collection(db, 'users'), where('role', '==', role));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
-}
-
 export async function getUsersByClassId(classId: string): Promise<Array<UserData & { uid: string }>> {
   const q = query(collection(db, 'users'), where('classId', '==', classId));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
-}
-
-export async function getUsersByOrgId(orgId: string): Promise<Array<UserData & { uid: string }>> {
-  const q = query(collection(db, 'users'), where('organisationId', '==', orgId));
   const snap = await getDocs(q);
   return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
 }

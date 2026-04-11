@@ -13,7 +13,6 @@ export interface ClassData {
   studentIds: string[];
   createdAt: string;
   description?: string;
-  organisationId?: string;
 }
 
 function generateCode(): string {
@@ -21,7 +20,7 @@ function generateCode(): string {
 }
 
 export async function createClass(teacherId: string, teacherName: string, data: {
-  name: string; subject: string; description?: string; organisationId?: string;
+  name: string; subject: string; description?: string;
 }): Promise<ClassData> {
   const id = `class_${Date.now()}`;
   const classData: ClassData = {
@@ -31,7 +30,6 @@ export async function createClass(teacherId: string, teacherName: string, data: 
     code: generateCode(),
     studentIds: [],
     createdAt: new Date().toISOString(),
-    ...(data.organisationId ? { organisationId: data.organisationId } : {})
   };
   await setDoc(doc(db, 'classes', id), classData);
   return classData;
@@ -43,20 +41,8 @@ export async function getClassById(classId: string): Promise<ClassData | null> {
   return snap.data() as ClassData;
 }
 
-export async function getClassesByTeacher(teacherId: string): Promise<ClassData[]> {
-  const q = query(collection(db, 'classes'), where('teacherId', '==', teacherId));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => d.data() as ClassData);
-}
-
 export async function getAllClasses(): Promise<ClassData[]> {
   const snap = await getDocs(collection(db, 'classes'));
-  return snap.docs.map(d => d.data() as ClassData);
-}
-
-export async function getClassesByOrgId(orgId: string): Promise<ClassData[]> {
-  const q = query(collection(db, 'classes'), where('organisationId', '==', orgId));
-  const snap = await getDocs(q);
   return snap.docs.map(d => d.data() as ClassData);
 }
 
@@ -69,11 +55,7 @@ export async function joinClassByCode(uid: string, code: string): Promise<ClassD
   await updateDoc(doc(db, 'classes', classDoc.id), {
     studentIds: arrayUnion(uid)
   });
-  const userUpdates: Record<string, unknown> = { classId: classDoc.id };
-  if (classData.organisationId) {
-    userUpdates.organisationId = classData.organisationId;
-  }
-  await updateDoc(doc(db, 'users', uid), userUpdates);
+  await updateDoc(doc(db, 'users', uid), { classId: classDoc.id });
   return classData;
 }
 

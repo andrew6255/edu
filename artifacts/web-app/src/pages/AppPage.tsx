@@ -52,7 +52,6 @@ export default function AppPage() {
     if (!loading && !user) setLocation('/');
     if (!loading && userData) {
       if (userData.role === 'superadmin') setLocation('/superadmin');
-      else if (userData.role === 'teacher' || userData.role === 'admin') setLocation('/dashboard');
     }
   }, [user, userData, loading]);
 

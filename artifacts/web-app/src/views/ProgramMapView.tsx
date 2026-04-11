@@ -4,7 +4,7 @@ import katex from 'katex';
 import { useAuth } from '@/contexts/AuthContext';
 import { getPublicProgramOrDraft, setProgramCompletedForUser, type TocItem } from '@/lib/programMaps';
 import { applyRankedAnswer, claimRoadmapReward, getProgramProgress, markQuestionSolved, toggleUnitComplete } from '@/lib/programProgress';
-import { getUserData, updateEconomy } from '@/lib/userService';
+import { applyRankedEnergyProgress, getUserData, updateEconomy } from '@/lib/userService';
 import {
   createProgramFriendSession,
   joinProgramFriendSessionByCode,
@@ -444,6 +444,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     try {
       setRankedSaving(true);
       const r = await applyRankedAnswer(uid, programId, rankedCurrent.id, g.correct);
+      await applyRankedEnergyProgress(uid, g.correct);
       setRankedTrophies(r.trophies);
       setRankedSolvedQuestionIds(r.correctIds);
       setRankedIncorrectQuestionIds(r.incorrectIds);
@@ -465,6 +466,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     try {
       setRankedSaving(true);
       const r = await applyRankedAnswer(uid, programId, rankedCurrent.id, g.correct);
+      await applyRankedEnergyProgress(uid, g.correct);
       setRankedTrophies(r.trophies);
       setRankedSolvedQuestionIds(r.correctIds);
       setRankedIncorrectQuestionIds(r.incorrectIds);

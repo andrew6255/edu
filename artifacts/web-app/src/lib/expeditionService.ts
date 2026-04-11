@@ -98,6 +98,7 @@ export async function createExpedition(opts: {
       createdByUid: opts.uid,
       status: 'active',
       members: [member],
+      memberUids: [opts.uid],
       progress: 0,
       target: 60,
       rewardClaimedByUids: [],
@@ -131,10 +132,12 @@ export async function joinExpeditionByCode(opts: {
     const data = snap.data() as ExpeditionDoc;
     if (data.status !== 'active') throw new Error('Expedition is not active');
     const members = Array.isArray((data as any).members) ? ((data as any).members as ExpeditionMember[]) : [];
+    const memberUids = Array.isArray((data as any).memberUids) ? ((data as any).memberUids as string[]) : members.map((m) => m.uid);
     if (members.some((m) => m.uid === opts.uid)) return;
     if (members.length >= 6) throw new Error('Expedition is full');
     tx.update(ref, {
       members: [...members, { uid: opts.uid, username: opts.username, joinedAt: nowIso() }],
+      memberUids: Array.from(new Set([...memberUids, opts.uid])),
     } as any);
   });
 
@@ -155,7 +158,11 @@ export async function leaveActiveExpedition(uid: string): Promise<void> {
     if (!snap.exists()) return;
     const data = snap.data() as any;
     const members = Array.isArray(data.members) ? (data.members as ExpeditionMember[]) : [];
-    tx.update(ref, { members: members.filter((m) => m.uid !== uid) } as any);
+    const nextMembers = members.filter((m) => m.uid !== uid);
+    const nextMemberUids = Array.isArray(data.memberUids)
+      ? (data.memberUids as string[]).filter((x) => x !== uid)
+      : nextMembers.map((m) => m.uid);
+    tx.update(ref, { members: nextMembers, memberUids: nextMemberUids } as any);
   });
   await setActiveExpeditionId(uid, undefined);
 }

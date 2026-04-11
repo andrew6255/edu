@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { computeLevel } from '@/lib/userService';
-import { getOrgById } from '@/lib/orgService';
 import CurriculumEditor from '@/components/profile/CurriculumEditor';
 import { getUserInventory } from '@/lib/inventoryService';
 import type { UserInventoryDoc } from '@/types/battlePass';
@@ -106,16 +105,7 @@ export default function ProfileView() {
   const { user, userData, refreshUserData } = useAuth();
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [showAllScores, setShowAllScores] = useState(false);
-  const [orgName, setOrgName] = useState<string | null>(null);
   const [inv, setInv] = useState<UserInventoryDoc | null>(null);
-
-  useEffect(() => {
-    if (userData?.organisationId) {
-      getOrgById(userData.organisationId).then(org => setOrgName(org?.name ?? null));
-    } else {
-      setOrgName(null);
-    }
-  }, [userData?.organisationId]);
 
   useEffect(() => {
     let alive = true;
@@ -303,21 +293,6 @@ export default function ProfileView() {
 
         {/* ── Curriculum Profile ── */}
         <CurriculumEditor />
-
-        {/* ── Organisation chip (shown independently of curriculum presence) ── */}
-        {orgName && (
-          <div style={{ marginBottom: 14 }}>
-            <span style={{
-              padding: '4px 14px', borderRadius: 20, fontSize: 13,
-              background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.35)',
-              color: '#fb923c', display: 'inline-flex', alignItems: 'center', gap: 6
-            }}>
-              🏢 {orgName}
-            </span>
-          </div>
-        )}
-
-
 
         {/* ── Badges ── */}
         <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid #334155' }}>
