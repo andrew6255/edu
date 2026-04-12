@@ -3,7 +3,7 @@ import { requireSupabase } from '@/lib/supabase';
 export type UploadedProgramAsset = {
   url: string;
   path: string;
-  provider: 'supabase' | 'firebase';
+  provider: 'supabase';
 };
 
 function sanitizeFileName(name: string): string {

@@ -5,13 +5,11 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
-    "migrate:supabase": "node ./migrate-firebase-to-supabase.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@supabase/supabase-js": "^2.49.8",
-    "firebase-admin": "^13.7.0",
     "tsx": "catalog:"
   }
 }

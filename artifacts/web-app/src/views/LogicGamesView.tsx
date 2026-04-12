@@ -1001,7 +1001,7 @@ export default function LogicGamesView() {
                     Round {Math.max(1, (friendMatch.currentRound.roundIndex ?? 0) + 1)} · First to 3
                   </div>
 
-                  {/* Render the current question by loading the questions doc (cheap, cached by Firestore). */}
+                  {/* Render the current question by loading the questions doc. */}
                   <FriendQuestion
                     nodeId={activeNode?.id ?? friendMatch.nodeId}
                     questionId={friendMatch.currentRound.questionId}

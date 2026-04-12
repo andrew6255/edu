@@ -19,7 +19,7 @@ export async function createProgramFriendSession(args: {
   questionTypeId: string;
   questionIds: string[];
 }): Promise<ProgramFriendSession> {
-  // Use the join code as the Firestore doc id so joining is a direct getDoc
+  // Use the join code as the doc id so joining is a direct getDoc
   // (no list/query permissions needed).
   let code = makeCode();
   for (let i = 0; i < 3; i++) {

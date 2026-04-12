@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════
    Chrono Empires — Player Inventory Service
-   Firestore path: users/{uid}/chrono_empires/inventory
+   Supabase path: user_docs/{uid}/chrono_empires/inventory
    ═══════════════════════════════════════════════════════════ */
 
 import { getUserDoc, setUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';

@@ -1,12 +1,11 @@
 /**
- * Generic Firestore-compatible document store backed by Supabase.
+ * Generic document store backed by Supabase.
  *
  * Two tables:
  *   user_docs (user_id, collection, doc_id, data jsonb)   – per-user subcollections
  *   global_docs (collection, doc_id, data jsonb)           – shared collections
  *
- * Provides get/set/update/delete/query/listen helpers that mirror Firestore
- * semantics so each service file needs minimal changes.
+ * Provides get/set/update/delete/query/listen helpers.
  */
 
 import { requireSupabase } from './supabase';
@@ -292,13 +291,13 @@ function applyPatch(existing: DocData, patch: DocData): DocData {
   return result;
 }
 
-/** Firestore increment() replacement — use in patch objects */
+/** Atomic increment helper — use in patch objects */
 export function resolveIncrement(existing: DocData, field: string, delta: number): number {
   const current = typeof (existing as any)[field] === 'number' ? (existing as any)[field] : 0;
   return current + delta;
 }
 
-/** Firestore arrayUnion() replacement — use in patch objects */
+/** Array union helper — use in patch objects */
 export function resolveArrayUnion(existing: DocData, field: string, ...elements: unknown[]): unknown[] {
   const parts = field.split('.');
   let current: any = existing;

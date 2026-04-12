@@ -6,7 +6,7 @@ import {
 } from '@/lib/userService';
 import { useAuth } from '@/contexts/AuthContext';
 
-const SA_FIREBASE_EMAIL = 'god.bypass@internal.app';
+const SA_ADMIN_EMAIL = 'god.bypass@internal.app';
 
 function formatAuthError(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
@@ -38,7 +38,7 @@ async function ensureSuperadminProfile(uid: string): Promise<void> {
       firstName: 'God',
       lastName: 'Admin',
       username: 'superadmin',
-      email: SA_FIREBASE_EMAIL,
+      email: SA_ADMIN_EMAIL,
       role: 'superadmin',
       onboardingComplete: true,
     });
@@ -51,7 +51,7 @@ async function ensureSuperadminProfile(uid: string): Promise<void> {
       role: 'superadmin',
       onboardingComplete: true,
       username: 'superadmin',
-      email: SA_FIREBASE_EMAIL,
+      email: SA_ADMIN_EMAIL,
     });
   }
 }
@@ -167,19 +167,19 @@ export default function AuthPage() {
 
     setSubmitting(true); setError('');
 
-    // Hardcoded Super Admin Login Bypass (Maps 0000/0000 to internal Firebase admin account)
+    // Hardcoded Super Admin Login Bypass (Maps 0000/0000 to internal admin account)
     if (loginId === '0000' && loginPass === '0000') {
       try {
         const supabase = requireSupabase();
         const { error } = await supabase.auth.signInWithPassword({
-          email: SA_FIREBASE_EMAIL,
+          email: SA_ADMIN_EMAIL,
           password: 'godadmin0000',
         });
         if (error) {
           const code = (error as { code?: string })?.code || '';
           if (code === 'invalid_credentials' || code === 'email_not_confirmed' || code === 'invalid_grant') {
             const { error: signUpError } = await supabase.auth.signUp({
-              email: SA_FIREBASE_EMAIL,
+              email: SA_ADMIN_EMAIL,
               password: 'godadmin0000',
               options: { data: { full_name: 'SuperAdmin', name: 'SuperAdmin' } },
             });
@@ -211,7 +211,7 @@ export default function AuthPage() {
       if (code === 'invalid_credentials' || code === 'user_not_found' || code === 'invalid_grant') {
         setError('Incorrect email/username or password.');
       } else {
-        setError(formatAuthError(e, 'Login failed').replace('Firebase: ', ''));
+        setError(formatAuthError(e, 'Login failed'));
       }
     } finally {
       setSubmitting(false);
@@ -283,7 +283,7 @@ export default function AuthPage() {
           setError('An account with this email already exists.');
         }
       } else {
-        setError(formatAuthError(e, 'Registration failed').replace('Firebase: ', ''));
+        setError(formatAuthError(e, 'Registration failed'));
       }
     } finally {
       setSubmitting(false);

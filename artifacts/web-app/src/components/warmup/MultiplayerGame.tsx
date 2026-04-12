@@ -36,7 +36,7 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
   const [xpGained, setXpGained] = useState(0);
   const [goldGained, setGoldGained] = useState(0);
 
-  // Refs to avoid stale closures in Firestore callbacks
+  // Refs to avoid stale closures in realtime callbacks
   const phaseRef = useRef<RoundPhase>('playing');
   const resolvedRounds = useRef<Set<number>>(new Set());
   const xpAwardedRef = useRef(false);

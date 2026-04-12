@@ -1324,7 +1324,7 @@ function ProgramsAdmin() {
               style={{ padding: '7px 12px', fontSize: 12 }}
               onClick={saveBuilderDraft}
               disabled={saving}
-              title="Save draft to Firestore (not published)"
+              title="Save draft (not published)"
             >
               {saving ? 'Saving...' : 'Save Draft'}
             </button>
@@ -1645,7 +1645,7 @@ function ProgramsAdmin() {
                             <div style={{ height: 1, background: '#1f2a44', margin: '14px 0' }} />
 
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
-                              <div style={{ color: '#cbd5e1', fontWeight: 900, fontSize: 12 }}>Upload image (Firebase Storage)</div>
+                              <div style={{ color: '#cbd5e1', fontWeight: 900, fontSize: 12 }}>Upload image (Supabase Storage)</div>
                               <div style={{ color: '#64748b', fontSize: 11 }}>
                                 Public read
                               </div>

@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════════════════════
    Chrono Empires — Board State Service
    Per-board tile ownership, bot state, auction logic.
-   Firestore: users/{uid}/chrono_empires/global/boards/{boardId}/state
-   For MVP: stored in-memory per session, persisted to Firestore.
+   Supabase: user_docs/{uid}/chrono_empires/board_state_{boardId}
+   For MVP: stored in-memory per session, persisted to Supabase.
    ═══════════════════════════════════════════════════════════ */
 
 import { getUserDoc, setUserDoc } from '@/lib/supabaseDocStore';

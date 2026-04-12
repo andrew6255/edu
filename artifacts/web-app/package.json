@@ -77,7 +77,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",
-    "firebase": "^12.11.0",
     "katex": "^0.16.44"
   }
 }
