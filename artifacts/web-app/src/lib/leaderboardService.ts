@@ -1,13 +1,12 @@
-import { db } from './firebase';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { getGlobalDoc, setGlobalDoc, updateGlobalDoc } from '@/lib/supabaseDocStore';
 import { LeaderboardEntry } from '@/types/warmup';
 
 const TOP_N = 5;
 
 export async function getLeaderboard(gameId: string): Promise<LeaderboardEntry[]> {
-  const snap = await getDoc(doc(db, 'leaderboards', gameId));
-  if (!snap.exists()) return [];
-  return (snap.data().scores as LeaderboardEntry[]) || [];
+  const raw = await getGlobalDoc('leaderboards', gameId);
+  if (!raw) return [];
+  return (raw.scores as LeaderboardEntry[]) || [];
 }
 
 export async function submitScore(
@@ -16,9 +15,8 @@ export async function submitScore(
   username: string,
   score: number
 ): Promise<{ newBest: boolean; rank: number | null }> {
-  const ref = doc(db, 'leaderboards', gameId);
-  const snap = await getDoc(ref);
-  let scores: LeaderboardEntry[] = snap.exists() ? (snap.data().scores || []) : [];
+  const raw = await getGlobalDoc('leaderboards', gameId);
+  let scores: LeaderboardEntry[] = raw ? (raw.scores as LeaderboardEntry[] || []) : [];
 
   const existing = scores.find(e => e.uid === uid);
   if (existing && existing.score >= score) {
@@ -31,9 +29,7 @@ export async function submitScore(
   scores.sort((a, b) => b.score - a.score);
   scores = scores.slice(0, TOP_N);
 
-  const data = { scores };
-  if (snap.exists()) await updateDoc(ref, data);
-  else await setDoc(ref, data);
+  await setGlobalDoc('leaderboards', gameId, { scores }, true);
 
   const rank = scores.findIndex(e => e.uid === uid) + 1;
   return { newBest: true, rank: rank <= TOP_N ? rank : null };

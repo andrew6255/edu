@@ -1,16 +1,4 @@
-import { db } from '@/lib/firebase';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  runTransaction,
-  collection,
-  query,
-  where,
-  getDocs,
-  increment,
-} from 'firebase/firestore';
+import { getUserDoc, setUserDoc, updateUserDoc, getGlobalDoc, setGlobalDoc, updateGlobalDoc, queryGlobalDocs, resolveIncrement } from '@/lib/supabaseDocStore';
 import type { ExpeditionDoc, ExpeditionMember, UserExpeditionStateDoc } from '@/types/expeditions';
 import type { RealmId } from '@/types/realms';
 import { ensureUserInventory } from '@/lib/inventoryService';
@@ -28,9 +16,9 @@ function makeCode(): string {
 }
 
 export async function getUserExpeditionState(uid: string): Promise<UserExpeditionStateDoc | null> {
-  const snap = await getDoc(doc(db, 'users', uid, 'expedition_state', 'global'));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<UserExpeditionStateDoc>;
+  const raw = await getUserDoc(uid, 'expedition_state', 'global');
+  if (!raw) return null;
+  const data = raw as Partial<UserExpeditionStateDoc>;
   return {
     id: 'global',
     activeExpeditionId: typeof (data as any).activeExpeditionId === 'string' ? ((data as any).activeExpeditionId as string) : undefined,
@@ -42,37 +30,33 @@ export async function ensureUserExpeditionState(uid: string): Promise<UserExpedi
   const existing = await getUserExpeditionState(uid);
   if (existing) return existing;
   const init: UserExpeditionStateDoc = { id: 'global', updatedAt: nowIso() };
-  // Firestore does not allow undefined values in setDoc.
-  await setDoc(doc(db, 'users', uid, 'expedition_state', 'global'), {
+  await setUserDoc(uid, 'expedition_state', 'global', {
     id: init.id,
     activeExpeditionId: null,
     updatedAt: init.updatedAt,
-  } as any);
+  });
   return init;
 }
 
 export async function setActiveExpeditionId(uid: string, expeditionId: string | undefined): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'expedition_state', 'global'), {
+  await updateUserDoc(uid, 'expedition_state', 'global', {
     activeExpeditionId: expeditionId ?? null,
     updatedAt: nowIso(),
-  } as any);
+  });
 }
 
 export async function getExpedition(expeditionId: string): Promise<ExpeditionDoc | null> {
-  const snap = await getDoc(doc(db, 'expeditions', expeditionId));
-  if (!snap.exists()) return null;
-  const data = snap.data() as any;
-  return { id: expeditionId, ...(data as Omit<ExpeditionDoc, 'id'>) };
+  const raw = await getGlobalDoc('expeditions', expeditionId);
+  if (!raw) return null;
+  return { id: expeditionId, ...(raw as any as Omit<ExpeditionDoc, 'id'>) };
 }
 
 export async function findExpeditionByCode(code: string): Promise<ExpeditionDoc | null> {
   const c = String(code || '').trim().toUpperCase();
   if (!c) return null;
-  const q0 = query(collection(db, 'expeditions'), where('code', '==', c));
-  const snaps = await getDocs(q0);
-  const first = snaps.docs[0];
-  if (!first) return null;
-  return { id: first.id, ...(first.data() as any) } as ExpeditionDoc;
+  const rows = await queryGlobalDocs('expeditions', [{ field: 'code', op: 'eq', value: c }]);
+  if (rows.length === 0) return null;
+  return { id: rows[0].id, ...(rows[0].data as any) } as ExpeditionDoc;
 }
 
 export async function createExpedition(opts: {
@@ -87,8 +71,6 @@ export async function createExpedition(opts: {
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = makeCode();
     const expeditionId = `${code}_${Date.now()}`;
-    const ref = doc(db, 'expeditions', expeditionId);
-
     const member: ExpeditionMember = { uid: opts.uid, username: opts.username, joinedAt: nowIso() };
     const init: Omit<ExpeditionDoc, 'id'> = {
       code,
@@ -105,7 +87,7 @@ export async function createExpedition(opts: {
     };
 
     try {
-      await setDoc(ref, init);
+      await setGlobalDoc('expeditions', expeditionId, init as any);
       await setActiveExpeditionId(opts.uid, expeditionId);
       return { id: expeditionId, ...init };
     } catch {
@@ -125,20 +107,20 @@ export async function joinExpeditionByCode(opts: {
   const exp = await findExpeditionByCode(opts.code);
   if (!exp) throw new Error('Invalid expedition code');
 
-  const ref = doc(db, 'expeditions', exp.id);
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) throw new Error('Expedition missing');
-    const data = snap.data() as ExpeditionDoc;
-    if (data.status !== 'active') throw new Error('Expedition is not active');
-    const members = Array.isArray((data as any).members) ? ((data as any).members as ExpeditionMember[]) : [];
-    const memberUids = Array.isArray((data as any).memberUids) ? ((data as any).memberUids as string[]) : members.map((m) => m.uid);
-    if (members.some((m) => m.uid === opts.uid)) return;
-    if (members.length >= 6) throw new Error('Expedition is full');
-    tx.update(ref, {
-      members: [...members, { uid: opts.uid, username: opts.username, joinedAt: nowIso() }],
-      memberUids: Array.from(new Set([...memberUids, opts.uid])),
-    } as any);
+  const raw = await getGlobalDoc('expeditions', exp.id);
+  if (!raw) throw new Error('Expedition missing');
+  const data = raw as any as ExpeditionDoc;
+  if (data.status !== 'active') throw new Error('Expedition is not active');
+  const members = Array.isArray((data as any).members) ? ((data as any).members as ExpeditionMember[]) : [];
+  const memberUids = Array.isArray((data as any).memberUids) ? ((data as any).memberUids as string[]) : members.map((m) => m.uid);
+  if (members.some((m) => m.uid === opts.uid)) {
+    await setActiveExpeditionId(opts.uid, exp.id);
+    return exp;
+  }
+  if (members.length >= 6) throw new Error('Expedition is full');
+  await updateGlobalDoc('expeditions', exp.id, {
+    members: [...members, { uid: opts.uid, username: opts.username, joinedAt: nowIso() }],
+    memberUids: Array.from(new Set([...memberUids, opts.uid])),
   });
 
   await setActiveExpeditionId(opts.uid, exp.id);
@@ -152,18 +134,16 @@ export async function leaveActiveExpedition(uid: string): Promise<void> {
   const st = await getUserExpeditionState(uid);
   if (!st?.activeExpeditionId) return;
   const expId = st.activeExpeditionId;
-  const ref = doc(db, 'expeditions', expId);
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const data = snap.data() as any;
+  const raw = await getGlobalDoc('expeditions', expId);
+  if (raw) {
+    const data = raw as any;
     const members = Array.isArray(data.members) ? (data.members as ExpeditionMember[]) : [];
-    const nextMembers = members.filter((m) => m.uid !== uid);
+    const nextMembers = members.filter((m: ExpeditionMember) => m.uid !== uid);
     const nextMemberUids = Array.isArray(data.memberUids)
-      ? (data.memberUids as string[]).filter((x) => x !== uid)
-      : nextMembers.map((m) => m.uid);
-    tx.update(ref, { members: nextMembers, memberUids: nextMemberUids } as any);
-  });
+      ? (data.memberUids as string[]).filter((x: string) => x !== uid)
+      : nextMembers.map((m: ExpeditionMember) => m.uid);
+    await updateGlobalDoc('expeditions', expId, { members: nextMembers, memberUids: nextMemberUids });
+  }
   await setActiveExpeditionId(uid, undefined);
 }
 
@@ -173,43 +153,35 @@ export async function applySolveToActiveExpedition(uid: string, seasonId: string
   if (!st?.activeExpeditionId) return;
 
   const expId = st.activeExpeditionId;
-  const ref = doc(db, 'expeditions', expId);
+  const raw = await getGlobalDoc('expeditions', expId);
+  if (!raw) return;
+  const data = raw as any;
+  if (data.status !== 'active') return;
+  if (data.seasonId !== seasonId) return;
 
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const data = snap.data() as any;
-    if (data.status !== 'active') return;
-    if (data.seasonId !== seasonId) return;
+  const nextProgress = (typeof data.progress === 'number' ? data.progress : 0) + 1;
+  const target = typeof data.target === 'number' ? data.target : 60;
+  const completed = nextProgress >= target;
 
-    const nextProgress = (typeof data.progress === 'number' ? data.progress : 0) + 1;
-    const target = typeof data.target === 'number' ? data.target : 60;
-    const completed = nextProgress >= target;
-
-    tx.update(ref, {
-      progress: increment(1),
-      status: completed ? 'completed' : 'active',
-      completedAt: completed ? nowIso() : (data.completedAt ?? null),
-    } as any);
+  await updateGlobalDoc('expeditions', expId, {
+    progress: nextProgress,
+    status: completed ? 'completed' : 'active',
+    completedAt: completed ? nowIso() : (data.completedAt ?? null),
   });
 }
 
 export async function claimExpeditionReward(uid: string, expeditionId: string): Promise<void> {
   await ensureUserInventory(uid);
-  const ref = doc(db, 'expeditions', expeditionId);
 
-  let realmId: RealmId = 'renaissance';
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) throw new Error('Expedition missing');
-    const data = snap.data() as any;
-    if (data.status !== 'completed') throw new Error('Expedition not completed yet');
-    realmId = (data.realmId ?? 'renaissance') as RealmId;
+  const raw = await getGlobalDoc('expeditions', expeditionId);
+  if (!raw) throw new Error('Expedition missing');
+  const data = raw as any;
+  if (data.status !== 'completed') throw new Error('Expedition not completed yet');
+  let realmId: RealmId = (data.realmId ?? 'renaissance') as RealmId;
 
-    const claimed = Array.isArray(data.rewardClaimedByUids) ? (data.rewardClaimedByUids as string[]) : [];
-    if (claimed.includes(uid)) return;
-    tx.update(ref, { rewardClaimedByUids: [...claimed, uid] } as any);
-  });
+  const claimed = Array.isArray(data.rewardClaimedByUids) ? (data.rewardClaimedByUids as string[]) : [];
+  if (claimed.includes(uid)) return;
+  await updateGlobalDoc('expeditions', expeditionId, { rewardClaimedByUids: [...claimed, uid] });
 
   // Reward payload: coins + relics + some energy.
   const rewardId = `exp_reward_${realmId}`;

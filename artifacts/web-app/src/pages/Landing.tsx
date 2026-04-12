@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
-import { auth } from '@/lib/firebase';
-import { signOut } from 'firebase/auth';
+import { requireSupabase } from '@/lib/supabase';
 
 export default function Landing() {
   const { user, loading } = useAuth();
@@ -11,7 +10,7 @@ export default function Landing() {
   useEffect(() => {
     const hash = window.location.hash;
     if (hash === '#logout') {
-      signOut(auth);
+      requireSupabase().auth.signOut();
       localStorage.clear();
       history.replaceState(null, '', ' ');
     }

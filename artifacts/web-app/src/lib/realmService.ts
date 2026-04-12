@@ -1,14 +1,13 @@
-import { db } from '@/lib/firebase';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { getUserDoc, setUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';
 import type { RealmId, RealmMode, UserRealmStateDoc } from '@/types/realms';
 
 export const DEFAULT_REALM_ID: RealmId = 'renaissance';
 export const DEFAULT_REALM_MODE: RealmMode = 'cozy';
 
 export async function getUserRealmState(uid: string): Promise<UserRealmStateDoc | null> {
-  const snap = await getDoc(doc(db, 'users', uid, 'realm_state', 'global'));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<UserRealmStateDoc>;
+  const raw = await getUserDoc(uid, 'realm_state', 'global');
+  if (!raw) return null;
+  const data = raw as Partial<UserRealmStateDoc>;
   const selectedRealmId = (data.selectedRealmId ?? DEFAULT_REALM_ID) as RealmId;
   const mode = (data.mode ?? DEFAULT_REALM_MODE) as RealmMode;
   return {
@@ -28,19 +27,19 @@ export async function ensureUserRealmState(uid: string): Promise<UserRealmStateD
     mode: DEFAULT_REALM_MODE,
     updatedAt: new Date().toISOString(),
   };
-  await setDoc(doc(db, 'users', uid, 'realm_state', 'global'), init);
+  await setUserDoc(uid, 'realm_state', 'global', init as any);
   return init;
 }
 
 export async function setSelectedRealm(uid: string, selectedRealmId: RealmId): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'realm_state', 'global'), {
+  await updateUserDoc(uid, 'realm_state', 'global', {
     selectedRealmId,
     updatedAt: new Date().toISOString(),
   });
 }
 
 export async function setRealmMode(uid: string, mode: RealmMode): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'realm_state', 'global'), {
+  await updateUserDoc(uid, 'realm_state', 'global', {
     mode,
     updatedAt: new Date().toISOString(),
   });

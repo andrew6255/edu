@@ -1,15 +1,4 @@
-import { db } from '@/lib/firebase';
-import {
-  Transaction,
-  Unsubscribe,
-  collection,
-  doc,
-  getDoc,
-  onSnapshot,
-  runTransaction,
-  setDoc,
-  updateDoc,
-} from 'firebase/firestore';
+import { getGlobalDoc, setGlobalDoc, updateGlobalDoc, listenGlobalDoc } from '@/lib/supabaseDocStore';
 import type { LogicGameFriendMatch } from '@/types/logicGameFriend';
 import type { LogicGameQuestion } from '@/types/logicGames';
 import { getPublishedLogicGameQuestions } from '@/lib/logicGamesService';
@@ -100,14 +89,14 @@ export async function createLogicGameFriendMatch(args: {
     updatedAt: startedAt,
   };
 
-  await setDoc(doc(db, 'logicGameFriendMatches', matchId), match);
+  await setGlobalDoc('logicGameFriendMatches', matchId, match as any);
   return match;
 }
 
-export function listenLogicGameFriendMatch(matchId: string, cb: (m: LogicGameFriendMatch) => void): Unsubscribe {
-  return onSnapshot(doc(db, 'logicGameFriendMatches', matchId), (snap) => {
-    if (!snap.exists()) return;
-    cb(snap.data() as LogicGameFriendMatch);
+export function listenLogicGameFriendMatch(matchId: string, cb: (m: LogicGameFriendMatch) => void): () => void {
+  getGlobalDoc('logicGameFriendMatches', matchId).then(d => { if (d) cb(d as any as LogicGameFriendMatch); }).catch(() => {});
+  return listenGlobalDoc('logicGameFriendMatches', matchId, (data) => {
+    cb(data as any as LogicGameFriendMatch);
   });
 }
 
@@ -121,16 +110,12 @@ function uidToKey(match: LogicGameFriendMatch, uid: string): 'host' | 'guest' | 
   return null;
 }
 
-async function getQuestionTimeLimitSecTx(args: {
-  tx: Transaction;
-  nodeId: string;
-  questionId: string;
-}): Promise<number> {
-  const snap = await args.tx.get(doc(db, 'logic_game_questions_public', args.nodeId));
-  if (!snap.exists()) return 30;
-  const data = snap.data() as { questions?: LogicGameQuestion[] };
+async function getQuestionTimeLimitSec(nodeId: string, questionId: string): Promise<number> {
+  const raw = await getGlobalDoc('logic_game_questions_public', nodeId);
+  if (!raw) return 30;
+  const data = raw as { questions?: LogicGameQuestion[] };
   const qs = Array.isArray(data?.questions) ? data.questions : [];
-  const q = qs.find((x) => x?.id === args.questionId) ?? null;
+  const q = qs.find((x) => x?.id === questionId) ?? null;
   const sec = q ? Math.max(1, Math.floor(q.timeLimitSec)) : 30;
   return sec;
 }
@@ -140,99 +125,93 @@ export async function submitLogicGameFriendAttempt(args: {
   uid: string;
   status: 'correct' | 'wrong' | 'timeout';
 }): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, 'logicGameFriendMatches', args.matchId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const match = snap.data() as LogicGameFriendMatch;
-    if (match.state !== 'playing') return;
-    if (!isParticipant(match, args.uid)) return;
+  const raw = await getGlobalDoc('logicGameFriendMatches', args.matchId);
+  if (!raw) return;
+  const match = raw as any as LogicGameFriendMatch;
+  if (match.state !== 'playing') return;
+  if (!isParticipant(match, args.uid)) return;
 
-    const round = match.currentRound;
-    const attempts = { ...(round.attempts ?? {}) };
-    if (attempts[args.uid]) return;
+  const round = match.currentRound;
+  const attempts = { ...(round.attempts ?? {}) };
+  if (attempts[args.uid]) return;
 
-    attempts[args.uid] = { status: args.status, answeredAt: nowIso() };
+  attempts[args.uid] = { status: args.status, answeredAt: nowIso() };
 
-    // Resolve rules:
-    // - If someone is correct -> they win point immediately.
-    // - If both wrong/timeout -> new question same round (no point).
-    const hostAttempt = attempts[match.hostUid] ?? null;
-    const guestAttempt = attempts[match.guestUid] ?? null;
+  const hostAttempt = attempts[match.hostUid] ?? null;
+  const guestAttempt = attempts[match.guestUid] ?? null;
 
-    let nextMatch: Partial<LogicGameFriendMatch> & Record<string, unknown> = {
-      updatedAt: nowIso(),
-      'currentRound.attempts': attempts,
+  let nextMatch: Partial<LogicGameFriendMatch> & Record<string, unknown> = {
+    updatedAt: nowIso(),
+    'currentRound.attempts': attempts,
+  };
+
+  const someoneCorrect = (hostAttempt?.status === 'correct') || (guestAttempt?.status === 'correct');
+
+  if (someoneCorrect) {
+    const winnerUid = hostAttempt?.status === 'correct' ? match.hostUid : match.guestUid;
+    const hostWins = (match.hostWins ?? 0) + (winnerUid === match.hostUid ? 1 : 0);
+    const guestWins = (match.guestWins ?? 0) + (winnerUid === match.guestUid ? 1 : 0);
+    const matchOver = hostWins >= 3 || guestWins >= 3;
+
+    nextMatch = {
+      ...nextMatch,
+      hostWins,
+      guestWins,
+      'currentRound.winnerUid': winnerUid,
+      state: matchOver ? 'complete' : 'playing',
     };
 
-    const someoneCorrect = (hostAttempt?.status === 'correct') || (guestAttempt?.status === 'correct');
+    if (!matchOver) {
+      const nextRoundIndex = (round.roundIndex ?? 0) + 1;
+      const nextPtr = ((match.questionPtr ?? 0) + 1) % Math.max(1, (match.questionIds ?? []).length);
+      const nextQid = (match.questionIds ?? [round.questionId])[nextPtr] ?? round.questionId;
 
-    if (someoneCorrect) {
-      const winnerUid = hostAttempt?.status === 'correct' ? match.hostUid : match.guestUid;
-      const hostWins = (match.hostWins ?? 0) + (winnerUid === match.hostUid ? 1 : 0);
-      const guestWins = (match.guestWins ?? 0) + (winnerUid === match.guestUid ? 1 : 0);
-      const matchOver = hostWins >= 3 || guestWins >= 3;
+      const startedAt = nowIso();
+      const sec = await getQuestionTimeLimitSec(match.nodeId, nextQid);
+      const deadlineAt = new Date(Date.now() + sec * 1000).toISOString();
 
       nextMatch = {
         ...nextMatch,
-        hostWins,
-        guestWins,
-        'currentRound.winnerUid': winnerUid,
-        state: matchOver ? 'complete' : 'playing',
-      };
-
-      if (!matchOver) {
-        const nextRoundIndex = (round.roundIndex ?? 0) + 1;
-        const nextPtr = ((match.questionPtr ?? 0) + 1) % Math.max(1, (match.questionIds ?? []).length);
-        const nextQid = (match.questionIds ?? [round.questionId])[nextPtr] ?? round.questionId;
-
-        const startedAt = nowIso();
-        const sec = await getQuestionTimeLimitSecTx({ tx, nodeId: match.nodeId, questionId: nextQid });
-        const deadlineAt = new Date(Date.now() + sec * 1000).toISOString();
-
-        nextMatch = {
-          ...nextMatch,
-          questionPtr: nextPtr,
-          currentRound: {
-            roundIndex: nextRoundIndex,
-            questionId: nextQid,
-            startedAt,
-            deadlineAt,
-            attempts: {},
-            winnerUid: null,
-          },
-        };
-      }
-
-      tx.update(ref, nextMatch);
-      return;
-    }
-
-    const bothFailed = !!hostAttempt && !!guestAttempt;
-    if (bothFailed) {
-      const nextPtr = ((match.questionPtr ?? 0) + 1) % Math.max(1, (match.questionIds ?? []).length);
-      const nextQid = (match.questionIds ?? [round.questionId])[nextPtr] ?? round.questionId;
-      const startedAt = nowIso();
-      const sec = await getQuestionTimeLimitSecTx({ tx, nodeId: match.nodeId, questionId: nextQid });
-      const deadlineAt = new Date(Date.now() + sec * 1000).toISOString();
-
-      tx.update(ref, {
-        ...nextMatch,
         questionPtr: nextPtr,
         currentRound: {
-          roundIndex: round.roundIndex ?? 0,
+          roundIndex: nextRoundIndex,
           questionId: nextQid,
           startedAt,
           deadlineAt,
           attempts: {},
           winnerUid: null,
         },
-      });
-      return;
+      };
     }
 
-    tx.update(ref, nextMatch);
-  });
+    await updateGlobalDoc('logicGameFriendMatches', args.matchId, nextMatch);
+    return;
+  }
+
+  const bothFailed = !!hostAttempt && !!guestAttempt;
+  if (bothFailed) {
+    const nextPtr = ((match.questionPtr ?? 0) + 1) % Math.max(1, (match.questionIds ?? []).length);
+    const nextQid = (match.questionIds ?? [round.questionId])[nextPtr] ?? round.questionId;
+    const startedAt = nowIso();
+    const sec = await getQuestionTimeLimitSec(match.nodeId, nextQid);
+    const deadlineAt = new Date(Date.now() + sec * 1000).toISOString();
+
+    await updateGlobalDoc('logicGameFriendMatches', args.matchId, {
+      ...nextMatch,
+      questionPtr: nextPtr,
+      currentRound: {
+        roundIndex: round.roundIndex ?? 0,
+        questionId: nextQid,
+        startedAt,
+        deadlineAt,
+        attempts: {},
+        winnerUid: null,
+      },
+    });
+    return;
+  }
+
+  await updateGlobalDoc('logicGameFriendMatches', args.matchId, nextMatch);
 }
 
 export async function bumpLogicGameFriendDeadline(args: {
@@ -240,11 +219,9 @@ export async function bumpLogicGameFriendDeadline(args: {
   uid: string;
   deadlineAt: string;
 }): Promise<void> {
-  // Participants may update deadline at start of a round; used to set per-question timeLimitSec.
-  const ref = doc(db, 'logicGameFriendMatches', args.matchId);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return;
-  const match = snap.data() as LogicGameFriendMatch;
+  const raw = await getGlobalDoc('logicGameFriendMatches', args.matchId);
+  if (!raw) return;
+  const match = raw as any as LogicGameFriendMatch;
   if (!isParticipant(match, args.uid)) return;
-  await updateDoc(ref, { 'currentRound.deadlineAt': args.deadlineAt, updatedAt: nowIso() });
+  await updateGlobalDoc('logicGameFriendMatches', args.matchId, { 'currentRound.deadlineAt': args.deadlineAt, updatedAt: nowIso() });
 }

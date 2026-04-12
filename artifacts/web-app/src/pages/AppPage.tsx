@@ -66,7 +66,28 @@ export default function AppPage() {
     );
   }
 
-  if (!user || !userData) return null;
+  if (!user) return null;
+
+  if (!userData) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
+        <div style={{ textAlign: 'center', animation: 'fadeIn 0.3s ease', maxWidth: 420, padding: 20 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>⚔️</div>
+          <div style={{ color: '#94a3b8', fontSize: 16, marginBottom: 10 }}>Loading your realm...</div>
+          <div style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+            Your account is signed in, but your profile is still being prepared.
+          </div>
+          <button
+            className="ll-btn"
+            onClick={refreshUserData}
+            style={{ padding: '10px 16px' }}
+          >
+            Retry profile load
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Show curriculum onboarding only for new students explicitly flagged (existing users w/ undefined field are skipped)
   if (userData.onboardingComplete === false && userData.role === 'student') {

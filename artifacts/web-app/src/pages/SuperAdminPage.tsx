@@ -1,15 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import { signOut } from 'firebase/auth';
-import { auth, storage } from '@/lib/firebase';
+import { requireSupabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAllUsers, updateUserData, deleteUserData, updateEconomy, UserData, UserRole, computeLevel } from '@/lib/userService';
-import { db } from '@/lib/firebase';
-import { collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, setDoc, updateDoc } from 'firebase/firestore';
-import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { convertNestedProgramToInternal, parseNestedProgramJson } from '@/lib/programNestedImport';
 import ProgramMapView from '@/views/ProgramMapView';
 import { clearDraftProgram } from '@/lib/draftProgramStore';
+import { uploadProgramQuestionAsset } from '@/lib/programAssetService';
+import {
+  deleteDraftProgramAdmin,
+  getDraftProgramAdmin,
+  listProgramsAdmin,
+  publishProgramAdmin,
+  saveDraftProgramAdmin,
+  savePublishedProgramAdmin,
+  softDeletePublishedProgramAdmin,
+} from '@/lib/programAdminService';
 import {
   listDraftLogicGameNodes,
   getDraftLogicGameQuestions,
@@ -44,6 +50,21 @@ const ROLE_COLORS: Record<UserRole, string> = {
   student: '#3b82f6', superadmin: '#a855f7'
 };
 
+function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefinedDeep(item)) as T;
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [k, stripUndefinedDeep(v)]);
+    return Object.fromEntries(entries) as T;
+  }
+
+  return value;
+}
+
 export default function SuperAdminPage() {
   const { user, userData } = useAuth();
   const [, setLocation] = useLocation();
@@ -68,17 +89,28 @@ export default function SuperAdminPage() {
 
   async function loadData() {
     setLoading(true);
-    const [u] = await Promise.all([getAllUsers()]);
-    setUsers(u);
-    setLoading(false);
+    try {
+      const [u] = await Promise.all([getAllUsers()]);
+      setUsers(u);
+    } catch (e) {
+      console.error('Failed to load users:', e);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleRoleChange(uid: string, role: UserRole) {
     setChangingRole(uid);
-    const updates: Partial<UserData> = { role };
-    await updateUserData(uid, updates);
-    setUsers(prev => prev.map(u => u.uid === uid ? { ...u, ...updates } : u));
-    setChangingRole(null);
+    try {
+      const supabase = requireSupabase();
+      const { error } = await supabase.rpc('admin_update_user_role', { target_uid: uid, new_role: role });
+      if (error) throw error;
+      setUsers(prev => prev.map(u => u.uid === uid ? { ...u, role } : u));
+    } catch (e) {
+      console.error('Failed to change role:', e);
+    } finally {
+      setChangingRole(null);
+    }
   }
 
   async function handleDeleteUser(uid: string) {
@@ -148,7 +180,7 @@ export default function SuperAdminPage() {
             <button onClick={loadData} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', cursor: 'pointer' }}>
               ↺ Refresh
             </button>
-            <button onClick={async () => { await signOut(auth); localStorage.clear(); setLocation('/auth'); }} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>
+            <button onClick={async () => { await requireSupabase().auth.signOut(); localStorage.clear(); setLocation('/auth'); }} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>
               Sign Out
             </button>
           </div>
@@ -893,19 +925,16 @@ function ProgramsAdmin() {
 
   async function load() {
     setLoading(true);
-    const q = query(collection(db, 'public_programs'), orderBy('title'));
-    const snap = await getDocs(q);
-    const next = snap.docs
-      .map((d) => ({ id: d.id, ...(d.data() as any) }))
-      .filter((p: any) => !(typeof p?.deletedAt === 'string' && p.deletedAt)) as typeof items;
-    setItems(next);
-
-    const dq = query(collection(db, 'draft_programs'), orderBy('title'));
-    const dsnap = await getDocs(dq);
-    const dnext = dsnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as typeof draftItems;
-    setDraftItems(dnext);
-
-    setLoading(false);
+    try {
+      const [next, dnext] = await Promise.all([
+        listProgramsAdmin('published'),
+        listProgramsAdmin('draft'),
+      ]);
+      setItems(next as typeof items);
+      setDraftItems(dnext as typeof draftItems);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -969,12 +998,11 @@ function ProgramsAdmin() {
     setEditingId(null);
     setEditingDraftId(d.id);
     try {
-      const snap = await getDoc(doc(db, 'draft_programs', d.id));
-      if (!snap.exists()) {
+      const data = await getDraftProgramAdmin(d.id);
+      if (!data) {
         window.alert('Draft not found');
         return;
       }
-      const data = snap.data() as any;
       const spec = data?.builderSpec as BuilderSpec | undefined;
       const next = spec && typeof spec === 'object' && spec.version === '1.0'
         ? spec
@@ -1055,7 +1083,7 @@ function ProgramsAdmin() {
     setSaving(true);
     try {
       const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
-      const payload: Record<string, unknown> = {
+      const payload: Record<string, unknown> = stripUndefinedDeep({
         title,
         subject: builder.subject ?? 'mathematics',
         coverEmoji: builder.coverEmoji ?? '📘',
@@ -1066,11 +1094,11 @@ function ProgramsAdmin() {
         rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
         builderSpec: { ...builder, programId, programTitle: title },
         updatedAt: new Date().toISOString(),
-      };
+      });
       const gb = (builder.gradeBand ?? '').trim();
       if (gb) payload.grade_band = gb;
 
-      await setDoc(doc(db, 'draft_programs', programId), payload, { merge: true });
+      await saveDraftProgramAdmin(programId, payload);
       setEditingDraftId(programId);
       await load();
       window.alert('Draft saved');
@@ -1091,7 +1119,7 @@ function ProgramsAdmin() {
     setSaving(true);
     try {
       const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
-      const payload: Record<string, unknown> = {
+      const payload: Record<string, unknown> = stripUndefinedDeep({
         title,
         subject: builder.subject ?? 'mathematics',
         coverEmoji: builder.coverEmoji ?? '📘',
@@ -1102,16 +1130,12 @@ function ProgramsAdmin() {
         rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
         builderSpec: { ...builder, programId, programTitle: title },
         updatedAt: new Date().toISOString(),
-      };
+      });
       const gb = (builder.gradeBand ?? '').trim();
       if (gb) payload.grade_band = gb;
 
-      await setDoc(doc(db, 'public_programs', programId), payload, { merge: true });
-      // If this was a draft, optionally remove it to avoid confusion.
-      if (editingDraftId) {
-        await deleteDoc(doc(db, 'draft_programs', editingDraftId));
-        setEditingDraftId(null);
-      }
+      await publishProgramAdmin(programId, payload, editingDraftId);
+      if (editingDraftId) setEditingDraftId(null);
       await load();
       setView('list');
       setEditingId(programId);
@@ -1159,7 +1183,7 @@ function ProgramsAdmin() {
 
   async function removeDraft(programId: string) {
     if (!window.confirm('Delete this draft?')) return;
-    await deleteDoc(doc(db, 'draft_programs', programId));
+    await deleteDraftProgramAdmin(programId);
     await load();
     if (editingDraftId === programId) resetDraft();
   }
@@ -1233,7 +1257,7 @@ function ProgramsAdmin() {
         payload.rankedTotalQuestionCount = total;
       }
 
-      await setDoc(doc(db, 'public_programs', id), payload, { merge: true });
+      await savePublishedProgramAdmin(id, payload);
 
       await load();
       resetDraft();
@@ -1246,7 +1270,7 @@ function ProgramsAdmin() {
 
   async function remove(id: string) {
     if (!window.confirm('are you sure you want to delete this?')) return;
-    await updateDoc(doc(db, 'public_programs', id), { deletedAt: new Date().toISOString() });
+    await softDeletePublishedProgramAdmin(id);
     await load();
     if (editingId === id) resetDraft();
   }
@@ -1670,17 +1694,8 @@ function ProgramsAdmin() {
                                       setUploadedImageUrl('');
                                       try {
                                         const programId = (builder.programId || makeIdFromTitle(builder.programTitle) || 'program').trim() || 'program';
-                                        const safeName = String(f.name || 'image')
-                                          .trim()
-                                          .toLowerCase()
-                                          .replace(/[^a-z0-9.]+/g, '-')
-                                          .replace(/^-+|-+$/g, '')
-                                          .slice(0, 80);
-                                        const path = `programAssets/${programId}/questions/${Date.now()}_${safeName}`;
-                                        const r = storageRef(storage, path);
-                                        await uploadBytes(r, f);
-                                        const url = await getDownloadURL(r);
-                                        setUploadedImageUrl(url);
+                                        const uploaded = await uploadProgramQuestionAsset(f, programId);
+                                        setUploadedImageUrl(uploaded.url);
                                       } catch (err) {
                                         setUploadedImageErr(err instanceof Error ? err.message : String(err));
                                       } finally {
@@ -1750,16 +1765,8 @@ function ProgramsAdmin() {
                                               setUploadedImageUrl('');
                                               try {
                                                 const programId = (builder.programId || makeIdFromTitle(builder.programTitle) || 'program').trim() || 'program';
-                                                const safeName = String(f.name || 'image')
-                                                  .trim()
-                                                  .toLowerCase()
-                                                  .replace(/[^a-z0-9.]+/g, '-')
-                                                  .replace(/^-+|-+$/g, '')
-                                                  .slice(0, 80);
-                                                const path = `programAssets/${programId}/questions/${Date.now()}_${safeName}`;
-                                                const r = storageRef(storage, path);
-                                                await uploadBytes(r, f);
-                                                const url = await getDownloadURL(r);
+                                                const uploaded = await uploadProgramQuestionAsset(f, programId);
+                                                const url = uploaded.url;
                                                 setUploadedImageUrl(url);
 
                                                 const raw2 = qt.jsonText.trim() ? JSON.parse(qt.jsonText) : [];

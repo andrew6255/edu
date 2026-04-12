@@ -1,20 +1,4 @@
-import { db } from '@/lib/firebase';
-import {
-  Unsubscribe,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  runTransaction,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  addDoc,
-} from 'firebase/firestore';
+import { getGlobalDoc, setGlobalDoc, updateGlobalDoc, deleteGlobalDoc, queryGlobalDocs, listenGlobalDoc, listenGlobalCollection } from '@/lib/supabaseDocStore';
 import {
   ProgramStudyAnswer,
   ProgramStudyMessage,
@@ -34,6 +18,7 @@ function makeCode(len = 5) {
 }
 
 const SESSIONS_COL = 'programStudySessions';
+const MESSAGES_COL_PREFIX = 'programStudyMessages:';
 
 export async function createProgramStudySession(args: {
   host: { uid: string; username: string };
@@ -44,8 +29,8 @@ export async function createProgramStudySession(args: {
 }): Promise<ProgramStudySession> {
   let code = makeCode();
   for (let i = 0; i < 3; i++) {
-    const existing = await getDoc(doc(db, SESSIONS_COL, code));
-    if (!existing.exists()) break;
+    const existing = await getGlobalDoc(SESSIONS_COL, code);
+    if (!existing) break;
     code = makeCode();
   }
 
@@ -73,7 +58,7 @@ export async function createProgramStudySession(args: {
     updatedAt: t,
   };
 
-  await setDoc(doc(db, SESSIONS_COL, code), session);
+  await setGlobalDoc(SESSIONS_COL, code, session as any);
   return session;
 }
 
@@ -87,56 +72,56 @@ export async function joinProgramStudySessionByCode(args: {
 
   const maxParticipants = args.maxParticipants ?? 5;
 
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, SESSIONS_COL, code);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
+  const raw = await getGlobalDoc(SESSIONS_COL, code);
+  if (!raw) return null;
 
-    const cur = snap.data() as ProgramStudySession;
-    if (cur.state === 'complete') return;
+  const cur = raw as any as ProgramStudySession;
+  if (cur.state === 'complete') return null;
 
-    const participants = cur.participants ?? {};
-    const existing = participants[args.participant.uid];
+  const participants = cur.participants ?? {};
+  const existing = participants[args.participant.uid];
 
-    const size = Object.keys(participants).length;
-    if (!existing && size >= maxParticipants) return;
+  const size = Object.keys(participants).length;
+  if (!existing && size >= maxParticipants) return null;
 
-    const t = nowIso();
-    tx.update(ref, {
-      updatedAt: t,
-      [`participants.${args.participant.uid}`]: {
-        uid: args.participant.uid,
-        username: args.participant.username,
-        lastActiveAt: t,
-      } satisfies ProgramStudyParticipant,
-    });
+  const t = nowIso();
+  await updateGlobalDoc(SESSIONS_COL, code, {
+    updatedAt: t,
+    [`participants.${args.participant.uid}`]: {
+      uid: args.participant.uid,
+      username: args.participant.username,
+      lastActiveAt: t,
+    } satisfies ProgramStudyParticipant,
   });
 
-  const updated = await getDoc(doc(db, SESSIONS_COL, code));
-  return updated.exists() ? (updated.data() as ProgramStudySession) : null;
+  const updated = await getGlobalDoc(SESSIONS_COL, code);
+  return updated ? (updated as any as ProgramStudySession) : null;
 }
 
-export function listenProgramStudySession(sessionId: string, cb: (s: ProgramStudySession) => void): Unsubscribe {
-  return onSnapshot(doc(db, SESSIONS_COL, sessionId), (snap) => {
-    if (!snap.exists()) return;
-    cb(snap.data() as ProgramStudySession);
+export function listenProgramStudySession(sessionId: string, cb: (s: ProgramStudySession) => void): () => void {
+  getGlobalDoc(SESSIONS_COL, sessionId).then(d => { if (d) cb(d as any as ProgramStudySession); }).catch(() => {});
+  return listenGlobalDoc(SESSIONS_COL, sessionId, (data) => {
+    cb(data as any as ProgramStudySession);
   });
 }
 
 export function listenProgramStudyMessages(
   sessionId: string,
   cb: (messages: ProgramStudyMessage[]) => void,
-  opts?: { pageSize?: number }
-): Unsubscribe {
-  const pageSize = opts?.pageSize ?? 50;
-  const q = query(
-    collection(db, SESSIONS_COL, sessionId, 'messages'),
-    orderBy('createdAt', 'desc'),
-    limit(pageSize)
-  );
-  return onSnapshot(q, (snap) => {
-    const items = snap.docs
-      .map((d) => ({ id: d.id, ...(d.data() as Omit<ProgramStudyMessage, 'id'>) }))
+  _opts?: { pageSize?: number }
+): () => void {
+  const msgCol = `${MESSAGES_COL_PREFIX}${sessionId}`;
+  const fetchMsgs = () => queryGlobalDocs(msgCol)
+    .then(rows => {
+      const items = rows.map(r => ({ id: r.id, ...(r.data as any) } as ProgramStudyMessage))
+        .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+      cb(items);
+    })
+    .catch(err => { console.warn('Program study messages fetch error:', err); cb([]); });
+
+  fetchMsgs();
+  return listenGlobalCollection(msgCol, [], (docs) => {
+    const items = docs.map(d => ({ id: d.id, ...(d.data as any) } as ProgramStudyMessage))
       .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
     cb(items);
   });
@@ -151,90 +136,77 @@ export async function sendProgramStudyMessage(args: {
   const text = args.text.trim();
   if (!text) return;
 
-  await addDoc(collection(db, SESSIONS_COL, args.sessionId, 'messages'), {
+  const msgId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const msgCol = `${MESSAGES_COL_PREFIX}${args.sessionId}`;
+  await setGlobalDoc(msgCol, msgId, {
     fromUid: args.fromUid,
     fromUsername: args.fromUsername,
     text,
     createdAt: nowIso(),
-    createdAtTs: serverTimestamp(),
   });
 
-  await updateDoc(doc(db, SESSIONS_COL, args.sessionId), {
+  await updateGlobalDoc(SESSIONS_COL, args.sessionId, {
     updatedAt: nowIso(),
   });
 }
 
 export async function heartbeatProgramStudySession(sessionId: string, uid: string): Promise<void> {
   const t = nowIso();
-  await updateDoc(doc(db, SESSIONS_COL, sessionId), {
+  await updateGlobalDoc(SESSIONS_COL, sessionId, {
     updatedAt: t,
     [`participants.${uid}.lastActiveAt`]: t,
   });
 }
 
 export async function leaveProgramStudySession(sessionId: string, uid: string): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, SESSIONS_COL, sessionId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const cur = snap.data() as ProgramStudySession;
+  const raw = await getGlobalDoc(SESSIONS_COL, sessionId);
+  if (!raw) return;
+  const cur = raw as any as ProgramStudySession;
 
-    const participants = { ...(cur.participants ?? {}) };
-    delete participants[uid];
+  const participants = { ...(cur.participants ?? {}) };
+  delete participants[uid];
 
-    const nextState: ProgramStudySession['state'] = Object.keys(participants).length === 0 ? 'complete' : cur.state;
+  const nextState: ProgramStudySession['state'] = Object.keys(participants).length === 0 ? 'complete' : cur.state;
 
-    tx.update(ref, {
-      participants,
-      state: nextState,
-      updatedAt: nowIso(),
-    });
+  await updateGlobalDoc(SESSIONS_COL, sessionId, {
+    participants,
+    state: nextState,
+    updatedAt: nowIso(),
   });
 }
 
 export async function hostStartProgramStudySession(sessionId: string, hostUid: string): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, SESSIONS_COL, sessionId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const cur = snap.data() as ProgramStudySession;
-    if (cur.hostUid !== hostUid) return;
-    if (cur.state === 'complete') return;
-
-    tx.update(ref, { state: 'playing', updatedAt: nowIso() });
-  });
+  const raw = await getGlobalDoc(SESSIONS_COL, sessionId);
+  if (!raw) return;
+  const cur = raw as any as ProgramStudySession;
+  if (cur.hostUid !== hostUid) return;
+  if (cur.state === 'complete') return;
+  await updateGlobalDoc(SESSIONS_COL, sessionId, { state: 'playing', updatedAt: nowIso() });
 }
 
 export async function hostSetReveal(sessionId: string, hostUid: string, reveal: boolean): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, SESSIONS_COL, sessionId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const cur = snap.data() as ProgramStudySession;
-    if (cur.hostUid !== hostUid) return;
-    if (cur.state !== 'playing') return;
-
-    tx.update(ref, { reveal, updatedAt: nowIso() });
-  });
+  const raw = await getGlobalDoc(SESSIONS_COL, sessionId);
+  if (!raw) return;
+  const cur = raw as any as ProgramStudySession;
+  if (cur.hostUid !== hostUid) return;
+  if (cur.state !== 'playing') return;
+  await updateGlobalDoc(SESSIONS_COL, sessionId, { reveal, updatedAt: nowIso() });
 }
 
 export async function hostGoToIndex(sessionId: string, hostUid: string, index: number): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, SESSIONS_COL, sessionId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const cur = snap.data() as ProgramStudySession;
-    if (cur.hostUid !== hostUid) return;
-    if (cur.state !== 'playing') return;
+  const raw = await getGlobalDoc(SESSIONS_COL, sessionId);
+  if (!raw) return;
+  const cur = raw as any as ProgramStudySession;
+  if (cur.hostUid !== hostUid) return;
+  if (cur.state !== 'playing') return;
 
-    const max = Math.max(0, (cur.questionIds?.length ?? 0) - 1);
-    const nextIndex = Math.min(Math.max(0, index), max);
+  const max = Math.max(0, (cur.questionIds?.length ?? 0) - 1);
+  const nextIndex = Math.min(Math.max(0, index), max);
 
-    tx.update(ref, {
-      currentIndex: nextIndex,
-      reveal: false,
-      updatedAt: nowIso(),
-    });
+  await updateGlobalDoc(SESSIONS_COL, sessionId, {
+    currentIndex: nextIndex,
+    reveal: false,
+    updatedAt: nowIso(),
   });
 }
 
@@ -244,72 +216,63 @@ export async function submitProgramStudyAnswer(args: {
   questionId: string;
   answer: ProgramStudyAnswer;
 }): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, SESSIONS_COL, args.sessionId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const session = snap.data() as ProgramStudySession;
-    if (session.state !== 'playing') return;
+  const raw = await getGlobalDoc(SESSIONS_COL, args.sessionId);
+  if (!raw) return;
+  const session = raw as any as ProgramStudySession;
+  if (session.state !== 'playing') return;
 
-    const participants = session.participants ?? {};
-    if (!participants[args.uid]) return;
+  const participants = session.participants ?? {};
+  if (!participants[args.uid]) return;
 
-    const curAnswersForQ = session.answers?.[args.questionId] ?? {};
-    if (curAnswersForQ[args.uid]) return;
+  const curAnswersForQ = session.answers?.[args.questionId] ?? {};
+  if (curAnswersForQ[args.uid]) return;
 
-    const nextForQ = { ...curAnswersForQ, [args.uid]: args.answer };
+  const nextForQ = { ...curAnswersForQ, [args.uid]: args.answer };
 
-    tx.update(ref, {
-      updatedAt: nowIso(),
-      [`answers.${args.questionId}`]: nextForQ,
-      [`participants.${args.uid}.lastActiveAt`]: nowIso(),
-    });
+  await updateGlobalDoc(SESSIONS_COL, args.sessionId, {
+    updatedAt: nowIso(),
+    [`answers.${args.questionId}`]: nextForQ,
+    [`participants.${args.uid}.lastActiveAt`]: nowIso(),
   });
 }
 
 export async function tryCleanupInactiveProgramStudySession(sessionId: string, inactivityMs = 30_000): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, SESSIONS_COL, sessionId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const session = snap.data() as ProgramStudySession;
-    if (session.state === 'complete') return;
+  const raw = await getGlobalDoc(SESSIONS_COL, sessionId);
+  if (!raw) return;
+  const session = raw as any as ProgramStudySession;
+  if (session.state === 'complete') return;
 
-    const now = Date.now();
-    const participants = session.participants ?? {};
+  const now = Date.now();
+  const participants = session.participants ?? {};
 
-    const next: Record<string, ProgramStudyParticipant> = {};
-    for (const [uid, p] of Object.entries(participants)) {
-      const ts = Date.parse(p.lastActiveAt);
-      if (!Number.isFinite(ts) || now - ts <= inactivityMs) {
-        next[uid] = p;
-      }
+  const next: Record<string, ProgramStudyParticipant> = {};
+  for (const [uid, p] of Object.entries(participants)) {
+    const ts = Date.parse(p.lastActiveAt);
+    if (!Number.isFinite(ts) || now - ts <= inactivityMs) {
+      next[uid] = p;
     }
+  }
 
-    if (Object.keys(next).length === 0) {
-      tx.update(ref, { participants: {}, state: 'complete', updatedAt: nowIso() });
-      return;
-    }
+  if (Object.keys(next).length === 0) {
+    await updateGlobalDoc(SESSIONS_COL, sessionId, { participants: {}, state: 'complete', updatedAt: nowIso() });
+    return;
+  }
 
-    if (Object.keys(next).length !== Object.keys(participants).length) {
-      tx.update(ref, { participants: next, updatedAt: nowIso() });
-    }
-  });
+  if (Object.keys(next).length !== Object.keys(participants).length) {
+    await updateGlobalDoc(SESSIONS_COL, sessionId, { participants: next, updatedAt: nowIso() });
+  }
 }
 
 export async function deleteProgramStudySession(sessionId: string, uid: string): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, SESSIONS_COL, sessionId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const cur = snap.data() as ProgramStudySession;
+  const raw = await getGlobalDoc(SESSIONS_COL, sessionId);
+  if (raw) {
+    const cur = raw as any as ProgramStudySession;
     if (cur.hostUid !== uid) return;
-    tx.update(ref, { state: 'complete', updatedAt: nowIso() });
-  });
+    await updateGlobalDoc(SESSIONS_COL, sessionId, { state: 'complete', updatedAt: nowIso() });
+  }
 
-  // Best-effort hard delete for disposability (will require rules support).
   try {
-    await deleteDoc(doc(db, SESSIONS_COL, sessionId));
+    await deleteGlobalDoc(SESSIONS_COL, sessionId);
   } catch {
     // ignore
   }

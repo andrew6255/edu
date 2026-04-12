@@ -378,9 +378,9 @@ function WheelSection({ uid, energy, inventory, onRefresh, onReload }: {
     setSpinning(true);
     // Deduct 1 energy
     try {
-      const { doc: fDoc, updateDoc: fUpdate } = await import('firebase/firestore');
-      const { db: fDb } = await import('@/lib/firebase');
-      await fUpdate(fDoc(fDb, 'users', uid), { 'economy.energy': Math.max(0, energy - 1) } as any);
+      const { getUserData, updateUserData } = await import('@/lib/userService');
+      const ud = await getUserData(uid);
+      if (ud) await updateUserData(uid, { economy: { ...ud.economy, energy: Math.max(0, energy - 1) } } as any);
     } catch { /* best-effort */ }
 
     const seg = spinWheel();

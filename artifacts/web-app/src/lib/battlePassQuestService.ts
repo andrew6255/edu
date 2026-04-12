@@ -1,8 +1,4 @@
-import { db } from '@/lib/firebase';
-import {
-  doc,
-  runTransaction,
-} from 'firebase/firestore';
+import { getUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';
 import { ensureUserBattlePassProgress } from '@/lib/battlePassService';
 import { ensureUserInventory } from '@/lib/inventoryService';
 import type { UserBattlePassProgressDoc } from '@/types/battlePass';
@@ -150,82 +146,77 @@ export async function ensureQuestsForToday(uid: string, seasonId: string): Promi
         ? 'Orbital'
         : 'Realm';
 
-  const ref = doc(db, 'users', uid, 'battlepass', seasonId);
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const data = snap.data() as ProgressWithQuests;
+  const raw = await getUserDoc(uid, 'battlepass', seasonId);
+  if (!raw) return;
+  const data = raw as ProgressWithQuests;
 
-    const next: Partial<ProgressWithQuests> = { updatedAt: new Date().toISOString() };
+  const next: Partial<ProgressWithQuests> = { updatedAt: new Date().toISOString() };
 
-    if (data.dailyKey !== dk || !Array.isArray(data.dailyQuests) || data.dailyQuests.length === 0) {
-      next.dailyKey = dk;
-      next.dailyQuests = buildDefaultDailies(realmName);
-    }
+  if (data.dailyKey !== dk || !Array.isArray(data.dailyQuests) || data.dailyQuests.length === 0) {
+    next.dailyKey = dk;
+    next.dailyQuests = buildDefaultDailies(realmName);
+  }
 
-    if (data.weeklyKey !== wk || !Array.isArray(data.weeklyQuests) || data.weeklyQuests.length === 0) {
-      next.weeklyKey = wk;
-      next.weeklyQuests = buildDefaultWeeklies(realmName);
-    }
+  if (data.weeklyKey !== wk || !Array.isArray(data.weeklyQuests) || data.weeklyQuests.length === 0) {
+    next.weeklyKey = wk;
+    next.weeklyQuests = buildDefaultWeeklies(realmName);
+  }
 
-    if (!Array.isArray(data.contracts) || data.contracts.length === 0) {
-      next.contracts = buildDefaultContracts();
-    }
+  if (!Array.isArray(data.contracts) || data.contracts.length === 0) {
+    next.contracts = buildDefaultContracts();
+  }
 
-    if (Object.keys(next).length > 1) {
-      tx.update(ref, next as any);
-    }
-  });
+  if (Object.keys(next).length > 1) {
+    await updateUserDoc(uid, 'battlepass', seasonId, next as any);
+  }
 }
 
 export async function applySolveEventToQuests(uid: string, seasonId: string, e: SolveEvent): Promise<void> {
   await ensureQuestsForToday(uid, seasonId);
   const nowIso = new Date().toISOString();
-  const ref = doc(db, 'users', uid, 'battlepass', seasonId);
 
   // 1) Update quest progress and mark any newly completed quests.
   const newlyCompleted: Array<{ questId: string; reward: UserQuest['reward'] }> = [];
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const data = snap.data() as ProgressWithQuests;
 
-    const daily = Array.isArray(data.dailyQuests) ? data.dailyQuests : [];
-    const weekly = Array.isArray(data.weeklyQuests) ? data.weeklyQuests : [];
-    const contracts = Array.isArray(data.contracts) ? data.contracts : [];
-    const rewardGrants = Array.isArray(data.rewardGrants) ? data.rewardGrants : [];
+  const raw = await getUserDoc(uid, 'battlepass', seasonId);
+  if (!raw) return;
+  const data = raw as ProgressWithQuests;
 
-    function bump(list: UserQuest[], listKey: string): UserQuest[] {
-      return list.map((q) => {
-        const inc = applySolveToQuest(q, e);
-        const progressed = inc > 0 && !q.completedAt ? { ...q, progress: Math.min(q.requirement.target, q.progress + inc) } : q;
-        const completed = completeIfReady(progressed, nowIso);
+  const daily = Array.isArray(data.dailyQuests) ? data.dailyQuests : [];
+  const weekly = Array.isArray(data.weeklyQuests) ? data.weeklyQuests : [];
+  const contracts = Array.isArray(data.contracts) ? data.contracts : [];
+  const rewardGrants = Array.isArray(data.rewardGrants) ? [...data.rewardGrants] : [];
 
-        if (completed.completedAt && !completed.claimedAt) {
-          const grantId = `${listKey}:${completed.id}:${completed.completedAt}`;
-          if (!rewardGrants.includes(grantId)) {
-            newlyCompleted.push({ questId: grantId, reward: completed.reward });
-            rewardGrants.push(grantId);
-          }
-          return { ...completed, claimedAt: completed.completedAt };
+  function bump(list: UserQuest[], listKey: string): UserQuest[] {
+    return list.map((q) => {
+      const inc = applySolveToQuest(q, e);
+      const progressed = inc > 0 && !q.completedAt ? { ...q, progress: Math.min(q.requirement.target, q.progress + inc) } : q;
+      const completed = completeIfReady(progressed, nowIso);
+
+      if (completed.completedAt && !completed.claimedAt) {
+        const grantId = `${listKey}:${completed.id}:${completed.completedAt}`;
+        if (!rewardGrants.includes(grantId)) {
+          newlyCompleted.push({ questId: grantId, reward: completed.reward });
+          rewardGrants.push(grantId);
         }
+        return { ...completed, claimedAt: completed.completedAt };
+      }
 
-        return completed;
-      });
-    }
+      return completed;
+    });
+  }
 
-    const nextDaily = bump(daily, 'daily');
-    const nextWeekly = bump(weekly, 'weekly');
-    const nextContracts = bump(contracts, 'contract');
+  const nextDaily = bump(daily, 'daily');
+  const nextWeekly = bump(weekly, 'weekly');
+  const nextContracts = bump(contracts, 'contract');
 
-    tx.update(ref, {
-      dailyQuests: nextDaily,
-      weeklyQuests: nextWeekly,
-      contracts: nextContracts,
-      rewardGrants,
-      updatedAt: nowIso,
-    } as any);
-  });
+  await updateUserDoc(uid, 'battlepass', seasonId, {
+    dailyQuests: nextDaily,
+    weeklyQuests: nextWeekly,
+    contracts: nextContracts,
+    rewardGrants,
+    updatedAt: nowIso,
+  } as any);
 
   // 2) Grant rewards (idempotence is protected by rewardGrants stored in battlepass doc).
   for (const g of newlyCompleted) {

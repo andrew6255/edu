@@ -1,14 +1,7 @@
-import { db } from '@/lib/firebase';
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  updateDoc,
-} from 'firebase/firestore';
 import { getDraftProgram } from '@/lib/draftProgramStore';
+import { getDraftProgramAdmin, getPublishedProgramAdmin, listProgramsAdmin } from '@/lib/programAdminService';
+import { getUserData, updateUserData } from '@/lib/userService';
+import { deleteUserDoc } from '@/lib/supabaseDocStore';
 
 export type TocItem = {
   id: string;
@@ -45,65 +38,13 @@ export type PublicProgram = {
   draftKey?: string;
 };
 
-export async function getDraftProgramFromDb(programId: string): Promise<PublicProgram | null> {
-  const snap = await getDoc(doc(db, 'draft_programs', programId));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<PublicProgram>;
+function toPublicProgram(data: Partial<PublicProgram> & { id: string }): PublicProgram | null {
   const toc = data.toc as TocData | undefined;
   if (!toc || !Array.isArray(toc.toc_tree)) return null;
-  return {
-    id: snap.id,
-    title: (data.title as string) ?? snap.id,
-    subject: data.subject,
-    grade_band: data.grade_band,
-    coverEmoji: data.coverEmoji,
-    questionBankPath: typeof (data as any).questionBankPath === 'string' ? ((data as any).questionBankPath as string) : undefined,
-    annotationsPath: typeof (data as any).annotationsPath === 'string' ? ((data as any).annotationsPath as string) : undefined,
-    questionBank: (data as any).questionBank,
-    questionBanksByChapter: (data as any).questionBanksByChapter,
-    rankedTotalQuestionCount: typeof (data as any).rankedTotalQuestionCount === 'number' ? ((data as any).rankedTotalQuestionCount as number) : undefined,
-    annotations: (data as any).annotations,
-    programMeta: (data as any).programMeta,
-    toc,
-  };
-}
-
-export async function listPublicPrograms(): Promise<PublicProgram[]> {
-  const snap = await getDocs(query(collection(db, 'public_programs')));
-  return snap.docs
-    .map((d) => {
-      const data = d.data() as Partial<PublicProgram>;
-      return {
-        id: d.id,
-        title: (data.title as string) ?? d.id,
-        subject: data.subject,
-        grade_band: data.grade_band,
-        coverEmoji: data.coverEmoji,
-        questionBankPath: typeof (data as any).questionBankPath === 'string' ? ((data as any).questionBankPath as string) : undefined,
-        annotationsPath: typeof (data as any).annotationsPath === 'string' ? ((data as any).annotationsPath as string) : undefined,
-        questionBank: (data as any).questionBank,
-        questionBanksByChapter: (data as any).questionBanksByChapter,
-        rankedTotalQuestionCount: typeof (data as any).rankedTotalQuestionCount === 'number' ? ((data as any).rankedTotalQuestionCount as number) : undefined,
-        annotations: (data as any).annotations,
-        programMeta: (data as any).programMeta,
-        toc: (data.toc as TocData)!,
-        deletedAt: typeof (data as any).deletedAt === 'string' ? ((data as any).deletedAt as string) : undefined,
-      } satisfies PublicProgram;
-    })
-    .filter((p) => !!p.toc && Array.isArray(p.toc.toc_tree))
-    .filter((p) => !p.deletedAt);
-}
-
-export async function getPublicProgram(programId: string): Promise<PublicProgram | null> {
-  const snap = await getDoc(doc(db, 'public_programs', programId));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<PublicProgram>;
   if (typeof (data as any).deletedAt === 'string' && (data as any).deletedAt) return null;
-  const toc = data.toc as TocData | undefined;
-  if (!toc || !Array.isArray(toc.toc_tree)) return null;
   return {
-    id: snap.id,
-    title: (data.title as string) ?? snap.id,
+    id: data.id,
+    title: (data.title as string) ?? data.id,
     subject: data.subject,
     grade_band: data.grade_band,
     coverEmoji: data.coverEmoji,
@@ -117,6 +58,25 @@ export async function getPublicProgram(programId: string): Promise<PublicProgram
     toc,
     deletedAt: typeof (data as any).deletedAt === 'string' ? ((data as any).deletedAt as string) : undefined,
   };
+}
+
+export async function getDraftProgramFromDb(programId: string): Promise<PublicProgram | null> {
+  const data = await getDraftProgramAdmin(programId);
+  if (!data) return null;
+  return toPublicProgram(data as Partial<PublicProgram> & { id: string });
+}
+
+export async function listPublicPrograms(): Promise<PublicProgram[]> {
+  const rows = await listProgramsAdmin('published');
+  return rows
+    .map((row) => toPublicProgram(row as Partial<PublicProgram> & { id: string }))
+    .filter((p): p is PublicProgram => !!p);
+}
+
+export async function getPublicProgram(programId: string): Promise<PublicProgram | null> {
+  const data = await getPublishedProgramAdmin(programId);
+  if (!data) return null;
+  return toPublicProgram(data as Partial<PublicProgram> & { id: string });
 }
 
 export async function getPublicProgramOrDraft(programId: string): Promise<PublicProgram | null> {
@@ -136,29 +96,21 @@ export async function getPublicProgramOrDraft(programId: string): Promise<Public
 }
 
 export async function purgeProgramFromUser(uid: string, programId: string): Promise<void> {
-  const userRef = doc(db, 'users', uid);
-  const userSnap = await getDoc(userRef);
-  if (!userSnap.exists()) return;
+  const data = await getUserData(uid);
+  if (!data) return;
 
-  const data = userSnap.data() as {
-    assignedProgramIds?: unknown;
-    activeProgramIds?: unknown;
-    activeProgramId?: unknown;
-    completedProgramIds?: unknown;
-  };
-
-  const assigned = Array.isArray(data.assignedProgramIds) ? (data.assignedProgramIds as string[]) : [];
+  const assigned = Array.isArray(data.assignedProgramIds) ? data.assignedProgramIds : [];
   const activeIds = Array.isArray(data.activeProgramIds)
-    ? (data.activeProgramIds as string[])
-    : (typeof data.activeProgramId === 'string' && data.activeProgramId ? [data.activeProgramId as string] : []);
-  const completed = Array.isArray(data.completedProgramIds) ? (data.completedProgramIds as string[]) : [];
+    ? data.activeProgramIds
+    : (typeof data.activeProgramId === 'string' && data.activeProgramId ? [data.activeProgramId] : []);
+  const completed = Array.isArray(data.completedProgramIds) ? data.completedProgramIds : [];
 
   const nextAssigned = assigned.filter((x) => x !== programId);
   const nextActive = activeIds.filter((x) => x !== programId);
   const nextCompleted = completed.filter((x) => x !== programId);
   const nextPrimary = nextActive.length > 0 ? nextActive[0] : null;
 
-  await updateDoc(userRef, {
+  await updateUserData(uid, {
     assignedProgramIds: nextAssigned,
     activeProgramIds: nextActive,
     activeProgramId: nextPrimary,
@@ -166,69 +118,55 @@ export async function purgeProgramFromUser(uid: string, programId: string): Prom
   });
 
   // Best-effort progress cleanup for this user.
-  await deleteDoc(doc(db, 'users', uid, 'program_progress', programId));
+  try { await deleteUserDoc(uid, 'program_progress', programId); } catch {}
 }
 
 export async function assignProgramToUser(uid: string, programId: string): Promise<void> {
-  const userRef = doc(db, 'users', uid);
-  const userSnap = await getDoc(userRef);
-  if (!userSnap.exists()) return;
-  const data = userSnap.data() as { assignedProgramIds?: unknown };
-  const current = Array.isArray(data.assignedProgramIds) ? (data.assignedProgramIds as string[]) : [];
+  const data = await getUserData(uid);
+  if (!data) return;
+  const current = Array.isArray(data.assignedProgramIds) ? data.assignedProgramIds : [];
   const next = Array.from(new Set([...current, programId]));
-  await updateDoc(userRef, { assignedProgramIds: next });
+  await updateUserData(uid, { assignedProgramIds: next });
 }
 
 export async function activateProgramForUser(uid: string, programId: string | null): Promise<void> {
-  const userRef = doc(db, 'users', uid);
-  await updateDoc(userRef, { activeProgramId: programId });
+  await updateUserData(uid, { activeProgramId: programId });
 }
 
 export async function toggleActiveProgramForUser(uid: string, programId: string): Promise<void> {
-  const userRef = doc(db, 'users', uid);
-  const userSnap = await getDoc(userRef);
-  if (!userSnap.exists()) return;
-
-  const data = userSnap.data() as { activeProgramIds?: unknown; activeProgramId?: unknown };
+  const data = await getUserData(uid);
+  if (!data) return;
 
   const current = Array.isArray(data.activeProgramIds)
-    ? (data.activeProgramIds as string[])
-    : (typeof data.activeProgramId === 'string' && data.activeProgramId ? [data.activeProgramId as string] : []);
+    ? data.activeProgramIds
+    : (typeof data.activeProgramId === 'string' && data.activeProgramId ? [data.activeProgramId] : []);
 
   const exists = current.includes(programId);
   const next = exists ? current.filter((x) => x !== programId) : Array.from(new Set([...current, programId]));
   const primary = next.length > 0 ? next[0] : null;
 
-  await updateDoc(userRef, {
+  await updateUserData(uid, {
     activeProgramIds: next,
     activeProgramId: primary,
   });
 }
 
 export async function removeProgramFromUser(uid: string, programId: string): Promise<void> {
-  const userRef = doc(db, 'users', uid);
-  const userSnap = await getDoc(userRef);
-  if (!userSnap.exists()) return;
+  const data = await getUserData(uid);
+  if (!data) return;
 
-  const data = userSnap.data() as {
-    assignedProgramIds?: unknown;
-    activeProgramIds?: unknown;
-    activeProgramId?: unknown;
-    completedProgramIds?: unknown;
-  };
-
-  const assigned = Array.isArray(data.assignedProgramIds) ? (data.assignedProgramIds as string[]) : [];
-  const completed = Array.isArray(data.completedProgramIds) ? (data.completedProgramIds as string[]) : [];
+  const assigned = Array.isArray(data.assignedProgramIds) ? data.assignedProgramIds : [];
+  const completed = Array.isArray(data.completedProgramIds) ? data.completedProgramIds : [];
   const active = Array.isArray(data.activeProgramIds)
-    ? (data.activeProgramIds as string[])
-    : (typeof data.activeProgramId === 'string' && data.activeProgramId ? [data.activeProgramId as string] : []);
+    ? data.activeProgramIds
+    : (typeof data.activeProgramId === 'string' && data.activeProgramId ? [data.activeProgramId] : []);
 
   const nextAssigned = assigned.filter((x) => x !== programId);
   const nextCompleted = completed.filter((x) => x !== programId);
   const nextActive = active.filter((x) => x !== programId);
   const primary = nextActive.length > 0 ? nextActive[0] : null;
 
-  await updateDoc(userRef, {
+  await updateUserData(uid, {
     assignedProgramIds: nextAssigned,
     completedProgramIds: nextCompleted,
     activeProgramIds: nextActive,
@@ -237,30 +175,23 @@ export async function removeProgramFromUser(uid: string, programId: string): Pro
 }
 
 export async function setProgramCompletedForUser(uid: string, programId: string, completed: boolean): Promise<void> {
-  const userRef = doc(db, 'users', uid);
-  const userSnap = await getDoc(userRef);
-  if (!userSnap.exists()) return;
+  const data = await getUserData(uid);
+  if (!data) return;
 
-  const data = userSnap.data() as {
-    completedProgramIds?: unknown;
-    activeProgramIds?: unknown;
-    activeProgramId?: unknown;
-  };
-
-  const curCompleted = Array.isArray(data.completedProgramIds) ? (data.completedProgramIds as string[]) : [];
+  const curCompleted = Array.isArray(data.completedProgramIds) ? data.completedProgramIds : [];
   const nextCompleted = completed
     ? Array.from(new Set([...curCompleted, programId]))
     : curCompleted.filter((x) => x !== programId);
 
   // If completed, remove from active lists (optional UX expectation)
   const curActive = Array.isArray(data.activeProgramIds)
-    ? (data.activeProgramIds as string[])
-    : (typeof data.activeProgramId === 'string' && data.activeProgramId ? [data.activeProgramId as string] : []);
+    ? data.activeProgramIds
+    : (typeof data.activeProgramId === 'string' && data.activeProgramId ? [data.activeProgramId] : []);
 
   const nextActive = completed ? curActive.filter((x) => x !== programId) : curActive;
   const primary = nextActive.length > 0 ? nextActive[0] : null;
 
-  await updateDoc(userRef, {
+  await updateUserData(uid, {
     completedProgramIds: nextCompleted,
     activeProgramIds: nextActive,
     activeProgramId: primary,

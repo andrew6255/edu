@@ -1,13 +1,4 @@
-import { db } from '@/lib/firebase';
-import {
-  doc,
-  setDoc,
-  updateDoc,
-  getDoc,
-  onSnapshot,
-  Unsubscribe,
-  runTransaction,
-} from 'firebase/firestore';
+import { getGlobalDoc, setGlobalDoc, updateGlobalDoc, listenGlobalDoc } from '@/lib/supabaseDocStore';
 import { ProgramFriendAnswer, ProgramFriendSession, ProgramFriendPlayer } from '@/types/programFriend';
 
 function makeCode(len = 6) {
@@ -32,8 +23,8 @@ export async function createProgramFriendSession(args: {
   // (no list/query permissions needed).
   let code = makeCode();
   for (let i = 0; i < 3; i++) {
-    const existing = await getDoc(doc(db, 'programFriendSessions', code));
-    if (!existing.exists()) break;
+    const existing = await getGlobalDoc('programFriendSessions', code);
+    if (!existing) break;
     code = makeCode();
   }
 
@@ -55,7 +46,7 @@ export async function createProgramFriendSession(args: {
     answers: {},
   };
 
-  await setDoc(doc(db, 'programFriendSessions', code), session);
+  await setGlobalDoc('programFriendSessions', code, session as any);
   return session;
 }
 
@@ -66,34 +57,29 @@ export async function joinProgramFriendSessionByCode(args: {
   const code = args.code.trim().toUpperCase();
   if (!code) return null;
   const id = code;
-  const pre = await getDoc(doc(db, 'programFriendSessions', id));
-  if (!pre.exists()) return null;
+  const raw = await getGlobalDoc('programFriendSessions', id);
+  if (!raw) return null;
 
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, 'programFriendSessions', id);
-    const curSnap = await tx.get(ref);
-    if (!curSnap.exists()) return;
-    const cur = curSnap.data() as ProgramFriendSession;
-    if (cur.state !== 'waiting') return;
-    if (cur.guest?.uid) return;
-    if (cur.host.uid === args.guest.uid) return;
+  const cur = raw as any as ProgramFriendSession;
+  if (cur.state !== 'waiting') return cur;
+  if (cur.guest?.uid) return cur;
+  if (cur.host.uid === args.guest.uid) return cur;
 
-    tx.update(ref, {
-      guest: args.guest,
-      state: 'playing',
-      updatedAt: nowIso(),
-      [`scores.${args.guest.uid}`]: 0,
-    });
+  await updateGlobalDoc('programFriendSessions', id, {
+    guest: args.guest,
+    state: 'playing',
+    updatedAt: nowIso(),
+    [`scores.${args.guest.uid}`]: 0,
   });
 
-  const updated = await getDoc(doc(db, 'programFriendSessions', id));
-  return updated.exists() ? (updated.data() as ProgramFriendSession) : null;
+  const updated = await getGlobalDoc('programFriendSessions', id);
+  return updated ? (updated as any as ProgramFriendSession) : null;
 }
 
-export function listenProgramFriendSession(sessionId: string, cb: (s: ProgramFriendSession) => void): Unsubscribe {
-  return onSnapshot(doc(db, 'programFriendSessions', sessionId), (snap) => {
-    if (!snap.exists()) return;
-    cb(snap.data() as ProgramFriendSession);
+export function listenProgramFriendSession(sessionId: string, cb: (s: ProgramFriendSession) => void): () => void {
+  getGlobalDoc('programFriendSessions', sessionId).then(d => { if (d) cb(d as any as ProgramFriendSession); }).catch(() => {});
+  return listenGlobalDoc('programFriendSessions', sessionId, (data) => {
+    cb(data as any as ProgramFriendSession);
   });
 }
 
@@ -103,66 +89,57 @@ export async function submitProgramFriendAnswer(args: {
   questionId: string;
   answer: ProgramFriendAnswer;
 }): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, 'programFriendSessions', args.sessionId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const session = snap.data() as ProgramFriendSession;
-    if (session.state !== 'playing') return;
+  const raw = await getGlobalDoc('programFriendSessions', args.sessionId);
+  if (!raw) return;
+  const session = raw as any as ProgramFriendSession;
+  if (session.state !== 'playing') return;
 
-    const curAnswersForQ = session.answers?.[args.questionId] ?? {};
-    if (curAnswersForQ[args.uid]) return;
+  const curAnswersForQ = session.answers?.[args.questionId] ?? {};
+  if (curAnswersForQ[args.uid]) return;
 
-    const nextAnswersForQ = {
-      ...curAnswersForQ,
-      [args.uid]: args.answer,
-    };
+  const nextAnswersForQ = {
+    ...curAnswersForQ,
+    [args.uid]: args.answer,
+  };
 
-    const baseUpdate: Record<string, unknown> = {
-      updatedAt: nowIso(),
-      [`answers.${args.questionId}`]: nextAnswersForQ,
-    };
+  const baseUpdate: Record<string, unknown> = {
+    updatedAt: nowIso(),
+    [`answers.${args.questionId}`]: nextAnswersForQ,
+  };
 
-    const scores = session.scores ?? {};
-    const nextScores = { ...scores };
-    if (args.answer.correct) nextScores[args.uid] = (nextScores[args.uid] ?? 0) + 1;
-    baseUpdate[`scores.${args.uid}`] = nextScores[args.uid] ?? 0;
+  const scores = session.scores ?? {};
+  const nextScores = { ...scores };
+  if (args.answer.correct) nextScores[args.uid] = (nextScores[args.uid] ?? 0) + 1;
+  baseUpdate[`scores.${args.uid}`] = nextScores[args.uid] ?? 0;
 
-    const bothAnswered = !!session.host?.uid && !!session.guest?.uid && !!nextAnswersForQ[session.host.uid] && !!nextAnswersForQ[session.guest.uid];
-    if (bothAnswered) {
-      const nextIndex = Math.min(session.currentIndex + 1, Math.max(0, (session.questionIds?.length ?? 0) - 1));
-      const isLast = session.currentIndex >= (session.questionIds?.length ?? 0) - 1;
-      baseUpdate.currentIndex = isLast ? session.currentIndex : nextIndex;
-      baseUpdate.state = isLast ? 'complete' : 'playing';
-    }
+  const bothAnswered = !!session.host?.uid && !!session.guest?.uid && !!nextAnswersForQ[session.host.uid] && !!nextAnswersForQ[session.guest.uid];
+  if (bothAnswered) {
+    const nextIndex = Math.min(session.currentIndex + 1, Math.max(0, (session.questionIds?.length ?? 0) - 1));
+    const isLast = session.currentIndex >= (session.questionIds?.length ?? 0) - 1;
+    baseUpdate.currentIndex = isLast ? session.currentIndex : nextIndex;
+    baseUpdate.state = isLast ? 'complete' : 'playing';
+  }
 
-    tx.update(ref, baseUpdate);
-  });
+  await updateGlobalDoc('programFriendSessions', args.sessionId, baseUpdate);
 }
 
 export async function leaveProgramFriendSession(sessionId: string): Promise<void> {
-  await updateDoc(doc(db, 'programFriendSessions', sessionId), { state: 'complete', updatedAt: nowIso() });
+  await updateGlobalDoc('programFriendSessions', sessionId, { state: 'complete', updatedAt: nowIso() });
 }
 
 export async function tryExpireWaitingProgramFriendSession(sessionId: string): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, 'programFriendSessions', sessionId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const session = snap.data() as ProgramFriendSession;
-    if (session.state !== 'waiting') return;
-    if (session.guest?.uid) return;
-    tx.update(ref, { state: 'complete', updatedAt: nowIso() });
-  });
+  const raw = await getGlobalDoc('programFriendSessions', sessionId);
+  if (!raw) return;
+  const session = raw as any as ProgramFriendSession;
+  if (session.state !== 'waiting') return;
+  if (session.guest?.uid) return;
+  await updateGlobalDoc('programFriendSessions', sessionId, { state: 'complete', updatedAt: nowIso() });
 }
 
 export async function tryCompleteInactiveProgramFriendSession(sessionId: string): Promise<void> {
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, 'programFriendSessions', sessionId);
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const session = snap.data() as ProgramFriendSession;
-    if (session.state !== 'playing') return;
-    tx.update(ref, { state: 'complete', updatedAt: nowIso() });
-  });
+  const raw = await getGlobalDoc('programFriendSessions', sessionId);
+  if (!raw) return;
+  const session = raw as any as ProgramFriendSession;
+  if (session.state !== 'playing') return;
+  await updateGlobalDoc('programFriendSessions', sessionId, { state: 'complete', updatedAt: nowIso() });
 }

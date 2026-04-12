@@ -1,5 +1,4 @@
-import { db } from './firebase';
-import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { getUserData, updateEconomy, updateUserData } from './userService';
 
 export interface ObjectiveProgress {
   mastered: boolean;
@@ -20,10 +19,8 @@ export interface UserProgress {
 }
 
 export async function getUserProgress(uid: string): Promise<UserProgress> {
-  const snap = await getDoc(doc(db, 'users', uid));
-  if (!snap.exists()) return {};
-  const data = snap.data();
-  return (data.progress as UserProgress) || {};
+  const data = await getUserData(uid);
+  return (data?.progress as UserProgress) || {};
 }
 
 export async function completeObjective(
@@ -33,22 +30,22 @@ export async function completeObjective(
   objectiveId: string,
   xp: number
 ): Promise<void> {
-  const key = `progress.${curriculumId}.${chapterId}.${objectiveId}`;
-  await updateDoc(doc(db, 'users', uid), {
-    [key]: {
-      mastered: true,
-      xpAwarded: xp,
-      completedAt: new Date().toISOString()
-    }
-  });
+  const current = await getUserData(uid);
+  if (!current) return;
 
-  const snap = await getDoc(doc(db, 'users', uid));
-  if (!snap.exists()) return;
-  const data = snap.data();
-  await updateDoc(doc(db, 'users', uid), {
-    'economy.global_xp': (data.economy?.global_xp || 0) + xp,
-    'economy.gold': (data.economy?.gold || 0) + Math.floor(xp / 5)
-  });
+  const progress: UserProgress = { ...(current.progress ?? {}) };
+  const curriculum = { ...(progress[curriculumId] ?? {}) };
+  const chapter = { ...(curriculum[chapterId] ?? {}) };
+  chapter[objectiveId] = {
+    mastered: true,
+    xpAwarded: xp,
+    completedAt: new Date().toISOString(),
+  };
+  curriculum[chapterId] = chapter;
+  progress[curriculumId] = curriculum;
+
+  await updateUserData(uid, { progress });
+  await updateEconomy(uid, Math.floor(xp / 5), xp);
 }
 
 export function countCompleted(

@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { signOut } from 'firebase/auth';
 import { useLocation } from 'wouter';
-import { auth } from '@/lib/firebase';
+import { requireSupabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { computeLevel } from '@/lib/userService';
 import NotificationsView from '@/views/NotificationsView';
 import FriendsView from '@/views/FriendsView';
-import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { queryGlobalDocs, listenGlobalCollection } from '@/lib/supabaseDocStore';
 import { useSession } from '@/contexts/SessionContext';
 import { forfeitSession } from '@/lib/gameSessionService';
 import type { AppNotification } from '@/lib/userService';
@@ -71,12 +69,20 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   useEffect(() => {
     const uid = user?.uid;
     if (!uid) return;
-    const q = query(collection(db, `users/${uid}/notifications`));
-    const unsub = onSnapshot(q, snap => {
-      const items = snap.docs.map(d => d.data() as AppNotification);
-      const count = items.reduce((acc, n) => acc + (n.read ? 0 : 1), 0);
+    // Initial fetch
+    queryGlobalDocs(`notifications:${uid}`).then(docs => {
+      const count = docs.reduce((acc, d) => acc + ((d.data as any).read ? 0 : 1), 0);
       setNotifBadgeCount(count);
-    });
+    }).catch(() => setNotifBadgeCount(0));
+    // Realtime listener
+    const unsub = listenGlobalCollection(
+      `notifications:${uid}`,
+      [],
+      docs => {
+        const count = docs.reduce((acc, d) => acc + ((d.data as any).read ? 0 : 1), 0);
+        setNotifBadgeCount(count);
+      }
+    );
     return unsub;
   }, [user]);
 
@@ -102,7 +108,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const battery = Math.max(0, Math.min(3, Math.floor(rankedEnergyStreak)));
 
   async function handleLogout() {
-    await signOut(auth);
+    await requireSupabase().auth.signOut();
     localStorage.clear();
     setLocation('/');
   }

@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { respondToFriendRequest, AppNotification } from '@/lib/userService';
-import { db } from '@/lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, writeBatch } from 'firebase/firestore';
+import { queryGlobalDocs, setGlobalDoc, listenGlobalCollection } from '@/lib/supabaseDocStore';
 import { listenChallengeState, respondToChallenge, respondToLogicGameChallenge } from '@/lib/gameSessionService';
 
 interface Props {
@@ -16,10 +15,20 @@ export default function NotificationsView({ onClose }: Props) {
 
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, `users/${user.uid}/notifications`), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q, snap => {
-      setNotifs(snap.docs.map(d => d.data() as AppNotification));
-    });
+    // Initial fetch
+    queryGlobalDocs(`notifications:${user.uid}`).then(docs => {
+      const items = docs.map(d => d.data as unknown as AppNotification).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+      setNotifs(items);
+    }).catch(() => setNotifs([]));
+    // Realtime listener
+    const unsub = listenGlobalCollection(
+      `notifications:${user.uid}`,
+      [],
+      docs => {
+        const items = docs.map(d => d.data as unknown as AppNotification).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+        setNotifs(items);
+      }
+    );
     return unsub;
   }, [user]);
 
@@ -49,13 +58,11 @@ export default function NotificationsView({ onClose }: Props) {
 
       const unsub = listenChallengeState(n.challengeId, async challenge => {
         if (challenge.state === 'pending') return;
-        await writeBatch(db)
-          .set(doc(db, `users/${user.uid}/notifications`, n.id), {
-            resolved: true,
-            resolvedAt: new Date().toISOString(),
-            read: true,
-          }, { merge: true })
-          .commit();
+        await setGlobalDoc(`notifications:${user.uid}`, n.id, {
+          resolved: true,
+          resolvedAt: new Date().toISOString(),
+          read: true,
+        } as any, true);
       });
       cleanup.set(n.id, unsub);
     }
@@ -71,11 +78,9 @@ export default function NotificationsView({ onClose }: Props) {
     const unread = notifs.filter(n => !n.read);
     if (unread.length === 0) return;
 
-    const batch = writeBatch(db);
     for (const n of unread) {
-      batch.set(doc(db, `users/${user.uid}/notifications`, n.id), { read: true }, { merge: true });
+      setGlobalDoc(`notifications:${user.uid}`, n.id, { read: true } as any, true).catch(() => {});
     }
-    batch.commit();
   }, [user, notifs]);
 
   useEffect(() => {
@@ -88,43 +93,37 @@ export default function NotificationsView({ onClose }: Props) {
     );
     if (toResolve.length === 0) return;
 
-    const batch = writeBatch(db);
     for (const n of toResolve) {
-      batch.set(doc(db, `users/${user.uid}/notifications`, n.id), {
+      setGlobalDoc(`notifications:${user.uid}`, n.id, {
         message: `You are now friends with ${n.fromUsername}.`,
         resolved: true,
         resolvedAt: new Date().toISOString(),
         read: true,
         type: 'system',
-      }, { merge: true });
+      } as any, true).catch(() => {});
     }
-    batch.commit();
   }, [user, userData?.friends, notifs]);
 
   async function handleResponse(n: AppNotification, accept: boolean) {
     if (!user) return;
     await respondToFriendRequest(user.uid, n.fromUid, accept);
-    await writeBatch(db)
-      .set(doc(db, `users/${user.uid}/notifications`, n.id), {
-        ...(accept ? { message: `You are now friends with ${n.fromUsername}.`, type: 'system' } : {}),
-        resolved: true,
-        resolvedAt: new Date().toISOString(),
-        read: true,
-      }, { merge: true })
-      .commit();
+    await setGlobalDoc(`notifications:${user.uid}`, n.id, {
+      ...(accept ? { message: `You are now friends with ${n.fromUsername}.`, type: 'system' } : {}),
+      resolved: true,
+      resolvedAt: new Date().toISOString(),
+      read: true,
+    } as any, true);
     await refreshUserData();
   }
 
   async function handleChallenge(n: AppNotification, accept: boolean) {
     if (!user) return;
     if (!n.challengeId || !n.gameId) {
-      await writeBatch(db)
-        .set(doc(db, `users/${user.uid}/notifications`, n.id), {
-          resolved: true,
-          resolvedAt: new Date().toISOString(),
-          read: true,
-        }, { merge: true })
-        .commit();
+      await setGlobalDoc(`notifications:${user.uid}`, n.id, {
+        resolved: true,
+        resolvedAt: new Date().toISOString(),
+        read: true,
+      } as any, true);
       return;
     }
 
@@ -168,13 +167,11 @@ export default function NotificationsView({ onClose }: Props) {
       }
     }
 
-    await writeBatch(db)
-      .set(doc(db, `users/${user.uid}/notifications`, n.id), {
-        resolved: true,
-        resolvedAt: new Date().toISOString(),
-        read: true,
-      }, { merge: true })
-      .commit();
+    await setGlobalDoc(`notifications:${user.uid}`, n.id, {
+      resolved: true,
+      resolvedAt: new Date().toISOString(),
+      read: true,
+    } as any, true);
   }
 
   return (

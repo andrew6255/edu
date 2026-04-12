@@ -1,16 +1,4 @@
-import { db } from '@/lib/firebase';
-import {
-  collection,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  runTransaction,
-  query,
-  where,
-  getDocs,
-  increment,
-} from 'firebase/firestore';
+import { getUserDoc, setUserDoc, updateUserDoc, getGlobalDoc, setGlobalDoc, updateGlobalDoc, queryGlobalDocs } from '@/lib/supabaseDocStore';
 import type { DuelDoc, DuelPlayer, UserDuelStateDoc } from '@/types/duels';
 import type { RealmId } from '@/types/realms';
 import { ensureUserInventory } from '@/lib/inventoryService';
@@ -32,9 +20,9 @@ function makeCode(): string {
 }
 
 export async function getUserDuelState(uid: string): Promise<UserDuelStateDoc | null> {
-  const snap = await getDoc(doc(db, 'users', uid, 'duel_state', 'global'));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<UserDuelStateDoc>;
+  const raw = await getUserDoc(uid, 'duel_state', 'global');
+  if (!raw) return null;
+  const data = raw as Partial<UserDuelStateDoc>;
 
   const recentDuelIds = Array.isArray((data as any).recentDuelIds) ? ((data as any).recentDuelIds as unknown[]).filter((x) => typeof x === 'string') as string[] : undefined;
   const lastScoreAtByDuelIdRaw = (data as any).lastScoreAtByDuelId;
@@ -56,13 +44,13 @@ export async function ensureUserDuelState(uid: string): Promise<UserDuelStateDoc
   const existing = await getUserDuelState(uid);
   if (existing) return existing;
   const init: UserDuelStateDoc = { id: 'global', updatedAt: nowIso(), recentDuelIds: [], lastScoreAtByDuelId: {} };
-  await setDoc(doc(db, 'users', uid, 'duel_state', 'global'), {
+  await setUserDoc(uid, 'duel_state', 'global', {
     id: init.id,
     activeDuelId: null,
     recentDuelIds: [],
     lastScoreAtByDuelId: {},
     updatedAt: init.updatedAt,
-  } as any);
+  });
   return init;
 }
 
@@ -81,15 +69,11 @@ function clampRecent(ids: string[], max: number): string[] {
 
 export async function recordRecentDuel(uid: string, duelId: string): Promise<void> {
   await ensureUserDuelState(uid);
-  const stRef = doc(db, 'users', uid, 'duel_state', 'global');
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(stRef);
-    if (!snap.exists()) return;
-    const data = snap.data() as any;
-    const recent: string[] = Array.isArray(data.recentDuelIds) ? (data.recentDuelIds as string[]) : [];
-    const next = clampRecent([duelId, ...recent], 12);
-    tx.update(stRef, { recentDuelIds: next, updatedAt: nowIso() } as any);
-  });
+  const raw = await getUserDoc(uid, 'duel_state', 'global');
+  if (!raw) return;
+  const recent: string[] = Array.isArray(raw.recentDuelIds) ? (raw.recentDuelIds as string[]) : [];
+  const next = clampRecent([duelId, ...recent], 12);
+  await updateUserDoc(uid, 'duel_state', 'global', { recentDuelIds: next, updatedAt: nowIso() });
 }
 
 export async function listRecentDuels(uid: string): Promise<DuelDoc[]> {
@@ -101,26 +85,24 @@ export async function listRecentDuels(uid: string): Promise<DuelDoc[]> {
 }
 
 export async function setActiveDuelId(uid: string, duelId: string | undefined): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'duel_state', 'global'), {
+  await updateUserDoc(uid, 'duel_state', 'global', {
     activeDuelId: duelId ?? null,
     updatedAt: nowIso(),
-  } as any);
+  });
 }
 
 export async function getDuel(duelId: string): Promise<DuelDoc | null> {
-  const snap = await getDoc(doc(db, 'duels', duelId));
-  if (!snap.exists()) return null;
-  return { id: duelId, ...(snap.data() as any) } as DuelDoc;
+  const raw = await getGlobalDoc('duels', duelId);
+  if (!raw) return null;
+  return { id: duelId, ...(raw as any) } as DuelDoc;
 }
 
 export async function findDuelByCode(code: string): Promise<DuelDoc | null> {
   const c = String(code || '').trim().toUpperCase();
   if (!c) return null;
-  const q0 = query(collection(db, 'duels'), where('code', '==', c));
-  const snaps = await getDocs(q0);
-  const first = snaps.docs[0];
-  if (!first) return null;
-  return { id: first.id, ...(first.data() as any) } as DuelDoc;
+  const rows = await queryGlobalDocs('duels', [{ field: 'code', op: 'eq', value: c }]);
+  if (rows.length === 0) return null;
+  return { id: rows[0].id, ...(rows[0].data as any) } as DuelDoc;
 }
 
 export async function createDuel(opts: {
@@ -134,7 +116,6 @@ export async function createDuel(opts: {
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = makeCode();
     const duelId = `${code}_${Date.now()}`;
-    const ref = doc(db, 'duels', duelId);
 
     const host: DuelPlayer = { uid: opts.uid, username: opts.username };
     const init: Omit<DuelDoc, 'id'> = {
@@ -156,7 +137,7 @@ export async function createDuel(opts: {
     };
 
     try {
-      await setDoc(ref, init);
+      await setGlobalDoc('duels', duelId, init as any);
       await setActiveDuelId(opts.uid, duelId);
       return { id: duelId, ...init };
     } catch {
@@ -176,36 +157,32 @@ export async function joinDuelByCode(opts: {
   const duel = await findDuelByCode(opts.code);
   if (!duel) throw new Error('Invalid duel code');
 
-  const ref = doc(db, 'duels', duel.id);
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) throw new Error('Duel missing');
-    const data = snap.data() as any;
+  const raw = await getGlobalDoc('duels', duel.id);
+  if (!raw) throw new Error('Duel missing');
+  const data = raw as any;
 
-    const status = (data.status ?? 'active') as string;
-    if (status !== 'active') throw new Error('Duel not active');
+  const status = (data.status ?? 'active') as string;
+  if (status !== 'active') throw new Error('Duel not active');
 
-    const expiresAt = typeof data.expiresAt === 'string' ? Date.parse(data.expiresAt) : 0;
-    if (expiresAt && Date.now() > expiresAt) {
-      tx.update(ref, { status: 'expired', completedAt: nowIso() } as any);
-      throw new Error('Duel expired');
-    }
+  const expiresAt = typeof data.expiresAt === 'string' ? Date.parse(data.expiresAt) : 0;
+  if (expiresAt && Date.now() > expiresAt) {
+    await updateGlobalDoc('duels', duel.id, { status: 'expired', completedAt: nowIso() });
+    throw new Error('Duel expired');
+  }
 
-    const hostUid = data.host?.uid;
-    const guestUid = data.guest?.uid;
-    const participantUids = Array.isArray(data.participantUids)
-      ? (data.participantUids as string[])
-      : [hostUid, guestUid].filter(Boolean);
+  const hostUid = data.host?.uid;
+  const guestUid = data.guest?.uid;
+  const participantUids = Array.isArray(data.participantUids)
+    ? (data.participantUids as string[])
+    : [hostUid, guestUid].filter(Boolean);
 
-    if (hostUid === opts.uid) return;
-    if (guestUid === opts.uid) return;
+  if (hostUid !== opts.uid && guestUid !== opts.uid) {
     if (data.guest != null && data.guest.uid) throw new Error('Duel already has a guest');
-
-    tx.update(ref, {
+    await updateGlobalDoc('duels', duel.id, {
       guest: { uid: opts.uid, username: opts.username },
       participantUids: Array.from(new Set([...(participantUids as string[]), opts.uid])),
-    } as any);
-  });
+    });
+  }
 
   await setActiveDuelId(opts.uid, duel.id);
   const next = await getDuel(duel.id);
@@ -227,54 +204,53 @@ export async function applySolveToActiveDuel(uid: string, seasonId: string): Pro
   if (!st?.activeDuelId) return;
 
   const duelId = st.activeDuelId;
-  const ref = doc(db, 'duels', duelId);
 
   // Minimal anti-spam: only score once per 8 seconds per user per duel.
-  // This is client-enforced (rules do not validate timestamps).
   const rateLimitMs = 8000;
-  const stRef = doc(db, 'users', uid, 'duel_state', 'global');
+  const stRaw = await getUserDoc(uid, 'duel_state', 'global');
+  if (stRaw) {
+    const lastBy: Record<string, string> = stRaw.lastScoreAtByDuelId && typeof stRaw.lastScoreAtByDuelId === 'object' ? (stRaw.lastScoreAtByDuelId as Record<string, string>) : {};
+    const lastIso = typeof lastBy[duelId] === 'string' ? lastBy[duelId] : undefined;
+    const lastMs = lastIso ? Date.parse(lastIso) : 0;
+    if (lastMs && Date.now() - lastMs < rateLimitMs) return;
+    await updateUserDoc(uid, 'duel_state', 'global', { lastScoreAtByDuelId: { ...lastBy, [duelId]: nowIso() }, updatedAt: nowIso() });
+  }
 
-  await runTransaction(db, async (tx) => {
-    const stSnap = await tx.get(stRef);
-    if (stSnap.exists()) {
-      const stData = stSnap.data() as any;
-      const lastBy: Record<string, string> = stData.lastScoreAtByDuelId && typeof stData.lastScoreAtByDuelId === 'object' ? stData.lastScoreAtByDuelId : {};
-      const lastIso = typeof lastBy[duelId] === 'string' ? lastBy[duelId] : undefined;
-      const lastMs = lastIso ? Date.parse(lastIso) : 0;
-      if (lastMs && Date.now() - lastMs < rateLimitMs) return;
-      tx.update(stRef, { lastScoreAtByDuelId: { ...lastBy, [duelId]: nowIso() }, updatedAt: nowIso() } as any);
-    }
+  const raw = await getGlobalDoc('duels', duelId);
+  if (!raw) return;
+  const data = raw as any;
 
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return;
-    const data = snap.data() as any;
+  if (data.seasonId !== seasonId) return;
+  if (data.status !== 'active') return;
 
-    if (data.seasonId !== seasonId) return;
-    if (data.status !== 'active') return;
+  const expiresAt = typeof data.expiresAt === 'string' ? Date.parse(data.expiresAt) : 0;
+  if (expiresAt && Date.now() > expiresAt) {
+    await updateGlobalDoc('duels', duelId, { status: 'expired', completedAt: nowIso() });
+    return;
+  }
 
-    const expiresAt = typeof data.expiresAt === 'string' ? Date.parse(data.expiresAt) : 0;
-    if (expiresAt && Date.now() > expiresAt) {
-      tx.update(ref, { status: 'expired', completedAt: nowIso() } as any);
-      return;
-    }
+  const hostUid = data.host?.uid;
+  const guestUid = data.guest?.uid;
+  const patch: Record<string, any> = {};
 
-    const hostUid = data.host?.uid;
-    const guestUid = data.guest?.uid;
+  if (uid === hostUid) {
+    patch.hostScore = (typeof data.hostScore === 'number' ? data.hostScore : 0) + 1;
+  } else if (uid === guestUid) {
+    patch.guestScore = (typeof data.guestScore === 'number' ? data.guestScore : 0) + 1;
+  }
 
-    if (uid === hostUid) {
-      tx.update(ref, { hostScore: increment(1) } as any);
-    } else if (uid === guestUid) {
-      tx.update(ref, { guestScore: increment(1) } as any);
-    }
+  // Auto-complete if both players have joined and one reaches 25
+  const hostScore = patch.hostScore ?? (typeof data.hostScore === 'number' ? data.hostScore : 0);
+  const guestScore = patch.guestScore ?? (typeof data.guestScore === 'number' ? data.guestScore : 0);
+  const hasGuest = !!guestUid;
+  if (hasGuest && (hostScore >= 25 || guestScore >= 25)) {
+    patch.status = 'completed';
+    patch.completedAt = nowIso();
+  }
 
-    // Auto-complete if both players have joined and one reaches 25
-    const hostScore = (typeof data.hostScore === 'number' ? data.hostScore : 0) + (uid === hostUid ? 1 : 0);
-    const guestScore = (typeof data.guestScore === 'number' ? data.guestScore : 0) + (uid === guestUid ? 1 : 0);
-    const hasGuest = !!guestUid;
-    if (hasGuest && (hostScore >= 25 || guestScore >= 25)) {
-      tx.update(ref, { status: 'completed', completedAt: nowIso() } as any);
-    }
-  });
+  if (Object.keys(patch).length > 0) {
+    await updateGlobalDoc('duels', duelId, patch);
+  }
 
   // Best-effort: keep a local recent history.
   await recordRecentDuel(uid, duelId).catch(() => {});
@@ -282,34 +258,28 @@ export async function applySolveToActiveDuel(uid: string, seasonId: string): Pro
 
 export async function claimDuelReward(uid: string, duelId: string): Promise<void> {
   await ensureUserInventory(uid);
-  const ref = doc(db, 'duels', duelId);
 
-  const outcome = await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) throw new Error('Duel missing');
-    const data = snap.data() as any;
+  const raw = await getGlobalDoc('duels', duelId);
+  if (!raw) throw new Error('Duel missing');
+  const data = raw as any;
 
-    if (data.status !== 'completed' && data.status !== 'expired') throw new Error('Duel not finished');
+  if (data.status !== 'completed' && data.status !== 'expired') throw new Error('Duel not finished');
 
-    const claimed: string[] = Array.isArray(data.rewardClaimedByUids) ? data.rewardClaimedByUids : [];
-    if (claimed.includes(uid)) return;
+  const claimed: string[] = Array.isArray(data.rewardClaimedByUids) ? data.rewardClaimedByUids : [];
+  if (claimed.includes(uid)) return;
 
-    const hostUid = data.host?.uid;
-    const guestUid = data.guest?.uid;
-    const hostScore = typeof data.hostScore === 'number' ? data.hostScore : 0;
-    const guestScore = typeof data.guestScore === 'number' ? data.guestScore : 0;
+  const hostUid = data.host?.uid;
+  const guestUid = data.guest?.uid;
+  const hostScore = typeof data.hostScore === 'number' ? data.hostScore : 0;
+  const guestScore = typeof data.guestScore === 'number' ? data.guestScore : 0;
 
-    if (uid !== hostUid && uid !== guestUid) throw new Error('Not a participant');
+  if (uid !== hostUid && uid !== guestUid) throw new Error('Not a participant');
 
-    let win: 'win' | 'lose' | 'draw' = 'draw';
-    if (hostScore > guestScore) win = uid === hostUid ? 'win' : 'lose';
-    else if (guestScore > hostScore) win = uid === guestUid ? 'win' : 'lose';
-    else win = 'draw';
+  let outcome: 'win' | 'lose' | 'draw' = 'draw';
+  if (hostScore > guestScore) outcome = uid === hostUid ? 'win' : 'lose';
+  else if (guestScore > hostScore) outcome = uid === guestUid ? 'win' : 'lose';
 
-    tx.update(ref, { rewardClaimedByUids: [...claimed, uid] } as any);
-
-    return win;
-  });
+  await updateGlobalDoc('duels', duelId, { rewardClaimedByUids: [...claimed, uid] });
 
   await recordRecentDuel(uid, duelId).catch(() => {});
 

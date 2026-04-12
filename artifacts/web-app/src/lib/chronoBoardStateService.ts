@@ -5,8 +5,7 @@
    For MVP: stored in-memory per session, persisted to Firestore.
    ═══════════════════════════════════════════════════════════ */
 
-import { db } from '@/lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { getUserDoc, setUserDoc } from '@/lib/supabaseDocStore';
 import { calcRent, type ZoneName } from '@/lib/chronoCards';
 
 function nowIso(): string { return new Date().toISOString(); }
@@ -84,17 +83,15 @@ export function createFreshBoardState(boardId: number, startingCoins: number): B
 }
 
 /* ── Persistence ───────────────────────────────────────── */
-const stateRef = (uid: string, boardId: number) =>
-  doc(db, 'users', uid, 'chrono_empires', 'global', 'boards', String(boardId), 'state', 'game');
 
 export async function loadBoardState(uid: string, boardId: number): Promise<BoardGameState | null> {
-  const snap = await getDoc(stateRef(uid, boardId));
-  if (!snap.exists()) return null;
-  return snap.data() as BoardGameState;
+  const raw = await getUserDoc(uid, 'chrono_board_state', String(boardId));
+  if (!raw) return null;
+  return raw as any as BoardGameState;
 }
 
 export async function saveBoardState(uid: string, boardId: number, state: BoardGameState): Promise<void> {
-  await setDoc(stateRef(uid, boardId), { ...state, updatedAt: nowIso() } as any);
+  await setUserDoc(uid, 'chrono_board_state', String(boardId), { ...state, updatedAt: nowIso() } as any);
 }
 
 export async function ensureBoardState(uid: string, boardId: number, classLevel: number): Promise<BoardGameState> {

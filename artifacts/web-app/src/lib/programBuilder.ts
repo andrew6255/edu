@@ -302,19 +302,20 @@ export function convertBuilderToInternal(spec: BuilderSpec): {
               ? ({ type: 'mcq', choices: q.options, correctChoiceIndex: q.correct_option_index } satisfies ProgramInteractionSpec)
               : undefined);
 
-          annChapter.annotations[key] = {
+          const ann: Record<string, unknown> = {
             question_type_id: typeId,
             difficulty: q.difficulty,
             mcq: interaction && (interaction as any).type === 'mcq'
               ? { choices: (interaction as any).choices ?? q.options, correctChoiceIndex: (interaction as any).correctChoiceIndex ?? q.correct_option_index }
               : { choices: q.options, correctChoiceIndex: q.correct_option_index },
-            interaction,
-            prompt: promptBlocks ? { blocks: promptBlocks } : undefined,
-            time_limit_seconds: q.time_required_seconds,
-            points: q.points,
-            solution: q.solution ? { raw_text: q.solution } : undefined,
-            hints: hintsArr.length > 0 ? hintsArr.map((h) => ({ raw_text: String(h) })) : undefined,
           };
+          if (interaction) ann.interaction = interaction;
+          if (promptBlocks) ann.prompt = { blocks: promptBlocks };
+          if (q.time_required_seconds != null) ann.time_limit_seconds = q.time_required_seconds;
+          if (q.points != null) ann.points = q.points;
+          if (q.solution) ann.solution = { raw_text: q.solution };
+          if (hintsArr.length > 0) ann.hints = hintsArr.map((h) => ({ raw_text: String(h) }));
+          annChapter.annotations[key] = ann as any;
         }
 
         chapter.nodes!.push({

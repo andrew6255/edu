@@ -1,11 +1,10 @@
-import { db } from '@/lib/firebase';
-import { arrayUnion, doc, getDoc, setDoc, updateDoc, increment } from 'firebase/firestore';
+import { getUserDoc, setUserDoc, updateUserDoc, resolveIncrement, resolveArrayUnion } from '@/lib/supabaseDocStore';
 import type { UserInventoryDoc } from '@/types/battlePass';
 
 export async function getUserInventory(uid: string): Promise<UserInventoryDoc | null> {
-  const snap = await getDoc(doc(db, 'users', uid, 'inventory', 'global'));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<UserInventoryDoc>;
+  const raw = await getUserDoc(uid, 'inventory', 'global');
+  if (!raw) return null;
+  const data = raw as Partial<UserInventoryDoc>;
   return {
     id: 'global',
     credits: typeof data.credits === 'number' ? data.credits : 0,
@@ -43,50 +42,47 @@ export async function ensureUserInventory(uid: string): Promise<UserInventoryDoc
     equipped: {},
     updatedAt: new Date().toISOString(),
   };
-  await setDoc(doc(db, 'users', uid, 'inventory', 'global'), init);
+  await setUserDoc(uid, 'inventory', 'global', init as any);
   return init;
 }
 
+async function incrementField(uid: string, field: string, delta: number): Promise<void> {
+  const existing = await getUserDoc(uid, 'inventory', 'global');
+  if (!existing) throw new Error('Inventory missing');
+  const newVal = resolveIncrement(existing, field, delta);
+  await updateUserDoc(uid, 'inventory', 'global', { [field]: newVal, updatedAt: new Date().toISOString() });
+}
+
 export async function addCredits(uid: string, delta: number): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'inventory', 'global'), {
-    credits: increment(delta),
-    updatedAt: new Date().toISOString(),
-  });
+  await incrementField(uid, 'credits', delta);
 }
 
 export async function addInsight(uid: string, delta: number): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'inventory', 'global'), {
-    insight: increment(delta),
-    updatedAt: new Date().toISOString(),
-  });
+  await incrementField(uid, 'insight', delta);
 }
 
 export async function addChronoCoins(uid: string, delta: number): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'inventory', 'global'), {
-    chronoCoins: increment(delta),
-    updatedAt: new Date().toISOString(),
-  });
+  await incrementField(uid, 'chronoCoins', delta);
 }
 
 export async function addRelics(uid: string, delta: number): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'inventory', 'global'), {
-    relics: increment(delta),
-    updatedAt: new Date().toISOString(),
-  });
+  await incrementField(uid, 'relics', delta);
 }
 
 export async function equipInventory(uid: string, patch: Partial<UserInventoryDoc['equipped']>): Promise<void> {
   const keys = Object.keys(patch) as Array<keyof UserInventoryDoc['equipped']>;
   const update: Record<string, any> = { updatedAt: new Date().toISOString() };
   for (const k of keys) update[`equipped.${k}`] = (patch as any)[k];
-  await updateDoc(doc(db, 'users', uid, 'inventory', 'global'), update);
+  await updateUserDoc(uid, 'inventory', 'global', update);
 }
 
 export async function addOwnedTitle(uid: string, titleId: string): Promise<void> {
   const id = String(titleId || '').trim();
   if (!id) return;
-  await updateDoc(doc(db, 'users', uid, 'inventory', 'global'), {
-    'owned.titles': arrayUnion(id),
+  const existing = await getUserDoc(uid, 'inventory', 'global') ?? {};
+  const titles = resolveArrayUnion(existing, 'owned.titles', id);
+  await updateUserDoc(uid, 'inventory', 'global', {
+    'owned.titles': titles,
     updatedAt: new Date().toISOString(),
   });
 }

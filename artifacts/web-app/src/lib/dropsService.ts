@@ -1,5 +1,4 @@
-import { db } from '@/lib/firebase';
-import { doc, getDoc, setDoc, runTransaction } from 'firebase/firestore';
+import { getUserDoc, setUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';
 import type { UserDropsDoc, WeeklyCrateKind } from '@/types/drops';
 import type { RealmId } from '@/types/realms';
 import { getUserRealmState } from '@/lib/realmService';
@@ -44,9 +43,9 @@ function titlePoolForRealm(realmId: RealmId): Array<{ id: string; name: string }
 }
 
 export async function getUserDrops(uid: string): Promise<UserDropsDoc | null> {
-  const snap = await getDoc(doc(db, 'users', uid, 'drops', 'global'));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<UserDropsDoc>;
+  const raw = await getUserDoc(uid, 'drops', 'global');
+  if (!raw) return null;
+  const data = raw as Partial<UserDropsDoc>;
   return {
     id: 'global',
     weeklyKey: typeof (data as any).weeklyKey === 'string' ? ((data as any).weeklyKey as string) : undefined,
@@ -65,14 +64,13 @@ export async function ensureUserDrops(uid: string): Promise<UserDropsDoc> {
     updatedAt: new Date().toISOString(),
   };
 
-  // Firestore does not allow undefined values in setDoc.
-  await setDoc(doc(db, 'users', uid, 'drops', 'global'), {
+  await setUserDoc(uid, 'drops', 'global', {
     id: init.id,
     weeklyKey: init.weeklyKey,
     weeklyCrateClaimedKey: null,
     lastWeeklyCrate: null,
     updatedAt: init.updatedAt,
-  } as any);
+  });
 
   return init;
 }
@@ -104,19 +102,16 @@ export async function claimWeeklyCrate(uid: string, seasonId: string, kind: Week
   const eligible = await canClaimWeeklyCrate(uid, seasonId);
   if (!eligible.ok) throw new Error(eligible.reason || 'Not eligible');
 
-  // Reserve claim in transaction to avoid double claim.
-  const dropsRef = doc(db, 'users', uid, 'drops', 'global');
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(dropsRef);
-    if (!snap.exists()) return;
-    const data = snap.data() as Partial<UserDropsDoc>;
-    const claimedKey = (data as any).weeklyCrateClaimedKey;
+  // Reserve claim — check and update.
+  const dropsRaw = await getUserDoc(uid, 'drops', 'global');
+  if (dropsRaw) {
+    const claimedKey = (dropsRaw as any).weeklyCrateClaimedKey;
     if (claimedKey === weekKey) throw new Error('Already claimed this week');
-    tx.update(dropsRef, {
-      weeklyKey: weekKey,
-      weeklyCrateClaimedKey: weekKey,
-      updatedAt: new Date().toISOString(),
-    });
+  }
+  await updateUserDoc(uid, 'drops', 'global', {
+    weeklyKey: weekKey,
+    weeklyCrateClaimedKey: weekKey,
+    updatedAt: new Date().toISOString(),
   });
 
   // Determine reward.
@@ -137,20 +132,16 @@ export async function claimWeeklyCrate(uid: string, seasonId: string, kind: Week
   }
 
   // Record last drop.
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(dropsRef);
-    if (!snap.exists()) return;
-    tx.update(dropsRef, {
-      lastWeeklyCrate: {
-        key: weekKey,
-        kind,
-        realmId,
-        rewardId: picked.id,
-        rewardName: picked.name,
-        duplicate,
-        claimedAt: new Date().toISOString(),
-      },
-      updatedAt: new Date().toISOString(),
-    } as any);
+  await updateUserDoc(uid, 'drops', 'global', {
+    lastWeeklyCrate: {
+      key: weekKey,
+      kind,
+      realmId,
+      rewardId: picked.id,
+      rewardName: picked.name,
+      duplicate,
+      claimedAt: new Date().toISOString(),
+    },
+    updatedAt: new Date().toISOString(),
   });
 }

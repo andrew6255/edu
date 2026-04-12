@@ -1,18 +1,5 @@
-import { db } from '@/lib/firebase';
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  writeBatch,
-  onSnapshot,
-  Unsubscribe,
-} from 'firebase/firestore';
+import { getGlobalDoc, setGlobalDoc, updateGlobalDoc, deleteGlobalDoc, queryGlobalDocs, setUserDoc, listenGlobalDoc, listenGlobalCollection } from '@/lib/supabaseDocStore';
+import { requireSupabase } from '@/lib/supabase';
 import { GameSession, Challenge, RoundResult, SessionPlayer } from '@/types/warmup';
 import { createLogicGameFriendMatch } from '@/lib/logicGameFriendService';
 
@@ -38,13 +25,13 @@ export async function respondToLogicGameChallenge(
   respondentUsername: string
 ): Promise<{ matchId: string } | null> {
   if (!accept) {
-    await updateDoc(doc(db, 'challenges', challengeId), { state: 'declined' });
+    await updateGlobalDoc('challenges', challengeId, { state: 'declined' });
     return null;
   }
 
-  const snap = await getDoc(doc(db, 'challenges', challengeId));
-  if (!snap.exists()) return null;
-  const challenge = snap.data() as Challenge;
+  const raw = await getGlobalDoc('challenges', challengeId);
+  if (!raw) return null;
+  const challenge = raw as any as Challenge;
   if (challenge.kind !== 'logicGame') return null;
   const nodeId = challenge.logicGameNodeId;
   if (!nodeId) throw new Error('Missing logicGameNodeId');
@@ -55,7 +42,7 @@ export async function respondToLogicGameChallenge(
     guest: { uid: respondentUid, username: respondentUsername },
   });
 
-  await updateDoc(doc(db, 'challenges', challengeId), {
+  await updateGlobalDoc('challenges', challengeId, {
     state: 'accepted',
     sessionId: match.id,
   });
@@ -115,7 +102,7 @@ export async function createSession(
     rounds: [],
     createdAt: new Date().toISOString()
   };
-  await setDoc(doc(db, 'gameSessions', id), session);
+  await setGlobalDoc('gameSessions', id, session as any);
   return session;
 }
 
@@ -124,15 +111,15 @@ export async function submitRoundScore(
   playerKey: 'player1' | 'player2',
   score: number
 ): Promise<void> {
-  await updateDoc(doc(db, 'gameSessions', sessionId), {
+  await updateGlobalDoc('gameSessions', sessionId, {
     [`${playerKey}.roundScore`]: score
   });
 }
 
 export async function resolveRound(sessionId: string): Promise<GameSession | null> {
-  const snap = await getDoc(doc(db, 'gameSessions', sessionId));
-  if (!snap.exists()) return null;
-  const session = snap.data() as GameSession;
+  const raw = await getGlobalDoc('gameSessions', sessionId);
+  if (!raw) return null;
+  const session = raw as any as GameSession;
 
   const p1Score = session.player1.roundScore ?? 0;
   const p2Score = session.player2.roundScore ?? 0;
@@ -165,29 +152,31 @@ export async function resolveRound(sessionId: string): Promise<GameSession | nul
     ...(matchOver ? { winner: matchWinner } : {})
   };
 
-  await updateDoc(doc(db, 'gameSessions', sessionId), update);
-  const updated = await getDoc(doc(db, 'gameSessions', sessionId));
-  return updated.data() as GameSession;
+  await updateGlobalDoc('gameSessions', sessionId, update);
+  const updated = await getGlobalDoc('gameSessions', sessionId);
+  return updated as any as GameSession;
 }
 
 export function listenSession(
   sessionId: string,
   callback: (session: GameSession) => void
-): Unsubscribe {
-  return onSnapshot(doc(db, 'gameSessions', sessionId), snap => {
-    if (snap.exists()) callback(snap.data() as GameSession);
+): () => void {
+  // Initial fetch
+  getGlobalDoc('gameSessions', sessionId).then(d => { if (d) callback(d as any as GameSession); }).catch(() => {});
+  return listenGlobalDoc('gameSessions', sessionId, (data) => {
+    callback(data as any as GameSession);
   });
 }
 
 export async function getSession(sessionId: string): Promise<GameSession | null> {
-  const snap = await getDoc(doc(db, 'gameSessions', sessionId));
-  return snap.exists() ? (snap.data() as GameSession) : null;
+  const raw = await getGlobalDoc('gameSessions', sessionId);
+  return raw ? (raw as any as GameSession) : null;
 }
 
 export async function forfeitSession(sessionId: string, forfeitingUid: string): Promise<void> {
-  const snap = await getDoc(doc(db, 'gameSessions', sessionId));
-  if (!snap.exists()) return;
-  const session = snap.data() as GameSession;
+  const raw = await getGlobalDoc('gameSessions', sessionId);
+  if (!raw) return;
+  const session = raw as any as GameSession;
   if (session.state === 'complete') return;
 
   const winner: 'p1' | 'p2' | 'draw' =
@@ -195,7 +184,7 @@ export async function forfeitSession(sessionId: string, forfeitingUid: string): 
 
   if (winner === 'draw') return;
 
-  await updateDoc(doc(db, 'gameSessions', sessionId), {
+  await updateGlobalDoc('gameSessions', sessionId, {
     state: 'complete',
     winner,
   });
@@ -214,29 +203,22 @@ export async function joinMatchmaking(
     joinedAt: new Date().toISOString(),
     sessionId: null
   };
-  await setDoc(doc(db, 'matchmakingQueue', entryId), entry);
+  await setGlobalDoc('matchmakingQueue', entryId, entry as any);
 
   const cutoff = new Date(Date.now() - 30000).toISOString();
-  const q = query(
-    collection(db, 'matchmakingQueue'),
-    where('gameId', '==', gameId),
-    where('sessionId', '==', null)
-  );
-  const results = await getDocs(q);
-  const others = results.docs
-    .filter(d => d.id !== entryId && d.data().joinedAt > cutoff)
-    .sort((a, b) => a.data().joinedAt.localeCompare(b.data().joinedAt));
+  const rows = await queryGlobalDocs('matchmakingQueue', [{ field: 'gameId', op: 'eq', value: gameId }]);
+  const others = rows
+    .filter(r => r.id !== entryId && (r.data as any).sessionId === null && (r.data as any).joinedAt > cutoff)
+    .sort((a, b) => ((a.data as any).joinedAt as string).localeCompare((b.data as any).joinedAt as string));
 
   if (others.length > 0) {
-    const opponent = others[0].data() as MatchmakingEntry;
+    const opponent = others[0].data as any as MatchmakingEntry;
     const p1: SessionPlayer = { uid: opponent.uid, username: opponent.username, roundScore: null, roundWins: 0, isBot: false };
     const p2: SessionPlayer = { uid, username, roundScore: null, roundWins: 0, isBot: false };
     const session = await createSession(gameId, 'ranked', p1, p2);
 
-    const batch = writeBatch(db);
-    batch.update(doc(db, 'matchmakingQueue', others[0].id), { sessionId: session.id });
-    batch.update(doc(db, 'matchmakingQueue', entryId), { sessionId: session.id });
-    await batch.commit();
+    await updateGlobalDoc('matchmakingQueue', others[0].id, { sessionId: session.id });
+    await updateGlobalDoc('matchmakingQueue', entryId, { sessionId: session.id });
 
     return { matched: true, session, entryId };
   }
@@ -247,16 +229,14 @@ export async function joinMatchmaking(
 export function listenMatchmakingEntry(
   entryId: string,
   callback: (sessionId: string) => void
-): Unsubscribe {
-  return onSnapshot(doc(db, 'matchmakingQueue', entryId), snap => {
-    if (snap.exists() && snap.data().sessionId) {
-      callback(snap.data().sessionId as string);
-    }
+): () => void {
+  return listenGlobalDoc('matchmakingQueue', entryId, (data) => {
+    if (data && data.sessionId) callback(data.sessionId as string);
   });
 }
 
 export async function cancelMatchmaking(entryId: string): Promise<void> {
-  await deleteDoc(doc(db, 'matchmakingQueue', entryId));
+  await deleteGlobalDoc('matchmakingQueue', entryId);
 }
 
 // ─── Friend Challenges ────────────────────────────────────────────────────────
@@ -273,18 +253,20 @@ export async function sendChallenge(
   const normalized = trimmed.toLowerCase();
 
   try {
-    let results = await getDocs(
-      query(collection(db, 'users'), where('username', '==', normalized))
-    );
-    if (results.empty && trimmed !== normalized) {
-      results = await getDocs(
-        query(collection(db, 'users'), where('username', '==', trimmed))
-      );
-    }
-    if (results.empty) return { success: false, error: 'Username not found' };
+    // Look up username via Supabase profiles
+    const supabase = requireSupabase();
+    const { data: profileRows } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('username', normalized)
+      .limit(1);
 
-    const toDoc = results.docs[0];
-    const toUid = toDoc.id;
+    let toUid: string | undefined = profileRows?.[0]?.id;
+    if (!toUid && trimmed !== normalized) {
+      const { data: rows2 } = await supabase.from('profiles').select('id').eq('username', trimmed).limit(1);
+      toUid = rows2?.[0]?.id;
+    }
+    if (!toUid) return { success: false, error: 'Username not found' };
     if (toUid === fromUid) return { success: false, error: 'You cannot challenge yourself' };
 
     const challengeId = makeId();
@@ -299,12 +281,11 @@ export async function sendChallenge(
       createdAt: new Date().toISOString()
     };
 
-    const batch = writeBatch(db);
-    batch.set(doc(db, 'challenges', challengeId), challenge);
+    await setGlobalDoc('challenges', challengeId, challenge as any);
 
-    const notifRef = doc(collection(db, `users/${toUid}/notifications`));
-    batch.set(notifRef, {
-      id: notifRef.id,
+    const notifId = makeId();
+    await setUserDoc(toUid, 'notifications', notifId, {
+      id: notifId,
       fromUid,
       fromUsername,
       type: 'challenge',
@@ -319,7 +300,6 @@ export async function sendChallenge(
       ...(opts?.logicGameNodeId ? { logicGameNodeId: opts.logicGameNodeId } : {}),
     });
 
-    await batch.commit();
     return { success: true, challengeId };
   } catch (e) {
     const err = e as { message?: string; code?: string };
@@ -332,33 +312,33 @@ export async function sendChallenge(
 export function listenIncomingChallenges(
   uid: string,
   callback: (challenges: Challenge[]) => void
-): Unsubscribe {
-  const q = query(
-    collection(db, 'challenges'),
-    where('toUid', '==', uid),
-    where('state', '==', 'pending')
+): () => void {
+  return listenGlobalCollection(
+    'challenges',
+    [{ field: 'toUid', value: uid }, { field: 'state', value: 'pending' }],
+    (docs) => {
+      callback(docs.map(d => d.data as any as Challenge));
+    }
   );
-  return onSnapshot(q, snap => {
-    callback(snap.docs.map(d => d.data() as Challenge));
-  });
 }
 
 export function listenChallengeState(
   challengeId: string,
   callback: (challenge: Challenge) => void
-): Unsubscribe {
-  return onSnapshot(doc(db, 'challenges', challengeId), snap => {
-    if (snap.exists()) callback(snap.data() as Challenge);
+): () => void {
+  getGlobalDoc('challenges', challengeId).then(d => { if (d) callback(d as any as Challenge); }).catch(() => {});
+  return listenGlobalDoc('challenges', challengeId, (data) => {
+    callback(data as any as Challenge);
   });
 }
 
 export async function cancelChallenge(challengeId: string, fromUid: string): Promise<void> {
-  const snap = await getDoc(doc(db, 'challenges', challengeId));
-  if (!snap.exists()) return;
-  const challenge = snap.data() as Challenge;
+  const raw = await getGlobalDoc('challenges', challengeId);
+  if (!raw) return;
+  const challenge = raw as any as Challenge;
   if (challenge.fromUid !== fromUid) return;
   if (challenge.state !== 'pending') return;
-  await updateDoc(doc(db, 'challenges', challengeId), { state: 'canceled' });
+  await updateGlobalDoc('challenges', challengeId, { state: 'canceled' });
 }
 
 export async function respondToChallenge(
@@ -368,19 +348,19 @@ export async function respondToChallenge(
   respondentUsername: string
 ): Promise<GameSession | null> {
   if (!accept) {
-    await updateDoc(doc(db, 'challenges', challengeId), { state: 'declined' });
+    await updateGlobalDoc('challenges', challengeId, { state: 'declined' });
     return null;
   }
 
-  const snap = await getDoc(doc(db, 'challenges', challengeId));
-  if (!snap.exists()) return null;
-  const challenge = snap.data() as Challenge;
+  const raw = await getGlobalDoc('challenges', challengeId);
+  if (!raw) return null;
+  const challenge = raw as any as Challenge;
 
   const p1: SessionPlayer = { uid: challenge.fromUid, username: challenge.fromUsername, roundScore: null, roundWins: 0, isBot: false };
   const p2: SessionPlayer = { uid: respondentUid, username: respondentUsername, roundScore: null, roundWins: 0, isBot: false };
   const session = await createSession(challenge.gameId, 'friend', p1, p2);
 
-  await updateDoc(doc(db, 'challenges', challengeId), {
+  await updateGlobalDoc('challenges', challengeId, {
     state: 'accepted',
     sessionId: session.id
   });
@@ -388,7 +368,7 @@ export async function respondToChallenge(
 }
 
 export async function cleanupSession(sessionId: string): Promise<void> {
-  await deleteDoc(doc(db, 'gameSessions', sessionId));
+  await deleteGlobalDoc('gameSessions', sessionId);
 }
 
 export async function sendQuickChat(
@@ -397,7 +377,7 @@ export async function sendQuickChat(
   fromUsername: string,
   text: string
 ): Promise<void> {
-  await updateDoc(doc(db, 'gameSessions', sessionId), {
+  await updateGlobalDoc('gameSessions', sessionId, {
     quickChat: {
       fromUid,
       fromUsername,

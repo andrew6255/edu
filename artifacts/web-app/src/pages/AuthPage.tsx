@@ -1,17 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import {
-  signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  updateProfile, signInWithPopup, signInWithRedirect,
-  getRedirectResult, GoogleAuthProvider, signInWithCustomToken
-} from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import {
   findUserByUsername, createUserData, isUsernameTaken, getUserData
 } from '@/lib/userService';
 import { useAuth } from '@/contexts/AuthContext';
 
 const SA_FIREBASE_EMAIL = 'god.bypass@internal.app';
+
+function formatAuthError(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const e = error as { message?: unknown; code?: unknown };
+    const parts: string[] = [];
+    if (typeof e.message === 'string' && e.message.trim()) parts.push(e.message.trim());
+    if (typeof e.code === 'string' && e.code.trim()) parts.push(`(${e.code.trim()})`);
+    if (parts.length > 0) return parts.join(' ');
+  }
+  if (typeof error === 'string' && error.trim()) return error;
+  return fallback;
+}
 
 async function generateUniqueUsername(base: string): Promise<string> {
   const clean = base.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().slice(0, 18) || 'user';
@@ -23,36 +31,59 @@ async function generateUniqueUsername(base: string): Promise<string> {
   return `${clean}${Date.now().toString().slice(-6)}`;
 }
 
-async function ensureGoogleUserDoc(firebaseUser: {
+async function ensureSuperadminProfile(uid: string): Promise<void> {
+  const existing = await getUserData(uid);
+  if (!existing) {
+    await createUserData(uid, {
+      firstName: 'God',
+      lastName: 'Admin',
+      username: 'superadmin',
+      email: SA_FIREBASE_EMAIL,
+      role: 'superadmin',
+      onboardingComplete: true,
+    });
+    return;
+  }
+
+  if (existing.role !== 'superadmin' || existing.onboardingComplete !== true || existing.username !== 'superadmin') {
+    const { updateUserData } = await import('@/lib/userService');
+    await updateUserData(uid, {
+      role: 'superadmin',
+      onboardingComplete: true,
+      username: 'superadmin',
+      email: SA_FIREBASE_EMAIL,
+    });
+  }
+}
+
+async function ensureUserDoc(authUser: {
   uid: string;
   displayName: string | null;
   email: string | null;
-}) {
-  const existing = await getUserData(firebaseUser.uid);
+}, role: 'student' | 'superadmin' = 'student', onboardingComplete = false) {
+  const existing = await getUserData(authUser.uid);
   if (!existing) {
-    const rawName = firebaseUser.displayName || 'LogicLord';
+    const rawName = authUser.displayName || 'LogicLord';
     const parts = rawName.split(' ');
     const username = await generateUniqueUsername(rawName.replace(/\s+/g, ''));
-    await createUserData(firebaseUser.uid, {
+    await createUserData(authUser.uid, {
       firstName: parts[0] || rawName,
       lastName: parts.slice(1).join(' ') || '',
       username,
-      email: firebaseUser.email || '',
-      role: 'student',
-      onboardingComplete: false,
+      email: authUser.email || '',
+      role,
+      onboardingComplete,
     });
   }
 }
 
 function googleErrorMessage(code: string): string {
   switch (code) {
-    case 'auth/operation-not-allowed':
-      return 'Google Sign-In is not enabled in this Firebase project. Enable it in Firebase Console → Authentication → Sign-in method.';
-    case 'auth/unauthorized-domain':
-      return 'This domain is not authorised for Google Sign-In. Add it under Firebase Console → Authentication → Settings → Authorised domains.';
-    case 'auth/popup-closed-by-user':
+    case 'validation_failed':
+      return 'Google Sign-In is not enabled or configured correctly in Supabase Auth.';
+    case 'popup_closed_by_user':
       return 'Sign-in popup was closed. Please try again.';
-    case 'auth/cancelled-popup-request':
+    case 'popup_blocked':
       return '';
     default:
       return 'Google Sign-In failed. Please try again.';
@@ -83,21 +114,43 @@ export default function AuthPage() {
   }, []);
 
   useEffect(() => {
-    setGoogleLoading(true);
-    getRedirectResult(auth)
-      .then(async result => {
-        if (result?.user) {
-          await ensureGoogleUserDoc(result.user);
-          await refreshUserData();
-        }
-      })
-      .catch(e => {
-        const msg = googleErrorMessage(e?.code || '');
-        if (msg) setError(msg);
-      })
-      .finally(() => setGoogleLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    setGoogleLoading(false);
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user) return;
+    if (userData) return;
+
+    let active = true;
+
+    (async () => {
+      try {
+        const supabase = requireSupabase();
+        const { data } = await supabase.auth.getUser();
+        const authUser = data.user;
+        if (!authUser || !active) return;
+        const meta = authUser.user_metadata && typeof authUser.user_metadata === 'object'
+          ? (authUser.user_metadata as Record<string, unknown>)
+          : {};
+        const displayName = typeof meta.full_name === 'string'
+          ? meta.full_name
+          : (typeof meta.name === 'string' ? meta.name : null);
+        await ensureUserDoc({
+          uid: authUser.id,
+          displayName,
+          email: authUser.email ?? '',
+        });
+        if (active) await refreshUserData();
+      } catch (e) {
+        console.error('Failed to ensure Supabase user profile:', e);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [loading, user, userData, refreshUserData]);
 
   useEffect(() => {
     if (!loading && user && userData) {
@@ -117,60 +170,52 @@ export default function AuthPage() {
     // Hardcoded Super Admin Login Bypass (Maps 0000/0000 to internal Firebase admin account)
     if (loginId === '0000' && loginPass === '0000') {
       try {
-        const result = await signInWithEmailAndPassword(auth, SA_FIREBASE_EMAIL, 'godadmin0000');
-        const existing = await getUserData(result.user.uid);
-        if (!existing) {
-          await createUserData(result.user.uid, {
-            firstName: 'God', lastName: 'Admin', username: 'superadmin',
-            email: SA_FIREBASE_EMAIL, role: 'superadmin', onboardingComplete: true,
-          });
-        } else if (existing.role !== 'superadmin') {
-          const { updateUserData } = await import('@/lib/userService');
-          await updateUserData(result.user.uid, { role: 'superadmin' });
-        }
-        setSubmitting(false);
-        return;
-      } catch (e: unknown) {
-        const code = (e as { code?: string })?.code || '';
-        if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
-          try {
-            const cred = await createUserWithEmailAndPassword(auth, SA_FIREBASE_EMAIL, 'godadmin0000');
-            await updateProfile(cred.user, { displayName: 'SuperAdmin' });
-            await createUserData(cred.user.uid, {
-              firstName: 'God', lastName: 'Admin', username: 'superadmin',
-              email: SA_FIREBASE_EMAIL, role: 'superadmin', onboardingComplete: true,
+        const supabase = requireSupabase();
+        const { error } = await supabase.auth.signInWithPassword({
+          email: SA_FIREBASE_EMAIL,
+          password: 'godadmin0000',
+        });
+        if (error) {
+          const code = (error as { code?: string })?.code || '';
+          if (code === 'invalid_credentials' || code === 'email_not_confirmed' || code === 'invalid_grant') {
+            const { error: signUpError } = await supabase.auth.signUp({
+              email: SA_FIREBASE_EMAIL,
+              password: 'godadmin0000',
+              options: { data: { full_name: 'SuperAdmin', name: 'SuperAdmin' } },
             });
-            setSubmitting(false);
-            return;
-          } catch (createErr) {
-            console.error("Superadmin creation failed:", createErr);
-            setError('Super Admin initialization failed: ' + (createErr instanceof Error ? createErr.message : String(createErr)));
-            setSubmitting(false);
-            return;
+            if (signUpError) throw signUpError;
+          } else {
+            throw error;
           }
         }
-        setError('Super Admin login failed: ' + (e instanceof Error ? e.message : String(e)));
-        setSubmitting(false);
         return;
+      } catch (e: unknown) {
+        setError('Super Admin login failed: ' + formatAuthError(e, 'Unknown error'));
+        return;
+      } finally {
+        setSubmitting(false);
       }
     }
     try {
+      const supabase = requireSupabase();
       let loginEmail = loginId.trim();
       if (!loginId.includes('@')) {
         const found = await findUserByUsername(loginId.toLowerCase().trim());
-        if (!found) { setError('Username not found.'); setSubmitting(false); return; }
+        if (!found) { setError('Username not found.'); return; }
         loginEmail = found.email;
       }
-      await signInWithEmailAndPassword(auth, loginEmail, loginPass);
+      const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password: loginPass });
+      if (error) throw error;
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
-      if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+      if (code === 'invalid_credentials' || code === 'user_not_found' || code === 'invalid_grant') {
         setError('Incorrect email/username or password.');
       } else {
-        setError(e instanceof Error ? e.message.replace('Firebase: ', '') : 'Login failed');
+        setError(formatAuthError(e, 'Login failed').replace('Firebase: ', ''));
       }
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   }
 
   async function handleRegister() {
@@ -180,48 +225,88 @@ export default function AuthPage() {
     if (!/^[a-zA-Z0-9_]+$/.test(username)) return setError('Username can only contain letters, numbers and underscores.');
     setSubmitting(true); setError('');
     try {
+      const supabase = requireSupabase();
       const taken = await isUsernameTaken(username);
-      if (taken) { setError('Username is already taken.'); setSubmitting(false); return; }
-      const cred = await createUserWithEmailAndPassword(auth, email, pass);
-      await updateProfile(cred.user, { displayName: username });
-      await createUserData(cred.user.uid, {
+      if (taken) { setError('Username is already taken.'); return; }
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: pass,
+        options: { data: { full_name: `${fname} ${lname}`.trim(), name: username } },
+      });
+      if (error) throw error;
+      const authUser = data.user;
+      if (!authUser) throw new Error('Registration returned no user.');
+      await createUserData(authUser.id, {
         firstName: fname, lastName: lname, username, email,
         role: 'student',
         onboardingComplete: false,
       });
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
-      if (code === 'auth/email-already-in-use') {
-        setError('An account with this email already exists.');
+      if (code === 'user_already_exists' || code === 'email_exists') {
+        // Ghost user: auth entry exists but profile was admin-deleted.
+        // Use admin client to find & delete the ghost, then retry signup.
+        try {
+          const admin = getAdminClient();
+          // Find the ghost auth user by email
+          const { data: listData } = await admin.auth.admin.listUsers();
+          const ghost = listData?.users?.find((u: { email?: string }) => u.email === email);
+          if (ghost) {
+            // Verify there's no profile (truly a ghost)
+            const existing = await getUserData(ghost.id);
+            if (existing) {
+              setError('An account with this email already exists.');
+              return;
+            }
+            // Delete the ghost auth entry
+            await admin.auth.admin.deleteUser(ghost.id);
+            // Retry signup
+            const supabase = requireSupabase();
+            const { data: retryData, error: retryError } = await supabase.auth.signUp({
+              email,
+              password: pass,
+              options: { data: { full_name: `${fname} ${lname}`.trim(), name: username } },
+            });
+            if (retryError) throw retryError;
+            const authUser = retryData.user;
+            if (!authUser) throw new Error('Registration returned no user.');
+            await createUserData(authUser.id, {
+              firstName: fname, lastName: lname, username, email,
+              role: 'student',
+              onboardingComplete: false,
+            });
+            return;
+          }
+          setError('An account with this email already exists.');
+        } catch (retryErr) {
+          console.error('Ghost user cleanup failed:', retryErr);
+          setError('An account with this email already exists.');
+        }
       } else {
-        setError(e instanceof Error ? e.message.replace('Firebase: ', '') : 'Registration failed');
+        setError(formatAuthError(e, 'Registration failed').replace('Firebase: ', ''));
       }
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   }
 
   async function handleGoogle() {
     setSubmitting(true); setError('');
-    const provider = new GoogleAuthProvider();
     try {
-      const result = await signInWithPopup(auth, provider);
-      await ensureGoogleUserDoc(result.user);
-      await refreshUserData();
+      const supabase = requireSupabase();
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin + '/auth' },
+      });
+      if (error) throw error;
+      if (data.url) {
+        window.location.href = data.url;
+        return;
+      }
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
-      if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user') {
-        try {
-          await signInWithRedirect(auth, provider);
-          return;
-        } catch (redirectErr: unknown) {
-          const rCode = (redirectErr as { code?: string })?.code || '';
-          const msg = googleErrorMessage(rCode);
-          if (msg) setError(msg);
-        }
-      } else {
-        const msg = googleErrorMessage(code);
-        if (msg) setError(msg);
-      }
+      const msg = googleErrorMessage(code);
+      if (msg) setError(msg);
     }
     setSubmitting(false);
   }

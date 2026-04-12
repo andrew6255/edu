@@ -1,11 +1,4 @@
-import { db } from '@/lib/firebase';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  runTransaction,
-  increment,
-} from 'firebase/firestore';
+import { getUserDoc, setUserDoc, updateUserDoc, runDocTransaction } from '@/lib/supabaseDocStore';
 import type { RealmId } from '@/types/realms';
 import type { RealmUpgradeDef, RealmUpgradeId, UserRealmUpgradesDoc } from '@/types/realmUpgrades';
 
@@ -68,9 +61,9 @@ export function upgradesForRealm(realmId: RealmId): RealmUpgradeDef[] {
 }
 
 export async function getUserRealmUpgrades(uid: string): Promise<UserRealmUpgradesDoc | null> {
-  const snap = await getDoc(doc(db, 'users', uid, 'realm_upgrades', 'global'));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<UserRealmUpgradesDoc>;
+  const raw = await getUserDoc(uid, 'realm_upgrades', 'global');
+  if (!raw) return null;
+  const data = raw as Partial<UserRealmUpgradesDoc>;
   return {
     id: 'global',
     purchased: Array.isArray((data as any).purchased) ? ((data as any).purchased as RealmUpgradeId[]) : [],
@@ -86,7 +79,7 @@ export async function ensureUserRealmUpgrades(uid: string): Promise<UserRealmUpg
     purchased: [],
     updatedAt: new Date().toISOString(),
   };
-  await setDoc(doc(db, 'users', uid, 'realm_upgrades', 'global'), init);
+  await setUserDoc(uid, 'realm_upgrades', 'global', init as any);
   return init;
 }
 
@@ -94,28 +87,24 @@ export async function purchaseRealmUpgrade(uid: string, upgradeId: RealmUpgradeI
   const def = REALM_UPGRADES.find((u) => u.id === upgradeId);
   if (!def) throw new Error('Unknown upgrade');
 
-  const invRef = doc(db, 'users', uid, 'inventory', 'global');
-  const upRef = doc(db, 'users', uid, 'realm_upgrades', 'global');
+  await runDocTransaction(async (tx) => {
+    const inv = await tx.getUserDoc(uid, 'inventory', 'global');
+    const up = await tx.getUserDoc(uid, 'realm_upgrades', 'global');
+    if (!inv) throw new Error('Inventory missing');
+    if (!up) throw new Error('Upgrades missing');
 
-  await runTransaction(db, async (tx) => {
-    const [invSnap, upSnap] = await Promise.all([tx.get(invRef), tx.get(upRef)]);
-    if (!invSnap.exists()) throw new Error('Inventory missing');
-    if (!upSnap.exists()) throw new Error('Upgrades missing');
-
-    const inv = invSnap.data() as any;
-    const up = upSnap.data() as any;
-    const coins = typeof inv.chronoCoins === 'number' ? inv.chronoCoins : 0;
-    const purchased: RealmUpgradeId[] = Array.isArray(up.purchased) ? up.purchased : [];
+    const coins = typeof inv.chronoCoins === 'number' ? (inv.chronoCoins as number) : 0;
+    const purchased: RealmUpgradeId[] = Array.isArray(up.purchased) ? (up.purchased as RealmUpgradeId[]) : [];
 
     if (purchased.includes(upgradeId)) return;
     if (def.requires && !purchased.includes(def.requires)) throw new Error('Requires previous upgrade');
     if (coins < def.costCoins) throw new Error('Not enough Chrono Coins');
 
-    tx.update(invRef, {
-      chronoCoins: increment(-def.costCoins),
+    tx.updateUserDoc(uid, 'inventory', 'global', {
+      chronoCoins: coins - def.costCoins,
       updatedAt: new Date().toISOString(),
     });
-    tx.update(upRef, {
+    tx.updateUserDoc(uid, 'realm_upgrades', 'global', {
       purchased: [...purchased, upgradeId],
       updatedAt: new Date().toISOString(),
     });

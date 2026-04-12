@@ -4,8 +4,7 @@ import {
   joinMatchmaking, listenMatchmakingEntry, cancelMatchmaking,
   createSession, generateBotScore, getSession
 } from '@/lib/gameSessionService';
-import { updateDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { updateEconomy } from '@/lib/userService';
 import { GameSession } from '@/types/warmup';
 
 interface Props {
@@ -30,9 +29,7 @@ export default function MatchmakingScreen({ gameId, gameLabel, onMatched, onCanc
 
     async function start() {
       const goldCost = 25;
-      await updateDoc(doc(db, 'users', user!.uid), {
-        'economy.gold': Math.max(0, (userData!.economy.gold ?? 0) - goldCost)
-      });
+      await updateEconomy(user!.uid, -goldCost, 0);
       await refreshUserData();
 
       const { matched, session, entryId } = await joinMatchmaking(
@@ -88,9 +85,7 @@ export default function MatchmakingScreen({ gameId, gameLabel, onMatched, onCanc
     unsubRef.current?.();
     if (entryIdRef.current) await cancelMatchmaking(entryIdRef.current);
     if (user && userData) {
-      await updateDoc(doc(db, 'users', user.uid), {
-        'economy.gold': (userData.economy.gold ?? 0) + 25
-      });
+      await updateEconomy(user.uid, 25, 0);
       await refreshUserData();
     }
     onCancel();

@@ -1,13 +1,4 @@
-import { db } from '@/lib/firebase';
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  updateDoc,
-  increment,
-} from 'firebase/firestore';
+import { getUserDoc, setUserDoc, updateUserDoc, getGlobalDoc, setGlobalDoc, queryGlobalDocs, resolveIncrement } from '@/lib/supabaseDocStore';
 import type {
   BattlePassReward,
   BattlePassSeasonDoc,
@@ -28,9 +19,9 @@ export type UserBattlePassMetaDoc = {
 };
 
 export async function getUserBattlePassMeta(uid: string): Promise<UserBattlePassMetaDoc | null> {
-  const snap = await getDoc(doc(db, 'users', uid, 'battlepass_meta', 'global'));
-  if (!snap.exists()) return null;
-  const data = snap.data() as any;
+  const raw = await getUserDoc(uid, 'battlepass_meta', 'global');
+  if (!raw) return null;
+  const data = raw as any;
   return {
     id: 'global',
     activeSeasonId: typeof data.activeSeasonId === 'string' ? data.activeSeasonId : DEFAULT_SEASON_ID,
@@ -46,7 +37,7 @@ export async function ensureUserBattlePassMeta(uid: string): Promise<UserBattleP
     activeSeasonId: DEFAULT_SEASON_ID,
     updatedAt: new Date().toISOString(),
   };
-  await setDoc(doc(db, 'users', uid, 'battlepass_meta', 'global'), init);
+  await setUserDoc(uid, 'battlepass_meta', 'global', init as any);
   return init;
 }
 
@@ -56,11 +47,7 @@ export async function getUserActiveSeasonId(uid: string): Promise<string> {
 }
 
 export async function setUserActiveSeasonId(uid: string, seasonId: string): Promise<void> {
-  await setDoc(
-    doc(db, 'users', uid, 'battlepass_meta', 'global'),
-    { id: 'global', activeSeasonId: seasonId, updatedAt: new Date().toISOString() },
-    { merge: true },
-  );
+  await setUserDoc(uid, 'battlepass_meta', 'global', { id: 'global', activeSeasonId: seasonId, updatedAt: new Date().toISOString() }, true);
 }
 
 export function computeTierFromEnergy(energyXp: number, energyPerTier: number): number {
@@ -69,20 +56,20 @@ export function computeTierFromEnergy(energyXp: number, energyPerTier: number): 
 }
 
 export async function getBattlePassSeason(seasonId: string): Promise<BattlePassSeasonDoc | null> {
-  const snap = await getDoc(doc(db, 'battlepass_seasons', seasonId));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<BattlePassSeasonDoc>;
+  const raw = await getGlobalDoc('battlepass_seasons', seasonId);
+  if (!raw) return null;
+  const data = raw as Partial<BattlePassSeasonDoc>;
   if (!data || typeof data.title !== 'string' || !Array.isArray((data as any).tiers)) return null;
   return { id: seasonId, ...(data as Omit<BattlePassSeasonDoc, 'id'>) };
 }
 
 export async function listBattlePassSeasons(): Promise<BattlePassSeasonDoc[]> {
-  const snaps = await getDocs(collection(db, 'battlepass_seasons'));
+  const rows = await queryGlobalDocs('battlepass_seasons');
   const out: BattlePassSeasonDoc[] = [];
-  for (const d of snaps.docs) {
-    const data = d.data() as any;
+  for (const row of rows) {
+    const data = row.data as any;
     if (!data || typeof data.title !== 'string' || !Array.isArray(data.tiers)) continue;
-    out.push({ id: d.id, ...(data as Omit<BattlePassSeasonDoc, 'id'>) });
+    out.push({ id: row.id, ...(data as Omit<BattlePassSeasonDoc, 'id'>) });
   }
   return out;
 }
@@ -149,7 +136,7 @@ export async function ensureBattlePassSeason(seasonId: string): Promise<BattlePa
   };
 
   try {
-    await setDoc(doc(db, 'battlepass_seasons', seasonId), {
+    await setGlobalDoc('battlepass_seasons', seasonId, {
       version: season.version ?? SEASON_VERSION,
       title: season.title,
       startAt: season.startAt,
@@ -157,7 +144,7 @@ export async function ensureBattlePassSeason(seasonId: string): Promise<BattlePa
       tiers: season.tiers,
       energyPerTier: season.energyPerTier,
       premiumPriceCredits: season.premiumPriceCredits,
-    }, { merge: true });
+    }, true);
   } catch {
     // If the current user doesn't have permission to seed season content,
     // fall back to the in-memory seeded season so Emporium can still render.
@@ -167,9 +154,9 @@ export async function ensureBattlePassSeason(seasonId: string): Promise<BattlePa
 }
 
 export async function getUserBattlePassProgress(uid: string, seasonId: string): Promise<UserBattlePassProgressDoc | null> {
-  const snap = await getDoc(doc(db, 'users', uid, 'battlepass', seasonId));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<UserBattlePassProgressDoc>;
+  const raw = await getUserDoc(uid, 'battlepass', seasonId);
+  if (!raw) return null;
+  const data = raw as Partial<UserBattlePassProgressDoc>;
   return {
     id: seasonId,
     seasonId,
@@ -199,28 +186,25 @@ export async function ensureUserBattlePassProgress(uid: string, seasonId: string
     claimedPremiumTiers: [],
     updatedAt: new Date().toISOString(),
   };
-  await setDoc(doc(db, 'users', uid, 'battlepass', seasonId), init);
+  await setUserDoc(uid, 'battlepass', seasonId, init as any);
   return init;
 }
 
 export async function addBattlePassEnergy(uid: string, seasonId: string, delta: number): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'battlepass', seasonId), {
-    energyXp: increment(delta),
-    updatedAt: new Date().toISOString(),
-  });
+  const existing = await getUserDoc(uid, 'battlepass', seasonId);
+  if (!existing) return;
+  const newVal = resolveIncrement(existing, 'energyXp', delta);
+  await updateUserDoc(uid, 'battlepass', seasonId, { energyXp: newVal, updatedAt: new Date().toISOString() });
 }
 
 export async function setBattlePassPremium(uid: string, seasonId: string, premiumActive: boolean): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'battlepass', seasonId), {
-    premiumActive: !!premiumActive,
-    updatedAt: new Date().toISOString(),
-  });
+  await updateUserDoc(uid, 'battlepass', seasonId, { premiumActive: !!premiumActive, updatedAt: new Date().toISOString() });
 }
 
 export async function markClaimedFreeTier(uid: string, seasonId: string, tier: number): Promise<void> {
   const prog = await ensureUserBattlePassProgress(uid, seasonId);
   if (prog.claimedFreeTiers.includes(tier)) return;
-  await updateDoc(doc(db, 'users', uid, 'battlepass', seasonId), {
+  await updateUserDoc(uid, 'battlepass', seasonId, {
     claimedFreeTiers: [...prog.claimedFreeTiers, tier],
     updatedAt: new Date().toISOString(),
   });
@@ -229,7 +213,7 @@ export async function markClaimedFreeTier(uid: string, seasonId: string, tier: n
 export async function markClaimedPremiumTier(uid: string, seasonId: string, tier: number): Promise<void> {
   const prog = await ensureUserBattlePassProgress(uid, seasonId);
   if (prog.claimedPremiumTiers.includes(tier)) return;
-  await updateDoc(doc(db, 'users', uid, 'battlepass', seasonId), {
+  await updateUserDoc(uid, 'battlepass', seasonId, {
     claimedPremiumTiers: [...prog.claimedPremiumTiers, tier],
     updatedAt: new Date().toISOString(),
   });

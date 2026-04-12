@@ -1,15 +1,4 @@
-import { db } from '@/lib/firebase';
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  setDoc,
-  updateDoc,
-} from 'firebase/firestore';
+import { requireSupabase } from '@/lib/supabase';
 import type { LogicGameNode, LogicGameQuestionsDoc, LogicGamesProgressDoc } from '@/types/logicGames';
 
 const NODES_PUBLIC_COL = 'logic_game_nodes_public';
@@ -17,38 +6,127 @@ const NODES_DRAFT_COL = 'logic_game_nodes_draft';
 const QUESTIONS_PUBLIC_COL = 'logic_game_questions_public';
 const QUESTIONS_DRAFT_COL = 'logic_game_questions_draft';
 
+function mapNodeRow(row: Record<string, unknown>): LogicGameNode | null {
+  const id = typeof row.id === 'string' ? row.id : '';
+  const iq = typeof row.iq === 'number' ? row.iq : NaN;
+  const order = typeof row.sort_order === 'number' ? row.sort_order : typeof row.order === 'number' ? row.order : NaN;
+  if (!id || !Number.isFinite(iq) || !Number.isFinite(order)) return null;
+  return {
+    id,
+    iq,
+    order,
+    label: typeof row.label === 'string' ? row.label : '',
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : typeof row.updatedAt === 'string' ? row.updatedAt : undefined,
+    publishedAt: typeof row.published_at === 'string' ? row.published_at : typeof row.publishedAt === 'string' ? row.publishedAt : undefined,
+  };
+}
+
+function mapQuestionsRows(nodeId: string, rows: Record<string, unknown>[]): LogicGameQuestionsDoc {
+  const sorted = [...rows].sort((a, b) => {
+    const aa = typeof a.sort_order === 'number' ? a.sort_order : 0;
+    const bb = typeof b.sort_order === 'number' ? b.sort_order : 0;
+    return aa - bb;
+  });
+  return {
+    nodeId,
+    questions: sorted.map((row) => ({
+      id: typeof row.question_id === 'string' ? row.question_id : '',
+      promptBlocks: Array.isArray(row.prompt_blocks) ? row.prompt_blocks as any : undefined,
+      promptRawText: typeof row.prompt_raw_text === 'string' ? row.prompt_raw_text : undefined,
+      promptLatex: typeof row.prompt_latex === 'string' ? row.prompt_latex : undefined,
+      interaction: row.interaction as any,
+      timeLimitSec: typeof row.time_limit_sec === 'number' ? row.time_limit_sec : 0,
+      iqDeltaCorrect: typeof row.iq_delta_correct === 'number' ? row.iq_delta_correct : 0,
+      iqDeltaWrong: typeof row.iq_delta_wrong === 'number' ? row.iq_delta_wrong : 0,
+    })),
+    updatedAt: typeof sorted[sorted.length - 1]?.updated_at === 'string' ? sorted[sorted.length - 1].updated_at as string : new Date().toISOString(),
+    publishedAt: typeof sorted[sorted.length - 1]?.published_at === 'string' ? sorted[sorted.length - 1].published_at as string : undefined,
+  };
+}
+
+async function listNodes(table: string): Promise<LogicGameNode[]> {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from(table).select('*').order('sort_order', { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as Record<string, unknown>[])
+    .map((row) => mapNodeRow(row))
+    .filter((node): node is LogicGameNode => !!node);
+}
+
+async function upsertNode(table: string, node: LogicGameNode, publishedAt?: string): Promise<void> {
+  const now = new Date().toISOString();
+  const supabase = requireSupabase();
+  const payload: Record<string, unknown> = {
+    id: node.id,
+    iq: node.iq,
+    label: node.label,
+    sort_order: node.order,
+    updated_at: now,
+  };
+  if (publishedAt) payload.published_at = publishedAt;
+  const { error } = await supabase.from(table).upsert(payload);
+  if (error) throw error;
+}
+
+async function getQuestions(table: string, nodeId: string): Promise<LogicGameQuestionsDoc | null> {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from(table).select('*').eq('node_id', nodeId).order('sort_order', { ascending: true });
+  if (error) throw error;
+  const rows = (data ?? []) as Record<string, unknown>[];
+  if (rows.length === 0) return null;
+  return mapQuestionsRows(nodeId, rows);
+}
+
+async function replaceQuestions(table: string, nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>, publishedAt?: string): Promise<void> {
+  const now = new Date().toISOString();
+  const supabase = requireSupabase();
+  const { error: deleteError } = await supabase.from(table).delete().eq('node_id', nodeId);
+  if (deleteError) throw deleteError;
+  if (docData.questions.length === 0) return;
+  const rows = docData.questions.map((q, idx) => ({
+    node_id: nodeId,
+    question_id: q.id,
+    prompt_blocks: q.promptBlocks ?? null,
+    prompt_raw_text: q.promptRawText ?? null,
+    prompt_latex: q.promptLatex ?? null,
+    interaction: q.interaction,
+    time_limit_sec: q.timeLimitSec,
+    iq_delta_correct: q.iqDeltaCorrect,
+    iq_delta_wrong: q.iqDeltaWrong,
+    sort_order: idx,
+    updated_at: now,
+    ...(publishedAt ? { published_at: publishedAt } : {}),
+  }));
+  const { error } = await supabase.from(table).insert(rows);
+  if (error) throw error;
+}
+
 export async function listPublishedLogicGameNodes(): Promise<LogicGameNode[]> {
-  const q = query(collection(db, NODES_PUBLIC_COL), orderBy('order'));
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as Omit<LogicGameNode, 'id'>) }))
-    .filter((n) => typeof n.iq === 'number' && typeof n.order === 'number');
+  return listNodes(NODES_PUBLIC_COL);
 }
 
 export async function upsertPublishedLogicGameNode(node: LogicGameNode): Promise<void> {
-  const now = new Date().toISOString();
-  await setDoc(doc(db, NODES_PUBLIC_COL, node.id), {
-    iq: node.iq,
-    label: node.label,
-    order: node.order,
-    updatedAt: now,
-  }, { merge: true });
+  await upsertNode(NODES_PUBLIC_COL, node);
 }
 
 export async function deletePublishedLogicGameNode(nodeId: string): Promise<void> {
-  await deleteDoc(doc(db, NODES_PUBLIC_COL, nodeId));
-  await deleteDoc(doc(db, QUESTIONS_PUBLIC_COL, nodeId));
+  const supabase = requireSupabase();
+  const { error: qError } = await supabase.from(QUESTIONS_PUBLIC_COL).delete().eq('node_id', nodeId);
+  if (qError) throw qError;
+  const { error } = await supabase.from(NODES_PUBLIC_COL).delete().eq('id', nodeId);
+  if (error) throw error;
 }
 
 export async function getLogicGamesProgress(uid: string): Promise<LogicGamesProgressDoc | null> {
-  const snap = await getDoc(doc(db, 'users', uid, 'logic_games_progress', 'global'));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<LogicGamesProgressDoc>;
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from('logic_game_progress').select('*').eq('user_id', uid).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
   return {
     id: 'global',
     iq: typeof data.iq === 'number' ? data.iq : 80,
-    floorIq: typeof data.floorIq === 'number' ? data.floorIq : 80,
-    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString(),
+    floorIq: typeof data.floor_iq === 'number' ? data.floor_iq : 80,
+    updatedAt: typeof data.updated_at === 'string' ? data.updated_at : new Date().toISOString(),
   };
 }
 
@@ -57,91 +135,66 @@ export async function ensureLogicGamesProgress(uid: string): Promise<LogicGamesP
   if (existing) return existing;
   const now = new Date().toISOString();
   const init: LogicGamesProgressDoc = { id: 'global', iq: 80, floorIq: 80, updatedAt: now };
-  await setDoc(doc(db, 'users', uid, 'logic_games_progress', 'global'), init);
+  const supabase = requireSupabase();
+  const { error } = await supabase.from('logic_game_progress').upsert({ user_id: uid, iq: 80, floor_iq: 80, updated_at: now });
+  if (error) throw error;
   return init;
 }
 
 export async function setLogicGamesIq(uid: string, nextIq: number, nextFloorIq: number): Promise<void> {
-  await updateDoc(doc(db, 'users', uid, 'logic_games_progress', 'global'), {
+  const supabase = requireSupabase();
+  const { error } = await supabase.from('logic_game_progress').upsert({
+    user_id: uid,
     iq: nextIq,
-    floorIq: nextFloorIq,
-    updatedAt: new Date().toISOString(),
+    floor_iq: nextFloorIq,
+    updated_at: new Date().toISOString(),
   });
+  if (error) throw error;
 }
 
 export async function listDraftLogicGameNodes(): Promise<LogicGameNode[]> {
-  const q = query(collection(db, NODES_DRAFT_COL), orderBy('order'));
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as Omit<LogicGameNode, 'id'>) }))
-    .filter((n) => typeof n.iq === 'number' && typeof n.order === 'number');
+  return listNodes(NODES_DRAFT_COL);
 }
 
 export async function upsertDraftLogicGameNode(node: LogicGameNode): Promise<void> {
-  await setDoc(doc(db, NODES_DRAFT_COL, node.id), {
-    iq: node.iq,
-    label: node.label,
-    order: node.order,
-    updatedAt: new Date().toISOString(),
-  });
+  await upsertNode(NODES_DRAFT_COL, node);
 }
 
 export async function deleteDraftLogicGameNode(nodeId: string): Promise<void> {
-  await deleteDoc(doc(db, NODES_DRAFT_COL, nodeId));
-  await deleteDoc(doc(db, QUESTIONS_DRAFT_COL, nodeId));
+  const supabase = requireSupabase();
+  const { error: qError } = await supabase.from(QUESTIONS_DRAFT_COL).delete().eq('node_id', nodeId);
+  if (qError) throw qError;
+  const { error } = await supabase.from(NODES_DRAFT_COL).delete().eq('id', nodeId);
+  if (error) throw error;
 }
 
 export async function publishLogicGameNode(nodeId: string): Promise<void> {
-  const snap = await getDoc(doc(db, NODES_DRAFT_COL, nodeId));
-  if (!snap.exists()) throw new Error('Draft node not found');
-  const data = snap.data() as Omit<LogicGameNode, 'id'>;
+  const nodes = await listDraftLogicGameNodes();
+  const node = nodes.find((n) => n.id === nodeId);
+  if (!node) throw new Error('Draft node not found');
   const now = new Date().toISOString();
-  await setDoc(doc(db, NODES_PUBLIC_COL, nodeId), { ...data, publishedAt: now, updatedAt: now });
+  await upsertNode(NODES_PUBLIC_COL, node, now);
 }
 
 export async function getDraftLogicGameQuestions(nodeId: string): Promise<LogicGameQuestionsDoc | null> {
-  const snap = await getDoc(doc(db, QUESTIONS_DRAFT_COL, nodeId));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<LogicGameQuestionsDoc>;
-  return {
-    nodeId,
-    questions: Array.isArray((data as any).questions) ? ((data as any).questions as any[]) : [],
-    updatedAt: typeof (data as any).updatedAt === 'string' ? ((data as any).updatedAt as string) : new Date().toISOString(),
-    publishedAt: typeof (data as any).publishedAt === 'string' ? ((data as any).publishedAt as string) : undefined,
-  };
+  return getQuestions(QUESTIONS_DRAFT_COL, nodeId);
 }
 
 export async function getPublishedLogicGameQuestions(nodeId: string): Promise<LogicGameQuestionsDoc | null> {
-  const snap = await getDoc(doc(db, QUESTIONS_PUBLIC_COL, nodeId));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<LogicGameQuestionsDoc>;
-  return {
-    nodeId,
-    questions: Array.isArray((data as any).questions) ? ((data as any).questions as any[]) : [],
-    updatedAt: typeof (data as any).updatedAt === 'string' ? ((data as any).updatedAt as string) : new Date().toISOString(),
-    publishedAt: typeof (data as any).publishedAt === 'string' ? ((data as any).publishedAt as string) : undefined,
-  };
+  return getQuestions(QUESTIONS_PUBLIC_COL, nodeId);
 }
 
 export async function upsertDraftLogicGameQuestions(nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>): Promise<void> {
-  await setDoc(doc(db, QUESTIONS_DRAFT_COL, nodeId), {
-    ...docData,
-    updatedAt: new Date().toISOString(),
-  });
+  await replaceQuestions(QUESTIONS_DRAFT_COL, nodeId, docData);
 }
 
 export async function publishLogicGameQuestions(nodeId: string): Promise<void> {
-  const snap = await getDoc(doc(db, QUESTIONS_DRAFT_COL, nodeId));
-  if (!snap.exists()) throw new Error('Draft questions not found');
-  const data = snap.data() as Omit<LogicGameQuestionsDoc, 'nodeId'>;
+  const data = await getDraftLogicGameQuestions(nodeId);
+  if (!data) throw new Error('Draft questions not found');
   const now = new Date().toISOString();
-  await setDoc(doc(db, QUESTIONS_PUBLIC_COL, nodeId), { ...data, updatedAt: now, publishedAt: now });
+  await replaceQuestions(QUESTIONS_PUBLIC_COL, nodeId, data, now);
 }
 
 export async function upsertPublishedLogicGameQuestions(nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>): Promise<void> {
-  const now = new Date().toISOString();
-  await setDoc(doc(db, QUESTIONS_PUBLIC_COL, nodeId), {
-    ...docData,
-    updatedAt: now,
-  }, { merge: true });
+  await replaceQuestions(QUESTIONS_PUBLIC_COL, nodeId, docData);
 }

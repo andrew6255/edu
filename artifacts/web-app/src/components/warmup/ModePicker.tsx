@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
 import { GameMode } from '@/types/warmup';
 import { useAuth } from '@/contexts/AuthContext';
-import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { getUserData } from '@/lib/userService';
+import { getUserData, getAllUsers } from '@/lib/userService';
 
 interface GameConfig {
   id: string;
@@ -48,11 +46,12 @@ export default function ModePicker({ game, gameId, supportsVariants, variant, on
     setLoadingBoard(true);
     try {
       if (leaderboardMode === 'global') {
-        const q = query(collection(db, 'users'), orderBy(`high_scores.${gameId}`, 'desc'), limit(10));
-        const snap = await getDocs(q);
-        const data = snap.docs.map(d => ({
-          uid: d.id, username: d.data().username || 'Unknown', score: d.data().high_scores?.[gameId] || 0
-        })).filter(x => x.score > 0);
+        const allUsers = await getAllUsers();
+        const data = allUsers
+          .map(u => ({ uid: u.uid, username: u.username || 'Unknown', score: u.high_scores?.[gameId] || 0 }))
+          .filter(x => x.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 10);
         setBoard(data);
       } else {
         if (!userData?.friends || userData.friends.length === 0) {

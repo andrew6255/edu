@@ -1,7 +1,5 @@
-import { db } from './firebase';
-import {
-  doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, deleteDoc, arrayUnion, arrayRemove
-} from 'firebase/firestore';
+import { getGlobalDoc, setGlobalDoc, updateGlobalDoc, deleteGlobalDoc, queryGlobalDocs, resolveArrayUnion } from '@/lib/supabaseDocStore';
+import { requireSupabase } from '@/lib/supabase';
 
 export interface ClassData {
   id: string;
@@ -31,45 +29,49 @@ export async function createClass(teacherId: string, teacherName: string, data: 
     studentIds: [],
     createdAt: new Date().toISOString(),
   };
-  await setDoc(doc(db, 'classes', id), classData);
+  await setGlobalDoc('classes', id, classData as any);
   return classData;
 }
 
 export async function getClassById(classId: string): Promise<ClassData | null> {
-  const snap = await getDoc(doc(db, 'classes', classId));
-  if (!snap.exists()) return null;
-  return snap.data() as ClassData;
+  const raw = await getGlobalDoc('classes', classId);
+  if (!raw) return null;
+  return raw as any as ClassData;
 }
 
 export async function getAllClasses(): Promise<ClassData[]> {
-  const snap = await getDocs(collection(db, 'classes'));
-  return snap.docs.map(d => d.data() as ClassData);
+  const rows = await queryGlobalDocs('classes');
+  return rows.map(r => r.data as any as ClassData);
 }
 
 export async function joinClassByCode(uid: string, code: string): Promise<ClassData | null> {
-  const q = query(collection(db, 'classes'), where('code', '==', code.toUpperCase()));
-  const snap = await getDocs(q);
-  if (snap.empty) return null;
-  const classDoc = snap.docs[0];
-  const classData = classDoc.data() as ClassData;
-  await updateDoc(doc(db, 'classes', classDoc.id), {
-    studentIds: arrayUnion(uid)
-  });
-  await updateDoc(doc(db, 'users', uid), { classId: classDoc.id });
+  const rows = await queryGlobalDocs('classes', [{ field: 'code', op: 'eq', value: code.toUpperCase() }]);
+  if (rows.length === 0) return null;
+  const classData = rows[0].data as any as ClassData;
+  const classId = rows[0].id;
+  const studentIds = resolveArrayUnion(classData as any, 'studentIds', uid);
+  await updateGlobalDoc('classes', classId, { studentIds });
+  // Update user profile classId via Supabase profiles table
+  const supabase = requireSupabase();
+  await supabase.from('profiles').update({ class_id: classId }).eq('id', uid);
   return classData;
 }
 
 export async function removeStudentFromClass(classId: string, studentId: string): Promise<void> {
-  await updateDoc(doc(db, 'classes', classId), {
-    studentIds: arrayRemove(studentId)
-  });
-  await updateDoc(doc(db, 'users', studentId), { classId: null });
+  const raw = await getGlobalDoc('classes', classId);
+  if (raw) {
+    const data = raw as any;
+    const students = Array.isArray(data.studentIds) ? (data.studentIds as string[]).filter(s => s !== studentId) : [];
+    await updateGlobalDoc('classes', classId, { studentIds: students });
+  }
+  const supabase = requireSupabase();
+  await supabase.from('profiles').update({ class_id: null }).eq('id', studentId);
 }
 
 export async function deleteClass(classId: string): Promise<void> {
-  await deleteDoc(doc(db, 'classes', classId));
+  await deleteGlobalDoc('classes', classId);
 }
 
 export async function updateClass(classId: string, updates: Partial<ClassData>): Promise<void> {
-  await updateDoc(doc(db, 'classes', classId), updates as Record<string, unknown>);
+  await updateGlobalDoc('classes', classId, updates as Record<string, unknown>);
 }

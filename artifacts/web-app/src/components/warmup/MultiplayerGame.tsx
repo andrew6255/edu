@@ -8,8 +8,6 @@ import {
 } from '@/lib/gameSessionService';
 import { forfeitSession } from '@/lib/gameSessionService';
 import { GameSession, GameMode } from '@/types/warmup';
-import { updateDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 
 interface GameConfig {
   id: string;
@@ -67,18 +65,12 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
 
     try {
       const userService = await import('@/lib/userService');
-      const snap = await userService.getUserData(user.uid);
-      if (snap) {
-        await updateDoc(doc(db, 'users', user.uid), {
-          'economy.global_xp': (snap.economy.global_xp || 0) + xp,
-          'economy.gold': (snap.economy.gold || 0) + gold,
-        });
-        if (mode === 'ranked' || mode === 'friend') {
-           const result = won ? 'win' : drew ? 'draw' : 'loss';
-           await userService.updateRankedStats(user.uid, game.id, result);
-        }
-        await refreshUserData();
+      await userService.updateEconomy(user.uid, gold, xp);
+      if (mode === 'ranked' || mode === 'friend') {
+        const result = won ? 'win' : drew ? 'draw' : 'loss';
+        await userService.updateRankedStats(user.uid, game.id, result);
       }
+      await refreshUserData();
     } catch (e) {
       console.error('Failed to award rewards:', e);
     }

@@ -1,7 +1,5 @@
-import { db } from './firebase';
-import {
-  doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, deleteDoc, writeBatch, runTransaction
-} from 'firebase/firestore';
+import { requireSupabase, getAdminClient } from './supabase';
+import { getGlobalDoc, setGlobalDoc } from './supabaseDocStore';
 
 export type UserRole = 'student' | 'superadmin';
 
@@ -104,24 +102,99 @@ const DEFAULT_USER: Partial<UserData> = {
   last_active: new Date().toISOString().split('T')[0]
 };
 
+function mergeUserData(base: Partial<UserData> | null | undefined, patch: Partial<UserData> | null | undefined): UserData {
+  const b = base ?? {};
+  const p = patch ?? {};
+  const economyBase = (b.economy ?? DEFAULT_USER.economy ?? {}) as UserData['economy'];
+  const economyPatch = (p.economy ?? {}) as Partial<UserData['economy']>;
+  return {
+    ...(DEFAULT_USER as UserData),
+    ...b,
+    ...p,
+    economy: {
+      ...economyBase,
+      ...economyPatch,
+    },
+  } as UserData;
+}
+
+function mapSupabaseUserRow(profile: Record<string, unknown>, economy: Record<string, unknown> | null): UserData {
+  const state = (profile.user_state && typeof profile.user_state === 'object') ? (profile.user_state as Partial<UserData>) : {};
+  return mergeUserData(state, {
+    firstName: typeof profile.first_name === 'string' ? profile.first_name : '',
+    lastName: typeof profile.last_name === 'string' ? profile.last_name : '',
+    username: typeof profile.username === 'string' ? profile.username : '',
+    email: typeof profile.email === 'string' ? profile.email : '',
+    role: profile.role === 'superadmin' ? 'superadmin' : 'student',
+    classId: typeof profile.class_id === 'string' ? profile.class_id : undefined,
+    onboardingComplete: typeof profile.onboarding_complete === 'boolean' ? profile.onboarding_complete : undefined,
+    curriculumProfile: (profile.curriculum_profile && typeof profile.curriculum_profile === 'object') ? (profile.curriculum_profile as CurriculumProfile) : undefined,
+    arenaStats: (profile.arena_stats && typeof profile.arena_stats === 'object') ? (profile.arena_stats as ArenaStats) : undefined,
+    economy: {
+      gold: typeof economy?.gold === 'number' ? economy.gold : ((state.economy?.gold as number | undefined) ?? 0),
+      global_xp: typeof economy?.global_xp === 'number' ? economy.global_xp : ((state.economy?.global_xp as number | undefined) ?? 0),
+      streak: typeof economy?.streak === 'number' ? economy.streak : ((state.economy?.streak as number | undefined) ?? 0),
+      energy: typeof economy?.energy === 'number' ? economy.energy : ((state.economy?.energy as number | undefined) ?? 0),
+      rankedEnergyStreak: typeof economy?.ranked_energy_streak === 'number' ? economy.ranked_energy_streak : ((state.economy?.rankedEnergyStreak as number | undefined) ?? 0),
+    },
+  });
+}
+
+function toSupabaseProfile(uid: string, data: Partial<UserData>): Record<string, unknown> {
+  return {
+    id: uid,
+    email: data.email,
+    username: data.username,
+    first_name: data.firstName,
+    last_name: data.lastName,
+    role: data.role,
+    class_id: data.classId,
+    onboarding_complete: data.onboardingComplete,
+    curriculum_profile: data.curriculumProfile,
+    arena_stats: data.arenaStats,
+    user_state: data,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function toSupabaseEconomy(uid: string, data: Partial<UserData>): Record<string, unknown> | null {
+  const econ = data.economy;
+  if (!econ) return null;
+  return {
+    user_id: uid,
+    gold: typeof econ.gold === 'number' ? econ.gold : 0,
+    global_xp: typeof econ.global_xp === 'number' ? econ.global_xp : 0,
+    streak: typeof econ.streak === 'number' ? econ.streak : 0,
+    energy: typeof econ.energy === 'number' ? econ.energy : 0,
+    ranked_energy_streak: typeof econ.rankedEnergyStreak === 'number' ? econ.rankedEnergyStreak : 0,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+async function getSupabaseUserData(uid: string): Promise<UserData | null> {
+  const supabase = requireSupabase();
+  const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+  if (error) throw error;
+  if (!profile) return null;
+  const { data: economy, error: economyError } = await supabase.from('user_economy').select('*').eq('user_id', uid).maybeSingle();
+  if (economyError) throw economyError;
+  return mapSupabaseUserRow(profile as Record<string, unknown>, (economy ?? null) as Record<string, unknown> | null);
+}
+
 export async function getUserData(uid: string): Promise<UserData | null> {
-  const snap = await getDoc(doc(db, 'users', uid));
-  if (!snap.exists()) return null;
-  return snap.data() as UserData;
+  return getSupabaseUserData(uid);
 }
 
 export async function migrateWarmupVariantsIfNeeded(uid: string): Promise<boolean> {
-  const snap = await getDoc(doc(db, 'users', uid));
-  if (!snap.exists()) return false;
-  const data = snap.data() as UserData;
+  const data = await getUserData(uid);
+  if (!data) return false;
   if (data.warmupVariantsMigrated) return false;
 
   const hs = data.high_scores ?? {};
   const rs = data.rankedStats ?? {};
 
-  const updates: Record<string, unknown> = {
-    warmupVariantsMigrated: true,
-  };
+  const newHighScores = { ...hs };
+  const newRanked = { ...(rs as Record<string, any>) };
 
   const hi = (key: string) => (typeof (hs as any)[key] === 'number' ? ((hs as any)[key] as number) : 0);
   const rstat = (key: string) => ((rs as any)[key] as any) ?? null;
@@ -129,33 +202,27 @@ export async function migrateWarmupVariantsIfNeeded(uid: string): Promise<boolea
   function migrateScore(fromKey: string, toKey: string) {
     const from = hi(fromKey);
     const to = hi(toKey);
-    if (from > to) updates[`high_scores.${toKey}`] = from;
+    if (from > to) (newHighScores as any)[toKey] = from;
   }
 
   function migrateRanked(fromKey: string, toKey: string) {
     const from = rstat(fromKey);
     const to = rstat(toKey);
-    if (from && !to) updates[`rankedStats.${toKey}`] = from;
+    if (from && !to) newRanked[toKey] = from;
   }
 
   migrateScore('quickMath', 'quickMath_10s');
   migrateScore('timeLimit', 'quickMath_60s');
-
   migrateScore('advQuickMath', 'advQuickMath_10s');
   migrateScore('advQuickMath', 'advQuickMath_60s');
-
   migrateScore('trueFalse', 'trueFalse_10s');
   migrateScore('trueFalse', 'trueFalse_60s');
-
   migrateScore('compareExp', 'compareExp_10s');
   migrateScore('compareExp', 'compareExp_60s');
-
   migrateScore('missingOp', 'missingOp_10s');
   migrateScore('missingOp', 'missingOp_60s');
-
   migrateScore('completeEq', 'completeEq_10s');
   migrateScore('completeEq', 'completeEq_60s');
-
   migrateScore('sequence', 'sequence_10s');
   migrateScore('sequence', 'sequence_60s');
 
@@ -174,123 +241,177 @@ export async function migrateWarmupVariantsIfNeeded(uid: string): Promise<boolea
   migrateRanked('sequence', 'sequence_10s');
   migrateRanked('sequence', 'sequence_60s');
 
-  await updateDoc(doc(db, 'users', uid), updates);
+  await updateUserData(uid, {
+    warmupVariantsMigrated: true,
+    high_scores: newHighScores,
+    rankedStats: newRanked,
+  } as Partial<UserData>);
   return true;
 }
 
 export async function createUserData(uid: string, data: Partial<UserData>): Promise<void> {
-  await setDoc(doc(db, 'users', uid), {
-    ...DEFAULT_USER,
-    ...data,
-    last_active: new Date().toISOString().split('T')[0]
-  });
+  const supabase = requireSupabase();
+  const merged = mergeUserData(DEFAULT_USER, data);
+  const { error } = await supabase.from('profiles').upsert(toSupabaseProfile(uid, {
+    ...merged,
+    last_active: new Date().toISOString().split('T')[0],
+  }));
+  if (error) throw error;
+  const econ = toSupabaseEconomy(uid, merged);
+  if (econ) {
+    const { error: econError } = await supabase.from('user_economy').upsert(econ);
+    if (econError) throw econError;
+  }
 }
 
 export async function updateUserData(uid: string, updates: Partial<UserData>): Promise<void> {
-  await updateDoc(doc(db, 'users', uid), updates as Record<string, unknown>);
+  const supabase = requireSupabase();
+  const current = await getSupabaseUserData(uid);
+  const merged = mergeUserData(current ?? DEFAULT_USER, updates);
+  const { error } = await supabase.from('profiles').upsert(toSupabaseProfile(uid, merged));
+  if (error) throw error;
+  const econ = toSupabaseEconomy(uid, merged);
+  if (econ) {
+    const { error: econError } = await supabase.from('user_economy').upsert(econ);
+    if (econError) throw econError;
+  }
 }
 
 export async function deleteUserData(uid: string): Promise<void> {
-  await deleteDoc(doc(db, 'users', uid));
+  // Delete app data via RPC (bypasses RLS)
+  const supabase = requireSupabase();
+  const { error } = await supabase.rpc('admin_delete_user', { target_uid: uid });
+  if (error) throw error;
+  // Delete auth user via Admin API (requires service role key)
+  try {
+    const admin = getAdminClient();
+    const { error: authError } = await admin.auth.admin.deleteUser(uid);
+    if (authError) {
+      console.error('Failed to delete auth user:', authError);
+    } else {
+      console.log('Auth user deleted successfully:', uid);
+    }
+  } catch (e) {
+    console.error('Admin client error (is VITE_SUPABASE_SERVICE_ROLE_KEY set?):', e);
+  }
 }
 
 export async function updateHighScore(uid: string, gameId: string, score: number): Promise<void> {
-  await updateDoc(doc(db, 'users', uid), { [`high_scores.${gameId}`]: score });
+  const current = await getUserData(uid);
+  if (!current) return;
+  const next = { ...(current.high_scores ?? {}), [gameId]: score };
+  await updateUserData(uid, { high_scores: next });
 }
 
 export async function updateEconomy(uid: string, goldDelta: number, xpDelta: number): Promise<void> {
-  const snap = await getDoc(doc(db, 'users', uid));
-  if (!snap.exists()) return;
-  const data = snap.data();
-  await updateDoc(doc(db, 'users', uid), {
-    'economy.gold': Math.max(0, (data?.economy?.gold || 0) + goldDelta),
-    'economy.global_xp': Math.max(0, (data?.economy?.global_xp || 0) + xpDelta),
-    last_active: new Date().toISOString().split('T')[0]
+  const current = await getUserData(uid);
+  if (!current) return;
+  await updateUserData(uid, {
+    economy: {
+      ...current.economy,
+      gold: Math.max(0, (current.economy?.gold || 0) + goldDelta),
+      global_xp: Math.max(0, (current.economy?.global_xp || 0) + xpDelta),
+    },
+    last_active: new Date().toISOString().split('T')[0],
   });
 }
 
 export async function applyRankedEnergyProgress(uid: string, correct: boolean): Promise<{ energy: number; rankedEnergyStreak: number } | null> {
-  const ref = doc(db, 'users', uid);
-  return runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (!snap.exists()) return null;
-    const data = snap.data() as any;
-    const econ = (data.economy && typeof data.economy === 'object') ? data.economy : {};
-    const curEnergy = typeof econ.energy === 'number' && Number.isFinite(econ.energy) ? Math.max(0, Math.floor(econ.energy)) : 0;
-    const curStreak = typeof econ.rankedEnergyStreak === 'number' && Number.isFinite(econ.rankedEnergyStreak) ? Math.max(0, Math.min(3, Math.floor(econ.rankedEnergyStreak))) : 0;
-
-    let nextEnergy = curEnergy;
-    let nextStreak = correct ? curStreak + 1 : 0;
-    if (nextStreak >= 3) {
-      nextEnergy += 1;
-      nextStreak = 0;
-    }
-
-    tx.update(ref, {
-      'economy.energy': nextEnergy,
-      'economy.rankedEnergyStreak': nextStreak,
-      last_active: new Date().toISOString().split('T')[0],
-    } as any);
-
-    return { energy: nextEnergy, rankedEnergyStreak: nextStreak };
+  const current = await getUserData(uid);
+  if (!current) return null;
+  const econ = current.economy ?? { gold: 0, global_xp: 0, streak: 0, energy: 0, rankedEnergyStreak: 0 };
+  const curEnergy = typeof econ.energy === 'number' ? Math.max(0, Math.floor(econ.energy)) : 0;
+  const curStreak = typeof econ.rankedEnergyStreak === 'number' ? Math.max(0, Math.min(3, Math.floor(econ.rankedEnergyStreak))) : 0;
+  let nextEnergy = curEnergy;
+  let nextStreak = correct ? curStreak + 1 : 0;
+  if (nextStreak >= 3) {
+    nextEnergy += 1;
+    nextStreak = 0;
+  }
+  await updateUserData(uid, {
+    economy: {
+      ...econ,
+      energy: nextEnergy,
+      rankedEnergyStreak: nextStreak,
+    },
+    last_active: new Date().toISOString().split('T')[0],
   });
+  return { energy: nextEnergy, rankedEnergyStreak: nextStreak };
 }
 
 export async function findUserByUsername(username: string): Promise<{ email: string } | null> {
-  const q = query(collection(db, 'users'), where('username', '==', username));
-  const snap = await getDocs(q);
-  if (snap.empty) return null;
-  return snap.docs[0].data() as { email: string };
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from('profiles').select('email').eq('username', username).limit(1);
+  if (error) throw error;
+  if (!data || data.length === 0) return null;
+  return { email: String(data[0].email ?? '') };
 }
 
 export async function isUsernameTaken(username: string): Promise<boolean> {
-  const q = query(collection(db, 'users'), where('username', '==', username));
-  const snap = await getDocs(q);
-  return !snap.empty;
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from('profiles').select('id').eq('username', username).limit(1);
+  if (error) throw error;
+  return !!data && data.length > 0;
 }
 
 export async function getAllUsers(): Promise<Array<UserData & { uid: string }>> {
-  const snap = await getDocs(collection(db, 'users'));
-  return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
+  const supabase = requireSupabase();
+  const { data: profiles, error } = await supabase.from('profiles').select('*');
+  if (error) throw error;
+  const { data: economies, error: econError } = await supabase.from('user_economy').select('*');
+  if (econError) throw econError;
+  const econMap = new Map<string, Record<string, unknown>>(((economies ?? []) as Record<string, unknown>[]).map((row) => [String(row.user_id ?? ''), row]));
+  return ((profiles ?? []) as Record<string, unknown>[]).map((profile) => ({
+    uid: String(profile.id ?? ''),
+    ...mapSupabaseUserRow(profile, econMap.get(String(profile.id ?? '')) ?? null),
+  }));
 }
 
 export async function getUsersByClassId(classId: string): Promise<Array<UserData & { uid: string }>> {
-  const q = query(collection(db, 'users'), where('classId', '==', classId));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ uid: d.id, ...DEFAULT_USER, ...d.data() } as UserData & { uid: string }));
+  const supabase = requireSupabase();
+  const { data: profiles, error } = await supabase.from('profiles').select('*').eq('class_id', classId);
+  if (error) throw error;
+  const { data: economies, error: econError } = await supabase.from('user_economy').select('*');
+  if (econError) throw econError;
+  const econMap = new Map<string, Record<string, unknown>>(((economies ?? []) as Record<string, unknown>[]).map((row) => [String(row.user_id ?? ''), row]));
+  return ((profiles ?? []) as Record<string, unknown>[]).map((profile) => ({
+    uid: String(profile.id ?? ''),
+    ...mapSupabaseUserRow(profile, econMap.get(String(profile.id ?? '')) ?? null),
+  }));
 }
 
 export async function updateArenaStats(uid: string, won: boolean, sessionHighestStreak: number): Promise<void> {
-  const snap = await getDoc(doc(db, 'users', uid));
-  if (!snap.exists()) return;
-  const data = snap.data();
-  const current: ArenaStats = data?.arenaStats ?? { wins: 0, losses: 0, highestStreak: 0 };
-  await updateDoc(doc(db, 'users', uid), {
-    'arenaStats.wins': current.wins + (won ? 1 : 0),
-    'arenaStats.losses': current.losses + (won ? 0 : 1),
-    'arenaStats.highestStreak': Math.max(current.highestStreak, sessionHighestStreak),
-    last_active: new Date().toISOString().split('T')[0]
+  const current = await getUserData(uid);
+  if (!current) return;
+  const arena = current.arenaStats ?? { wins: 0, losses: 0, highestStreak: 0 };
+  await updateUserData(uid, {
+    arenaStats: {
+      wins: arena.wins + (won ? 1 : 0),
+      losses: arena.losses + (won ? 0 : 1),
+      highestStreak: Math.max(arena.highestStreak, sessionHighestStreak),
+    },
+    last_active: new Date().toISOString().split('T')[0],
   });
 }
 
 export async function updateRankedStats(uid: string, gameId: string, result: 'win' | 'loss' | 'draw'): Promise<void> {
-  const snap = await getDoc(doc(db, 'users', uid));
-  if (!snap.exists()) return;
-  const data = snap.data();
-  const current = data?.rankedStats?.[gameId] ?? { wins: 0, losses: 0, highestStreak: 0, currentStreak: 0 };
-  
-  if (result === 'draw') return;
-
+  const currentUser = await getUserData(uid);
+  if (!currentUser || result === 'draw') return;
+  const current = currentUser.rankedStats?.[gameId] ?? { wins: 0, losses: 0, highestStreak: 0, currentStreak: 0 };
   const won = result === 'win';
   const newCurrentStreak = won ? (current.currentStreak || 0) + 1 : 0;
   const newHighestStreak = Math.max(current.highestStreak || 0, newCurrentStreak);
-
-  await updateDoc(doc(db, 'users', uid), {
-    [`rankedStats.${gameId}.wins`]: current.wins + (won ? 1 : 0),
-    [`rankedStats.${gameId}.losses`]: current.losses + (won ? 0 : 1),
-    [`rankedStats.${gameId}.highestStreak`]: newHighestStreak,
-    [`rankedStats.${gameId}.currentStreak`]: newCurrentStreak,
-    last_active: new Date().toISOString().split('T')[0]
+  await updateUserData(uid, {
+    rankedStats: {
+      ...(currentUser.rankedStats ?? {}),
+      [gameId]: {
+        wins: current.wins + (won ? 1 : 0),
+        losses: current.losses + (won ? 0 : 1),
+        highestStreak: newHighestStreak,
+        currentStreak: newCurrentStreak,
+      },
+    },
+    last_active: new Date().toISOString().split('T')[0],
   });
 }
 
@@ -299,38 +420,33 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
   const normalized = trimmed.toLowerCase();
 
   try {
-    let snap = await getDocs(query(collection(db, 'users'), where('username', '==', normalized)));
-    if (snap.empty && trimmed !== normalized) {
-      snap = await getDocs(query(collection(db, 'users'), where('username', '==', trimmed)));
+    const supabase = requireSupabase();
+    let { data: rows } = await supabase.from('profiles').select('id').eq('username', normalized).limit(1);
+    if ((!rows || rows.length === 0) && trimmed !== normalized) {
+      const res = await supabase.from('profiles').select('id').eq('username', trimmed).limit(1);
+      rows = res.data;
     }
-    if (snap.empty) return false;
+    if (!rows || rows.length === 0) return false;
 
-    const toUid = snap.docs[0].id;
+    const toUid = String(rows[0].id);
     if (toUid === fromUid) return false;
 
-    const toUserSnap = await getDoc(doc(db, 'users', toUid));
-    const fromUserSnap = await getDoc(doc(db, 'users', fromUid));
-    if (toUserSnap.exists()) {
-      const toData = toUserSnap.data() as Partial<UserData>;
-      const fromData = fromUserSnap.exists() ? (fromUserSnap.data() as Partial<UserData>) : ({} as Partial<UserData>);
+    const toData = await getUserData(toUid);
+    const fromData = await getUserData(fromUid);
+    if (toData) {
       const friends = Array.isArray(toData.friends) ? toData.friends : [];
       const incoming = Array.isArray(toData.incomingRequests) ? toData.incomingRequests : [];
-      const myFriends = Array.isArray(fromData.friends) ? fromData.friends : [];
+      const myFriends = fromData ? (Array.isArray(fromData.friends) ? fromData.friends : []) : [];
 
       const mutualFriends = friends.includes(fromUid) && myFriends.includes(toUid);
       if (mutualFriends) throw new Error('You are already friends');
 
-      // If friendship is stale / one-sided (can happen after an unfriend permissions issue),
-      // clean it up before proceeding.
+      // If friendship is stale / one-sided, clean it up before proceeding.
       if (friends.includes(fromUid) && !myFriends.includes(toUid)) {
-        await updateDoc(doc(db, 'users', toUid), {
-          friends: friends.filter(x => x !== fromUid)
-        });
+        await updateUserData(toUid, { friends: friends.filter(x => x !== fromUid) });
       }
       if (myFriends.includes(toUid) && !friends.includes(fromUid)) {
-        await updateDoc(doc(db, 'users', fromUid), {
-          friends: myFriends.filter(x => x !== toUid)
-        });
+        await updateUserData(fromUid, { friends: myFriends.filter(x => x !== toUid) });
       }
 
       if (incoming.includes(fromUid)) {
@@ -338,18 +454,17 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
       }
     }
 
-    const { arrayUnion } = await import('firebase/firestore');
-
-    const batch = writeBatch(db);
-
-    // Use merge writes so this doesn't fail if some fields are missing.
-    batch.set(doc(db, 'users', toUid), { incomingRequests: arrayUnion(fromUid) }, { merge: true });
-    batch.set(doc(db, 'users', fromUid), { outgoingRequests: arrayUnion(toUid) }, { merge: true });
+    // Add to incoming/outgoing arrays
+    const toDataFresh = await getUserData(toUid);
+    const fromDataFresh = await getUserData(fromUid);
+    const toIncoming = Array.from(new Set([...(toDataFresh?.incomingRequests ?? []), fromUid]));
+    const fromOutgoing = Array.from(new Set([...(fromDataFresh?.outgoingRequests ?? []), toUid]));
+    await updateUserData(toUid, { incomingRequests: toIncoming });
+    await updateUserData(fromUid, { outgoingRequests: fromOutgoing });
 
     // Deduplicate: one friendRequest notification per sender->receiver.
     const notifId = `friendRequest_${fromUid}`;
-    const notifRef = doc(db, `users/${toUid}/notifications`, notifId);
-    batch.set(notifRef, {
+    await setGlobalDoc(`notifications:${toUid}`, notifId, {
       id: notifId,
       fromUid,
       fromUsername,
@@ -358,9 +473,8 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
       createdAt: new Date().toISOString(),
       read: false,
       resolved: false
-    }, { merge: true });
+    } as any, true);
 
-    await batch.commit();
     return true;
   } catch (e) {
     const err = e as { message?: string; code?: string };
@@ -371,12 +485,9 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
 }
 
 export async function respondToFriendRequest(uid: string, peerUid: string, accept: boolean): Promise<void> {
-  const mySnap = await getDoc(doc(db, 'users', uid));
-  const peerSnap = await getDoc(doc(db, 'users', peerUid));
-  if (!mySnap.exists() || !peerSnap.exists()) return;
-
-  const myData = mySnap.data() as Partial<UserData>;
-  const peerData = peerSnap.data() as Partial<UserData>;
+  const myData = await getUserData(uid);
+  const peerData = await getUserData(peerUid);
+  if (!myData || !peerData) return;
 
   const myIncoming = Array.isArray(myData.incomingRequests) ? myData.incomingRequests : [];
   const myFriends = Array.isArray(myData.friends) ? myData.friends : [];
@@ -394,27 +505,21 @@ export async function respondToFriendRequest(uid: string, peerUid: string, accep
     ? Array.from(new Set([...peerFriends, uid]))
     : peerFriends;
 
-  const batch = writeBatch(db);
-  batch.set(doc(db, 'users', uid), {
+  await updateUserData(uid, {
     incomingRequests: nextMyIncoming,
     ...(accept ? { friends: nextMyFriends } : {}),
-  }, { merge: true });
+  });
 
-  batch.set(doc(db, 'users', peerUid), {
+  await updateUserData(peerUid, {
     outgoingRequests: nextPeerOutgoing,
     ...(accept ? { friends: nextPeerFriends } : {}),
-  }, { merge: true });
-
-  await batch.commit();
+  });
 }
 
 export async function removeFriend(uid: string, peerUid: string): Promise<void> {
-  const mySnap = await getDoc(doc(db, 'users', uid));
-  const peerSnap = await getDoc(doc(db, 'users', peerUid));
-  if (!mySnap.exists() || !peerSnap.exists()) return;
-
-  const myData = mySnap.data() as Partial<UserData>;
-  const peerData = peerSnap.data() as Partial<UserData>;
+  const myData = await getUserData(uid);
+  const peerData = await getUserData(peerUid);
+  if (!myData || !peerData) return;
 
   const myFriends = Array.isArray(myData.friends) ? myData.friends : [];
   const peerFriends = Array.isArray(peerData.friends) ? peerData.friends : [];
@@ -422,31 +527,23 @@ export async function removeFriend(uid: string, peerUid: string): Promise<void> 
   const myHadPeer = myFriends.includes(peerUid);
   const peerHadMe = peerFriends.includes(uid);
 
-  // If the lists are already out of sync, avoid attempting a no-op cross-user write,
-  // because our Firestore rules validate exact list size changes.
   if (!myHadPeer && !peerHadMe) return;
 
-  const batch = writeBatch(db);
-
   if (myHadPeer) {
-    const nextMyFriends = myFriends.filter(x => x !== peerUid);
-    batch.set(doc(db, 'users', uid), { friends: nextMyFriends }, { merge: true });
+    await updateUserData(uid, { friends: myFriends.filter(x => x !== peerUid) });
   }
 
   if (peerHadMe) {
-    const nextPeerFriends = peerFriends.filter(x => x !== uid);
-    batch.set(doc(db, 'users', peerUid), { friends: nextPeerFriends }, { merge: true });
+    await updateUserData(peerUid, { friends: peerFriends.filter(x => x !== uid) });
   }
-
-  await batch.commit();
 }
 
 export async function submitCurriculumRequest(uid: string, username: string, profile: {
   system: string; year: string; textbook: string;
 }): Promise<void> {
-  await setDoc(doc(db, 'curriculumRequests', `${uid}_${Date.now()}`), {
+  await setGlobalDoc('curriculumRequests', `${uid}_${Date.now()}`, {
     uid, username, ...profile, requestedAt: new Date().toISOString(), status: 'pending'
-  });
+  } as any);
 }
 
 export async function submitProgramMapRequest(uid: string, username: string, profile: {

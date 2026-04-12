@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
-import { db } from '@/lib/firebase';
+import { getGlobalDoc } from '@/lib/supabaseDocStore';
 
 export default function StudySessionsView({ onBack }: { onBack: () => void }) {
   const { userData } = useAuth();
@@ -23,12 +22,12 @@ export default function StudySessionsView({ onBack }: { onBack: () => void }) {
     setJoining(true);
     setJoinMsg('');
     try {
-      const snap = await getDoc(doc(db, 'programStudySessions', code));
-      if (!snap.exists()) {
+      const raw = await getGlobalDoc('programStudySessions', code);
+      if (!raw) {
         setJoinMsg('❌ Invalid code.');
         return;
       }
-      const data = snap.data() as { programId?: unknown; state?: unknown };
+      const data = raw as { programId?: unknown; state?: unknown };
       const pid = typeof data.programId === 'string' ? (data.programId as string) : null;
       const state = typeof data.state === 'string' ? (data.state as string) : null;
       if (!pid || state === 'complete') {

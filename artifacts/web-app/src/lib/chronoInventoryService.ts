@@ -3,8 +3,7 @@
    Firestore path: users/{uid}/chrono_empires/inventory
    ═══════════════════════════════════════════════════════════ */
 
-import { db } from '@/lib/firebase';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { getUserDoc, setUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';
 import { CARD_UPGRADE_LEVELS } from '@/lib/chronoCards';
 
 function nowIso(): string {
@@ -40,14 +39,15 @@ const EMPTY_INVENTORY: ChronoInventoryDoc = {
   updatedAt: '',
 };
 
-const INV_PATH = (uid: string) => doc(db, 'users', uid, 'chrono_empires', 'inventory');
+const INV_COL = 'chrono_inventory';
+const INV_DOC = 'global';
 
 /* ── Read / Ensure ─────────────────────────────────────── */
 
 export async function getInventory(uid: string): Promise<ChronoInventoryDoc> {
-  const snap = await getDoc(INV_PATH(uid));
-  if (!snap.exists()) return { ...EMPTY_INVENTORY, updatedAt: nowIso() };
-  const d = snap.data() as any;
+  const raw = await getUserDoc(uid, INV_COL, INV_DOC);
+  if (!raw) return { ...EMPTY_INVENTORY, updatedAt: nowIso() };
+  const d = raw as any;
   return {
     cards: (d.cards && typeof d.cards === 'object') ? d.cards : {},
     transportCards: (d.transportCards && typeof d.transportCards === 'object') ? d.transportCards : {},
@@ -63,11 +63,11 @@ export async function getInventory(uid: string): Promise<ChronoInventoryDoc> {
 export async function ensureInventory(uid: string): Promise<ChronoInventoryDoc> {
   const existing = await getInventory(uid);
   if (existing.updatedAt) {
-    const snap = await getDoc(INV_PATH(uid));
-    if (snap.exists()) return existing;
+    const check = await getUserDoc(uid, INV_COL, INV_DOC);
+    if (check) return existing;
   }
   const init: ChronoInventoryDoc = { ...EMPTY_INVENTORY, updatedAt: nowIso() };
-  await setDoc(INV_PATH(uid), init as any);
+  await setUserDoc(uid, INV_COL, INV_DOC, init as any);
   return init;
 }
 
@@ -79,10 +79,10 @@ export async function addCardCopies(uid: string, cardId: string, count: number):
   const newCopies = existing.copies + Math.max(0, count);
   const newLevel = existing.level === 0 ? 1 : existing.level; // auto-unlock level 1
   const updated: OwnedCard = { copies: newCopies, level: newLevel };
-  await updateDoc(INV_PATH(uid), {
+  await updateUserDoc(uid, INV_COL, INV_DOC, {
     [`cards.${cardId}`]: updated,
     updatedAt: nowIso(),
-  } as any);
+  });
   return updated;
 }
 
@@ -106,26 +106,25 @@ export async function upgradeCard(uid: string, cardId: string): Promise<UpgradeR
   }
 
   // Check coin cost from user economy
-  const userSnap = await getDoc(doc(db, 'users', uid));
-  if (!userSnap.exists()) return { ok: false, reason: 'User not found.' };
-  const econ = (userSnap.data() as any)?.economy ?? {};
-  const gold = typeof econ.gold === 'number' ? econ.gold : 0;
+  const econRaw = await getUserDoc(uid, 'chrono_economy', 'global');
+  if (!econRaw) return { ok: false, reason: 'User not found.' };
+  const gold = typeof (econRaw as any).gold === 'number' ? (econRaw as any).gold : 0;
   if (gold < nextDef.coinCost) {
     return { ok: false, reason: `Need ${nextDef.coinCost.toLocaleString()} coins (have ${gold.toLocaleString()}).` };
   }
 
   // Apply upgrade
   const updated: OwnedCard = { copies: card.copies, level: card.level + 1 };
-  await updateDoc(INV_PATH(uid), {
+  await updateUserDoc(uid, INV_COL, INV_DOC, {
     [`cards.${cardId}`]: updated,
     updatedAt: nowIso(),
-  } as any);
+  });
 
   // Deduct coins
   if (nextDef.coinCost > 0) {
-    await updateDoc(doc(db, 'users', uid), {
-      'economy.gold': gold - nextDef.coinCost,
-    } as any);
+    await updateUserDoc(uid, 'chrono_economy', 'global', {
+      gold: gold - nextDef.coinCost,
+    });
   }
 
   return { ok: true, card: updated };
@@ -135,10 +134,10 @@ export async function upgradeCard(uid: string, cardId: string): Promise<UpgradeR
 
 export async function setDeck(uid: string, deck: string[]): Promise<void> {
   const trimmed = deck.slice(0, 12);
-  await updateDoc(INV_PATH(uid), {
+  await updateUserDoc(uid, INV_COL, INV_DOC, {
     deck: trimmed,
     updatedAt: nowIso(),
-  } as any);
+  });
 }
 
 export async function addToDeck(uid: string, cardId: string): Promise<string[]> {
@@ -162,20 +161,20 @@ export async function removeFromDeck(uid: string, cardId: string): Promise<strin
 export async function addTransportCard(uid: string, transportId: string, count = 1): Promise<void> {
   const inv = await getInventory(uid);
   const cur = inv.transportCards[transportId] ?? 0;
-  await updateDoc(INV_PATH(uid), {
+  await updateUserDoc(uid, INV_COL, INV_DOC, {
     [`transportCards.${transportId}`]: cur + count,
     updatedAt: nowIso(),
-  } as any);
+  });
 }
 
 export async function useTransportCard(uid: string, transportId: string): Promise<boolean> {
   const inv = await getInventory(uid);
   const cur = inv.transportCards[transportId] ?? 0;
   if (cur <= 0) return false;
-  await updateDoc(INV_PATH(uid), {
+  await updateUserDoc(uid, INV_COL, INV_DOC, {
     [`transportCards.${transportId}`]: cur - 1,
     updatedAt: nowIso(),
-  } as any);
+  });
   return true;
 }
 
@@ -186,7 +185,7 @@ export async function addCombatCard(uid: string, type: 'attack' | 'defend', coun
   const field = type === 'attack' ? 'attackCards' : 'defendCards';
   const cur = inv[field];
   const next = Math.min(3, cur + count);
-  await updateDoc(INV_PATH(uid), { [field]: next, updatedAt: nowIso() } as any);
+  await updateUserDoc(uid, INV_COL, INV_DOC, { [field]: next, updatedAt: nowIso() });
 }
 
 /* ── Token management ──────────────────────────────────── */
@@ -194,20 +193,20 @@ export async function addCombatCard(uid: string, type: 'attack' | 'defend', coun
 export async function setActiveToken(uid: string, tokenId: string): Promise<void> {
   const inv = await getInventory(uid);
   if (!inv.ownedTokens.includes(tokenId)) throw new Error('Token not owned.');
-  await updateDoc(INV_PATH(uid), { activeToken: tokenId, updatedAt: nowIso() } as any);
+  await updateUserDoc(uid, INV_COL, INV_DOC, { activeToken: tokenId, updatedAt: nowIso() });
 }
 
 export async function buyToken(uid: string, tokenId: string, cost: number): Promise<boolean> {
   const inv = await getInventory(uid);
   if (inv.ownedTokens.includes(tokenId)) return false; // already owned
-  const userSnap = await getDoc(doc(db, 'users', uid));
-  if (!userSnap.exists()) return false;
-  const gold = (userSnap.data() as any)?.economy?.gold ?? 0;
+  const econRaw = await getUserDoc(uid, 'chrono_economy', 'global');
+  if (!econRaw) return false;
+  const gold = typeof (econRaw as any).gold === 'number' ? (econRaw as any).gold : 0;
   if (gold < cost) return false;
-  await updateDoc(INV_PATH(uid), {
+  await updateUserDoc(uid, INV_COL, INV_DOC, {
     ownedTokens: [...inv.ownedTokens, tokenId],
     updatedAt: nowIso(),
-  } as any);
-  await updateDoc(doc(db, 'users', uid), { 'economy.gold': gold - cost } as any);
+  });
+  await updateUserDoc(uid, 'chrono_economy', 'global', { gold: gold - cost });
   return true;
 }
