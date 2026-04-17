@@ -1721,7 +1721,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
           await markQuestionSolved(uid, programId, soloCurrent.id);
           setSolvedQuestionIds((prev) => (prev.includes(soloCurrent.id) ? prev : [...prev, soloCurrent.id]));
         }
-        await updateEconomy(uid, 1, 5);
+        await updateEconomy(uid, { gold: 1, xp: 5 });
       } catch {
         // ignore
       } finally {
@@ -1745,7 +1745,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
           await markQuestionSolved(uid, programId, soloCurrent.id);
           setSolvedQuestionIds((prev) => (prev.includes(soloCurrent.id) ? prev : [...prev, soloCurrent.id]));
         }
-        await updateEconomy(uid, 1, 5);
+        await updateEconomy(uid, { gold: 1, xp: 5 });
       } catch {
         // ignore
       } finally {
@@ -1985,7 +1985,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                   const res = await claimRoadmapReward(uid, programId, rewardId);
                   if (!res.claimed) return;
                   const gold = rewardGold(t);
-                  await updateEconomy(uid, gold, 0);
+                  await updateEconomy(uid, { gold });
                   setClaimedRewardIds((prev) => (prev.includes(rewardId) ? prev : [...prev, rewardId]));
                   setChestOverlay({ rewardId, gold, stage: 'opening' });
                 } finally {
@@ -3178,7 +3178,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                               />
 
                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                                {['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '⌫'].map((k) => (
+                                {['7', '8', '9', '4', '5', '6', '1', '2', '3', '-', '.', '0', '⌫'].map((k) => (
                                   <button
                                     key={k}
                                     className="ll-btn"
@@ -3187,6 +3187,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                       if (rankedFeedback) return;
                                       if (k === '⌫') {
                                         setRankedTextAnswer((p) => p.slice(0, -1));
+                                      } else if (k === '-') {
+                                        setRankedTextAnswer((p) => (p.startsWith('-') ? p.slice(1) : `-${p}`));
                                       } else {
                                         setRankedTextAnswer((p) => `${p}${k}`);
                                       }
@@ -3752,7 +3754,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                               />
 
                               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                                {['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '⌫'].map((k) => (
+                                {['7', '8', '9', '4', '5', '6', '1', '2', '3', '-', '.', '0', '⌫'].map((k) => (
                                   <button
                                     key={k}
                                     className="ll-btn"
@@ -3761,6 +3763,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                       if (soloFeedback) return;
                                       if (k === '⌫') {
                                         setSoloTextAnswer((p) => p.slice(0, -1));
+                                      } else if (k === '-') {
+                                        setSoloTextAnswer((p) => (p.startsWith('-') ? p.slice(1) : `-${p}`));
                                       } else {
                                         setSoloTextAnswer((p) => `${p}${k}`);
                                       }

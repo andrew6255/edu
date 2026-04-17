@@ -65,7 +65,7 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
 
     try {
       const userService = await import('@/lib/userService');
-      await userService.updateEconomy(user.uid, gold, xp);
+      await userService.updateEconomy(user.uid, { gold, xp });
       if (mode === 'ranked' || mode === 'friend') {
         const result = won ? 'win' : drew ? 'draw' : 'loss';
         await userService.updateRankedStats(user.uid, game.id, result);

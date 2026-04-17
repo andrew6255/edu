@@ -10,6 +10,10 @@ import AppPage from "@/pages/AppPage";
 import SuperAdminPage from "@/pages/SuperAdminPage";
 import LogicGamesPreviewPage from "@/pages/LogicGamesPreviewPage";
 import ChronoBoardPage from "@/pages/ChronoBoardPage";
+import AdminPage from "@/pages/AdminPage";
+import TeacherPage from '@/pages/TeacherPage';
+import TAPage from '@/pages/TAPage';
+import ParentPage from '@/pages/ParentPage';
 
 const queryClient = new QueryClient();
 
@@ -33,6 +37,10 @@ function Router() {
       <Route path="/app" component={AppPage} />
       <Route path="/chrono/board/:board" component={ChronoBoardPage} />
       <Route path="/superadmin" component={SuperAdminPage} />
+      <Route path="/admin" component={AdminPage} />
+      <Route path="/teacher" component={TeacherPage} />
+      <Route path="/ta" component={TAPage} />
+      <Route path="/parent" component={ParentPage} />
       <Route path="/logic-preview" component={LogicGamesPreviewPage} />
       <Route component={NotFound} />
     </Switch>

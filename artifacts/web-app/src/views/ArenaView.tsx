@@ -91,7 +91,7 @@ export default function ArenaView() {
   async function handleBattleComplete(won: boolean, xp: number, gold: number, stats: BattleStats) {
     if (!user) return;
     await Promise.all([
-      updateEconomy(user.uid, gold, xp),
+      updateEconomy(user.uid, { gold, xp }),
       updateArenaStats(user.uid, won, stats.highestStreak)
     ]);
     await refreshUserData();

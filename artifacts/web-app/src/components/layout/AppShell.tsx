@@ -8,6 +8,7 @@ import FriendsView from '@/views/FriendsView';
 import { queryGlobalDocs, listenGlobalCollection } from '@/lib/supabaseDocStore';
 import { useSession } from '@/contexts/SessionContext';
 import { forfeitSession } from '@/lib/gameSessionService';
+import { getMyRunningQuizzes } from '@/lib/studentService';
 import type { AppNotification } from '@/lib/userService';
 
 type View =
@@ -19,8 +20,61 @@ type View =
   | 'curriculum'
   | 'programMap'
   | 'studySessions'
+  | 'classes'
   | 'notifications'
   | 'friends';
+
+function QuizzesButton({ onOpen }: { onOpen: () => void }) {
+  const [runningCount, setRunningCount] = useState(0);
+  const [finishedCount, setFinishedCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const result = await getMyRunningQuizzes();
+        if (!alive) return;
+        setRunningCount(result.running.length);
+        setFinishedCount(result.finished.length);
+      } catch { /* silent */ }
+      finally { if (alive) setLoading(false); }
+    }
+    load();
+    return () => { alive = false; };
+  }, []);
+
+  return (
+    <button
+      onClick={onOpen}
+      style={{
+        textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
+        background: 'rgba(245,158,11,0.08)',
+        border: '1px solid rgba(245,158,11,0.25)',
+        borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+      }}
+    >
+      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span>📋 Quizzes</span>
+        {!loading && runningCount > 0 && (
+          <span style={{
+            fontSize: 10, padding: '2px 8px', borderRadius: 999,
+            background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.4)',
+            color: '#f59e0b', fontWeight: 'bold',
+          }}>
+            {runningCount} running
+          </span>
+        )}
+        <span style={{ marginLeft: 'auto', color: '#f59e0b', fontWeight: 'bold' }}>→</span>
+      </span>
+      {!loading && (
+        <div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>
+          {runningCount} available · {finishedCount} finished
+        </div>
+      )}
+    </button>
+  );
+}
 
 interface AppShellProps {
   view: View;
@@ -119,6 +173,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
     { id: 'warmup', icon: '⚡', label: 'Warmup' },
     { id: 'universe', icon: '🌌', label: 'Universe' },
     { id: 'logic', icon: '🧩', label: 'Logic Games' },
+    { id: 'classes', icon: '🏫', label: 'Classes' },
     { id: 'profile', icon: '👤', label: 'Profile' },
   ] as const;
 
@@ -327,6 +382,8 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                   <span style={{ marginLeft: 'auto', color: '#34d399', fontWeight: 'bold' }}>→</span>
                 </span>
               </button>
+
+              <QuizzesButton onOpen={() => { setView('classes'); setMenuOpen(false); }} />
 
               {studyOngoingSessionId && studyOngoingProgramId && (
                 <button

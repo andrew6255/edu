@@ -154,10 +154,13 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (!loading && user && userData) {
-      if (userData.role === 'superadmin') {
-        setLocation('/superadmin');
-      } else {
-        setLocation('/app');
+      switch (userData.role) {
+        case 'superadmin': setLocation('/superadmin'); break;
+        case 'admin': setLocation('/admin'); break;
+        case 'teacher': setLocation('/teacher'); break;
+        case 'teacher_assistant': setLocation('/ta'); break;
+        case 'parent': setLocation('/parent'); break;
+        default: setLocation('/app'); break;
       }
     }
   }, [user, userData, loading]);

@@ -4,7 +4,7 @@ import { getCurriculaForSubject } from '@/data/curriculum';
 import { getUserProgress, getCurriculumCompletedCount, UserProgress } from '@/lib/progressService';
 import { getPublicProgram, purgeProgramFromUser } from '@/lib/programMaps';
 import { getProgramProgress } from '@/lib/programProgress';
-import MyProgramsModal from '@/components/universe/MyProgramsModal';
+import { getAllMyContent, type StudentContentItem } from '@/lib/studentService';
 
 interface HexUniverseViewProps {
   onSelectSubject: (subject: string) => void;
@@ -39,11 +39,18 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
   const [activeProgramTitle, setActiveProgramTitle] = useState<string | null>(null);
   const [activePrograms, setActivePrograms] = useState<Array<{ id: string; title: string; coverEmoji?: string }>>([]);
   const [programPctById, setProgramPctById] = useState<Record<string, number>>({});
-  const [programsOpen, setProgramsOpen] = useState(false);
+
+  // Class content filters
+  const [classContent, setClassContent] = useState<(StudentContentItem & { class_name: string })[]>([]);
+  const [classFilter, setClassFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'program' | 'assignment' | 'quiz'>('all');
+  const [loadingClassContent, setLoadingClassContent] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     getUserProgress(user.uid).then(p => { setProgress(p); setLoaded(true); });
+    setLoadingClassContent(true);
+    getAllMyContent().then(c => setClassContent(c)).catch(e => console.error(e)).finally(() => setLoadingClassContent(false));
   }, [user]);
 
   useEffect(() => {
@@ -297,36 +304,76 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
         </div>
       )}
 
-      <div style={{ zIndex: 2, marginTop: isNoSystem ? 0 : 'auto', animation: 'fadeIn 0.5s ease', width: '100%', maxWidth: 420 }}>
-        <button
-          onClick={() => setProgramsOpen(true)}
-          style={{
-            background: 'linear-gradient(90deg, rgba(168,85,247,0.20), rgba(59,130,246,0.18))',
-            border: '1px solid rgba(168,85,247,0.5)',
-            borderRadius: 12,
-            padding: '16px 32px',
-            color: 'white',
-            fontSize: 15,
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            width: '100%',
-            justifyContent: 'center',
-          }}
-        >
-          📚 My Programs
-          {activeProgramTitle ? (
-            <span style={{ color: '#cbd5e1', fontWeight: 600, fontSize: 12 }}>
-              ({activePrograms.length} active)
-            </span>
-          ) : null}
-        </button>
-      </div>
 
-      <MyProgramsModal open={programsOpen} onClose={() => setProgramsOpen(false)} />
+      {/* Class Content with filters */}
+      {classContent.length > 0 && (
+        <div style={{ width: '100%', maxWidth: 800, zIndex: 2, marginBottom: 40 }}>
+          <h2 style={{ color: '#c4b5fd', fontSize: 20, margin: '0 0 12px', textAlign: 'center' }}>Class Content</h2>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+            {/* Class filter */}
+            <select value={classFilter} onChange={e => setClassFilter(e.target.value)} style={{
+              padding: '6px 12px', borderRadius: 8, fontSize: 12, fontFamily: 'inherit',
+              background: '#1e293b', border: '1px solid #475569', color: 'white', cursor: 'pointer', outline: 'none',
+            }}>
+              <option value="all">All Classes</option>
+              {[...new Set(classContent.map(c => c.class_name))].map(cn => (
+                <option key={cn} value={cn}>{cn}</option>
+              ))}
+            </select>
+            {/* Type filter */}
+            {(['all', 'program', 'assignment', 'quiz'] as const).map(t => {
+              const label = t === 'all' ? 'All' : t === 'program' ? '📘 Programs' : t === 'assignment' ? '📝 Quests' : '📋 Quizzes';
+              return (
+                <button key={t} onClick={() => setTypeFilter(t)} style={{
+                  padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit',
+                  background: typeFilter === t ? 'rgba(139,92,246,0.2)' : 'transparent',
+                  border: `1px solid ${typeFilter === t ? 'rgba(139,92,246,0.5)' : '#33415555'}`,
+                  color: typeFilter === t ? '#c4b5fd' : '#64748b', cursor: 'pointer',
+                }}>{label}</button>
+              );
+            })}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+            {classContent
+              .filter(c => classFilter === 'all' || c.class_name === classFilter)
+              .filter(c => typeFilter === 'all' || c.content_type === typeFilter)
+              .map(item => {
+                const typeColor = item.content_type === 'program' ? '#3b82f6' : item.content_type === 'assignment' ? '#f59e0b' : '#10b981';
+                const typeIcon = item.content_type === 'program' ? '📘' : item.content_type === 'assignment' ? '📝' : '📋';
+                const typeLabel = item.content_type === 'program' ? 'Program' : item.content_type === 'assignment' ? 'Quest' : 'Quiz';
+                return (
+                  <div key={item.id} onClick={() => {
+                    window.dispatchEvent(new CustomEvent('ll:openClassContent', { detail: { contentId: item.id, contentType: item.content_type } }));
+                  }} style={{
+                    background: `${typeColor}10`, border: `1px solid ${typeColor}44`, borderRadius: 14,
+                    padding: '18px 16px', cursor: 'pointer', transition: 'all 0.2s',
+                    display: 'flex', flexDirection: 'column', gap: 6,
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-3px)'; (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 24px ${typeColor}33`; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ''; (e.currentTarget as HTMLDivElement).style.boxShadow = ''; }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 22 }}>{item.cover_emoji || typeIcon}</span>
+                      <span style={{ fontSize: 9, fontWeight: 'bold', padding: '2px 7px', borderRadius: 4, background: `${typeColor}22`, border: `1px solid ${typeColor}55`, color: typeColor }}>{typeLabel}</span>
+                    </div>
+                    <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>{item.title}</div>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>
+                      {item.class_name}{item.subject ? ` · ${item.subject}` : ''}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+          {classContent
+            .filter(c => classFilter === 'all' || c.class_name === classFilter)
+            .filter(c => typeFilter === 'all' || c.content_type === typeFilter).length === 0 && (
+            <div style={{ textAlign: 'center', color: '#64748b', marginTop: 20, fontSize: 13 }}>No content matches the selected filters.</div>
+          )}
+        </div>
+      )}
+      {loadingClassContent && classContent.length === 0 && (
+        <div style={{ color: '#64748b', fontSize: 13, zIndex: 2, marginBottom: 30 }}>Loading class content...</div>
+      )}
 
       {/* Decorative orbs */}
       <div style={{

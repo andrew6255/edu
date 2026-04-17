@@ -64,7 +64,7 @@ export async function grantReward(uid: string, seasonId: string, reward: BattleP
       return;
     }
     if (payload.currency === 'gold') {
-      await updateEconomy(uid, amt, 0);
+      await updateEconomy(uid, { gold: amt });
       return;
     }
     if (payload.currency === 'energy') {

@@ -1,7 +1,9 @@
 import { requireSupabase, getAdminClient } from './supabase';
 import { getGlobalDoc, setGlobalDoc } from './supabaseDocStore';
 
-export type UserRole = 'student' | 'superadmin';
+export type UserRole = 'student' | 'superadmin' | 'admin' | 'teacher' | 'teacher_assistant' | 'parent';
+
+const VALID_ROLES: UserRole[] = ['student', 'superadmin', 'admin', 'teacher', 'teacher_assistant', 'parent'];
 
 export interface SubjectConfig {
   textbook: string;
@@ -125,7 +127,7 @@ function mapSupabaseUserRow(profile: Record<string, unknown>, economy: Record<st
     lastName: typeof profile.last_name === 'string' ? profile.last_name : '',
     username: typeof profile.username === 'string' ? profile.username : '',
     email: typeof profile.email === 'string' ? profile.email : '',
-    role: profile.role === 'superadmin' ? 'superadmin' : 'student',
+    role: VALID_ROLES.includes(profile.role as UserRole) ? (profile.role as UserRole) : 'student',
     classId: typeof profile.class_id === 'string' ? profile.class_id : undefined,
     onboardingComplete: typeof profile.onboarding_complete === 'boolean' ? profile.onboarding_complete : undefined,
     curriculumProfile: (profile.curriculum_profile && typeof profile.curriculum_profile === 'object') ? (profile.curriculum_profile as CurriculumProfile) : undefined,
@@ -278,18 +280,48 @@ export async function updateUserData(uid: string, updates: Partial<UserData>): P
 }
 
 export async function deleteUserData(uid: string): Promise<void> {
-  // Delete app data via RPC (bypasses RLS)
   const supabase = requireSupabase();
-  const { error } = await supabase.rpc('admin_delete_user', { target_uid: uid });
-  if (error) throw error;
-  // Delete auth user via Admin API (requires service role key)
+
+  // Look up if this is a student or parent to cascade-delete the pair
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', uid).limit(1).single();
+  const role = profile?.role as string | undefined;
+
+  let pairedUid: string | null = null;
+
+  if (role === 'student' || role === 'parent') {
+    // Find the paired account
+    if (role === 'student') {
+      const { data: link } = await supabase.from('parent_student_links').select('parent_id').eq('student_id', uid).limit(1);
+      pairedUid = link?.[0]?.parent_id ?? null;
+    } else {
+      const { data: link } = await supabase.from('parent_student_links').select('student_id').eq('parent_id', uid).limit(1);
+      pairedUid = link?.[0]?.student_id ?? null;
+    }
+
+    // Use cascade RPC for student (it deletes both student + parent app data)
+    const studentUid = role === 'student' ? uid : pairedUid;
+    if (studentUid) {
+      const { error } = await supabase.rpc('admin_delete_student_and_parent', { target_student_uid: studentUid });
+      if (error) throw error;
+    } else {
+      // No link found, just delete this user
+      const { error } = await supabase.rpc('admin_delete_user', { target_uid: uid });
+      if (error) throw error;
+    }
+  } else {
+    // Non-student/parent: simple delete
+    const { error } = await supabase.rpc('admin_delete_user', { target_uid: uid });
+    if (error) throw error;
+  }
+
+  // Delete auth user(s) via Admin API
   try {
     const admin = getAdminClient();
     const { error: authError } = await admin.auth.admin.deleteUser(uid);
-    if (authError) {
-      console.error('Failed to delete auth user:', authError);
-    } else {
-      console.log('Auth user deleted successfully:', uid);
+    if (authError) console.error('Failed to delete auth user:', authError);
+    if (pairedUid) {
+      const { error: pairedAuthError } = await admin.auth.admin.deleteUser(pairedUid);
+      if (pairedAuthError) console.error('Failed to delete paired auth user:', pairedAuthError);
     }
   } catch (e) {
     console.error('Admin client error (is VITE_SUPABASE_SERVICE_ROLE_KEY set?):', e);
@@ -303,17 +335,60 @@ export async function updateHighScore(uid: string, gameId: string, score: number
   await updateUserData(uid, { high_scores: next });
 }
 
-export async function updateEconomy(uid: string, goldDelta: number, xpDelta: number): Promise<void> {
+export interface EconomyDeltas {
+  gold?: number;
+  xp?: number;
+  energy?: number;
+  streak?: number;
+}
+
+export async function updateEconomy(uid: string, deltas: EconomyDeltas): Promise<void> {
   const current = await getUserData(uid);
   if (!current) return;
+  const econ = current.economy ?? {};
   await updateUserData(uid, {
     economy: {
-      ...current.economy,
-      gold: Math.max(0, (current.economy?.gold || 0) + goldDelta),
-      global_xp: Math.max(0, (current.economy?.global_xp || 0) + xpDelta),
+      ...econ,
+      gold: Math.max(0, (econ.gold || 0) + (deltas.gold || 0)),
+      global_xp: Math.max(0, (econ.global_xp || 0) + (deltas.xp || 0)),
+      energy: Math.max(0, (econ.energy || 0) + (deltas.energy || 0)),
+      streak: Math.max(0, (econ.streak || 0) + (deltas.streak || 0)),
     },
     last_active: new Date().toISOString().split('T')[0],
   });
+}
+
+export async function adminGetStudentEconomy(uid: string): Promise<{ gold: number; global_xp: number; energy: number; streak: number }> {
+  const admin = getAdminClient();
+  const { data } = await admin.from('user_economy').select('gold, global_xp, energy, streak').eq('user_id', uid).maybeSingle();
+  const d = (data ?? {}) as Record<string, unknown>;
+  return {
+    gold: typeof d.gold === 'number' ? d.gold : 0,
+    global_xp: typeof d.global_xp === 'number' ? d.global_xp : 0,
+    energy: typeof d.energy === 'number' ? d.energy : 0,
+    streak: typeof d.streak === 'number' ? d.streak : 0,
+  };
+}
+
+export async function adminUpdateEconomy(uid: string, deltas: EconomyDeltas): Promise<void> {
+  const admin = getAdminClient();
+  const { data: existing } = await admin.from('user_economy').select('gold, global_xp, energy, streak').eq('user_id', uid).maybeSingle();
+  const e = (existing ?? {}) as Record<string, unknown>;
+  const cur = {
+    gold: typeof e.gold === 'number' ? e.gold : 0,
+    global_xp: typeof e.global_xp === 'number' ? e.global_xp : 0,
+    energy: typeof e.energy === 'number' ? e.energy : 0,
+    streak: typeof e.streak === 'number' ? e.streak : 0,
+  };
+  const next = {
+    user_id: uid,
+    gold: Math.max(0, cur.gold + (deltas.gold || 0)),
+    global_xp: Math.max(0, cur.global_xp + (deltas.xp || 0)),
+    energy: Math.max(0, cur.energy + (deltas.energy || 0)),
+    streak: Math.max(0, cur.streak + (deltas.streak || 0)),
+    updated_at: new Date().toISOString(),
+  };
+  await (admin.from('user_economy') as unknown as { upsert: (v: Record<string, unknown>, o?: Record<string, unknown>) => Promise<unknown> }).upsert(next, { onConflict: 'user_id' });
 }
 
 export async function applyRankedEnergyProgress(uid: string, correct: boolean): Promise<{ energy: number; rankedEnergyStreak: number } | null> {
@@ -550,6 +625,49 @@ export async function submitProgramMapRequest(uid: string, username: string, pro
   system: string; year: string; textbook: string;
 }): Promise<void> {
   return submitCurriculumRequest(uid, username, profile);
+}
+
+// ─── Admin ↔ Teacher assignments ───────────────────────────────────────────
+
+export interface AdminTeacherAssignment {
+  admin_id: string;
+  teacher_id: string;
+}
+
+export async function getAdminTeacherAssignments(): Promise<AdminTeacherAssignment[]> {
+  const supabase = getAdminClient();
+  const { data, error } = await supabase.from('admin_teacher_assignments').select('admin_id, teacher_id');
+  if (error) throw error;
+  return (data ?? []) as AdminTeacherAssignment[];
+}
+
+export async function addAdminTeacherAssignment(adminId: string, teacherId: string): Promise<void> {
+  const supabase = requireSupabase();
+  const { error } = await supabase.from('admin_teacher_assignments').upsert(
+    { admin_id: adminId, teacher_id: teacherId, created_at: new Date().toISOString() },
+    { onConflict: 'admin_id,teacher_id' }
+  );
+  if (error) throw error;
+}
+
+export async function removeAdminTeacherAssignment(adminId: string, teacherId: string): Promise<void> {
+  const supabase = requireSupabase();
+  const { error } = await supabase.from('admin_teacher_assignments').delete().eq('admin_id', adminId).eq('teacher_id', teacherId);
+  if (error) throw error;
+}
+
+// ─── Parent ↔ Student links ───────────────────────────────────────────────
+
+export interface ParentStudentLink {
+  parent_id: string;
+  student_id: string;
+}
+
+export async function getParentStudentLinks(): Promise<ParentStudentLink[]> {
+  const supabase = getAdminClient();
+  const { data, error } = await supabase.from('parent_student_links').select('parent_id, student_id');
+  if (error) throw error;
+  return (data ?? []) as ParentStudentLink[];
 }
 
 export function computeLevel(xp: number): { level: number; title: string } {

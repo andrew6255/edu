@@ -45,7 +45,7 @@ export async function completeObjective(
   progress[curriculumId] = curriculum;
 
   await updateUserData(uid, { progress });
-  await updateEconomy(uid, Math.floor(xp / 5), xp);
+  await updateEconomy(uid, { gold: Math.floor(xp / 5), xp });
 }
 
 export function countCompleted(

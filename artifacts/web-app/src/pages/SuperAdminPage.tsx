@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { requireSupabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllUsers, updateUserData, deleteUserData, updateEconomy, UserData, UserRole, computeLevel } from '@/lib/userService';
+import { getAllUsers, updateUserData, deleteUserData, adminUpdateEconomy, type EconomyDeltas, UserData, UserRole, computeLevel, getAdminTeacherAssignments, addAdminTeacherAssignment, removeAdminTeacherAssignment, getParentStudentLinks, AdminTeacherAssignment, ParentStudentLink } from '@/lib/userService';
 import { convertNestedProgramToInternal, parseNestedProgramJson } from '@/lib/programNestedImport';
 import ProgramMapView from '@/views/ProgramMapView';
 import { clearDraftProgram } from '@/lib/draftProgramStore';
-import { uploadProgramQuestionAsset } from '@/lib/programAssetService';
+import { deleteProgramQuestionAsset, uploadProgramQuestionAsset } from '@/lib/programAssetService';
 import {
   deleteDraftProgramAdmin,
   getDraftProgramAdmin,
@@ -45,9 +45,14 @@ import { setDraftProgram } from '@/lib/draftProgramStore';
 
 type Tab = 'overview' | 'users' | 'programs' | 'logicGames';
 
-const ROLE_ORDER: UserRole[] = ['student', 'superadmin'];
+const ROLE_ORDER: UserRole[] = ['student', 'superadmin', 'admin', 'teacher', 'teacher_assistant', 'parent'];
+const ROLE_LABELS: Record<UserRole, string> = {
+  student: 'Student', superadmin: 'Super Admin', admin: 'Admin',
+  teacher: 'Teacher', teacher_assistant: 'TA', parent: 'Parent',
+};
 const ROLE_COLORS: Record<UserRole, string> = {
-  student: '#3b82f6', superadmin: '#a855f7'
+  student: '#3b82f6', superadmin: '#a855f7', admin: '#f59e0b',
+  teacher: '#10b981', teacher_assistant: '#06b6d4', parent: '#ec4899',
 };
 
 function stripUndefinedDeep<T>(value: T): T {
@@ -77,9 +82,16 @@ export default function SuperAdminPage() {
   const [changingRole, setChangingRole] = useState<string | null>(null);
   const [deletingUser, setDeletingUser] = useState<string | null>(null);
 
+  // Relationship data
+  const [ataLinks, setAtaLinks] = useState<AdminTeacherAssignment[]>([]);
+  const [pslLinks, setPslLinks] = useState<ParentStudentLink[]>([]);
+
+  // Teacher assignment modal (opened on admin rows)
+  const [ataModal, setAtaModal] = useState<{ adminUid: string; adminName: string } | null>(null);
+  const [ataSaving, setAtaSaving] = useState(false);
 
   // Economy modal
-  const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string } | null>(null);
+  const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string; energyDelta: string; streakDelta: string } | null>(null);
   const [applyingEcon, setApplyingEcon] = useState(false);
 
   useEffect(() => {
@@ -90,8 +102,10 @@ export default function SuperAdminPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [u] = await Promise.all([getAllUsers()]);
+      const [u, ata, psl] = await Promise.all([getAllUsers(), getAdminTeacherAssignments().catch(() => [] as AdminTeacherAssignment[]), getParentStudentLinks().catch(() => [] as ParentStudentLink[])]);
       setUsers(u);
+      setAtaLinks(ata);
+      setPslLinks(psl);
     } catch (e) {
       console.error('Failed to load users:', e);
     } finally {
@@ -114,10 +128,26 @@ export default function SuperAdminPage() {
   }
 
   async function handleDeleteUser(uid: string) {
-    if (!window.confirm('Permanently delete this account? This cannot be undone.')) return;
+    const target = users.find(u => u.uid === uid);
+    const isStudentOrParent = target?.role === 'student' || target?.role === 'parent';
+    // Find paired account to remove from state
+    let pairedUid: string | null = null;
+    if (target?.role === 'student') {
+      const link = pslLinks.find(l => l.student_id === uid);
+      pairedUid = link?.parent_id ?? null;
+    } else if (target?.role === 'parent') {
+      const link = pslLinks.find(l => l.parent_id === uid);
+      pairedUid = link?.student_id ?? null;
+    }
+    const msg = isStudentOrParent && pairedUid
+      ? 'This will permanently delete BOTH the student and their linked parent account. Continue?'
+      : 'Permanently delete this account? This cannot be undone.';
+    if (!window.confirm(msg)) return;
     setDeletingUser(uid);
     await deleteUserData(uid);
-    setUsers(prev => prev.filter(u => u.uid !== uid));
+    const removedIds = new Set([uid, ...(pairedUid ? [pairedUid] : [])]);
+    setUsers(prev => prev.filter(u => !removedIds.has(u.uid)));
+    setPslLinks(prev => prev.filter(l => !removedIds.has(l.student_id) && !removedIds.has(l.parent_id)));
     setDeletingUser(null);
   }
 
@@ -125,11 +155,19 @@ export default function SuperAdminPage() {
     if (!econModal) return;
     const gold = parseInt(econModal.goldDelta) || 0;
     const xp = parseInt(econModal.xpDelta) || 0;
-    if (gold === 0 && xp === 0) { setEconModal(null); return; }
+    const energy = parseInt(econModal.energyDelta) || 0;
+    const streak = parseInt(econModal.streakDelta) || 0;
+    if (gold === 0 && xp === 0 && energy === 0 && streak === 0) { setEconModal(null); return; }
     setApplyingEcon(true);
-    await updateEconomy(econModal.uid, gold, xp);
+    await adminUpdateEconomy(econModal.uid, { gold, xp, energy, streak });
     setUsers(prev => prev.map(u => u.uid === econModal.uid ? {
-      ...u, economy: { ...u.economy, gold: Math.max(0, (u.economy?.gold || 0) + gold), global_xp: Math.max(0, (u.economy?.global_xp || 0) + xp) }
+      ...u, economy: {
+        ...u.economy,
+        gold: Math.max(0, (u.economy?.gold || 0) + gold),
+        global_xp: Math.max(0, (u.economy?.global_xp || 0) + xp),
+        energy: Math.max(0, (u.economy?.energy || 0) + energy),
+        streak: Math.max(0, (u.economy?.streak || 0) + streak),
+      }
     } : u));
     setApplyingEcon(false);
     setEconModal(null);
@@ -141,8 +179,7 @@ export default function SuperAdminPage() {
     return matchSearch && matchRole;
   });
 
-  const totalStudents  = users.filter(u => u.role === 'student').length;
-  const totalSuperAdmins = users.filter(u => u.role === 'superadmin').length;
+  const roleCounts = Object.fromEntries(ROLE_ORDER.map(r => [r, users.filter(u => u.role === r).length])) as Record<UserRole, number>;
 
   if (loading) {
     return (
@@ -215,11 +252,15 @@ export default function SuperAdminPage() {
         {/* ── OVERVIEW ── */}
         {tab === 'overview' && (
           <div style={{ animation: 'fadeIn 0.3s ease' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10, marginBottom: 18 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10, marginBottom: 18 }}>
               {[
                 { label: 'Total Users', value: users.length, icon: '👤', color: '#c084fc' },
-                { label: 'Super Admins', value: totalSuperAdmins, icon: '👑', color: '#a855f7' },
-                { label: 'Students', value: totalStudents, icon: '🧑‍🎓', color: '#3b82f6' },
+                { label: 'Students', value: roleCounts.student, icon: '🧑‍🎓', color: ROLE_COLORS.student },
+                { label: 'Admins', value: roleCounts.admin, icon: '🛡️', color: ROLE_COLORS.admin },
+                { label: 'Teachers', value: roleCounts.teacher, icon: '�', color: ROLE_COLORS.teacher },
+                { label: 'TAs', value: roleCounts.teacher_assistant, icon: '✏️', color: ROLE_COLORS.teacher_assistant },
+                { label: 'Parents', value: roleCounts.parent, icon: '👨‍👩‍👧', color: ROLE_COLORS.parent },
+                { label: 'Super Admins', value: roleCounts.superadmin, icon: '👑', color: ROLE_COLORS.superadmin },
               ].map(stat => (
                 <div key={stat.label} style={{
                   background: '#1e293b', borderRadius: 10, padding: '14px 12px',
@@ -232,10 +273,10 @@ export default function SuperAdminPage() {
               ))}
             </div>
 
-            {/* Top XP */}
+            {/* Top XP — students only */}
             <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155', marginBottom: 14 }}>
-              <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14 }}>🏆 Top XP Earners</h3>
-              {[...users].sort((a, b) => (b.economy?.global_xp || 0) - (a.economy?.global_xp || 0)).slice(0, 6).map((u, i) => {
+              <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14 }}>🏆 Top Student XP</h3>
+              {[...users].filter(u => u.role === 'student').sort((a, b) => (b.economy?.global_xp || 0) - (a.economy?.global_xp || 0)).slice(0, 6).map((u, i) => {
                 const { level, title } = computeLevel(u.economy?.global_xp || 0);
                 const medals = ['🥇', '🥈', '🥉', '4', '5', '6'];
                 return (
@@ -243,7 +284,7 @@ export default function SuperAdminPage() {
                     <span style={{ width: 22, fontSize: 14 }}>{medals[i]}</span>
                     <div style={{ flex: 1 }}>
                       <div style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>{u.username || `${u.firstName} ${u.lastName}`}</div>
-                      <div style={{ color: '#64748b', fontSize: 10 }}>Lv.{level} {title} · <span style={{ color: ROLE_COLORS[u.role as UserRole] || '#64748b' }}>{u.role}</span></div>
+                      <div style={{ color: '#64748b', fontSize: 10 }}>Lv.{level} {title}</div>
                     </div>
                     <div style={{ color: '#10b981', fontWeight: 'bold', fontSize: 12 }}>{(u.economy?.global_xp || 0).toLocaleString()}</div>
                   </div>
@@ -267,17 +308,26 @@ export default function SuperAdminPage() {
                 style={{ padding: '9px 13px', borderRadius: 8, border: '1px solid #475569', background: '#1e293b', color: 'white', fontFamily: 'inherit', fontSize: 13, cursor: 'pointer', outline: 'none' }}
               >
                 <option value="all">All Roles</option>
-                <option value="student">Students</option>
-                <option value="superadmin">Super Admins</option>
+                {ROLE_ORDER.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}s ({roleCounts[r]})</option>)}
               </select>
             </div>
             <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>{filtered.length} users</div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {filtered.map(u => {
-                const { level, title } = computeLevel(u.economy?.global_xp || 0);
+                const isStudent = u.role === 'student';
+                const { level, title } = isStudent ? computeLevel(u.economy?.global_xp || 0) : { level: 0, title: '' };
                 const isExpanded = expandedUser === u.uid;
                 const isSelf = u.uid === user?.uid;
+                const roleColor = ROLE_COLORS[u.role as UserRole] || '#475569';
+                const roleLabel = ROLE_LABELS[u.role as UserRole] || u.role;
+
+                // Relationship info
+                const managedTeachers = u.role === 'admin' ? ataLinks.filter(a => a.admin_id === u.uid).map(a => users.find(x => x.uid === a.teacher_id)).filter(Boolean) : [];
+                const managingAdmins = u.role === 'teacher' ? ataLinks.filter(a => a.teacher_id === u.uid).map(a => users.find(x => x.uid === a.admin_id)).filter(Boolean) : [];
+                const linkedParent = u.role === 'student' ? (() => { const link = pslLinks.find(l => l.student_id === u.uid); return link ? users.find(x => x.uid === link.parent_id) : null; })() : null;
+                const linkedStudent = u.role === 'parent' ? (() => { const link = pslLinks.find(l => l.parent_id === u.uid); return link ? users.find(x => x.uid === link.student_id) : null; })() : null;
+
                 return (
                   <div key={u.uid} style={{ background: '#1e293b', borderRadius: 10, border: `1px solid ${isExpanded ? '#a855f788' : '#334155'}`, overflow: 'hidden' }}>
                     <div style={{ padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -297,15 +347,28 @@ export default function SuperAdminPage() {
                           {u.username || `${u.firstName} ${u.lastName}`}
                           {isSelf && <span style={{ marginLeft: 6, fontSize: 10, color: '#a855f7' }}>(you)</span>}
                         </div>
-                        <div style={{ color: '#64748b', fontSize: 11 }}>{u.email} · Lv.{level} {title}</div>
+                        <div style={{ color: '#64748b', fontSize: 11 }}>
+                          {u.email}{isStudent ? ` · Lv.${level} ${title}` : ''}
+                          {/* Relationship hints */}
+                          {u.role === 'admin' && managedTeachers.length > 0 && (
+                            <span style={{ color: ROLE_COLORS.teacher }}> · {managedTeachers.length} teacher{managedTeachers.length !== 1 ? 's' : ''}</span>
+                          )}
+                          {u.role === 'teacher' && managingAdmins.length > 0 && (
+                            <span style={{ color: ROLE_COLORS.admin }}> · admin: {managingAdmins.map(a => a!.username || a!.firstName).join(', ')}</span>
+                          )}
+                          {u.role === 'student' && linkedParent && (
+                            <span style={{ color: ROLE_COLORS.parent }}> · parent: {linkedParent.username || linkedParent.firstName}</span>
+                          )}
+                          {u.role === 'parent' && linkedStudent && (
+                            <span style={{ color: ROLE_COLORS.student }}> · student: {linkedStudent.username || linkedStudent.firstName}</span>
+                          )}
+                        </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         <span style={{
                           fontSize: 10, fontWeight: 'bold', padding: '2px 8px', borderRadius: 5,
-                          background: `${ROLE_COLORS[u.role as UserRole] || '#475569'}22`,
-                          border: `1px solid ${ROLE_COLORS[u.role as UserRole] || '#475569'}55`,
-                          color: ROLE_COLORS[u.role as UserRole] || '#94a3b8', textTransform: 'capitalize'
-                        }}>{u.role}</span>
+                          background: `${roleColor}22`, border: `1px solid ${roleColor}55`, color: roleColor
+                        }}>{roleLabel}</span>
                         {!isSelf && (user?.email === 'god.bypass@internal.app' || u.role !== 'superadmin') && (
                           <>
                             <select
@@ -314,14 +377,24 @@ export default function SuperAdminPage() {
                               style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #475569', background: '#0f172a', color: '#94a3b8', fontFamily: 'inherit', fontSize: 11, cursor: 'pointer', outline: 'none' }}
                             >
                               {(user?.email === 'god.bypass@internal.app' ? ROLE_ORDER : ROLE_ORDER.filter(r => r !== 'superadmin'))
-                                .map(r => <option key={r} value={r}>→ {r}</option>)}
+                                .map(r => <option key={r} value={r}>→ {ROLE_LABELS[r]}</option>)}
                             </select>
-                            <button
-                              onClick={() => setEconModal({ uid: u.uid, name: u.username || u.firstName, goldDelta: '', xpDelta: '' })}
-                              style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', cursor: 'pointer', fontFamily: 'inherit' }}
-                            >
-                              ✏️
-                            </button>
+                            {u.role === 'admin' && (
+                              <button
+                                onClick={() => setAtaModal({ adminUid: u.uid, adminName: u.username || u.firstName })}
+                                style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                              >
+                                👥 Teachers
+                              </button>
+                            )}
+                            {isStudent && (
+                              <button
+                                onClick={() => setEconModal({ uid: u.uid, name: u.username || u.firstName, goldDelta: '', xpDelta: '', energyDelta: '', streakDelta: '' })}
+                                style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', cursor: 'pointer', fontFamily: 'inherit' }}
+                              >
+                                ✏️
+                              </button>
+                            )}
                             <button
                               disabled={deletingUser === u.uid}
                               onClick={() => handleDeleteUser(u.uid)}
@@ -335,19 +408,48 @@ export default function SuperAdminPage() {
                     </div>
                     {isExpanded && (
                       <div style={{ padding: '10px 14px 14px', borderTop: '1px solid #334155' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8 }}>
-                          {[
-                            { label: 'XP', value: (u.economy?.global_xp || 0).toLocaleString(), color: '#10b981' },
-                            { label: 'Gold', value: (u.economy?.gold || 0).toLocaleString(), color: '#fbbf24' },
-                            { label: 'Arena W', value: u.arenaStats?.wins ?? 0, color: '#3b82f6' },
-                            { label: 'Arena L', value: u.arenaStats?.losses ?? 0, color: '#ef4444' },
-                          ].map(s => (
-                            <div key={s.label} style={{ background: '#0f172a', borderRadius: 8, padding: '8px 10px', textAlign: 'center', border: '1px solid #334155' }}>
-                              <div style={{ fontSize: 14, fontWeight: 'bold', color: s.color }}>{s.value}</div>
-                              <div style={{ color: '#475569', fontSize: 10 }}>{s.label}</div>
-                            </div>
-                          ))}
-                        </div>
+                        {isStudent && (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8 }}>
+                            {[
+                              { label: 'XP', value: (u.economy?.global_xp || 0).toLocaleString(), color: '#10b981' },
+                              { label: 'Gold', value: (u.economy?.gold || 0).toLocaleString(), color: '#fbbf24' },
+                              { label: 'Energy', value: (u.economy?.energy || 0).toLocaleString(), color: '#06b6d4' },
+                              { label: 'Streak', value: u.economy?.streak ?? 0, color: '#f97316' },
+                              { label: 'Arena W', value: u.arenaStats?.wins ?? 0, color: '#3b82f6' },
+                              { label: 'Arena L', value: u.arenaStats?.losses ?? 0, color: '#ef4444' },
+                            ].map(s => (
+                              <div key={s.label} style={{ background: '#0f172a', borderRadius: 8, padding: '8px 10px', textAlign: 'center', border: '1px solid #334155' }}>
+                                <div style={{ fontSize: 14, fontWeight: 'bold', color: s.color }}>{s.value}</div>
+                                <div style={{ color: '#475569', fontSize: 10 }}>{s.label}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {!isStudent && (
+                          <div style={{ color: '#64748b', fontSize: 12 }}>No game stats — only student accounts participate in games.</div>
+                        )}
+                        {/* Admin: list managed teachers */}
+                        {u.role === 'admin' && managedTeachers.length > 0 && (
+                          <div style={{ marginTop: 10 }}>
+                            <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold', marginBottom: 4 }}>Managed Teachers:</div>
+                            {managedTeachers.map(t => (
+                              <div key={t!.uid} style={{ display: 'inline-block', fontSize: 10, padding: '2px 8px', borderRadius: 5, marginRight: 4, marginBottom: 4, background: `${ROLE_COLORS.teacher}22`, border: `1px solid ${ROLE_COLORS.teacher}44`, color: ROLE_COLORS.teacher }}>
+                                {t!.username || t!.firstName}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Teacher: list managing admins */}
+                        {u.role === 'teacher' && managingAdmins.length > 0 && (
+                          <div style={{ marginTop: 10 }}>
+                            <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold', marginBottom: 4 }}>Managed by Admins:</div>
+                            {managingAdmins.map(a => (
+                              <div key={a!.uid} style={{ display: 'inline-block', fontSize: 10, padding: '2px 8px', borderRadius: 5, marginRight: 4, marginBottom: 4, background: `${ROLE_COLORS.admin}22`, border: `1px solid ${ROLE_COLORS.admin}44`, color: ROLE_COLORS.admin }}>
+                                {a!.username || a!.firstName}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {u.curriculumProfile && (
                           <div style={{ marginTop: 8, fontSize: 11, color: '#64748b' }}>
                             Curriculum: {u.curriculumProfile.system} · {u.curriculumProfile.year}
@@ -384,14 +486,32 @@ export default function SuperAdminPage() {
             border: '2px solid #fbbf24', zIndex: 1001, animation: 'slideUp 0.2s ease'
           }}>
             <h2 style={{ margin: '0 0 14px', color: 'white', fontSize: 17 }}>✏️ Adjust Economy — {econModal.name}</h2>
-            <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>Gold Δ</label>
-            <input type="number" placeholder="0" value={econModal.goldDelta}
-              onChange={e => setEconModal(p => p ? { ...p, goldDelta: e.target.value } : null)}
-              style={{ width: '100%', padding: '10px 13px', marginBottom: 10, borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', boxSizing: 'border-box', fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
-            <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 4 }}>XP Δ</label>
-            <input type="number" placeholder="0" value={econModal.xpDelta}
-              onChange={e => setEconModal(p => p ? { ...p, xpDelta: e.target.value } : null)}
-              style={{ width: '100%', padding: '10px 13px', marginBottom: 14, borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', boxSizing: 'border-box', fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginBottom: 14 }}>
+              <div>
+                <label style={{ color: '#fbbf24', fontSize: 11, fontWeight: 'bold', display: 'block', marginBottom: 3 }}>🪙 Gold Δ</label>
+                <input type="number" placeholder="0" value={econModal.goldDelta}
+                  onChange={e => setEconModal(p => p ? { ...p, goldDelta: e.target.value } : null)}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', boxSizing: 'border-box', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ color: '#10b981', fontSize: 11, fontWeight: 'bold', display: 'block', marginBottom: 3 }}>⭐ XP Δ</label>
+                <input type="number" placeholder="0" value={econModal.xpDelta}
+                  onChange={e => setEconModal(p => p ? { ...p, xpDelta: e.target.value } : null)}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', boxSizing: 'border-box', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ color: '#06b6d4', fontSize: 11, fontWeight: 'bold', display: 'block', marginBottom: 3 }}>⚡ Energy Δ</label>
+                <input type="number" placeholder="0" value={econModal.energyDelta}
+                  onChange={e => setEconModal(p => p ? { ...p, energyDelta: e.target.value } : null)}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', boxSizing: 'border-box', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ color: '#f97316', fontSize: 11, fontWeight: 'bold', display: 'block', marginBottom: 3 }}>🔥 Streak Δ</label>
+                <input type="number" placeholder="0" value={econModal.streakDelta}
+                  onChange={e => setEconModal(p => p ? { ...p, streakDelta: e.target.value } : null)}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', boxSizing: 'border-box', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+              </div>
+            </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setEconModal(null)} className="ll-btn" style={{ flex: 1, padding: '11px' }}>Cancel</button>
               <button onClick={handleEconApply} disabled={applyingEcon} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}>
@@ -401,6 +521,75 @@ export default function SuperAdminPage() {
           </div>
         </>
       )}
+
+      {/* Admin ↔ Teacher assignment modal */}
+      {ataModal && (() => {
+        const allTeachers = users.filter(u => u.role === 'teacher');
+        const assignedIds = new Set(ataLinks.filter(a => a.admin_id === ataModal.adminUid).map(a => a.teacher_id));
+
+        async function toggleTeacher(teacherId: string) {
+          setAtaSaving(true);
+          try {
+            if (assignedIds.has(teacherId)) {
+              await removeAdminTeacherAssignment(ataModal!.adminUid, teacherId);
+              setAtaLinks(prev => prev.filter(a => !(a.admin_id === ataModal!.adminUid && a.teacher_id === teacherId)));
+            } else {
+              await addAdminTeacherAssignment(ataModal!.adminUid, teacherId);
+              setAtaLinks(prev => [...prev, { admin_id: ataModal!.adminUid, teacher_id: teacherId }]);
+            }
+          } catch (e) {
+            console.error('Failed to update teacher assignment:', e);
+            window.alert('Failed: ' + (e instanceof Error ? e.message : String(e)));
+          } finally {
+            setAtaSaving(false);
+          }
+        }
+
+        return (
+          <>
+            <div onClick={() => setAtaModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000 }} />
+            <div style={{
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+              background: '#1e293b', borderRadius: 16, padding: 26, width: 'min(420px, 92vw)',
+              maxHeight: '80vh', display: 'flex', flexDirection: 'column',
+              border: `2px solid ${ROLE_COLORS.teacher}`, zIndex: 1001, animation: 'slideUp 0.2s ease'
+            }}>
+              <h2 style={{ margin: '0 0 6px', color: 'white', fontSize: 17 }}>
+                👥 Manage Teachers — {ataModal.adminName}
+              </h2>
+              <div style={{ color: '#64748b', fontSize: 12, marginBottom: 14 }}>
+                Check/uncheck teachers this admin manages. {allTeachers.length === 0 && <span style={{ color: '#f59e0b' }}>No users with Teacher role found.</span>}
+              </div>
+              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {allTeachers.map(t => {
+                  const checked = assignedIds.has(t.uid);
+                  return (
+                    <label key={t.uid} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
+                      background: checked ? `${ROLE_COLORS.teacher}15` : 'transparent',
+                      border: `1px solid ${checked ? `${ROLE_COLORS.teacher}55` : '#334155'}`,
+                    }}>
+                      <input
+                        type="checkbox" checked={checked} disabled={ataSaving}
+                        onChange={() => toggleTeacher(t.uid)}
+                        style={{ accentColor: ROLE_COLORS.teacher, width: 16, height: 16, cursor: 'pointer' }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: 'white', fontSize: 13, fontWeight: 'bold' }}>{t.username || `${t.firstName} ${t.lastName}`}</div>
+                        <div style={{ color: '#64748b', fontSize: 11 }}>{t.email}</div>
+                      </div>
+                      {checked && <span style={{ color: ROLE_COLORS.teacher, fontSize: 11, fontWeight: 'bold' }}>✓ Assigned</span>}
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={() => setAtaModal(null)} className="ll-btn" style={{ padding: '10px 22px' }}>Done</button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
@@ -917,7 +1106,6 @@ function ProgramsAdmin() {
   const [previewProgramId, setPreviewProgramId] = useState<string | null>(null);
 
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('');
   const [uploadedImageErr, setUploadedImageErr] = useState<string>('');
 
   const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -1074,6 +1262,105 @@ function ProgramsAdmin() {
     return { id, title: title || id };
   }
 
+  function formatBuilderError(error: unknown): string {
+    if (error instanceof Error && error.message.trim()) return error.message;
+    if (error && typeof error === 'object') {
+      const e = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+      const parts: string[] = [];
+      if (typeof e.message === 'string' && e.message.trim()) parts.push(e.message.trim());
+      if (typeof e.details === 'string' && e.details.trim()) parts.push(e.details.trim());
+      if (typeof e.hint === 'string' && e.hint.trim()) parts.push(`Hint: ${e.hint.trim()}`);
+      if (typeof e.code === 'string' && e.code.trim()) parts.push(`(${e.code.trim()})`);
+      if (parts.length > 0) return parts.join('\n');
+    }
+    return String(error);
+  }
+
+  function getQuestionPromptLabel(question: any): string {
+    if (typeof question?.question === 'string' && question.question.trim()) return question.question.trim().slice(0, 80);
+    if (Array.isArray(question?.promptBlocks)) {
+      const textBlock = question.promptBlocks.find((block: any) => block && typeof block.text === 'string' && block.text.trim());
+      if (textBlock) return String(textBlock.text).trim().slice(0, 80);
+    }
+    return '—';
+  }
+
+  async function handleQuestionImageUpload(nodeId: string, questionTypeId: string, questionTypeJsonText: string, questionIndex: number, questionId: string, file: File): Promise<void> {
+    if (!userData || userData.role !== 'superadmin') throw new Error('Only super admins can upload images.');
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) throw new Error('Unsupported file type. Please upload PNG, JPG/JPEG, WEBP, or GIF.');
+    if (typeof file.size === 'number' && file.size > MAX_IMAGE_BYTES) throw new Error('Image is too large. Max size is 5MB.');
+
+    setUploadingImage(true);
+    setUploadedImageErr('');
+    try {
+      const raw = questionTypeJsonText.trim() ? JSON.parse(questionTypeJsonText) : [];
+      if (!Array.isArray(raw)) throw new Error('Question Type JSON must be a JSON array');
+
+      const programId = (builder.programId || makeIdFromTitle(builder.programTitle) || 'program').trim() || 'program';
+      const uploaded = await uploadProgramQuestionAsset(file, programId);
+      const url = uploaded.url;
+
+      const next = [...raw];
+      const question = next[questionIndex] && typeof next[questionIndex] === 'object' ? { ...(next[questionIndex] as any) } : { id: questionId };
+      const promptBlocks = Array.isArray((question as any).promptBlocks) ? ([...(question as any).promptBlocks] as any[]) : [];
+      promptBlocks.push({ type: 'image', url, alt: 'diagram' });
+      (question as any).promptBlocks = promptBlocks;
+      next[questionIndex] = question;
+
+      const nextText = JSON.stringify(next, null, 2);
+      setBuilderAtNode(nodeId, (n) => ({
+        ...n,
+        questionTypes: n.questionTypes.map((x) => x.id === questionTypeId ? { ...x, jsonText: nextText } : x),
+      }));
+    } catch (err) {
+      setUploadedImageErr(formatBuilderError(err));
+      throw err;
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
+  async function handleQuestionImageDelete(nodeId: string, questionTypeId: string, questionTypeJsonText: string, questionIndex: number, imageIndex: number): Promise<void> {
+    if (!userData || userData.role !== 'superadmin') {
+      setUploadedImageErr('Only super admins can delete images.');
+      return;
+    }
+
+    setUploadingImage(true);
+    setUploadedImageErr('');
+    try {
+      const raw = questionTypeJsonText.trim() ? JSON.parse(questionTypeJsonText) : [];
+      if (!Array.isArray(raw)) throw new Error('Question Type JSON must be a JSON array');
+
+      const next = [...raw];
+      const question = next[questionIndex] && typeof next[questionIndex] === 'object' ? { ...(next[questionIndex] as any) } : null;
+      if (!question) throw new Error('Question not found.');
+
+      const promptBlocks = Array.isArray((question as any).promptBlocks) ? ([...(question as any).promptBlocks] as any[]) : [];
+      const imageBlocks = promptBlocks
+        .map((block, idx) => ({ block, idx }))
+        .filter(({ block }) => block && block.type === 'image' && typeof block.url === 'string' && block.url.trim());
+
+      const target = imageBlocks[imageIndex];
+      if (!target) throw new Error('Image not found.');
+
+      await deleteProgramQuestionAsset(String(target.block.url));
+      promptBlocks.splice(target.idx, 1);
+      (question as any).promptBlocks = promptBlocks;
+      next[questionIndex] = question;
+
+      const nextText = JSON.stringify(next, null, 2);
+      setBuilderAtNode(nodeId, (n) => ({
+        ...n,
+        questionTypes: n.questionTypes.map((x) => x.id === questionTypeId ? { ...x, jsonText: nextText } : x),
+      }));
+    } catch (err) {
+      setUploadedImageErr(formatBuilderError(err));
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
   async function saveBuilderDraft() {
     const { id: programId, title } = computeProgramIdAndTitle();
     if (!programId) {
@@ -1103,7 +1390,7 @@ function ProgramsAdmin() {
       await load();
       window.alert('Draft saved');
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      window.alert(formatBuilderError(e));
     } finally {
       setSaving(false);
     }
@@ -1141,7 +1428,7 @@ function ProgramsAdmin() {
       setEditingId(programId);
       window.alert('Published');
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      window.alert(formatBuilderError(e));
     } finally {
       setSaving(false);
     }
@@ -1171,7 +1458,7 @@ function ProgramsAdmin() {
       setPreviewReturnView('builder');
       setView('preview');
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      window.alert(formatBuilderError(e));
     }
   }
 
@@ -1666,55 +1953,9 @@ function ProgramsAdmin() {
 
                               if (!parsed) {
                                 return (
-                                  <input
-                                    type="file"
-                                    accept="image/png,image/jpeg,image/webp,image/gif"
-                                    disabled={uploadingImage}
-                                    onChange={async (e) => {
-                                      const f = e.target.files?.[0] ?? null;
-                                      if (!f) return;
-                                      if (!userData || userData.role !== 'superadmin') {
-                                        setUploadedImageErr('Only super admins can upload images.');
-                                        return;
-                                      }
-
-                                      if (!ALLOWED_IMAGE_TYPES.has(f.type)) {
-                                        setUploadedImageErr('Unsupported file type. Please upload PNG, JPG/JPEG, WEBP, or GIF.');
-                                        e.target.value = '';
-                                        return;
-                                      }
-                                      if (typeof f.size === 'number' && f.size > MAX_IMAGE_BYTES) {
-                                        setUploadedImageErr('Image is too large. Max size is 5MB.');
-                                        e.target.value = '';
-                                        return;
-                                      }
-
-                                      setUploadingImage(true);
-                                      setUploadedImageErr('');
-                                      setUploadedImageUrl('');
-                                      try {
-                                        const programId = (builder.programId || makeIdFromTitle(builder.programTitle) || 'program').trim() || 'program';
-                                        const uploaded = await uploadProgramQuestionAsset(f, programId);
-                                        setUploadedImageUrl(uploaded.url);
-                                      } catch (err) {
-                                        setUploadedImageErr(err instanceof Error ? err.message : String(err));
-                                      } finally {
-                                        setUploadingImage(false);
-                                        e.target.value = '';
-                                      }
-                                    }}
-                                    style={{
-                                      width: '100%',
-                                      padding: '10px 10px',
-                                      borderRadius: 12,
-                                      border: '1px solid #334155',
-                                      background: '#0b1220',
-                                      color: 'white',
-                                      outline: 'none',
-                                      fontSize: 12,
-                                      marginBottom: 10,
-                                    }}
-                                  />
+                                  <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>
+                                    Fix the Question Type JSON so it is a valid JSON array before managing question images.
+                                  </div>
                                 );
                               }
 
@@ -1725,81 +1966,71 @@ function ProgramsAdmin() {
                                   ) : (
                                     parsed.slice(0, 50).map((q: any, idx: number) => {
                                       const qid = typeof q?.id === 'string' ? q.id : `q_${idx + 1}`;
-                                      const label = typeof q?.question === 'string' && q.question.trim()
-                                        ? q.question.trim().slice(0, 80)
-                                        : (Array.isArray(q?.promptBlocks) && q.promptBlocks.length > 0 && typeof q.promptBlocks?.[0]?.text === 'string'
-                                          ? String(q.promptBlocks[0].text).trim().slice(0, 80)
-                                          : '—');
+                                      const label = getQuestionPromptLabel(q);
+                                      const imageBlocks = Array.isArray(q?.promptBlocks)
+                                        ? q.promptBlocks.filter((block: any) => block && block.type === 'image' && typeof block.url === 'string' && block.url.trim())
+                                        : [];
 
                                       return (
-                                        <div key={`${qid}_${idx}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 10px', border: '1px solid #1f2a44', borderRadius: 12, background: 'rgba(2,6,23,0.25)' }}>
-                                          <div style={{ minWidth: 0 }}>
-                                            <div style={{ color: 'white', fontWeight: 900, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{qid}</div>
-                                            <div style={{ color: '#94a3b8', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+                                        <div key={`${qid}_${idx}`} style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '10px 12px', border: '1px solid #1f2a44', borderRadius: 12, background: 'rgba(2,6,23,0.25)' }}>
+                                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                              <div style={{ color: 'white', fontWeight: 900, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{qid}</div>
+                                              <div style={{ color: '#94a3b8', fontSize: 11, whiteSpace: 'normal', wordBreak: 'break-word', marginTop: 4 }}>{label}</div>
+                                            </div>
+                                            <input
+                                              type="file"
+                                              accept="image/png,image/jpeg,image/webp,image/gif"
+                                              disabled={uploadingImage}
+                                              onChange={async (e) => {
+                                                const f = e.target.files?.[0] ?? null;
+                                                if (!f) return;
+                                                try {
+                                                  await handleQuestionImageUpload(cur.id, qt.id, qt.jsonText, idx, qid, f);
+                                                } catch {}
+                                                finally {
+                                                  e.target.value = '';
+                                                }
+                                              }}
+                                              style={{
+                                                width: 220,
+                                                padding: '8px 10px',
+                                                borderRadius: 12,
+                                                border: '1px solid #334155',
+                                                background: '#0b1220',
+                                                color: 'white',
+                                                outline: 'none',
+                                                fontSize: 12,
+                                              }}
+                                            />
                                           </div>
-                                          <input
-                                            type="file"
-                                            accept="image/png,image/jpeg,image/webp,image/gif"
-                                            disabled={uploadingImage}
-                                            onChange={async (e) => {
-                                              const f = e.target.files?.[0] ?? null;
-                                              if (!f) return;
-                                              if (!userData || userData.role !== 'superadmin') {
-                                                setUploadedImageErr('Only super admins can upload images.');
-                                                return;
-                                              }
 
-                                              if (!ALLOWED_IMAGE_TYPES.has(f.type)) {
-                                                setUploadedImageErr('Unsupported file type. Please upload PNG, JPG/JPEG, WEBP, or GIF.');
-                                                e.target.value = '';
-                                                return;
-                                              }
-                                              if (typeof f.size === 'number' && f.size > MAX_IMAGE_BYTES) {
-                                                setUploadedImageErr('Image is too large. Max size is 5MB.');
-                                                e.target.value = '';
-                                                return;
-                                              }
-
-                                              setUploadingImage(true);
-                                              setUploadedImageErr('');
-                                              setUploadedImageUrl('');
-                                              try {
-                                                const programId = (builder.programId || makeIdFromTitle(builder.programTitle) || 'program').trim() || 'program';
-                                                const uploaded = await uploadProgramQuestionAsset(f, programId);
-                                                const url = uploaded.url;
-                                                setUploadedImageUrl(url);
-
-                                                const raw2 = qt.jsonText.trim() ? JSON.parse(qt.jsonText) : [];
-                                                if (!Array.isArray(raw2)) throw new Error('Question Type JSON must be a JSON array');
-                                                const next2 = [...raw2];
-                                                const q2 = next2[idx] && typeof next2[idx] === 'object' ? { ...(next2[idx] as any) } : { id: qid };
-                                                const pb2 = Array.isArray((q2 as any).promptBlocks) ? ([...(q2 as any).promptBlocks] as any[]) : [];
-                                                pb2.push({ type: 'image', url, alt: 'diagram' });
-                                                (q2 as any).promptBlocks = pb2;
-                                                next2[idx] = q2;
-                                                const nextText2 = JSON.stringify(next2, null, 2);
-                                                setBuilderAtNode(cur.id, (n) => ({
-                                                  ...n,
-                                                  questionTypes: n.questionTypes.map((x) => x.id === qt.id ? { ...x, jsonText: nextText2 } : x),
-                                                }));
-                                              } catch (err) {
-                                                setUploadedImageErr(err instanceof Error ? err.message : String(err));
-                                              } finally {
-                                                setUploadingImage(false);
-                                                e.target.value = '';
-                                              }
-                                            }}
-                                            style={{
-                                              width: 220,
-                                              padding: '8px 10px',
-                                              borderRadius: 12,
-                                              border: '1px solid #334155',
-                                              background: '#0b1220',
-                                              color: 'white',
-                                              outline: 'none',
-                                              fontSize: 12,
-                                            }}
-                                          />
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                            {imageBlocks.length === 0 ? (
+                                              <div style={{ color: '#64748b', fontSize: 12 }}>No uploaded images for this question.</div>
+                                            ) : (
+                                              imageBlocks.map((block: any, imageIdx: number) => (
+                                                <div key={`${qid}_img_${imageIdx}`} style={{ border: '1px solid #1f2a44', borderRadius: 12, padding: 10, background: 'rgba(15,23,42,0.45)' }}>
+                                                  <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 8 }}>Image {imageIdx + 1}</div>
+                                                  <img
+                                                    src={String(block.url)}
+                                                    alt={typeof block.alt === 'string' && block.alt.trim() ? block.alt : 'diagram'}
+                                                    style={{ display: 'block', maxWidth: '100%', maxHeight: 240, borderRadius: 10, marginBottom: 10, objectFit: 'contain', background: '#020617' }}
+                                                  />
+                                                  <div style={{ color: '#93c5fd', fontSize: 11, wordBreak: 'break-all', marginBottom: 10 }}>{String(block.url)}</div>
+                                                  <button
+                                                    type="button"
+                                                    className="ll-btn"
+                                                    disabled={uploadingImage}
+                                                    onClick={() => void handleQuestionImageDelete(cur.id, qt.id, qt.jsonText, idx, imageIdx)}
+                                                    style={{ padding: '7px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}
+                                                  >
+                                                    Delete image
+                                                  </button>
+                                                </div>
+                                              ))
+                                            )}
+                                          </div>
                                         </div>
                                       );
                                     })
@@ -1807,21 +2038,6 @@ function ProgramsAdmin() {
                                 </div>
                               );
                             })()}
-
-                            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>
-                              {uploadingImage ? 'Uploading…' : 'Uploading will insert an image block into the selected question’s `promptBlocks` (when JSON is a valid array).'}
-                            </div>
-
-                            {uploadedImageUrl && (
-                              <div style={{ border: '1px solid #1f2a44', borderRadius: 12, padding: 10, background: 'rgba(2,6,23,0.35)' }}>
-                                <div style={{ color: '#cbd5e1', fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Uploaded URL</div>
-                                <div style={{ color: '#93c5fd', fontSize: 12, wordBreak: 'break-all', marginBottom: 10 }}>{uploadedImageUrl}</div>
-                                <div style={{ color: '#cbd5e1', fontWeight: 900, fontSize: 12, marginBottom: 6 }}>Prompt block snippet</div>
-                                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'white', fontSize: 12, fontFamily: 'monospace' }}>
-{JSON.stringify({ type: 'image', url: uploadedImageUrl, alt: 'diagram' }, null, 2)}
-                                </pre>
-                              </div>
-                            )}
                           </div>
                         );
                       })()}

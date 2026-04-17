@@ -29,7 +29,7 @@ export default function MatchmakingScreen({ gameId, gameLabel, onMatched, onCanc
 
     async function start() {
       const goldCost = 25;
-      await updateEconomy(user!.uid, -goldCost, 0);
+      await updateEconomy(user!.uid, { gold: -goldCost });
       await refreshUserData();
 
       const { matched, session, entryId } = await joinMatchmaking(
@@ -85,7 +85,7 @@ export default function MatchmakingScreen({ gameId, gameLabel, onMatched, onCanc
     unsubRef.current?.();
     if (entryIdRef.current) await cancelMatchmaking(entryIdRef.current);
     if (user && userData) {
-      await updateEconomy(user.uid, 25, 0);
+      await updateEconomy(user.uid, { gold: 25 });
       await refreshUserData();
     }
     onCancel();

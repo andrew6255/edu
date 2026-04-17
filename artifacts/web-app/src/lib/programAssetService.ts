@@ -15,6 +15,15 @@ function sanitizeFileName(name: string): string {
     .slice(0, 80) || 'image';
 }
 
+function resolveProgramAssetPath(pathOrUrl: string): string {
+  const value = String(pathOrUrl || '').trim();
+  if (!value) throw new Error('Missing asset path.');
+  const marker = '/storage/v1/object/public/program-assets/';
+  const markerIndex = value.indexOf(marker);
+  if (markerIndex >= 0) return value.slice(markerIndex + marker.length);
+  return value.replace(/^\/+/, '');
+}
+
 export async function uploadProgramQuestionAsset(file: File, programId: string): Promise<UploadedProgramAsset> {
   const safeProgramId = String(programId || 'program').trim() || 'program';
   const safeName = sanitizeFileName(file.name);
@@ -30,4 +39,11 @@ export async function uploadProgramQuestionAsset(file: File, programId: string):
   const url = data.publicUrl;
   if (!url) throw new Error('Failed to resolve uploaded asset URL.');
   return { url, path, provider: 'supabase' };
+}
+
+export async function deleteProgramQuestionAsset(pathOrUrl: string): Promise<void> {
+  const path = resolveProgramAssetPath(pathOrUrl);
+  const supabase = requireSupabase();
+  const { error } = await supabase.storage.from('program-assets').remove([path]);
+  if (error) throw error;
 }

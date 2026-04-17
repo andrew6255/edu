@@ -49,7 +49,6 @@ function toSupabaseRow(id: string, payload: Record<string, unknown>, status: 'dr
     ranked_total_question_count: payload.rankedTotalQuestionCount ?? 0,
     deleted_at: payload.deletedAt,
     updated_at: payload.updatedAt,
-    status,
   };
 }
 
