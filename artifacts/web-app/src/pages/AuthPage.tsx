@@ -107,6 +107,7 @@ export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [accountType, setAccountType] = useState<'student' | 'parent'>('student');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -241,7 +242,7 @@ export default function AuthPage() {
       if (!authUser) throw new Error('Registration returned no user.');
       await createUserData(authUser.id, {
         firstName: fname, lastName: lname, username, email,
-        role: 'student',
+        role: accountType,
         onboardingComplete: true,
       });
     } catch (e: unknown) {
@@ -275,7 +276,7 @@ export default function AuthPage() {
             if (!authUser) throw new Error('Registration returned no user.');
             await createUserData(authUser.id, {
               firstName: fname, lastName: lname, username, email,
-              role: 'student',
+              role: accountType,
               onboardingComplete: true,
             });
             return;
@@ -426,6 +427,24 @@ export default function AuthPage() {
           </div>
         ) : (
           <div>
+            {/* Account type selector */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+              {(['student', 'parent'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setAccountType(t)}
+                  style={{
+                    flex: 1, padding: '9px', borderRadius: 8, fontSize: 13, fontWeight: 'bold',
+                    cursor: 'pointer', fontFamily: 'inherit', transition: '0.2s',
+                    background: accountType === t ? (t === 'student' ? 'rgba(59,130,246,0.2)' : 'rgba(236,72,153,0.2)') : 'transparent',
+                    border: accountType === t ? `1px solid ${t === 'student' ? 'rgba(59,130,246,0.5)' : 'rgba(236,72,153,0.5)'}` : '1px solid #334155',
+                    color: accountType === t ? (t === 'student' ? '#93c5fd' : '#f9a8d4') : '#64748b'
+                  }}
+                >
+                  {t === 'student' ? '🎓 Student' : '👨\u200d👩\u200d👧 Parent'}
+                </button>
+              ))}
+            </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input style={{ ...inputStyle, flex: 1, marginRight: 0 }} placeholder="First Name" value={fname} onChange={e => setFname(e.target.value)} />
               <input style={{ ...inputStyle, flex: 1 }} placeholder="Last Name" value={lname} onChange={e => setLname(e.target.value)} />

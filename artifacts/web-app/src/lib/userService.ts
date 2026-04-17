@@ -266,6 +266,21 @@ export async function createUserData(uid: string, data: Partial<UserData>): Prom
   }
 }
 
+export async function createUserDataAdmin(uid: string, data: Partial<UserData>): Promise<void> {
+  const admin = getAdminClient();
+  const merged = mergeUserData(DEFAULT_USER, data);
+  const { error } = await (admin.from('profiles') as any).upsert(toSupabaseProfile(uid, {
+    ...merged,
+    last_active: new Date().toISOString().split('T')[0],
+  }));
+  if (error) throw error;
+  const econ = toSupabaseEconomy(uid, merged);
+  if (econ) {
+    const { error: econError } = await (admin.from('user_economy') as any).upsert(econ);
+    if (econError) throw econError;
+  }
+}
+
 export async function updateUserData(uid: string, updates: Partial<UserData>): Promise<void> {
   const supabase = requireSupabase();
   const current = await getSupabaseUserData(uid);

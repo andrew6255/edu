@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import { requireSupabase } from '@/lib/supabase';
+import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getMyTeachers,
@@ -28,7 +28,7 @@ import {
   type TeacherUserRow,
 } from '@/lib/adminService';
 import { getClassLeaderboard, type ClassLeaderboardEntry } from '@/lib/statsService';
-import { adminUpdateEconomy, adminGetStudentEconomy, type EconomyDeltas } from '@/lib/userService';
+import { adminUpdateEconomy, adminGetStudentEconomy, createUserDataAdmin, isUsernameTaken, type EconomyDeltas } from '@/lib/userService';
 
 type Tab = 'users' | 'classes';
 
@@ -124,6 +124,16 @@ export default function AdminPage() {
   // Economy modal
   const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string; energyDelta: string; streakDelta: string; current: { gold: number; global_xp: number; energy: number; streak: number } | null } | null>(null);
   const [applyingEcon, setApplyingEcon] = useState(false);
+
+  // Create TA modal
+  const [createTaModal, setCreateTaModal] = useState(false);
+  const [taFname, setTaFname] = useState('');
+  const [taLname, setTaLname] = useState('');
+  const [taUsername, setTaUsername] = useState('');
+  const [taEmail, setTaEmail] = useState('');
+  const [taPass, setTaPass] = useState('');
+  const [taError, setTaError] = useState('');
+  const [creatingTa, setCreatingTa] = useState(false);
 
   // redirect guard
   useEffect(() => {
@@ -313,6 +323,34 @@ export default function AdminPage() {
     catch (e) { window.alert('Failed: ' + (e instanceof Error ? e.message : String(e))); }
   }
 
+  async function handleCreateTa() {
+    if (!taFname || !taLname || !taUsername || !taEmail || !taPass) { setTaError('Please fill in all fields.'); return; }
+    if (taPass.length < 6) { setTaError('Password must be at least 6 characters.'); return; }
+    if (!/^[a-zA-Z0-9_]+$/.test(taUsername)) { setTaError('Username can only contain letters, numbers and underscores.'); return; }
+    setCreatingTa(true); setTaError('');
+    try {
+      const taken = await isUsernameTaken(taUsername.toLowerCase());
+      if (taken) { setTaError('Username is already taken.'); return; }
+      const admin = getAdminClient();
+      const { data, error } = await admin.auth.admin.createUser({
+        email: taEmail, password: taPass, email_confirm: true,
+        user_metadata: { full_name: `${taFname} ${taLname}`.trim(), name: taUsername },
+      });
+      if (error) throw error;
+      const authUser = data.user;
+      if (!authUser) throw new Error('No user returned.');
+      await createUserDataAdmin(authUser.id, {
+        firstName: taFname, lastName: taLname, username: taUsername.toLowerCase(), email: taEmail,
+        role: 'teacher_assistant', onboardingComplete: true,
+      });
+      setCreateTaModal(false);
+      setTaFname(''); setTaLname(''); setTaUsername(''); setTaEmail(''); setTaPass(''); setTaError('');
+      await refreshTeacherData();
+    } catch (e: any) {
+      setTaError(e.message || 'Failed to create TA account.');
+    } finally { setCreatingTa(false); }
+  }
+
   const selectedClass = classes.find(c => c.id === selectedClassId);
   const selectedTeacher = teachers.find(t => t.id === selectedTeacherId);
   const filteredUsers = teacherUsers.filter(u => {
@@ -387,6 +425,7 @@ export default function AdminPage() {
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Search users..." style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
               <button onClick={() => openAddMember()} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: `${COLOR}22`, border: `1px solid ${COLOR_DIM}`, color: COLOR, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Add User</button>
+              <button onClick={() => setCreateTaModal(true)} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.4)', color: '#06b6d4', cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Create TA</button>
             </div>
             {loadingUsers ? <div style={{ color: '#64748b', textAlign: 'center', marginTop: 20 }}>Loading users...</div> :
             filteredUsers.length === 0 ? <div style={{ textAlign: 'center', color: '#64748b', marginTop: 30 }}><div style={{ fontSize: 30, marginBottom: 8 }}>👥</div><div>No students or TAs for this teacher yet.</div></div> :
@@ -751,6 +790,37 @@ export default function AdminPage() {
                 setEconModal(null);
               }} disabled={applyingEcon} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}>
                 {applyingEcon ? 'Applying...' : 'Apply'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+      {/* Create TA modal */}
+      {createTaModal && (
+        <>
+          <div onClick={() => setCreateTaModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: '#1e293b', borderRadius: 14, border: '2px solid #06b6d4', padding: 24,
+            zIndex: 1001, width: 'min(380px, 90vw)', maxHeight: '90vh', overflowY: 'auto',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
+          }}>
+            <h3 style={{ color: 'white', margin: '0 0 4px', fontSize: 16 }}>Create Teaching Assistant</h3>
+            <p style={{ color: '#64748b', fontSize: 11, margin: '0 0 14px' }}>
+              For teacher: <strong style={{ color: '#10b981' }}>{selectedTeacher?.username || selectedTeacher?.first_name || '—'}</strong>
+            </p>
+            {taError && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10, padding: '8px 12px', background: 'rgba(239,68,68,0.1)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)' }}>{taError}</div>}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input value={taFname} onChange={e => setTaFname(e.target.value)} placeholder="First Name" style={inputStyle} />
+              <input value={taLname} onChange={e => setTaLname(e.target.value)} placeholder="Last Name" style={inputStyle} />
+            </div>
+            <input value={taUsername} onChange={e => setTaUsername(e.target.value.toLowerCase().trim())} placeholder="Username" style={inputStyle} />
+            <input value={taEmail} onChange={e => setTaEmail(e.target.value.trim())} placeholder="Email" type="email" style={inputStyle} />
+            <input value={taPass} onChange={e => setTaPass(e.target.value)} placeholder="Password (min 6)" type="password" style={inputStyle} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setCreateTaModal(false)} className="ll-btn" style={{ flex: 1, padding: '11px' }}>Cancel</button>
+              <button onClick={handleCreateTa} disabled={creatingTa} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}>
+                {creatingTa ? 'Creating...' : 'Create TA'}
               </button>
             </div>
           </div>

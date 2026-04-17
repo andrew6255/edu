@@ -90,12 +90,60 @@ drop policy if exists cm_teacher_select on class_members;
 create policy cm_teacher_select on class_members for select to authenticated
 using (rls_class_teacher_id(class_members.class_id) = auth.uid()::text);
 
+-- ─── Update parent_student_links: allow 1 parent → many students ─────────
+-- Drop the old UNIQUE constraint on parent_id (if it exists) so one parent can link to many students
+alter table parent_student_links drop constraint if exists parent_student_links_parent_id_key;
+create index if not exists idx_parent_student_parent on parent_student_links(parent_id);
+
+-- ─── Create linking_codes table ─────────────────────────────────────────────
+create table if not exists linking_codes (
+  code text primary key,
+  student_id text not null unique references profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '30 minutes')
+);
+alter table linking_codes enable row level security;
+
+drop policy if exists lc_student_all on linking_codes;
+create policy lc_student_all on linking_codes for all to authenticated
+using (student_id = auth.uid()::text)
+with check (student_id = auth.uid()::text);
+
+drop policy if exists lc_parent_select on linking_codes;
+create policy lc_parent_select on linking_codes for select to authenticated
+using (rls_user_role(auth.uid()::text) = 'parent');
+
+drop policy if exists lc_parent_delete on linking_codes;
+create policy lc_parent_delete on linking_codes for delete to authenticated
+using (rls_user_role(auth.uid()::text) = 'parent');
+
+drop policy if exists lc_superadmin_all on linking_codes;
+create policy lc_superadmin_all on linking_codes for all to authenticated
+using (rls_user_role(auth.uid()::text) = 'superadmin')
+with check (rls_user_role(auth.uid()::text) = 'superadmin');
+
 -- ─── Fix parent_student_links policies ──────────────────────────────────────
 
 drop policy if exists psl_superadmin_all on parent_student_links;
 create policy psl_superadmin_all on parent_student_links for all to authenticated
 using (rls_user_role(auth.uid()::text) = 'superadmin')
 with check (rls_user_role(auth.uid()::text) = 'superadmin');
+
+drop policy if exists psl_own_select on parent_student_links;
+create policy psl_own_select on parent_student_links for select to authenticated
+using (parent_id = auth.uid()::text or student_id = auth.uid()::text);
+
+drop policy if exists psl_student_insert on parent_student_links;
+create policy psl_student_insert on parent_student_links for insert to authenticated
+with check (student_id = auth.uid()::text);
+
+drop policy if exists psl_parent_insert on parent_student_links;
+create policy psl_parent_insert on parent_student_links for insert to authenticated
+with check (parent_id = auth.uid()::text);
+
+drop policy if exists psl_parent_delete on parent_student_links;
+create policy psl_parent_delete on parent_student_links for delete to authenticated
+using (parent_id = auth.uid()::text);
 
 drop policy if exists psl_admin_select on parent_student_links;
 create policy psl_admin_select on parent_student_links for select to authenticated

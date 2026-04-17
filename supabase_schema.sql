@@ -241,7 +241,7 @@ create table if not exists class_members (
 );
 
 create table if not exists parent_student_links (
-  parent_id text not null unique references profiles(id) on delete cascade,
+  parent_id text not null references profiles(id) on delete cascade,
   student_id text not null unique references profiles(id) on delete cascade,
   created_at timestamptz not null default now(),
   primary key (parent_id, student_id)
@@ -429,6 +429,38 @@ create index if not exists idx_classes_teacher on classes(teacher_id);
 create index if not exists idx_class_members_class on class_members(class_id);
 create index if not exists idx_class_members_user on class_members(user_id);
 create index if not exists idx_parent_student_student on parent_student_links(student_id);
+create index if not exists idx_parent_student_parent on parent_student_links(parent_id);
+
+-- ─── Linking codes for parent-student linking ───────────────────────────────
+create table if not exists linking_codes (
+  code text primary key,
+  student_id text not null unique references profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '30 minutes')
+);
+alter table linking_codes enable row level security;
+
+-- Students can create/read/delete their own codes
+drop policy if exists lc_student_all on linking_codes;
+create policy lc_student_all on linking_codes for all to authenticated
+using (student_id = auth.uid()::text)
+with check (student_id = auth.uid()::text);
+
+-- Parents can read any code (to look it up when linking)
+drop policy if exists lc_parent_select on linking_codes;
+create policy lc_parent_select on linking_codes for select to authenticated
+using (rls_user_role(auth.uid()::text) = 'parent');
+
+-- Parents can delete codes they consume (after linking)
+drop policy if exists lc_parent_delete on linking_codes;
+create policy lc_parent_delete on linking_codes for delete to authenticated
+using (rls_user_role(auth.uid()::text) = 'parent');
+
+-- Superadmin: full access
+drop policy if exists lc_superadmin_all on linking_codes;
+create policy lc_superadmin_all on linking_codes for all to authenticated
+using (rls_user_role(auth.uid()::text) = 'superadmin')
+with check (rls_user_role(auth.uid()::text) = 'superadmin');
 create index if not exists idx_class_content_class on class_content(class_id);
 create index if not exists idx_class_content_type_status on class_content(content_type, status);
 create index if not exists idx_quiz_attempts_quiz on quiz_attempts(quiz_id);
@@ -803,6 +835,14 @@ using (parent_id = auth.uid()::text or student_id = auth.uid()::text);
 drop policy if exists psl_student_insert on parent_student_links;
 create policy psl_student_insert on parent_student_links for insert to authenticated
 with check (student_id = auth.uid()::text);
+
+drop policy if exists psl_parent_insert on parent_student_links;
+create policy psl_parent_insert on parent_student_links for insert to authenticated
+with check (parent_id = auth.uid()::text);
+
+drop policy if exists psl_parent_delete on parent_student_links;
+create policy psl_parent_delete on parent_student_links for delete to authenticated
+using (parent_id = auth.uid()::text);
 
 drop policy if exists psl_admin_select on parent_student_links;
 create policy psl_admin_select on parent_student_links for select to authenticated

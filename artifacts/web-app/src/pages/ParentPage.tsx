@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  getLinkedStudent,
+  getLinkedStudents,
   getStudentClasses,
   getStudentQuizScores,
   getStudentClassStats,
@@ -15,6 +15,7 @@ import {
   type ContentProgressItem,
   type ParentTeacherChat,
 } from '@/lib/parentService';
+import { redeemLinkingCode, unlinkStudent } from '@/lib/linkingService';
 import ChatWidget from '@/components/ChatWidget';
 import { requireSupabase } from '@/lib/supabase';
 
@@ -29,10 +30,17 @@ export default function ParentPage() {
   const { user, userData, loading } = useAuth();
   const [, setLocation] = useLocation();
 
+  const [students, setStudents] = useState<LinkedStudent[]>([]);
   const [student, setStudent] = useState<LinkedStudent | null>(null);
   const [classes, setClasses] = useState<ParentClassRow[]>([]);
   const [loadingData, setLoadingData] = useState(true);
-  const [noLink, setNoLink] = useState(false);
+
+  // Link / manage state
+  const [managePanelOpen, setManagePanelOpen] = useState(false);
+  const [linkCode, setLinkCode] = useState('');
+  const [linkError, setLinkError] = useState('');
+  const [linkSuccess, setLinkSuccess] = useState('');
+  const [linkLoading, setLinkLoading] = useState(false);
 
   // chat
   const [showChat, setShowChat] = useState(false);
@@ -56,22 +64,76 @@ export default function ParentPage() {
     if (!loading && userData && userData.role !== 'parent') setLocation('/auth');
   }, [user, userData, loading]);
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadStudents(); }, []);
 
-  async function loadAll() {
+  async function loadStudents() {
     setLoadingData(true);
     try {
-      const s = await getLinkedStudent();
-      if (!s) { setNoLink(true); setLoadingData(false); return; }
-      setStudent(s);
+      const all = await getLinkedStudents();
+      setStudents(all);
+      if (all.length > 0) {
+        const s = all[0];
+        setStudent(s);
+        await loadStudentData(s);
+      }
+    } catch (e) { console.error(e); }
+    finally { setLoadingData(false); }
+  }
+
+  async function loadStudentData(s: LinkedStudent) {
+    try {
       const [cls, chats] = await Promise.all([getStudentClasses(s.id), getStudentTeacherChats(s.id)]);
       setClasses(cls);
       setTeacherChats(chats);
-      // load content progress in background
       setLoadingProgress(true);
       getStudentContentProgress(s.id).then(p => setContentProgress(p)).catch(e => console.error(e)).finally(() => setLoadingProgress(false));
     } catch (e) { console.error(e); }
-    finally { setLoadingData(false); }
+  }
+
+  async function switchStudent(s: LinkedStudent) {
+    setStudent(s);
+    setSelectedClass(null);
+    setQuizScores([]);
+    setClassStats(null);
+    setContentProgress([]);
+    setClasses([]);
+    setTeacherChats([]);
+    await loadStudentData(s);
+  }
+
+  async function handleRedeemCode() {
+    if (!user || !linkCode.trim()) return;
+    setLinkLoading(true); setLinkError(''); setLinkSuccess('');
+    try {
+      const result = await redeemLinkingCode(user.uid, linkCode.trim());
+      setLinkSuccess(`Linked to ${result.studentName}!`);
+      setLinkCode('');
+      await loadStudents();
+      setManagePanelOpen(false);
+    } catch (e: any) {
+      setLinkError(e.message || 'Failed to link.');
+    } finally { setLinkLoading(false); }
+  }
+
+  async function handleUnlink(studentId: string) {
+    if (!user) return;
+    if (!confirm('Are you sure you want to unlink this student?')) return;
+    try {
+      await unlinkStudent(user.uid, studentId);
+      const remaining = students.filter(s => s.id !== studentId);
+      setStudents(remaining);
+      if (student?.id === studentId) {
+        if (remaining.length > 0) {
+          setStudent(remaining[0]);
+          await loadStudentData(remaining[0]);
+        } else {
+          setStudent(null);
+          setClasses([]);
+          setTeacherChats([]);
+          setContentProgress([]);
+        }
+      }
+    } catch (e) { console.error('Unlink error:', e); }
   }
 
   async function openClass(cls: ParentClassRow) {
@@ -100,19 +162,45 @@ export default function ParentPage() {
     );
   }
 
-  if (noLink) {
+  if (students.length === 0 && !loadingData) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
         <div style={{ textAlign: 'center', color: '#94a3b8', maxWidth: 400, padding: 20 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🔗</div>
-          <h2 style={{ color: 'white', margin: '0 0 10px' }}>No Student Linked</h2>
-          <p style={{ fontSize: 14, lineHeight: 1.6 }}>
-            Your parent account is not linked to any student yet. Ask the super admin to set up the parent-student link, or have your child link their account to yours.
+          <h2 style={{ color: 'white', margin: '0 0 10px' }}>Link a Student Account</h2>
+          <p style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
+            Ask your child to generate a linking code from their student account, then enter it below.
           </p>
+          {linkError && <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 10, padding: '8px 12px', background: 'rgba(239,68,68,0.1)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)' }}>{linkError}</div>}
+          {linkSuccess && <div style={{ color: '#86efac', fontSize: 13, marginBottom: 10, padding: '8px 12px', background: 'rgba(16,185,129,0.1)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.3)' }}>{linkSuccess}</div>}
+          <input
+            value={linkCode}
+            onChange={e => setLinkCode(e.target.value.toUpperCase())}
+            placeholder="Enter 6-digit code"
+            onKeyDown={e => e.key === 'Enter' && handleRedeemCode()}
+            style={{
+              width: '100%', padding: '12px 14px', marginBottom: 10, borderRadius: 8,
+              border: '1px solid #475569', background: 'rgba(0,0,0,0.5)', color: 'white',
+              boxSizing: 'border-box', fontSize: 20, fontFamily: 'monospace',
+              textAlign: 'center', letterSpacing: 6, outline: 'none',
+            }}
+          />
+          <button
+            onClick={handleRedeemCode}
+            disabled={linkLoading || !linkCode.trim()}
+            style={{
+              width: '100%', padding: '12px', borderRadius: 8, fontSize: 14, fontWeight: 'bold',
+              fontFamily: 'inherit', cursor: linkLoading ? 'not-allowed' : 'pointer',
+              background: 'rgba(236,72,153,0.2)', border: '1px solid rgba(236,72,153,0.5)',
+              color: '#f9a8d4', marginBottom: 16,
+            }}
+          >
+            {linkLoading ? 'Linking...' : 'Link Student'}
+          </button>
           <button
             onClick={async () => { await requireSupabase().auth.signOut(); localStorage.clear(); setLocation('/auth'); }}
             style={{
-              marginTop: 20, padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 'bold',
+              padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 'bold',
               fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444',
               color: '#f87171', cursor: 'pointer',
             }}
@@ -222,14 +310,91 @@ export default function ParentPage() {
             <h2 style={{ margin: 0, color: 'white', fontSize: 18 }}>My Child's Progress</h2>
             <div style={{ color: '#64748b', fontSize: 12 }}>Logged in as {userData?.username || 'Parent'}</div>
           </div>
-          <button onClick={async () => { await requireSupabase().auth.signOut(); localStorage.clear(); setLocation('/auth'); }}
-            style={{ padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>
-            Sign Out
-          </button>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={() => setManagePanelOpen(!managePanelOpen)}
+              style={{ padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit', background: 'rgba(236,72,153,0.15)', border: `1px solid ${COLOR_DIM}`, color: '#f9a8d4', cursor: 'pointer' }}>
+              {managePanelOpen ? '✕ Close' : '⚙ Manage Students'}
+            </button>
+            <button onClick={async () => { await requireSupabase().auth.signOut(); localStorage.clear(); setLocation('/auth'); }}
+              style={{ padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>
+              Sign Out
+            </button>
+          </div>
         </div>
+        {/* Student selector */}
+        {students.length > 1 && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+            {students.map(s => (
+              <button key={s.id} onClick={() => switchStudent(s)} style={{
+                padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit',
+                background: student?.id === s.id ? `${COLOR}22` : 'transparent',
+                border: `1px solid ${student?.id === s.id ? COLOR_DIM : '#33415555'}`,
+                color: student?.id === s.id ? COLOR : '#64748b', cursor: 'pointer',
+              }}>
+                {s.username || s.first_name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+        {/* Manage Students Panel */}
+        {managePanelOpen && (
+          <div style={{ ...cardStyle, padding: 16, marginBottom: 16 }}>
+            <h3 style={{ color: 'white', fontSize: 14, margin: '0 0 12px' }}>Manage Linked Students</h3>
+            {/* Code entry */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>Enter a code from your child's account to link:</div>
+              {linkError && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 6, padding: '6px 10px', background: 'rgba(239,68,68,0.1)', borderRadius: 6 }}>{linkError}</div>}
+              {linkSuccess && <div style={{ color: '#86efac', fontSize: 12, marginBottom: 6, padding: '6px 10px', background: 'rgba(16,185,129,0.1)', borderRadius: 6 }}>{linkSuccess}</div>}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  value={linkCode}
+                  onChange={e => setLinkCode(e.target.value.toUpperCase())}
+                  placeholder="CODE"
+                  onKeyDown={e => e.key === 'Enter' && handleRedeemCode()}
+                  style={{
+                    flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid #475569',
+                    background: 'rgba(0,0,0,0.4)', color: 'white', fontSize: 16, fontFamily: 'monospace',
+                    textAlign: 'center', letterSpacing: 4, outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+                <button onClick={handleRedeemCode} disabled={linkLoading || !linkCode.trim()} style={{
+                  padding: '8px 16px', borderRadius: 6, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit',
+                  background: 'rgba(236,72,153,0.2)', border: '1px solid rgba(236,72,153,0.5)', color: '#f9a8d4',
+                  cursor: linkLoading ? 'not-allowed' : 'pointer',
+                }}>
+                  {linkLoading ? '...' : 'Link'}
+                </button>
+              </div>
+            </div>
+            {/* Current students with unlink */}
+            {students.length > 0 && (
+              <div>
+                <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>Linked students:</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {students.map(s => (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'rgba(0,0,0,0.2)', borderRadius: 6 }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                        background: `hsl(${(s.username.charCodeAt(0) || 65) * 37 % 360}, 55%, 35%)`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 'bold', color: 'white', fontSize: 12,
+                      }}>{(s.username[0] || '?').toUpperCase()}</div>
+                      <div style={{ flex: 1, color: 'white', fontSize: 13, fontWeight: 'bold' }}>{s.username || `${s.first_name} ${s.last_name}`}</div>
+                      <button onClick={() => handleUnlink(s.id)} style={{
+                        padding: '3px 8px', borderRadius: 4, fontSize: 10, fontWeight: 'bold', fontFamily: 'inherit',
+                        background: 'transparent', border: '1px solid #ef444455', color: '#f87171', cursor: 'pointer',
+                      }}>Unlink</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Child card */}
         {student && (
           <div style={{ ...cardStyle, padding: '16px 20px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>

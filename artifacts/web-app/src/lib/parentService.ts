@@ -33,31 +33,37 @@ export interface ParentClassStats {
   questions_correct: number;
 }
 
-// ─── Get Linked Student ──────────────────────────────────────────────────────
+// ─── Get Linked Student(s) ───────────────────────────────────────────────────
 
 export async function getLinkedStudent(): Promise<LinkedStudent | null> {
-  const supabase = requireSupabase();
-  const { data: link, error } = await supabase
-    .from('parent_student_links')
-    .select('student_id')
-    .maybeSingle();
-  if (error) throw error;
-  if (!link) return null;
+  const students = await getLinkedStudents();
+  return students.length > 0 ? students[0] : null;
+}
 
-  const { data: profile, error: pErr } = await supabase
+export async function getLinkedStudents(): Promise<LinkedStudent[]> {
+  const supabase = requireSupabase();
+  const { data: links, error } = await supabase
+    .from('parent_student_links')
+    .select('student_id');
+  if (error) throw error;
+  if (!links || links.length === 0) return [];
+
+  const ids = links.map(l => (l as { student_id: string }).student_id);
+  const { data: profiles, error: pErr } = await supabase
     .from('profiles')
     .select('id, username, first_name, last_name, email')
-    .eq('id', (link as { student_id: string }).student_id)
-    .single();
+    .in('id', ids);
   if (pErr) throw pErr;
-  const p = profile as Record<string, unknown>;
-  return {
-    id: String(p.id),
-    username: String(p.username ?? ''),
-    first_name: String(p.first_name ?? ''),
-    last_name: String(p.last_name ?? ''),
-    email: String(p.email ?? ''),
-  };
+  return (profiles || []).map(p => {
+    const r = p as Record<string, unknown>;
+    return {
+      id: String(r.id),
+      username: String(r.username ?? ''),
+      first_name: String(r.first_name ?? ''),
+      last_name: String(r.last_name ?? ''),
+      email: String(r.email ?? ''),
+    };
+  });
 }
 
 // ─── Student's Classes ───────────────────────────────────────────────────────

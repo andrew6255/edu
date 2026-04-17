@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import { requireSupabase } from '@/lib/supabase';
+import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllUsers, updateUserData, deleteUserData, adminUpdateEconomy, type EconomyDeltas, UserData, UserRole, computeLevel, getAdminTeacherAssignments, addAdminTeacherAssignment, removeAdminTeacherAssignment, getParentStudentLinks, AdminTeacherAssignment, ParentStudentLink } from '@/lib/userService';
+import { getAllUsers, updateUserData, deleteUserData, createUserDataAdmin, isUsernameTaken, adminUpdateEconomy, type EconomyDeltas, UserData, UserRole, computeLevel, getAdminTeacherAssignments, addAdminTeacherAssignment, removeAdminTeacherAssignment, getParentStudentLinks, AdminTeacherAssignment, ParentStudentLink } from '@/lib/userService';
 import { convertNestedProgramToInternal, parseNestedProgramJson } from '@/lib/programNestedImport';
 import ProgramMapView from '@/views/ProgramMapView';
 import { clearDraftProgram } from '@/lib/draftProgramStore';
@@ -79,7 +79,6 @@ export default function SuperAdminPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
-  const [changingRole, setChangingRole] = useState<string | null>(null);
   const [deletingUser, setDeletingUser] = useState<string | null>(null);
 
   // Relationship data
@@ -93,6 +92,17 @@ export default function SuperAdminPage() {
   // Economy modal
   const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string; energyDelta: string; streakDelta: string } | null>(null);
   const [applyingEcon, setApplyingEcon] = useState(false);
+
+  // Create account modal
+  const [createModal, setCreateModal] = useState(false);
+  const [createRole, setCreateRole] = useState<'teacher' | 'admin'>('teacher');
+  const [createFname, setCreateFname] = useState('');
+  const [createLname, setCreateLname] = useState('');
+  const [createUsername, setCreateUsername] = useState('');
+  const [createEmail, setCreateEmail] = useState('');
+  const [createPass, setCreatePass] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (userData && userData.role !== 'superadmin') setLocation('/');
@@ -110,20 +120,6 @@ export default function SuperAdminPage() {
       console.error('Failed to load users:', e);
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleRoleChange(uid: string, role: UserRole) {
-    setChangingRole(uid);
-    try {
-      const supabase = requireSupabase();
-      const { error } = await supabase.rpc('admin_update_user_role', { target_uid: uid, new_role: role });
-      if (error) throw error;
-      setUsers(prev => prev.map(u => u.uid === uid ? { ...u, role } : u));
-    } catch (e) {
-      console.error('Failed to change role:', e);
-    } finally {
-      setChangingRole(null);
     }
   }
 
@@ -173,7 +169,68 @@ export default function SuperAdminPage() {
     setEconModal(null);
   }
 
-  const filtered = users.filter(u => {
+  async function handleCreateAccount() {
+    if (!createFname || !createLname || !createUsername || !createEmail || !createPass) {
+      setCreateError('Please fill in all fields.'); return;
+    }
+    if (createPass.length < 6) { setCreateError('Password must be at least 6 characters.'); return; }
+    if (!/^[a-zA-Z0-9_]+$/.test(createUsername)) { setCreateError('Username can only contain letters, numbers and underscores.'); return; }
+    setCreating(true); setCreateError('');
+    try {
+      const taken = await isUsernameTaken(createUsername.toLowerCase());
+      if (taken) { setCreateError('Username is already taken.'); return; }
+      const admin = getAdminClient();
+      const { data, error } = await admin.auth.admin.createUser({
+        email: createEmail,
+        password: createPass,
+        email_confirm: true,
+        user_metadata: { full_name: `${createFname} ${createLname}`.trim(), name: createUsername },
+      });
+      if (error) throw error;
+      const authUser = data.user;
+      if (!authUser) throw new Error('No user returned.');
+      await createUserDataAdmin(authUser.id, {
+        firstName: createFname, lastName: createLname, username: createUsername.toLowerCase(), email: createEmail,
+        role: createRole, onboardingComplete: true,
+      });
+      setUsers(prev => [...prev, { uid: authUser.id, firstName: createFname, lastName: createLname, username: createUsername.toLowerCase(), email: createEmail, role: createRole, onboardingComplete: true } as UserData & { uid: string }]);
+      setCreateModal(false);
+      setCreateFname(''); setCreateLname(''); setCreateUsername(''); setCreateEmail(''); setCreatePass(''); setCreateError('');
+    } catch (e: any) {
+      setCreateError(e.message || 'Failed to create account.');
+    } finally { setCreating(false); }
+  }
+
+  // Sort: parents above their linked students, then by role order, then alphabetically
+  const sortedUsers = (() => {
+    // Build parent→students map from pslLinks
+    const parentStudents = new Map<string, string[]>();
+    const studentParent = new Map<string, string>();
+    for (const l of pslLinks) {
+      if (!parentStudents.has(l.parent_id)) parentStudents.set(l.parent_id, []);
+      parentStudents.get(l.parent_id)!.push(l.student_id);
+      studentParent.set(l.student_id, l.parent_id);
+    }
+    // Group key: for linked parents/students, use the parent uid so they cluster together
+    // Sort order within group: parent first (0), then students (1)
+    type SortEntry = { user: typeof users[0]; groupKey: string; subOrder: number };
+    const entries: SortEntry[] = users.map(u => {
+      if (u.role === 'parent' && parentStudents.has(u.uid)) {
+        return { user: u, groupKey: u.uid, subOrder: 0 };
+      }
+      if (u.role === 'student' && studentParent.has(u.uid)) {
+        return { user: u, groupKey: studentParent.get(u.uid)!, subOrder: 1 };
+      }
+      return { user: u, groupKey: u.uid, subOrder: 0 };
+    });
+    entries.sort((a, b) => {
+      if (a.groupKey !== b.groupKey) return a.groupKey < b.groupKey ? -1 : 1;
+      return a.subOrder - b.subOrder;
+    });
+    return entries.map(e => e.user);
+  })();
+
+  const filtered = sortedUsers.filter(u => {
     const matchSearch = !search || [u.username, u.email, u.firstName, u.lastName].some(f => f?.toLowerCase().includes(search.toLowerCase()));
     const matchRole = roleFilter === 'all' || u.role === roleFilter;
     return matchSearch && matchRole;
@@ -310,6 +367,12 @@ export default function SuperAdminPage() {
                 <option value="all">All Roles</option>
                 {ROLE_ORDER.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}s ({roleCounts[r]})</option>)}
               </select>
+              <button
+                onClick={() => setCreateModal(true)}
+                style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 'bold', fontFamily: 'inherit', background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: '#c084fc', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                + Create Account
+              </button>
             </div>
             <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>{filtered.length} users</div>
 
@@ -326,7 +389,7 @@ export default function SuperAdminPage() {
                 const managedTeachers = u.role === 'admin' ? ataLinks.filter(a => a.admin_id === u.uid).map(a => users.find(x => x.uid === a.teacher_id)).filter(Boolean) : [];
                 const managingAdmins = u.role === 'teacher' ? ataLinks.filter(a => a.teacher_id === u.uid).map(a => users.find(x => x.uid === a.admin_id)).filter(Boolean) : [];
                 const linkedParent = u.role === 'student' ? (() => { const link = pslLinks.find(l => l.student_id === u.uid); return link ? users.find(x => x.uid === link.parent_id) : null; })() : null;
-                const linkedStudent = u.role === 'parent' ? (() => { const link = pslLinks.find(l => l.parent_id === u.uid); return link ? users.find(x => x.uid === link.student_id) : null; })() : null;
+                const linkedStudents = u.role === 'parent' ? pslLinks.filter(l => l.parent_id === u.uid).map(l => users.find(x => x.uid === l.student_id)).filter(Boolean) : [];
 
                 return (
                   <div key={u.uid} style={{ background: '#1e293b', borderRadius: 10, border: `1px solid ${isExpanded ? '#a855f788' : '#334155'}`, overflow: 'hidden' }}>
@@ -359,8 +422,8 @@ export default function SuperAdminPage() {
                           {u.role === 'student' && linkedParent && (
                             <span style={{ color: ROLE_COLORS.parent }}> · parent: {linkedParent.username || linkedParent.firstName}</span>
                           )}
-                          {u.role === 'parent' && linkedStudent && (
-                            <span style={{ color: ROLE_COLORS.student }}> · student: {linkedStudent.username || linkedStudent.firstName}</span>
+                          {u.role === 'parent' && linkedStudents.length > 0 && (
+                            <span style={{ color: ROLE_COLORS.student }}> · {linkedStudents.length} student{linkedStudents.length !== 1 ? 's' : ''}: {linkedStudents.map(s => s!.username || s!.firstName).join(', ')}</span>
                           )}
                         </div>
                       </div>
@@ -371,14 +434,6 @@ export default function SuperAdminPage() {
                         }}>{roleLabel}</span>
                         {!isSelf && (user?.email === 'god.bypass@internal.app' || u.role !== 'superadmin') && (
                           <>
-                            <select
-                              value={u.role} disabled={changingRole === u.uid}
-                              onChange={e => handleRoleChange(u.uid, e.target.value as UserRole)}
-                              style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #475569', background: '#0f172a', color: '#94a3b8', fontFamily: 'inherit', fontSize: 11, cursor: 'pointer', outline: 'none' }}
-                            >
-                              {(user?.email === 'god.bypass@internal.app' ? ROLE_ORDER : ROLE_ORDER.filter(r => r !== 'superadmin'))
-                                .map(r => <option key={r} value={r}>→ {ROLE_LABELS[r]}</option>)}
-                            </select>
                             {u.role === 'admin' && (
                               <button
                                 onClick={() => setAtaModal({ adminUid: u.uid, adminName: u.username || u.firstName })}
@@ -455,6 +510,39 @@ export default function SuperAdminPage() {
                             Curriculum: {u.curriculumProfile.system} · {u.curriculumProfile.year}
                           </div>
                         )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                          <button
+                            onClick={async () => {
+                              if (!window.confirm(`Login as "${u.username || u.firstName}"? You will be signed out of your superadmin session.`)) return;
+                              try {
+                                const admin = getAdminClient();
+                                const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+                                  type: 'magiclink',
+                                  email: u.email,
+                                });
+                                if (linkError) throw linkError;
+                                const token_hash = linkData?.properties?.hashed_token;
+                                if (!token_hash) throw new Error('No token returned.');
+                                const supabase = requireSupabase();
+                                await supabase.auth.signOut();
+                                const { error: verifyErr } = await supabase.auth.verifyOtp({ token_hash, type: 'magiclink' });
+                                if (verifyErr) throw verifyErr;
+                                localStorage.removeItem('ll:superadmin_session');
+                                window.location.href = '/';
+                              } catch (e: any) {
+                                window.alert('Impersonation failed: ' + (e.message || String(e)));
+                              }
+                            }}
+                            style={{
+                              padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold',
+                              fontFamily: 'inherit', cursor: 'pointer',
+                              background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)',
+                              color: '#c084fc',
+                            }}
+                          >
+                            🔑 Login as {u.username || u.firstName}
+                          </button>
+                        </div>
                         <div style={{ color: '#475569', fontSize: 10, marginTop: 6 }}>UID: {u.uid}</div>
                       </div>
                     )}
@@ -516,6 +604,45 @@ export default function SuperAdminPage() {
               <button onClick={() => setEconModal(null)} className="ll-btn" style={{ flex: 1, padding: '11px' }}>Cancel</button>
               <button onClick={handleEconApply} disabled={applyingEcon} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}>
                 {applyingEcon ? 'Applying...' : 'Apply'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Create Account modal */}
+      {createModal && (
+        <>
+          <div onClick={() => setCreateModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: '#1e293b', borderRadius: 14, border: '2px solid #a855f7', padding: 24,
+            zIndex: 1001, width: 'min(380px, 90vw)', maxHeight: '90vh', overflowY: 'auto',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
+          }}>
+            <h3 style={{ color: 'white', margin: '0 0 16px', fontSize: 16 }}>Create Teacher / Admin Account</h3>
+            {createError && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10, padding: '8px 12px', background: 'rgba(239,68,68,0.1)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)' }}>{createError}</div>}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+              {(['teacher', 'admin'] as const).map(r => (
+                <button key={r} onClick={() => setCreateRole(r)} style={{
+                  flex: 1, padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', cursor: 'pointer',
+                  background: createRole === r ? `${ROLE_COLORS[r]}22` : 'transparent',
+                  border: `1px solid ${createRole === r ? `${ROLE_COLORS[r]}88` : '#334155'}`,
+                  color: createRole === r ? ROLE_COLORS[r] : '#64748b',
+                }}>{ROLE_LABELS[r]}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input value={createFname} onChange={e => setCreateFname(e.target.value)} placeholder="First Name" style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+              <input value={createLname} onChange={e => setCreateLname(e.target.value)} placeholder="Last Name" style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <input value={createUsername} onChange={e => setCreateUsername(e.target.value.toLowerCase().trim())} placeholder="Username" style={{ width: '100%', padding: '9px 12px', marginBottom: 8, borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+            <input value={createEmail} onChange={e => setCreateEmail(e.target.value.trim())} placeholder="Email" type="email" style={{ width: '100%', padding: '9px 12px', marginBottom: 8, borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+            <input value={createPass} onChange={e => setCreatePass(e.target.value)} placeholder="Password (min 6)" type="password" style={{ width: '100%', padding: '9px 12px', marginBottom: 14, borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setCreateModal(false)} className="ll-btn" style={{ flex: 1, padding: '11px' }}>Cancel</button>
+              <button onClick={handleCreateAccount} disabled={creating} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}>
+                {creating ? 'Creating...' : `Create ${ROLE_LABELS[createRole]}`}
               </button>
             </div>
           </div>

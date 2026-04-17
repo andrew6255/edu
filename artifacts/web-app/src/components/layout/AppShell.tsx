@@ -10,6 +10,7 @@ import { useSession } from '@/contexts/SessionContext';
 import { forfeitSession } from '@/lib/gameSessionService';
 import { getMyRunningQuizzes } from '@/lib/studentService';
 import type { AppNotification } from '@/lib/userService';
+import { createLinkingCode, getMyLinkingCode, getLinkedParent } from '@/lib/linkingService';
 
 type View =
   | 'emporium'
@@ -151,6 +152,40 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
   const studyOngoingSessionId = typeof window !== 'undefined' ? localStorage.getItem('ll:ongoingStudySessionId') : null;
   const studyOngoingProgramId = typeof window !== 'undefined' ? localStorage.getItem('ll:ongoingStudyProgramId') : null;
+
+  // Parent linking state (students only)
+  const [linkCode, setLinkCode] = useState<string | null>(null);
+  const [linkCodeExpires, setLinkCodeExpires] = useState<string | null>(null);
+  const [linkedParentName, setLinkedParentName] = useState<string | null>(null);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkPanelOpen, setLinkPanelOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user || role !== 'student') return;
+    let alive = true;
+    (async () => {
+      try {
+        const parent = await getLinkedParent(user.uid);
+        if (!alive) return;
+        if (parent) setLinkedParentName(parent.username || `${parent.first_name} ${parent.last_name}`.trim());
+        const existing = await getMyLinkingCode(user.uid);
+        if (!alive) return;
+        if (existing) { setLinkCode(existing.code); setLinkCodeExpires(existing.expires_at); }
+      } catch { /* silent */ }
+    })();
+    return () => { alive = false; };
+  }, [user, role]);
+
+  async function handleGenerateCode() {
+    if (!user) return;
+    setLinkLoading(true);
+    try {
+      const code = await createLinkingCode(user.uid);
+      setLinkCode(code);
+      setLinkCodeExpires(new Date(Date.now() + 30 * 60 * 1000).toISOString());
+    } catch (e) { console.error('Failed to generate code:', e); }
+    finally { setLinkLoading(false); }
+  }
 
   const ongoingBadge = ongoingWarmup && view !== 'warmup' ? 1 : 0;
   const hudBadgeCount = notifBadgeCount + ongoingBadge;
@@ -384,6 +419,83 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
               </button>
 
               <QuizzesButton onOpen={() => { setView('classes'); setMenuOpen(false); }} />
+
+              {/* Link Parent button (students only) */}
+              {role === 'student' && (
+                <button
+                  onClick={() => setLinkPanelOpen(!linkPanelOpen)}
+                  style={{
+                    textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
+                    background: linkedParentName ? 'rgba(16,185,129,0.08)' : 'rgba(236,72,153,0.08)',
+                    border: `1px solid ${linkedParentName ? 'rgba(16,185,129,0.25)' : 'rgba(236,72,153,0.25)'}`,
+                    borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>👨‍👩‍👧 {linkedParentName ? 'Linked Parent' : 'Link a Parent'}</span>
+                    <span style={{ marginLeft: 'auto', color: linkedParentName ? '#34d399' : '#f9a8d4', fontWeight: 'bold' }}>{linkPanelOpen ? '▼' : '→'}</span>
+                  </span>
+                  {linkedParentName && (
+                    <div style={{ color: '#34d399', fontSize: 11, marginTop: 4, fontWeight: 'bold' }}>
+                      {linkedParentName}
+                    </div>
+                  )}
+                </button>
+              )}
+              {linkPanelOpen && role === 'student' && (
+                <div style={{
+                  padding: '12px 14px', background: 'rgba(0,0,0,0.3)', borderRadius: 10,
+                  border: '1px solid #334155', fontSize: 12, color: '#94a3b8'
+                }}>
+                  {linkedParentName ? (
+                    <p style={{ margin: 0 }}>Your account is linked to parent: <strong style={{ color: '#34d399' }}>{linkedParentName}</strong></p>
+                  ) : (
+                    <>
+                      <p style={{ margin: '0 0 8px' }}>Generate a code and share it with your parent so they can link their account to yours.</p>
+                      {linkCode && linkCodeExpires && new Date(linkCodeExpires) > new Date() ? (
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                            <div style={{
+                              fontSize: 28, fontWeight: 'bold', letterSpacing: 6, color: '#f9a8d4',
+                              padding: '10px 0', fontFamily: 'monospace'
+                            }}>
+                              {linkCode}
+                            </div>
+                            <button
+                              onClick={() => { navigator.clipboard.writeText(linkCode); }}
+                              title="Copy code"
+                              style={{
+                                padding: '6px 10px', borderRadius: 6, fontSize: 11, fontWeight: 'bold',
+                                fontFamily: 'inherit', cursor: 'pointer',
+                                background: 'rgba(236,72,153,0.15)', border: '1px solid rgba(236,72,153,0.35)',
+                                color: '#f9a8d4', flexShrink: 0,
+                              }}
+                            >
+                              📋
+                            </button>
+                          </div>
+                          <div style={{ color: '#64748b', fontSize: 10 }}>
+                            Expires in {Math.max(0, Math.ceil((new Date(linkCodeExpires).getTime() - Date.now()) / 60000))} min
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={handleGenerateCode}
+                          disabled={linkLoading}
+                          style={{
+                            width: '100%', padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 'bold',
+                            fontFamily: 'inherit', cursor: linkLoading ? 'not-allowed' : 'pointer',
+                            background: 'rgba(236,72,153,0.2)', border: '1px solid rgba(236,72,153,0.4)',
+                            color: '#f9a8d4'
+                          }}
+                        >
+                          {linkLoading ? 'Generating...' : 'Generate Link Code'}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
 
               {studyOngoingSessionId && studyOngoingProgramId && (
                 <button
