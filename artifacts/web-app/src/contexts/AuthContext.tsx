@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       role,
       economy: { gold: 200, global_xp: 0, streak: 0, energy: 0, rankedEnergyStreak: 0 },
       curriculums: {},
-      onboardingComplete: role === 'superadmin' ? true : false,
+      onboardingComplete: true,
       inventory: { stories: [], badges: ['badge_pioneer'], banners: ['default'], mapThemes: ['theme-standard', 'theme-hex'] },
       equipped: { mapTheme: 'theme-standard', banner: 'default', badges: ['badge_pioneer'] },
       high_scores: {

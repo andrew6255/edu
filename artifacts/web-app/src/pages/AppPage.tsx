@@ -11,7 +11,6 @@ import ArenaView from '@/views/ArenaView';
 import LeaderboardView from '@/views/LeaderboardView';
 import EmporiumView from '@/views/EmporiumView';
 import LogicGamesView from '@/views/LogicGamesView';
-import OnboardingPage from '@/pages/OnboardingPage';
 import CreateParentPage from '@/pages/CreateParentPage';
 import ProgramMapView from '@/views/ProgramMapView';
 import StudySessionsView from '@/views/StudySessionsView';
@@ -88,6 +87,32 @@ export default function AppPage() {
     }
   }, [user, userData, loading]);
 
+  // Check parent account link for students
+  useEffect(() => {
+    if (!user || !userData || userData.role !== 'student') {
+      setHasParent(true); // non-students skip this gate
+      return;
+    }
+    let alive = true;
+    async function checkParent() {
+      try {
+        const supabase = requireSupabase();
+        const { data, error } = await supabase
+          .from('parent_student_links')
+          .select('parent_id')
+          .eq('student_id', user!.uid)
+          .limit(1);
+        if (!alive) return;
+        if (error) { console.error('Parent check error:', error); setHasParent(true); return; } // fail open
+        setHasParent(data && data.length > 0);
+      } catch {
+        if (alive) setHasParent(true); // fail open
+      }
+    }
+    checkParent();
+    return () => { alive = false; };
+  }, [user, userData]);
+
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
@@ -120,37 +145,6 @@ export default function AppPage() {
         </div>
       </div>
     );
-  }
-
-  // Check parent account link for students
-  useEffect(() => {
-    if (!user || !userData || userData.role !== 'student') {
-      setHasParent(true); // non-students skip this gate
-      return;
-    }
-    let alive = true;
-    async function checkParent() {
-      try {
-        const supabase = requireSupabase();
-        const { data, error } = await supabase
-          .from('parent_student_links')
-          .select('parent_id')
-          .eq('student_id', user!.uid)
-          .limit(1);
-        if (!alive) return;
-        if (error) { console.error('Parent check error:', error); setHasParent(true); return; } // fail open
-        setHasParent(data && data.length > 0);
-      } catch {
-        if (alive) setHasParent(true); // fail open
-      }
-    }
-    checkParent();
-    return () => { alive = false; };
-  }, [user, userData]);
-
-  // Show curriculum onboarding only for new students explicitly flagged (existing users w/ undefined field are skipped)
-  if (userData.onboardingComplete === false && userData.role === 'student') {
-    return <OnboardingPage onComplete={refreshUserData} />;
   }
 
   // Parent account gate for students

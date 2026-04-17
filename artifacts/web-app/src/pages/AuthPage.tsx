@@ -60,7 +60,7 @@ async function ensureUserDoc(authUser: {
   uid: string;
   displayName: string | null;
   email: string | null;
-}, role: 'student' | 'superadmin' = 'student', onboardingComplete = false) {
+}, role: 'student' | 'superadmin' = 'student', onboardingComplete = true) {
   const existing = await getUserData(authUser.uid);
   if (!existing) {
     const rawName = authUser.displayName || 'LogicLord';
@@ -242,7 +242,7 @@ export default function AuthPage() {
       await createUserData(authUser.id, {
         firstName: fname, lastName: lname, username, email,
         role: 'student',
-        onboardingComplete: false,
+        onboardingComplete: true,
       });
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
@@ -276,7 +276,7 @@ export default function AuthPage() {
             await createUserData(authUser.id, {
               firstName: fname, lastName: lname, username, email,
               role: 'student',
-              onboardingComplete: false,
+              onboardingComplete: true,
             });
             return;
           }
