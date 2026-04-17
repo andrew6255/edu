@@ -109,6 +109,16 @@ export default function ParentPage() {
           <p style={{ fontSize: 14, lineHeight: 1.6 }}>
             Your parent account is not linked to any student yet. Ask the super admin to set up the parent-student link, or have your child link their account to yours.
           </p>
+          <button
+            onClick={async () => { await requireSupabase().auth.signOut(); localStorage.clear(); setLocation('/auth'); }}
+            style={{
+              marginTop: 20, padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 'bold',
+              fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444',
+              color: '#f87171', cursor: 'pointer',
+            }}
+          >
+            Sign Out
+          </button>
         </div>
       </div>
     );

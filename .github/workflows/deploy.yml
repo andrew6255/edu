@@ -41,6 +41,9 @@ jobs:
         run: pnpm --filter @workspace/web-app run build
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Copy index to 404 for SPA routing
         run: cp ./artifacts/web-app/dist/index.html ./artifacts/web-app/dist/404.html
