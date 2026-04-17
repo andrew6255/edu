@@ -18,7 +18,6 @@ import {
   toggleClassContentStatus,
   softDeleteClassContent,
   listAllUsersForTeacher,
-  updateClassMemberRole,
   removeUserFromAllTeacherClasses,
   type ClassRow,
   type ClassMemberRow,
@@ -125,6 +124,11 @@ export default function AdminPage() {
   const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string; energyDelta: string; streakDelta: string; current: { gold: number; global_xp: number; energy: number; streak: number } | null } | null>(null);
   const [applyingEcon, setApplyingEcon] = useState(false);
 
+  // Assign TA to class modal
+  const [assignTaModal, setAssignTaModal] = useState<{ userId: string; userName: string; initialClassIds: string[] } | null>(null);
+  const [assignTaSelected, setAssignTaSelected] = useState<Set<string>>(new Set());
+  const [assigningTa, setAssigningTa] = useState(false);
+
   // Create TA modal
   const [createTaModal, setCreateTaModal] = useState(false);
   const [taFname, setTaFname] = useState('');
@@ -170,9 +174,27 @@ export default function AdminPage() {
     setLoadingUsers(true);
     setSelectedClassId(null);
     try {
-      const [c, u] = await Promise.all([listClassesForTeacher(teacherId), listAllUsersForTeacher(teacherId)]);
+      const [c, u, allTAs] = await Promise.all([
+        listClassesForTeacher(teacherId),
+        listAllUsersForTeacher(teacherId),
+        getProfilesByRole('teacher_assistant'),
+      ]);
+      // Merge unassigned TAs into the user list
+      const assignedIds = new Set(u.map(x => x.user_id));
+      const unassignedTAs: typeof u = allTAs
+        .filter(ta => !assignedIds.has(ta.id))
+        .map(ta => ({
+          user_id: ta.id,
+          username: ta.username,
+          first_name: ta.first_name,
+          last_name: ta.last_name,
+          email: ta.email,
+          role: 'teacher_assistant' as const,
+          class_ids: [],
+          class_names: [],
+        }));
       setClasses(c);
-      setTeacherUsers(u);
+      setTeacherUsers([...u, ...unassignedTAs]);
     } catch (e) { console.error('Failed to load teacher data:', e); }
     finally { setLoadingClasses(false); setLoadingUsers(false); }
   }
@@ -310,13 +332,6 @@ export default function AdminPage() {
     catch (e) { window.alert('Remove failed: ' + (e instanceof Error ? e.message : String(e))); }
   }
 
-  async function handleToggleUserRole(u: TeacherUserRow) {
-    const newRole = u.role === 'student' ? 'teacher_assistant' : 'student';
-    if (!window.confirm(`Change ${u.username} to ${newRole === 'student' ? 'Student' : 'TA'}?`)) return;
-    try { for (const cid of u.class_ids) { await updateClassMemberRole(cid, u.user_id, newRole); } await refreshTeacherData(); }
-    catch (e) { window.alert('Failed: ' + (e instanceof Error ? e.message : String(e))); }
-  }
-
   async function handleRemoveUserFromTeacher(u: TeacherUserRow) {
     if (!selectedTeacherId || !window.confirm(`Remove ${u.username} from all classes?`)) return;
     try { await removeUserFromAllTeacherClasses(selectedTeacherId, u.user_id); await refreshTeacherData(); }
@@ -446,9 +461,12 @@ export default function AdminPage() {
                         </div>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 'bold', padding: '2px 8px', borderRadius: 5, background: `${rp.color}22`, border: `1px solid ${rp.color}55`, color: rp.color }}>{rp.label}</span>
-                      <button onClick={() => handleToggleUserRole(u)} style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#c084fc', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-                        {u.role === 'student' ? '↑TA' : '↓Student'}
-                      </button>
+                      {u.role === 'teacher_assistant' && (
+                        <button onClick={() => { setAssignTaModal({ userId: u.user_id, userName: u.username || u.first_name, initialClassIds: u.class_ids }); setAssignTaSelected(new Set(u.class_ids)); }}
+                          style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)', color: '#06b6d4', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                          + Class
+                        </button>
+                      )}
                       {u.role === 'student' && (
                         <button onClick={async () => {
                           const cur = await adminGetStudentEconomy(u.user_id);
@@ -823,6 +841,74 @@ export default function AdminPage() {
                 {creatingTa ? 'Creating...' : 'Create TA'}
               </button>
             </div>
+          </div>
+        </>
+      )}
+
+      {/* Assign TA to Class modal */}
+      {assignTaModal && (
+        <>
+          <div onClick={() => setAssignTaModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: '#1e293b', borderRadius: 14, border: '2px solid #06b6d4', padding: 24,
+            zIndex: 1001, width: 'min(350px, 90vw)', boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
+          }}>
+            <h3 style={{ color: 'white', margin: '0 0 4px', fontSize: 16 }}>Assign to Class</h3>
+            <p style={{ color: '#64748b', fontSize: 11, margin: '0 0 14px' }}>
+              TA: <strong style={{ color: '#06b6d4' }}>{assignTaModal.userName}</strong>
+            </p>
+            {classes.length === 0 ? (
+              <div style={{ color: '#64748b', fontSize: 12, textAlign: 'center', padding: 16 }}>No classes available. Create a class first.</div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14, maxHeight: 240, overflowY: 'auto' }}>
+                  {classes.map(c => {
+                    const checked = assignTaSelected.has(c.id);
+                    return (
+                      <label key={c.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                        borderRadius: 8, cursor: 'pointer',
+                        background: checked ? 'rgba(6,182,212,0.1)' : 'rgba(0,0,0,0.2)',
+                        border: `1px solid ${checked ? 'rgba(6,182,212,0.4)' : '#334155'}`,
+                      }}>
+                        <input type="checkbox" checked={checked} onChange={() => {
+                          setAssignTaSelected(prev => {
+                            const next = new Set(prev);
+                            if (next.has(c.id)) next.delete(c.id); else next.add(c.id);
+                            return next;
+                          });
+                        }} style={{ accentColor: '#06b6d4', width: 16, height: 16, cursor: 'pointer' }} />
+                        <span style={{ color: checked ? '#06b6d4' : '#94a3b8', fontSize: 13, fontWeight: checked ? 'bold' : 'normal' }}>{c.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => setAssignTaModal(null)} className="ll-btn" style={{ flex: 1, padding: '11px' }}>Cancel</button>
+                  <button
+                    disabled={assigningTa}
+                    onClick={async () => {
+                      if (!assignTaModal) return;
+                      setAssigningTa(true);
+                      try {
+                        const initial = new Set(assignTaModal.initialClassIds);
+                        const toAdd = [...assignTaSelected].filter(id => !initial.has(id));
+                        const toRemove = [...initial].filter(id => !assignTaSelected.has(id));
+                        for (const cid of toAdd) await addClassMember(cid, assignTaModal.userId, 'teacher_assistant');
+                        for (const cid of toRemove) await removeClassMember(cid, assignTaModal.userId);
+                        setAssignTaModal(null);
+                        await refreshTeacherData();
+                      } catch (e: any) {
+                        window.alert('Failed: ' + (e.message || String(e)));
+                      } finally { setAssigningTa(false); }
+                    }}
+                    className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}>
+                    {assigningTa ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </>
       )}
