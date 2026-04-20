@@ -49,7 +49,7 @@ const GAME_META: Record<string, { label: string; icon: string }> = {
   sequence_10s:     { label: 'Sequence (10s)',            icon: '📈' },
   sequence_60s:     { label: 'Sequence (60s)',            icon: '⏱️' },
   pyramid:      { label: 'Number Pyramid',      icon: '🔺' },
-  blockPuzzle:  { label: 'Block Puzzle',        icon: '🟦' },
+  blockPuzzle:  { label: 'Block Blast',         icon: '🟦' },
   flipNodes:    { label: 'Flip Nodes',          icon: '🔄' },
   fifteenPuzzle:{ label: '15 Puzzle',           icon: '🧩' },
   memoOrder:    { label: 'Memo Order',          icon: '🧠' },

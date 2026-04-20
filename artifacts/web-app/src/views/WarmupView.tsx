@@ -61,7 +61,7 @@ const GAMES: GameConfig[] = [
   { id: 'memoOrder',    label: 'Memo Order',         icon: '🔢', category: 'memory',  description: 'Tap numbers in the order they appeared',        component: MemoOrderGame, isNew: true },
   { id: 'pyramid',      label: 'Number Pyramid',     icon: '△',  category: 'rapid',   description: 'Fill in the pyramid using addition',            component: PyramidGame },
   { id: 'flipNodes',    label: 'Flip Nodes',         icon: '⬡',  category: 'logic',   description: 'Solve the parity flipping puzzle',              component: FlipNodesGame },
-  { id: 'blockPuzzle',  label: 'Block Puzzle',       icon: '🟦', category: 'spatial', description: 'Drop blocks and clear the grid',               component: BlockPuzzleGame },
+  { id: 'blockPuzzle',  label: 'Block Blast',        icon: '🟦', category: 'spatial', description: 'Drag blocks to fill rows & columns',           component: BlockPuzzleGame },
   { id: 'fifteenPuzzle',label: '15 Puzzle',          icon: '🔀', category: 'spatial', description: 'Slide tiles to sort 1–15 in order',             component: FifteenGame },
   { id: 'neonGrid',     label: 'Neon Grid',          icon: '💡', category: 'spatial', description: 'Copy the glowing pattern by toggling cells',      component: NeonGridGame,   isNew: true },
   { id: 'flipCup',      label: 'Flip Cup',           icon: '🥤', category: 'logic',   description: 'Tap to flip cups and neighbors — all upright!',  component: FlipCupGame,    isNew: true },
