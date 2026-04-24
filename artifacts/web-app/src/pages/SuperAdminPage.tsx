@@ -524,12 +524,15 @@ export default function SuperAdminPage() {
                                 const token_hash = linkData?.properties?.hashed_token;
                                 if (!token_hash) throw new Error('No token returned.');
                                 const supabase = requireSupabase();
-                                await supabase.auth.signOut();
+                                // Do NOT signOut first — it triggers onAuthStateChange which
+                                // unmounts this component before verifyOtp can run.
+                                // verifyOtp will replace the current session automatically.
                                 const { error: verifyErr } = await supabase.auth.verifyOtp({ token_hash, type: 'magiclink' });
                                 if (verifyErr) throw verifyErr;
                                 localStorage.removeItem('ll:superadmin_session');
                                 window.location.href = '/';
                               } catch (e: any) {
+                                console.error('Impersonation error:', e);
                                 window.alert('Impersonation failed: ' + (e.message || String(e)));
                               }
                             }}

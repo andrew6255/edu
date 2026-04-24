@@ -5,6 +5,7 @@ import { getUserProgress, getCurriculumCompletedCount, UserProgress } from '@/li
 import { getPublicProgram, purgeProgramFromUser } from '@/lib/programMaps';
 import { getProgramProgress } from '@/lib/programProgress';
 import { getAllMyContent, type StudentContentItem } from '@/lib/studentService';
+import MyProgramsModal from '@/components/universe/MyProgramsModal';
 
 interface HexUniverseViewProps {
   onSelectSubject: (subject: string) => void;
@@ -39,6 +40,7 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
   const [activeProgramTitle, setActiveProgramTitle] = useState<string | null>(null);
   const [activePrograms, setActivePrograms] = useState<Array<{ id: string; title: string; coverEmoji?: string }>>([]);
   const [programPctById, setProgramPctById] = useState<Record<string, number>>({});
+  const [myProgramsOpen, setMyProgramsOpen] = useState(false);
 
   // Class content filters
   const [classContent, setClassContent] = useState<(StudentContentItem & { class_name: string })[]>([]);
@@ -154,6 +156,15 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
         }}>
           YOUR UNIVERSE
         </h1>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+          <button
+            onClick={() => setMyProgramsOpen(true)}
+            className="ll-btn"
+            style={{ padding: '10px 16px', fontSize: 12 }}
+          >
+            📚 My Programs
+          </button>
+        </div>
         {isNoSystem ? (
           <p style={{ color: '#64748b', fontSize: 15, margin: 0, maxWidth: 400 }}>
             You haven't assigned an education system yet. Set up your curriculum from the Profile tab to unlock portals!
@@ -386,6 +397,7 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
         background: 'radial-gradient(circle at center, rgba(14,165,233,0.05) 0%, transparent 60%)',
         bottom: '10%', right: '5%', pointerEvents: 'none'
       }} />
+      <MyProgramsModal open={myProgramsOpen} onClose={() => setMyProgramsOpen(false)} />
     </div>
   );
 }

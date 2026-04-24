@@ -1023,3 +1023,70 @@ with check (
     )
   )
 );
+
+create table if not exists program_ingestion_jobs (
+  id text primary key,
+  admin_user_id text not null references profiles(id) on delete cascade,
+  class_id text null references classes(id) on delete set null,
+  visibility text not null check (visibility in ('public','private')),
+  status text not null,
+  stage text null,
+  source_file_path text not null,
+  source_file_name text not null,
+  provider_meta jsonb null,
+  error_message text null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists program_ingestion_drafts (
+  id text primary key,
+  job_id text not null references program_ingestion_jobs(id) on delete cascade,
+  title text not null,
+  subject text not null default 'mathematics',
+  grade_band text null,
+  visibility text not null check (visibility in ('public','private')),
+  class_id text null references classes(id) on delete set null,
+  draft_status text not null,
+  extracted_document jsonb null,
+  extraction_report jsonb null,
+  hierarchy jsonb not null default '[]'::jsonb,
+  ai_session_meta jsonb null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists program_ingestion_questions (
+  id text primary key,
+  job_id text not null references program_ingestion_jobs(id) on delete cascade,
+  draft_id text not null references program_ingestion_drafts(id) on delete cascade,
+  node_id text null,
+  question_order integer not null,
+  normalized_question jsonb null,
+  raw_extracted_block jsonb not null,
+  confidence numeric null,
+  review_status text not null,
+  flags jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists program_ingestion_chat_messages (
+  id text primary key,
+  job_id text not null references program_ingestion_jobs(id) on delete cascade,
+  role text not null check (role in ('user','assistant','system')),
+  message text not null,
+  patch_summary jsonb null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists program_ingestion_assets (
+  id text primary key,
+  job_id text not null references program_ingestion_jobs(id) on delete cascade,
+  asset_type text not null,
+  path text not null,
+  page integer null,
+  region_id text null,
+  mime_type text null,
+  created_at timestamptz not null default now()
+);

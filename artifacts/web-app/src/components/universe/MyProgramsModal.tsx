@@ -8,11 +8,13 @@ import {
   purgeProgramFromUser,
   type PublicProgram,
 } from '@/lib/programMaps';
+import { submitProgramMapRequest } from '@/lib/userService';
 
 export default function MyProgramsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user, userData, refreshUserData } = useAuth();
   const [tab, setTab] = useState<'current' | 'finished' | 'search'>('current');
   const [loading, setLoading] = useState(false);
+  const [requesting, setRequesting] = useState(false);
   const [programs, setPrograms] = useState<PublicProgram[]>([]);
   const [query, setQuery] = useState('');
 
@@ -102,6 +104,26 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
     if (!window.confirm('Remove this program from your profile?')) return;
     await removeProgramFromUser(uid, programId);
     await refreshUserData();
+  }
+
+  async function handleRequestCustomProgram() {
+    if (!userData) return;
+    const textbook = window.prompt('Enter the exact name of your book / curriculum program:');
+    const trimmed = textbook?.trim();
+    if (!trimmed) return;
+    setRequesting(true);
+    try {
+      await submitProgramMapRequest(uid, userData.username, {
+        system: userData.curriculumProfile?.system || 'other',
+        year: userData.curriculumProfile?.year || 'Other',
+        textbook: trimmed,
+      });
+      window.alert("Your request was sent. We'll notify you once your custom program map is ready.");
+    } catch (e) {
+      window.alert('Failed to send request: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setRequesting(false);
+    }
   }
 
   const panelStyle: React.CSSProperties = {
@@ -222,6 +244,9 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
         <div style={{ padding: 16, overflowY: 'auto' }}>
           {tab === 'current' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 2 }}>
+                Your assigned public programs. Status can be Active, Deactivated, or Completed.
+              </div>
               {myCurrent.length === 0 ? (
                 <div style={{ color: '#94a3b8' }}>
                   No programs yet. Go to Search and assign one.
@@ -246,6 +271,12 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
 
           {tab === 'search' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{
+                background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)',
+                borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#fde68a', lineHeight: 1.5
+              }}>
+                Search by your main book name to assign a public program, or request a custom program map if you can't find it.
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
                 <input
                   value={query}
@@ -262,6 +293,14 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
                     outline: 'none',
                   }}
                 />
+                <button
+                  className="ll-btn"
+                  disabled={requesting}
+                  onClick={handleRequestCustomProgram}
+                  style={{ padding: '10px 12px', fontSize: 12 }}
+                >
+                  {requesting ? 'Sending request...' : 'Request Custom Program Map'}
+                </button>
               </div>
 
               {searchResults.length === 0 && !loading && (

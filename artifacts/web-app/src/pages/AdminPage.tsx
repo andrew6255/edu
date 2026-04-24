@@ -97,7 +97,7 @@ export default function AdminPage() {
   // which class to add to (from users tab)
   const [addToClassId, setAddToClassId] = useState<string | null>(null);
 
-  const [classDetailTab, setClassDetailTab] = useState<'members' | 'content' | 'stats'>('members');
+  const [classDetailTab, setClassDetailTab] = useState<'members' | 'content' | 'programs' | 'stats'>('members');
 
   const [leaderboard, setLeaderboard] = useState<ClassLeaderboardEntry[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
@@ -535,11 +535,17 @@ export default function AdminPage() {
                 </div>
                 <div style={{ display: 'flex', gap: 4 }}>
                   {classDetailTab === 'members' && <button onClick={() => openAddMember(selectedClassId)} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: `${COLOR}22`, border: `1px solid ${COLOR_DIM}`, color: COLOR, cursor: 'pointer' }}>+ Add</button>}
-                  {classDetailTab === 'content' && <button onClick={() => setShowCreateContent(true)} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: `${COLOR}22`, border: `1px solid ${COLOR_DIM}`, color: COLOR, cursor: 'pointer' }}>+ Content</button>}
+                  {classDetailTab === 'content' && <button onClick={() => { setNewContentType('assignment'); setShowCreateContent(true); }} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: `${COLOR}22`, border: `1px solid ${COLOR_DIM}`, color: COLOR, cursor: 'pointer' }}>+ Content</button>}
+                  {classDetailTab === 'programs' && <button onClick={() => { setNewContentType('program'); setShowCreateContent(true); }} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: `${COLOR}22`, border: `1px solid ${COLOR_DIM}`, color: COLOR, cursor: 'pointer' }}>+ Program</button>}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 4, marginTop: 12 }}>
-                {([{ id: 'members' as const, icon: '👥', label: `Members (${members.length})` }, { id: 'content' as const, icon: '📚', label: `Content (${contentItems.length})` }, { id: 'stats' as const, icon: '📊', label: 'Performance' }]).map(st => (
+                {([
+                  { id: 'members' as const, icon: '👥', label: `Members (${members.length})` },
+                  { id: 'content' as const, icon: '📚', label: `Content (${contentItems.filter(c => c.content_type !== 'program').length})` },
+                  { id: 'programs' as const, icon: '📘', label: `Programs (${contentItems.filter(c => c.content_type === 'program').length})` },
+                  { id: 'stats' as const, icon: '📊', label: 'Performance' }
+                ]).map(st => (
                   <button key={st.id} onClick={() => {
                     setClassDetailTab(st.id);
                     if (st.id === 'stats' && leaderboard.length === 0 && selectedClassId) { setLoadingLeaderboard(true); getClassLeaderboard(selectedClassId).then(lb => { setLeaderboard(lb); setLoadingLeaderboard(false); }).catch(() => setLoadingLeaderboard(false)); }
@@ -595,15 +601,16 @@ export default function AdminPage() {
             {/* Content */}
             {classDetailTab === 'content' && (<>
               <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-                {(['all', 'program', 'assignment', 'quiz'] as const).map(f => {
-                  const cnt = f === 'all' ? contentItems.length : contentItems.filter(c => c.content_type === f).length;
+                {(['all', 'assignment', 'quiz'] as const).map(f => {
+                  const cnt = f === 'all' ? contentItems.filter(c => c.content_type !== 'program').length : contentItems.filter(c => c.content_type === f).length;
                   return <button key={f} onClick={() => setContentFilter(f)} style={pillStyle(contentFilter === f)}>
-                    {f === 'all' ? 'All' : f === 'program' ? '📘 Programs' : f === 'assignment' ? '📝 Quests' : '📋 Quizzes'} ({cnt})
+                    {f === 'all' ? 'All' : f === 'assignment' ? '📝 Quests' : '📋 Quizzes'} ({cnt})
                   </button>;
                 })}
               </div>
               {loadingContent ? <div style={{ color: '#64748b', textAlign: 'center', marginTop: 20 }}>Loading...</div> : (() => {
-                const fl = contentFilter === 'all' ? contentItems : contentItems.filter(c => c.content_type === contentFilter);
+                const nonProgramItems = contentItems.filter(c => c.content_type !== 'program');
+                const fl = contentFilter === 'all' ? nonProgramItems : nonProgramItems.filter(c => c.content_type === contentFilter);
                 return fl.length === 0 ? <div style={{ textAlign: 'center', color: '#64748b', marginTop: 30 }}><div style={{ fontSize: 30, marginBottom: 8 }}>📚</div><div>No content yet.</div></div> :
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {fl.map(item => {
@@ -617,6 +624,37 @@ export default function AdminPage() {
                         <div style={{ flex: 1, minWidth: 120 }}>
                           <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>{item.title}</div>
                           <div style={{ color: '#64748b', fontSize: 11 }}>{tl} · {item.subject}{item.content_type !== 'program' && ` · ${qc}q`}{item.content_type === 'quiz' && item.time_limit_minutes && ` · ${item.time_limit_minutes}min`}</div>
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 'bold', padding: '2px 8px', borderRadius: 5, background: `${sc}22`, border: `1px solid ${sc}55`, color: sc }}>{item.status}</span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button onClick={() => handleTogglePublish(item)} style={{ ...headerBtnStyle, padding: '4px 10px', fontSize: 11, color: item.status === 'draft' ? '#10b981' : '#f59e0b', border: `1px solid ${item.status === 'draft' ? '#10b98155' : '#f59e0b55'}` }}>{item.status === 'draft' ? '▶ Publish' : '⏸ Draft'}</button>
+                          <button onClick={() => openContentEditor(item)} style={{ ...headerBtnStyle, padding: '4px 10px', fontSize: 11 }}>✏️</button>
+                          <button onClick={() => handleDeleteContent(item)} style={{ ...headerBtnStyle, padding: '4px 10px', fontSize: 11, color: '#f87171', border: '1px solid #ef444455' }}>🗑️</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>;
+              })()}
+            </>)}
+
+            {/* Programs */}
+            {classDetailTab === 'programs' && (<>
+              <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>
+                Private programs belong to this class only. Students in this class can access them, but they do not appear in public search.
+              </div>
+              {loadingContent ? <div style={{ color: '#64748b', textAlign: 'center', marginTop: 20 }}>Loading...</div> : (() => {
+                const fl = contentItems.filter(c => c.content_type === 'program');
+                return fl.length === 0 ? <div style={{ textAlign: 'center', color: '#64748b', marginTop: 30 }}><div style={{ fontSize: 30, marginBottom: 8 }}>📘</div><div>No programs yet.</div></div> :
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {fl.map(item => {
+                    const sc = item.status === 'published' ? '#10b981' : '#f59e0b';
+                    return (
+                      <div key={item.id} style={{ ...cardStyle, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 22, flexShrink: 0 }}>{item.cover_emoji || '📘'}</div>
+                        <div style={{ flex: 1, minWidth: 120 }}>
+                          <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>{item.title}</div>
+                          <div style={{ color: '#64748b', fontSize: 11 }}>Program · {item.subject}</div>
                         </div>
                         <span style={{ fontSize: 10, fontWeight: 'bold', padding: '2px 8px', borderRadius: 5, background: `${sc}22`, border: `1px solid ${sc}55`, color: sc }}>{item.status}</span>
                         <div style={{ display: 'flex', gap: 4 }}>
