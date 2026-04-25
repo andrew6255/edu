@@ -10,6 +10,7 @@ import type {
   IngestionJob,
   IngestionJobState,
   IngestionQuestion,
+  ProgramNode,
 } from "./types";
 
 import { and, desc, eq } from "drizzle-orm";
@@ -34,6 +35,9 @@ export interface ProgramIngestionRepository {
   updateJobStage(jobId: string, input: { status: IngestionJob["status"]; stage: string | null }): Promise<void>;
   updateDraftExtractedDocument(jobId: string, document: IngestionDraft["extractedDocument"]): Promise<void>;
   updateDraftExtractionReport(jobId: string, report: AiExtractionAudit): Promise<void>;
+  updateDraftStructure(jobId: string, input: { title?: string; hierarchy: ProgramNode[]; aiSessionMeta?: IngestionDraft["aiSessionMeta"] }): Promise<void>;
+  updateQuestion(questionId: string, updates: { reviewStatus?: string; normalizedQuestion?: Record<string, unknown> }): Promise<void>;
+  publishAsProgram(jobId: string, state: IngestionJobState): Promise<string>;
 }
 
 function makeId(prefix: string): string {
@@ -395,5 +399,51 @@ export class DbProgramIngestionRepository implements ProgramIngestionRepository 
         updatedAt: new Date(),
       })
       .where(eq(programIngestionDraftsTable.jobId, jobId));
+  }
+
+  async updateDraftStructure(
+    jobId: string,
+    input: { title?: string; hierarchy: ProgramNode[]; aiSessionMeta?: IngestionDraft["aiSessionMeta"] },
+  ): Promise<void> {
+    const existingState = await this.getJobState(jobId);
+    if (!existingState) {
+      throw new Error(`Program ingestion job ${jobId} not found.`);
+    }
+
+    await db
+      .update(programIngestionDraftsTable)
+      .set({
+        title: input.title ?? existingState.draft.title,
+        hierarchy: input.hierarchy,
+        aiSessionMeta: input.aiSessionMeta ?? existingState.draft.aiSessionMeta,
+        updatedAt: new Date(),
+      })
+      .where(eq(programIngestionDraftsTable.jobId, jobId));
+  }
+
+  async updateQuestion(
+    questionId: string,
+    updates: { reviewStatus?: string; normalizedQuestion?: Record<string, unknown> },
+  ): Promise<void> {
+    const setFields: Record<string, unknown> = { updatedAt: new Date() };
+    if (updates.reviewStatus) {
+      setFields.reviewStatus = updates.reviewStatus;
+    }
+    if (updates.normalizedQuestion !== undefined) {
+      setFields.normalizedQuestion = updates.normalizedQuestion;
+    }
+    await db
+      .update(programIngestionQuestionsTable)
+      .set(setFields)
+      .where(eq(programIngestionQuestionsTable.id, questionId));
+  }
+
+  async publishAsProgram(jobId: string, state: IngestionJobState): Promise<string> {
+    const programId = makeId("prog");
+    await db
+      .update(programIngestionDraftsTable)
+      .set({ draftStatus: "published", updatedAt: new Date() })
+      .where(eq(programIngestionDraftsTable.jobId, jobId));
+    return programId;
   }
 }

@@ -15,6 +15,9 @@ export interface ProgramFriendAnswer {
   // New: freeform value (numeric/text)
   valueText?: string;
 
+  // Optional local step work submitted alongside final answer
+  stepValues?: Record<string, string>;
+
   // Whether the answer is correct (computed client-side for now)
   correct: boolean;
   answeredAt: string;

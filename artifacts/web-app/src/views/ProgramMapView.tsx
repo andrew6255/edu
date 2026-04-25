@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useLocation } from 'wouter';
 import katex from 'katex';
 import { useAuth } from '@/contexts/AuthContext';
@@ -37,7 +37,10 @@ import {
   isProgramAnnotationsFile,
   isProgramChapter,
   type FlatProgramQuestion,
+  type ProgramAtomicInteractionSpec,
   type ProgramAnnotationsFile,
+  type ProgramPromptBlock,
+  type ProgramStepSpec,
 } from '@/lib/programQuestionBank';
 import { gradeInteraction } from '@/lib/interactionGrader';
 
@@ -48,6 +51,55 @@ type Screen = 'chapters' | 'subsections' | 'types' | 'practice';
 type PracticeMode = 'solo' | 'ranked' | 'friend' | 'study';
 
 type HeaderMode = 'solo' | 'ranked' | 'friend';
+
+type CompositeInteraction = {
+  type: 'composite';
+  final: ProgramAtomicInteractionSpec;
+  steps: ProgramStepSpec[];
+  allowDirectFinalAnswer?: boolean;
+  scoreStrategy?: 'final_only' | 'final_plus_steps';
+};
+
+function isCompositeInteraction(interaction: FlatProgramQuestion['interaction'] | null): interaction is CompositeInteraction {
+  return !!interaction && interaction.type === 'composite';
+}
+
+function getFinalInteraction(question: FlatProgramQuestion | null): ProgramAtomicInteractionSpec | null {
+  const interaction = question?.interaction ?? null;
+  if (!interaction) return null;
+  return interaction.type === 'composite' ? interaction.final : interaction;
+}
+
+function getCompositeInteraction(question: FlatProgramQuestion | null): CompositeInteraction | null {
+  const interaction = question?.interaction ?? null;
+  return isCompositeInteraction(interaction) ? interaction : null;
+}
+
+function compactStepValues(values: Record<string, string>): Record<string, string> | undefined {
+  const entries = Object.entries(values).filter(([, value]) => String(value ?? '').trim().length > 0);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function isNumericInteraction(interaction: ProgramAtomicInteractionSpec | null): interaction is Extract<ProgramAtomicInteractionSpec, { type: 'numeric' }> {
+  return !!interaction && interaction.type === 'numeric';
+}
+
+function isTextSubmittedInteraction(interaction: ProgramAtomicInteractionSpec | null): interaction is Extract<ProgramAtomicInteractionSpec, { type: 'text' | 'line_equation' | 'point_list' | 'points_on_line' }> {
+  return !!interaction && (interaction.type === 'text' || interaction.type === 'line_equation' || interaction.type === 'point_list' || interaction.type === 'points_on_line');
+}
+
+function parsePointListDraft(valueText: string): Array<{ x: string; y: string }> {
+  const matches = Array.from(String(valueText ?? '').matchAll(/\(?\s*(-?\d*(?:\.\d+)?)\s*,\s*(-?\d*(?:\.\d+)?)\s*\)?/g));
+  return matches.map((match) => ({ x: String(match[1] ?? ''), y: String(match[2] ?? '') }));
+}
+
+function serializePointListDraft(rows: Array<{ x: string; y: string }>): string {
+  return rows
+    .map((row) => ({ x: String(row.x ?? '').trim(), y: String(row.y ?? '').trim() }))
+    .filter((row) => row.x.length > 0 || row.y.length > 0)
+    .map((row) => `(${row.x}, ${row.y})`)
+    .join('\n');
+}
 
 type RoadmapFriendMarker = {
   uid: string;
@@ -170,6 +222,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   const [qbQuestions, setQbQuestions] = useState<FlatProgramQuestion[]>([]);
   const [qbRegions, setQbRegions] = useState<Array<{ regionId: string; title: string; label: string | null; theme: string | null }>>([]);
   const [qbQuestionTypes, setQbQuestionTypes] = useState<Array<{ id: string; title: string; treeOrder: number }>>([]);
+  const [divisionLabels, setDivisionLabels] = useState<string[]>(['Chapters', 'Topics']);
 
   const [mapRegionId, setMapRegionId] = useState<string | null>(null);
 
@@ -181,6 +234,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   const [soloFeedback, setSoloFeedback] = useState<{ correct: boolean; correctIndex: number } | null>(null);
   const [soloAwarding, setSoloAwarding] = useState(false);
   const [soloTextAnswer, setSoloTextAnswer] = useState('');
+  const [soloStepAnswers, setSoloStepAnswers] = useState<Record<string, string>>({});
 
   const [friendCode, setFriendCode] = useState('');
   const [friendBusy, setFriendBusy] = useState(false);
@@ -206,6 +260,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   const [rankedFeedback, setRankedFeedback] = useState<{ correct: boolean; correctIndex: number } | null>(null);
   const [rankedSaving, setRankedSaving] = useState(false);
   const [rankedTextAnswer, setRankedTextAnswer] = useState('');
+  const [rankedStepAnswers, setRankedStepAnswers] = useState<Record<string, string>>({});
 
   const lastRankedCompleteRef = useRef<Record<string, boolean>>({});
   const lastRegionCompleteRef = useRef<Record<string, boolean>>({});
@@ -257,11 +312,9 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     return q.promptRawText ?? q.promptLatex ?? '—';
   }
 
-  function renderPromptBlocks(q: FlatProgramQuestion | null) {
-    if (!q) return <div>—</div>;
-    const blocks = Array.isArray(q.promptBlocks) ? q.promptBlocks : null;
+  function renderBlocks(blocks: ProgramPromptBlock[] | null | undefined, fallback?: string | null) {
     if (!blocks || blocks.length === 0) {
-      return <div style={{ whiteSpace: 'pre-wrap' }}>{q.promptRawText ?? q.promptLatex ?? '—'}</div>;
+      return <div style={{ whiteSpace: 'pre-wrap' }}>{fallback ?? '—'}</div>;
     }
 
     return (
@@ -320,23 +373,21 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                       <tr key={ri}>
                         {r.map((c, ci) => {
                           const isHeader = ri < headerRows;
-                          const Cell: any = isHeader ? 'th' : 'td';
+                          const Tag = isHeader ? 'th' : 'td';
                           return (
-                            <Cell
+                            <Tag
                               key={ci}
                               style={{
                                 borderBottom: '1px solid #1f2a44',
                                 borderRight: '1px solid #1f2a44',
                                 padding: '8px 10px',
-                                fontSize: 12,
-                                color: 'white',
-                                fontWeight: isHeader ? 900 : 600,
                                 textAlign: 'left',
-                                whiteSpace: 'pre-wrap',
+                                color: 'white',
+                                background: isHeader ? 'rgba(30,41,59,0.85)' : 'transparent',
                               }}
                             >
                               {c}
-                            </Cell>
+                            </Tag>
                           );
                         })}
                       </tr>
@@ -346,7 +397,193 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
               </div>
             );
           }
-          return <div key={idx} style={{ color: '#94a3b8', fontSize: 12 }}>[unsupported block]</div>;
+          return null;
+        })}
+      </div>
+    );
+  }
+
+  function renderTextSubmittedEditor(
+    interaction: Extract<ProgramAtomicInteractionSpec, { type: 'text' | 'line_equation' | 'point_list' | 'points_on_line' }>,
+    value: string,
+    setValue: Dispatch<SetStateAction<string>>,
+    disabled: boolean,
+    onSubmit: () => void,
+  ) {
+    if (interaction.type === 'point_list' || interaction.type === 'points_on_line') {
+      const desiredRows = Math.max(
+        interaction.maxPoints ?? 0,
+        interaction.minPoints ?? 0,
+        interaction.type === 'point_list' ? interaction.points.length : 0,
+        parsePointListDraft(value).length,
+        1,
+      );
+      const rows = Array.from({ length: desiredRows }, (_, idx) => parsePointListDraft(value)[idx] ?? { x: '', y: '' });
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ color: '#94a3b8', fontSize: 12 }}>
+            Enter {interaction.minPoints ?? (interaction.type === 'point_list' ? interaction.points.length : 1)} point{(interaction.minPoints ?? (interaction.type === 'point_list' ? interaction.points.length : 1)) === 1 ? '' : 's'} as coordinate pairs.
+          </div>
+          <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #1f2a44' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 280, background: 'rgba(15,23,42,0.45)' }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44', color: '#cbd5e1', textAlign: 'left' }}>#</th>
+                  <th style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44', color: '#cbd5e1', textAlign: 'left' }}>x</th>
+                  <th style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44', color: '#cbd5e1', textAlign: 'left' }}>y</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, idx) => (
+                  <tr key={idx}>
+                    <td style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44', color: '#94a3b8' }}>{idx + 1}</td>
+                    <td style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44' }}>
+                      <input
+                        value={row.x}
+                        disabled={disabled}
+                        inputMode="decimal"
+                        onChange={(e) => {
+                          const next = rows.map((item, itemIdx) => (itemIdx === idx ? { ...item, x: e.target.value } : item));
+                          setValue(serializePointListDraft(next));
+                        }}
+                        placeholder="x"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.55)', color: 'white', outline: 'none' }}
+                      />
+                    </td>
+                    <td style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44' }}>
+                      <input
+                        value={row.y}
+                        disabled={disabled}
+                        inputMode="decimal"
+                        onChange={(e) => {
+                          const next = rows.map((item, itemIdx) => (itemIdx === idx ? { ...item, y: e.target.value } : item));
+                          setValue(serializePointListDraft(next));
+                        }}
+                        placeholder="y"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.55)', color: 'white', outline: 'none' }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button
+            className="ll-btn ll-btn-primary"
+            disabled={disabled || !value.trim()}
+            onClick={onSubmit}
+            style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+          >
+            Submit
+          </button>
+        </div>
+      );
+    }
+
+    const placeholder = interaction.type === 'line_equation'
+      ? `Enter equation${interaction.variable ? ` in ${interaction.variable}` : ''}`
+      : 'Type your answer';
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {interaction.type === 'line_equation' && (
+          <div style={{ color: '#94a3b8', fontSize: 12 }}>
+            Equivalent equation forms are accepted when provided by the imported answer key.
+          </div>
+        )}
+        <input
+          value={value}
+          disabled={disabled}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
+          style={{
+            width: '100%',
+            padding: '12px 12px',
+            borderRadius: 12,
+            border: '1px solid #1f2a44',
+            background: 'rgba(15,23,42,0.6)',
+            color: 'white',
+            outline: 'none',
+            fontSize: 14,
+            fontWeight: 900,
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onSubmit();
+          }}
+        />
+        <button
+          className="ll-btn ll-btn-primary"
+          disabled={disabled || !value.trim()}
+          onClick={onSubmit}
+          style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+        >
+          Submit
+        </button>
+      </div>
+    );
+  }
+
+  function renderPromptBlocks(q: FlatProgramQuestion | null) {
+    if (!q) return <div>—</div>;
+    return renderBlocks(Array.isArray(q.promptBlocks) ? q.promptBlocks : null, q.promptRawText ?? q.promptLatex ?? '—');
+  }
+
+  function renderCompositeStepCards(
+    q: FlatProgramQuestion | null,
+    stepAnswers: Record<string, string>,
+    setStepAnswers: Dispatch<SetStateAction<Record<string, string>>>,
+    disabled: boolean,
+  ) {
+    const composite = getCompositeInteraction(q);
+    if (!composite || composite.steps.length === 0) return null;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+        <div style={{ color: '#93c5fd', fontSize: 12, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1 }}>
+          Optional Working Steps
+        </div>
+        {composite.steps.map((step, idx) => {
+          const value = stepAnswers[step.id] ?? '';
+          const placeholder = step.interaction.type === 'numeric'
+            ? 'Enter step result'
+            : step.interaction.type === 'mcq'
+              ? 'Write the choice or reasoning'
+              : 'Type this step';
+          return (
+            <div
+              key={step.id}
+              style={{
+                border: '1px solid #1f2a44',
+                borderRadius: 12,
+                padding: 10,
+                background: 'rgba(15,23,42,0.45)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              <div style={{ color: 'white', fontWeight: 900, fontSize: 13 }}>{step.title || `Step ${idx + 1}`}</div>
+              {renderBlocks(step.prompt, null)}
+              <input
+                value={value}
+                disabled={disabled}
+                onChange={(e) => setStepAnswers((prev) => ({ ...prev, [step.id]: e.target.value }))}
+                placeholder={placeholder}
+                style={{
+                  width: '100%',
+                  padding: '10px 10px',
+                  borderRadius: 10,
+                  border: '1px solid #1f2a44',
+                  background: 'rgba(2,6,23,0.5)',
+                  color: 'white',
+                  outline: 'none',
+                  fontSize: 13,
+                }}
+              />
+              {step.explanation && (
+                <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.35 }}>{step.explanation}</div>
+              )}
+            </div>
+          );
         })}
       </div>
     );
@@ -376,6 +613,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     setRankedRegionId(regionId);
     setRankedQuestionTypeId(questionTypeId);
     setRankedFeedback(null);
+    setRankedTextAnswer('');
+    setRankedStepAnswers({});
     setRankedQuestionId(null);
     pickNextRankedQuestion({ regionId, questionTypeId });
   }
@@ -387,6 +626,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     setRankedQuestionId(null);
     setRankedFeedback(null);
     setRankedSaving(false);
+    setRankedTextAnswer('');
+    setRankedStepAnswers({});
 
     setPracticeMode(null);
     setScreen('types');
@@ -437,13 +678,15 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   }
 
   async function answerRankedMcq(idx: number) {
-    if (!rankedCurrent?.interaction || rankedCurrent.interaction.type !== 'mcq' || rankedFeedback || !uid || !programId) return;
-    const g = gradeInteraction(rankedCurrent.interaction, { kind: 'mcq', choiceIndex: idx });
+    const current = rankedCurrent;
+    const finalInteraction = getFinalInteraction(current);
+    if (!current || !finalInteraction || finalInteraction.type !== 'mcq' || rankedFeedback || !uid || !programId) return;
+    const g = gradeInteraction(current.interaction, { kind: 'mcq', choiceIndex: idx });
     setRankedFeedback(g);
 
     try {
       setRankedSaving(true);
-      const r = await applyRankedAnswer(uid, programId, rankedCurrent.id, g.correct);
+      const r = await applyRankedAnswer(uid, programId, current.id, g.correct);
       await applyRankedEnergyProgress(uid, g.correct);
       setRankedTrophies(r.trophies);
       setRankedSolvedQuestionIds(r.correctIds);
@@ -456,16 +699,18 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   }
 
   async function answerRankedFreeform(kind: 'numeric' | 'text') {
-    if (!rankedCurrent?.interaction || rankedFeedback || !uid || !programId) return;
-    if (kind === 'numeric' && rankedCurrent.interaction.type !== 'numeric') return;
-    if (kind === 'text' && rankedCurrent.interaction.type !== 'text') return;
+    const current = rankedCurrent;
+    const finalInteraction = getFinalInteraction(current);
+    if (!current || !current.interaction || !finalInteraction || rankedFeedback || !uid || !programId) return;
+    if (kind === 'numeric' && !isNumericInteraction(finalInteraction)) return;
+    if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction)) return;
 
-    const g = gradeInteraction(rankedCurrent.interaction, { kind, valueText: rankedTextAnswer });
+    const g = gradeInteraction(current.interaction, { kind, valueText: rankedTextAnswer });
     setRankedFeedback(g);
 
     try {
       setRankedSaving(true);
-      const r = await applyRankedAnswer(uid, programId, rankedCurrent.id, g.correct);
+      const r = await applyRankedAnswer(uid, programId, current.id, g.correct);
       await applyRankedEnergyProgress(uid, g.correct);
       setRankedTrophies(r.trophies);
       setRankedSolvedQuestionIds(r.correctIds);
@@ -480,12 +725,14 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   function continueRanked() {
     setRankedFeedback(null);
     setRankedTextAnswer('');
+    setRankedStepAnswers({});
     pickNextRankedQuestion();
   }
 
   const activeProgramId = userData?.activeProgramId ?? null;
 
   const programId = programIdProp ?? activeProgramId;
+  const isDraftPreviewProgram = !!programId && (programId.startsWith('ll-draft:') || programId.startsWith('ll-draftdb:'));
 
   function resetPracticeState() {
     setSoloActive(false);
@@ -497,6 +744,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     setSoloSeenIds([]);
     setSoloFeedback(null);
     setSoloAwarding(false);
+    setSoloTextAnswer('');
+    setSoloStepAnswers({});
     setRankedRegionId(null);
     setRankedQuestionTypeId(null);
     setRankedQuestionId(null);
@@ -650,6 +899,9 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                   correctChoiceIndex: 0,
                 },
                 interaction: { type: 'mcq', choices: ['Choice A', 'Choice B', 'Choice C', 'Choice D'], correctChoiceIndex: 0 },
+                solutionText: null,
+                hints: [],
+                stepSolutions: [],
               });
             }
           }
@@ -735,52 +987,69 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
       }
 
       setLoading(true);
-      const [prog, pp] = await Promise.all([
-        getPublicProgramOrDraft(programId),
-        uid ? getProgramProgress(uid, programId) : Promise.resolve(null),
-      ]);
-      if (cancelled) return;
+      try {
+        const [prog, pp] = await Promise.all([
+          getPublicProgramOrDraft(programId),
+          uid && !isDraftPreviewProgram ? getProgramProgress(uid, programId) : Promise.resolve(null),
+        ]);
+        if (cancelled) return;
 
-      const completedIds = uid ? (pp?.completedUnitIds ?? []) : [];
-      setCompletedUnitIds(completedIds);
+        const completedIds = uid ? (pp?.completedUnitIds ?? []) : [];
+        setCompletedUnitIds(completedIds);
 
-      const solvedIds = uid ? ((pp as any)?.solvedQuestionIds ?? []) : [];
-      setSolvedQuestionIds(Array.isArray(solvedIds) ? (solvedIds as string[]) : []);
+        const solvedIds = uid ? ((pp as any)?.solvedQuestionIds ?? []) : [];
+        setSolvedQuestionIds(Array.isArray(solvedIds) ? (solvedIds as string[]) : []);
 
-      const rt = uid ? ((pp as any)?.rankedTrophies ?? 0) : 0;
-      setRankedTrophies(typeof rt === 'number' ? (rt as number) : 0);
+        const rt = uid ? ((pp as any)?.rankedTrophies ?? 0) : 0;
+        setRankedTrophies(typeof rt === 'number' ? (rt as number) : 0);
 
-      const cr = uid ? ((pp as any)?.claimedRewardIds ?? []) : [];
-      setClaimedRewardIds(Array.isArray(cr) ? (cr as string[]) : []);
+        const cr = uid ? ((pp as any)?.claimedRewardIds ?? []) : [];
+        setClaimedRewardIds(Array.isArray(cr) ? (cr as string[]) : []);
 
-      const rsolved = uid ? ((pp as any)?.rankedSolvedQuestionIds ?? []) : [];
-      setRankedSolvedQuestionIds(Array.isArray(rsolved) ? (rsolved as string[]) : []);
+        const rsolved = uid ? ((pp as any)?.rankedSolvedQuestionIds ?? []) : [];
+        setRankedSolvedQuestionIds(Array.isArray(rsolved) ? (rsolved as string[]) : []);
 
-      const rinc = uid ? ((pp as any)?.rankedIncorrectQuestionIds ?? []) : [];
-      setRankedIncorrectQuestionIds(Array.isArray(rinc) ? (rinc as string[]) : []);
+        const rinc = uid ? ((pp as any)?.rankedIncorrectQuestionIds ?? []) : [];
+        setRankedIncorrectQuestionIds(Array.isArray(rinc) ? (rinc as string[]) : []);
 
-      if (!prog) {
+        if (!prog) {
+          setTitle('Program Map');
+          setScreen('chapters');
+          setTocTree([]);
+          setActiveUnitId(null);
+          setSelected(null);
+          setDivisionLabels(['Chapters', 'Topics']);
+          setLoading(false);
+          return;
+        }
+
+        setTitle(prog.title);
+        const metaDivisions = Array.isArray((prog.programMeta as { divisions?: unknown } | null | undefined)?.divisions)
+          ? ((prog.programMeta as { divisions?: unknown[] }).divisions ?? []).filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+          : [];
+        setDivisionLabels(metaDivisions.length > 0 ? metaDivisions : ['Chapters', 'Topics']);
+        setScreen('chapters');
+        const nextToc = Array.isArray(prog.toc?.toc_tree) ? (prog.toc.toc_tree as TocItem[]) : [];
+        setTocTree(nextToc);
+        setActiveUnitId((prev) => {
+          if (prev && nextToc.some((u) => u.id === prev)) return prev;
+          const first = nextToc.find((u) => Array.isArray(u.children) && u.children.length > 0) ?? nextToc[0] ?? null;
+          return first?.id ?? null;
+        });
+        setSelected(null);
+        setMapRegionId(null);
+        setLoading(false);
+      } catch (e) {
+        if (cancelled) return;
+        console.error('Failed to load program map:', e);
         setTitle('Program Map');
         setScreen('chapters');
         setTocTree([]);
         setActiveUnitId(null);
         setSelected(null);
+        setDivisionLabels(['Chapters', 'Topics']);
         setLoading(false);
-        return;
       }
-
-      setTitle(prog.title);
-      setScreen('chapters');
-      const nextToc = Array.isArray(prog.toc?.toc_tree) ? (prog.toc.toc_tree as TocItem[]) : [];
-      setTocTree(nextToc);
-      setActiveUnitId((prev) => {
-        if (prev && nextToc.some((u) => u.id === prev)) return prev;
-        const first = nextToc.find((u) => Array.isArray(u.children) && u.children.length > 0) ?? nextToc[0] ?? null;
-        return first?.id ?? null;
-      });
-      setSelected(null);
-      setMapRegionId(null);
-      setLoading(false);
     }
 
     load();
@@ -1246,6 +1515,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     setSoloSeenIds([]);
     setSoloFeedback(null);
     setSoloTextAnswer('');
+    setSoloStepAnswers({});
     setSoloQuestionId(null);
     pickNextSoloQuestion({ regionId, questionTypeId, seen: [] });
   }
@@ -1516,7 +1786,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
 
   async function answerFriend(idx: number) {
     if (practiceMode !== 'friend') return;
-    if (!friendMyUid || !friendSession || !friendCurrent?.interaction) return;
+    if (!friendMyUid || !friendSession || !friendCurrent?.interaction || friendCurrent.interaction.type !== 'mcq') return;
     const qid = friendSession.questionIds?.[friendSession.currentIndex] ?? null;
     if (!qid) return;
     const already = friendSession.answers?.[qid]?.[friendMyUid];
@@ -1527,15 +1797,22 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
       sessionId: friendSession.id,
       uid: friendMyUid,
       questionId: qid,
-      answer: { kind: 'mcq', choiceIndex: idx, correct: g.correct, answeredAt: new Date().toISOString() },
+      answer: {
+        kind: 'mcq',
+        choiceIndex: idx,
+        stepValues: compactStepValues(soloStepAnswers),
+        correct: g.correct,
+        answeredAt: new Date().toISOString(),
+      },
     });
   }
 
   async function answerFriendFreeform(kind: 'numeric' | 'text') {
     if (practiceMode !== 'friend') return;
-    if (!friendMyUid || !friendSession || !friendCurrent?.interaction) return;
-    if (kind === 'numeric' && friendCurrent.interaction.type !== 'numeric') return;
-    if (kind === 'text' && friendCurrent.interaction.type !== 'text') return;
+    const finalInteraction = getFinalInteraction(friendCurrent);
+    if (!friendMyUid || !friendSession || !friendCurrent?.interaction || !finalInteraction) return;
+    if (kind === 'numeric' && !isNumericInteraction(finalInteraction)) return;
+    if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction)) return;
     const qid = friendSession.questionIds?.[friendSession.currentIndex] ?? null;
     if (!qid) return;
     const already = friendSession.answers?.[qid]?.[friendMyUid];
@@ -1546,7 +1823,13 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
       sessionId: friendSession.id,
       uid: friendMyUid,
       questionId: qid,
-      answer: { kind, valueText: soloTextAnswer, correct: g.correct, answeredAt: new Date().toISOString() },
+      answer: {
+        kind,
+        valueText: soloTextAnswer,
+        stepValues: compactStepValues(soloStepAnswers),
+        correct: g.correct,
+        answeredAt: new Date().toISOString(),
+      },
     });
   }
 
@@ -1655,7 +1938,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
 
   async function answerStudy(idx: number) {
     if (practiceMode !== 'study') return;
-    if (!uid || !studySession || !studyCurrent?.interaction) return;
+    const finalInteraction = getFinalInteraction(studyCurrent);
+    if (!uid || !studySession || !studyCurrent?.interaction || !finalInteraction || finalInteraction.type !== 'mcq') return;
     const qid = studySession.questionIds?.[studySession.currentIndex] ?? null;
     if (!qid) return;
     const already = studySession.answers?.[qid]?.[uid];
@@ -1664,15 +1948,21 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
       sessionId: studySession.id,
       uid,
       questionId: qid,
-      answer: { kind: 'mcq', choiceIndex: idx, answeredAt: new Date().toISOString() },
+      answer: {
+        kind: 'mcq',
+        choiceIndex: idx,
+        stepValues: compactStepValues(soloStepAnswers),
+        answeredAt: new Date().toISOString(),
+      },
     });
   }
 
   async function answerStudyFreeform(kind: 'numeric' | 'text') {
     if (practiceMode !== 'study') return;
-    if (!uid || !studySession || !studyCurrent?.interaction) return;
-    if (kind === 'numeric' && studyCurrent.interaction.type !== 'numeric') return;
-    if (kind === 'text' && studyCurrent.interaction.type !== 'text') return;
+    const finalInteraction = getFinalInteraction(studyCurrent);
+    if (!uid || !studySession || !studyCurrent?.interaction || !finalInteraction) return;
+    if (kind === 'numeric' && !isNumericInteraction(finalInteraction)) return;
+    if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction)) return;
     const qid = studySession.questionIds?.[studySession.currentIndex] ?? null;
     if (!qid) return;
     const already = studySession.answers?.[qid]?.[uid];
@@ -1682,7 +1972,12 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
       sessionId: studySession.id,
       uid,
       questionId: qid,
-      answer: { kind, valueText: soloTextAnswer, answeredAt: new Date().toISOString() },
+      answer: {
+        kind,
+        valueText: soloTextAnswer,
+        stepValues: compactStepValues(soloStepAnswers),
+        answeredAt: new Date().toISOString(),
+      },
     });
   }
 
@@ -1710,7 +2005,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   }
 
   async function answerSoloMcq(idx: number) {
-    if (!soloCurrent?.interaction || soloCurrent.interaction.type !== 'mcq' || soloFeedback) return;
+    const finalInteraction = getFinalInteraction(soloCurrent);
+    if (!soloCurrent?.interaction || !finalInteraction || finalInteraction.type !== 'mcq' || soloFeedback) return;
     const g = gradeInteraction(soloCurrent.interaction, { kind: 'mcq', choiceIndex: idx });
     setSoloFeedback(g);
 
@@ -1731,9 +2027,10 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   }
 
   async function answerSoloFreeform(kind: 'numeric' | 'text') {
-    if (!soloCurrent?.interaction || soloFeedback) return;
-    if (kind === 'numeric' && soloCurrent.interaction.type !== 'numeric') return;
-    if (kind === 'text' && soloCurrent.interaction.type !== 'text') return;
+    const finalInteraction = getFinalInteraction(soloCurrent);
+    if (!soloCurrent?.interaction || !finalInteraction || soloFeedback) return;
+    if (kind === 'numeric' && !isNumericInteraction(finalInteraction)) return;
+    if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction)) return;
 
     const g = gradeInteraction(soloCurrent.interaction, { kind, valueText: soloTextAnswer });
     setSoloFeedback(g);
@@ -1760,6 +2057,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     setSoloSeenIds(nextSeen);
     setSoloFeedback(null);
     setSoloTextAnswer('');
+    setSoloStepAnswers({});
     if (!soloRegionId || !soloQuestionTypeId) return;
     pickNextSoloQuestion({ regionId: soloRegionId, questionTypeId: soloQuestionTypeId, seen: nextSeen });
   }
@@ -2414,9 +2712,9 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
             }}>
               <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 800, marginBottom: 10 }}>
                 {screen === 'chapters'
-                  ? 'Chapters'
+                  ? (divisionLabels[0] ?? 'Chapters')
                   : screen === 'subsections'
-                    ? 'Subsections'
+                    ? (divisionLabels[1] ?? 'Subsections')
                     : screen === 'types'
                       ? 'Question Types'
                       : 'Practice'}
@@ -2425,7 +2723,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 900, fontSize: 14, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {screen === 'chapters' ? 'Select a chapter' : (activeUnit?.title ?? '—')}
+                    {screen === 'chapters' ? `Select a ${(divisionLabels[0] ?? 'chapter').replace(/s$/i, '').toLowerCase()}` : (activeUnit?.title ?? '—')}
                     {(screen === 'types' || screen === 'practice') && mapRegion ? (
                       <span style={{ color: '#94a3b8', fontWeight: 800 }}>
                         {' '}› {selected?.title ?? mapRegion.title}
@@ -2933,11 +3231,13 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                 const qid = friendSession.questionIds?.[friendSession.currentIndex] ?? '';
                                 const mine = friendMyUid ? friendSession.answers?.[qid]?.[friendMyUid] : null;
                                 const disabledAll = !!mine || friendBusy;
-                                const correctIndex = friendCurrent.interaction?.type === 'mcq' ? friendCurrent.interaction.correctChoiceIndex : 0;
+                                const finalInteraction = getFinalInteraction(friendCurrent);
+                                const correctIndex = finalInteraction?.type === 'mcq' ? finalInteraction.correctChoiceIndex : 0;
                                 return (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {friendCurrent.interaction?.type === 'mcq' ? (
-                                      friendCurrent.interaction.choices.map((c, idx) => {
+                                    {renderCompositeStepCards(friendCurrent, soloStepAnswers, setSoloStepAnswers, disabledAll)}
+                                    {finalInteraction?.type === 'mcq' ? (
+                                      finalInteraction.choices.map((c, idx) => {
                                         const show = !!mine;
                                         const mineIdx = typeof (mine as any)?.choiceIndex === 'number' ? (mine as any).choiceIndex : -1;
                                         const bg = !show
@@ -2973,7 +3273,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                           </button>
                                         );
                                       })
-                                    ) : friendCurrent.interaction?.type === 'numeric' ? (
+                                    ) : finalInteraction?.type === 'numeric' ? (
                                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                         <input
                                           value={soloTextAnswer}
@@ -3001,36 +3301,9 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                           Submit
                                         </button>
                                       </div>
-                                    ) : friendCurrent.interaction?.type === 'text' ? (
+                                    ) : isTextSubmittedInteraction(finalInteraction) ? (
                                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                        <input
-                                          value={soloTextAnswer}
-                                          disabled={disabledAll}
-                                          onChange={(e) => setSoloTextAnswer(e.target.value)}
-                                          placeholder="Type your answer"
-                                          style={{
-                                            width: '100%',
-                                            padding: '12px 12px',
-                                            borderRadius: 12,
-                                            border: '1px solid #1f2a44',
-                                            background: 'rgba(15,23,42,0.6)',
-                                            color: 'white',
-                                            outline: 'none',
-                                            fontSize: 14,
-                                            fontWeight: 900,
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') answerFriendFreeform('text');
-                                          }}
-                                        />
-                                        <button
-                                          className="ll-btn ll-btn-primary"
-                                          disabled={disabledAll || !soloTextAnswer.trim()}
-                                          onClick={() => answerFriendFreeform('text')}
-                                          style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
-                                        >
-                                          Submit
-                                        </button>
+                                        {renderTextSubmittedEditor(finalInteraction, soloTextAnswer, setSoloTextAnswer, disabledAll, () => answerFriendFreeform('text'))}
                                       </div>
                                     ) : (
                                       <div style={{ color: '#94a3b8', fontSize: 13 }}>This question type is not supported yet.</div>
@@ -3051,22 +3324,22 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                           const mineIdx = typeof (mine as any)?.choiceIndex === 'number' ? ((mine as any).choiceIndex as number) : null;
                                           const oppIdx = typeof (opp as any)?.choiceIndex === 'number' ? ((opp as any).choiceIndex as number) : null;
 
-                                          const myText = mineIdx != null && friendCurrent.interaction?.type === 'mcq'
-                                            ? (friendCurrent.interaction.choices?.[mineIdx] ?? '—')
+                                          const myText = mineIdx != null && finalInteraction?.type === 'mcq'
+                                            ? (finalInteraction.choices?.[mineIdx] ?? '—')
                                             : (typeof (mine as any)?.valueText === 'string' ? String((mine as any).valueText) : '—');
                                           const oppText = opp
-                                            ? (oppIdx != null && friendCurrent.interaction?.type === 'mcq'
-                                                ? (friendCurrent.interaction.choices?.[oppIdx] ?? '—')
+                                            ? (oppIdx != null && finalInteraction?.type === 'mcq'
+                                                ? (finalInteraction.choices?.[oppIdx] ?? '—')
                                                 : (typeof (opp as any)?.valueText === 'string' ? String((opp as any).valueText) : '✓'))
                                             : '…';
-                                          const corrText = friendCurrent.interaction?.type === 'mcq'
-                                            ? (friendCurrent.interaction.choices?.[correctIndex] ?? '—')
+                                          const corrText = finalInteraction?.type === 'mcq'
+                                            ? (finalInteraction.choices?.[correctIndex] ?? '—')
                                             : '—';
                                           return (
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                               <div><span style={{ color: '#e2e8f0', fontWeight: 900 }}>You:</span> {myText} {mine.correct ? '(correct)' : '(wrong)'}</div>
                                               <div><span style={{ color: '#e2e8f0', fontWeight: 900 }}>Friend:</span> {oppText}</div>
-                                              {friendCurrent.interaction?.type === 'mcq' && (
+                                              {finalInteraction?.type === 'mcq' && (
                                                 <div><span style={{ color: '#34d399', fontWeight: 900 }}>Correct:</span> {corrText}</div>
                                               )}
                                             </div>
@@ -3120,9 +3393,12 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                             {renderPromptBlocks(rankedCurrent)}
                           </div>
 
-                          {rankedCurrent.interaction?.type === 'mcq' ? (
+                          {(() => {
+                            const finalInteraction = getFinalInteraction(rankedCurrent);
+                            return finalInteraction?.type === 'mcq' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                              {rankedCurrent.interaction.choices.map((c, idx) => {
+                              {renderCompositeStepCards(rankedCurrent, rankedStepAnswers, setRankedStepAnswers, !!rankedFeedback)}
+                              {finalInteraction.choices.map((c, idx) => {
                                 const disabled = !!rankedFeedback;
                                 const isCorrect = rankedFeedback?.correctIndex === idx;
                                 const isChosenWrong = rankedFeedback && !rankedFeedback.correct && idx !== rankedFeedback.correctIndex;
@@ -3156,8 +3432,9 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                 );
                               })}
                             </div>
-                          ) : rankedCurrent.interaction?.type === 'numeric' ? (
+                          ) : finalInteraction?.type === 'numeric' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                              {renderCompositeStepCards(rankedCurrent, rankedStepAnswers, setRankedStepAnswers, !!rankedFeedback)}
                               <input
                                 value={rankedTextAnswer}
                                 disabled={!!rankedFeedback}
@@ -3209,40 +3486,15 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                 Submit
                               </button>
                             </div>
-                          ) : rankedCurrent.interaction?.type === 'text' ? (
+                          ) : isTextSubmittedInteraction(finalInteraction) ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                              <input
-                                value={rankedTextAnswer}
-                                disabled={!!rankedFeedback}
-                                onChange={(e) => setRankedTextAnswer(e.target.value)}
-                                placeholder="Type your answer"
-                                style={{
-                                  width: '100%',
-                                  padding: '12px 12px',
-                                  borderRadius: 12,
-                                  border: '1px solid #1f2a44',
-                                  background: 'rgba(15,23,42,0.6)',
-                                  color: 'white',
-                                  outline: 'none',
-                                  fontSize: 14,
-                                  fontWeight: 900,
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') answerRankedFreeform('text');
-                                }}
-                              />
-                              <button
-                                className="ll-btn ll-btn-primary"
-                                disabled={!!rankedFeedback || rankedSaving || !rankedTextAnswer.trim()}
-                                onClick={() => answerRankedFreeform('text')}
-                                style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
-                              >
-                                Submit
-                              </button>
+                              {renderCompositeStepCards(rankedCurrent, rankedStepAnswers, setRankedStepAnswers, !!rankedFeedback)}
+                              {renderTextSubmittedEditor(finalInteraction, rankedTextAnswer, setRankedTextAnswer, !!rankedFeedback || rankedSaving, () => answerRankedFreeform('text'))}
                             </div>
                           ) : (
                             <div style={{ color: '#94a3b8', fontSize: 13 }}>This question type is not supported yet.</div>
-                          )}
+                          );
+                          })()}
 
                           {rankedFeedback && (
                             <div style={{ marginTop: 12 }}>
@@ -3473,14 +3725,17 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                 {renderPromptBlocks(studyCurrent)}
                               </div>
 
-                              {studyCurrent.interaction?.type === 'mcq' ? (
+                              {(() => {
+                                const finalInteraction = getFinalInteraction(studyCurrent);
+                                return finalInteraction?.type === 'mcq' ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                  {studyCurrent.interaction.choices.map((c, idx) => {
+                                  {renderCompositeStepCards(studyCurrent, soloStepAnswers, setSoloStepAnswers, !!(uid ? studySession.answers?.[studySession.questionIds?.[studySession.currentIndex] ?? '']?.[uid] : null))}
+                                  {finalInteraction.choices.map((c, idx) => {
                                     const qid = studySession.questionIds?.[studySession.currentIndex] ?? '';
                                     const myAns = uid ? studySession.answers?.[qid]?.[uid] : null;
                                     const myIdx = typeof (myAns as any)?.choiceIndex === 'number' ? (myAns as any).choiceIndex : -1;
                                     const chosen = myIdx === idx;
-                                    const correctIdx = studyCurrent.interaction?.type === 'mcq' ? studyCurrent.interaction.correctChoiceIndex : 0;
+                                    const correctIdx = finalInteraction?.type === 'mcq' ? finalInteraction.correctChoiceIndex : 0;
                                     const showCorrect = studySession.reveal;
                                     const isCorrect = showCorrect && correctIdx === idx;
                                     const border = isCorrect
@@ -3514,7 +3769,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                     );
                                   })}
                                 </div>
-                              ) : studyCurrent.interaction?.type === 'numeric' ? (
+                              ) : finalInteraction?.type === 'numeric' ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                   {(() => {
                                     const qid = studySession.questionIds?.[studySession.currentIndex] ?? '';
@@ -3522,6 +3777,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                     const disabled = !!myAns;
                                     return (
                                       <>
+                                        {renderCompositeStepCards(studyCurrent, soloStepAnswers, setSoloStepAnswers, disabled)}
                                         <input
                                           value={soloTextAnswer}
                                           disabled={disabled}
@@ -3551,7 +3807,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                     );
                                   })()}
                                 </div>
-                              ) : studyCurrent.interaction?.type === 'text' ? (
+                              ) : isTextSubmittedInteraction(finalInteraction) ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                   {(() => {
                                     const qid = studySession.questionIds?.[studySession.currentIndex] ?? '';
@@ -3559,41 +3815,16 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                     const disabled = !!myAns;
                                     return (
                                       <>
-                                        <input
-                                          value={soloTextAnswer}
-                                          disabled={disabled}
-                                          onChange={(e) => setSoloTextAnswer(e.target.value)}
-                                          placeholder="Type your answer"
-                                          style={{
-                                            width: '100%',
-                                            padding: '12px 12px',
-                                            borderRadius: 12,
-                                            border: '1px solid #1f2a44',
-                                            background: 'rgba(15,23,42,0.6)',
-                                            color: 'white',
-                                            outline: 'none',
-                                            fontSize: 14,
-                                            fontWeight: 900,
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') answerStudyFreeform('text');
-                                          }}
-                                        />
-                                        <button
-                                          className="ll-btn ll-btn-primary"
-                                          disabled={disabled || !soloTextAnswer.trim()}
-                                          onClick={() => answerStudyFreeform('text')}
-                                          style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
-                                        >
-                                          Submit
-                                        </button>
+                                        {renderCompositeStepCards(studyCurrent, soloStepAnswers, setSoloStepAnswers, disabled)}
+                                        {renderTextSubmittedEditor(finalInteraction, soloTextAnswer, setSoloTextAnswer, disabled, () => answerStudyFreeform('text'))}
                                       </>
                                     );
                                   })()}
                                 </div>
                               ) : (
                                 <div style={{ color: '#94a3b8', fontSize: 13 }}>This question type is not supported yet.</div>
-                              )}
+                              );
+                              })()}
 
                               <div style={{ marginTop: 12, color: '#94a3b8', fontSize: 12 }}>
                                 {(() => {
@@ -3695,9 +3926,12 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                             {renderPromptBlocks(soloCurrent)}
                           </div>
 
-                          {soloCurrent.interaction?.type === 'mcq' ? (
+                          {(() => {
+                            const finalInteraction = getFinalInteraction(soloCurrent);
+                            return finalInteraction?.type === 'mcq' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                              {soloCurrent.interaction.choices.map((c, idx) => {
+                              {renderCompositeStepCards(soloCurrent, soloStepAnswers, setSoloStepAnswers, !!soloFeedback)}
+                              {finalInteraction.choices.map((c, idx) => {
                                 const disabled = !!soloFeedback;
                                 const isCorrect = soloFeedback?.correctIndex === idx;
                                 const isChosenWrong = soloFeedback && !soloFeedback.correct && idx !== soloFeedback.correctIndex;
@@ -3732,8 +3966,9 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                 );
                               })}
                             </div>
-                          ) : soloCurrent.interaction?.type === 'numeric' ? (
+                          ) : finalInteraction?.type === 'numeric' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                              {renderCompositeStepCards(soloCurrent, soloStepAnswers, setSoloStepAnswers, !!soloFeedback)}
                               <input
                                 value={soloTextAnswer}
                                 disabled={!!soloFeedback}
@@ -3785,40 +4020,15 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                 Submit
                               </button>
                             </div>
-                          ) : soloCurrent.interaction?.type === 'text' ? (
+                          ) : isTextSubmittedInteraction(finalInteraction) ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                              <input
-                                value={soloTextAnswer}
-                                disabled={!!soloFeedback}
-                                onChange={(e) => setSoloTextAnswer(e.target.value)}
-                                placeholder="Type your answer"
-                                style={{
-                                  width: '100%',
-                                  padding: '12px 12px',
-                                  borderRadius: 12,
-                                  border: '1px solid #1f2a44',
-                                  background: 'rgba(15,23,42,0.6)',
-                                  color: 'white',
-                                  outline: 'none',
-                                  fontSize: 14,
-                                  fontWeight: 900,
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') answerSoloFreeform('text');
-                                }}
-                              />
-                              <button
-                                className="ll-btn ll-btn-primary"
-                                disabled={!!soloFeedback || !soloTextAnswer.trim()}
-                                onClick={() => answerSoloFreeform('text')}
-                                style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
-                              >
-                                Submit
-                              </button>
+                              {renderCompositeStepCards(soloCurrent, soloStepAnswers, setSoloStepAnswers, !!soloFeedback)}
+                              {renderTextSubmittedEditor(finalInteraction, soloTextAnswer, setSoloTextAnswer, !!soloFeedback, () => answerSoloFreeform('text'))}
                             </div>
                           ) : (
                             <div style={{ color: '#94a3b8', fontSize: 13 }}>This question type is not supported yet.</div>
-                          )}
+                          );
+                          })()}
 
                           {soloFeedback && (
                             <div style={{ marginTop: 12 }}>

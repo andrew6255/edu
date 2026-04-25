@@ -2,11 +2,67 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAllUsers, updateUserData, deleteUserData, createUserDataAdmin, isUsernameTaken, adminUpdateEconomy, type EconomyDeltas, UserData, UserRole, computeLevel, getAdminTeacherAssignments, addAdminTeacherAssignment, removeAdminTeacherAssignment, getParentStudentLinks, AdminTeacherAssignment, ParentStudentLink } from '@/lib/userService';
-import { convertNestedProgramToInternal, parseNestedProgramJson } from '@/lib/programNestedImport';
+import { 
+  getAllUsers, 
+  updateUserData, 
+  deleteUserData, 
+  createUserDataAdmin, 
+  isUsernameTaken, 
+  adminUpdateEconomy, 
+  type EconomyDeltas, 
+  UserData, 
+  UserRole, 
+  computeLevel, 
+  getAdminTeacherAssignments, 
+  addAdminTeacherAssignment, 
+  removeAdminTeacherAssignment, 
+  getParentStudentLinks, 
+  AdminTeacherAssignment, 
+  ParentStudentLink 
+} from '@/lib/userService';
+import { 
+  convertNestedProgramToInternal, 
+  parseNestedProgramJson 
+} from '@/lib/programNestedImport';
+import {
+  BUILDER_DIVISION_LABELS,
+  FIXED_FIRST_DIVISION_NODE_ID,
+  type BuilderDivisionLabel,
+  type BuilderNode,
+  type BuilderQuestionTypeFile,
+  type BuilderSpec,
+  convertBuilderToInternal,
+  ensureFixedFirstDivisionContainer,
+  makeIdFromTitle,
+  makeStableId,
+  newBuilderSpec,
+} from '@/lib/programBuilder';
+import {
+  type ProgramAtomicInteractionSpec,
+  type ProgramPromptBlock,
+  type ProgramStepSpec,
+} from '@/lib/programQuestionBank';
+import {
+  deleteDraftLogicGameNode,
+  deletePublishedLogicGameNode,
+  getDraftLogicGameQuestions,
+  listDraftLogicGameNodes,
+  listPublishedLogicGameNodes,
+  publishLogicGameNode,
+  publishLogicGameQuestions,
+  upsertDraftLogicGameNode,
+  upsertDraftLogicGameQuestions,
+} from '@/lib/logicGamesService';
 import ProgramMapView from '@/views/ProgramMapView';
-import { clearDraftProgram } from '@/lib/draftProgramStore';
+import { clearDraftProgram, setDraftProgram } from '@/lib/draftProgramStore';
 import { deleteProgramQuestionAsset, uploadProgramQuestionAsset } from '@/lib/programAssetService';
+import type { LogicGameNode, LogicGameQuestionsDoc } from '@/types/logicGames';
+import {
+  createProgramIngestionJob,
+  runProgramIngestionStage,
+  uploadProgramIngestionSource,
+  getProgramIngestionJob,
+} from '@/lib/programIngestionService';
 import {
   deleteDraftProgramAdmin,
   getDraftProgramAdmin,
@@ -16,32 +72,6 @@ import {
   savePublishedProgramAdmin,
   softDeletePublishedProgramAdmin,
 } from '@/lib/programAdminService';
-import {
-  listDraftLogicGameNodes,
-  getDraftLogicGameQuestions,
-  publishLogicGameNode,
-  upsertDraftLogicGameNode,
-  publishLogicGameQuestions,
-  upsertDraftLogicGameQuestions,
-  deleteDraftLogicGameNode,
-  deletePublishedLogicGameNode,
-  listPublishedLogicGameNodes,
-} from '@/lib/logicGamesService';
-import type { LogicGameNode, LogicGameQuestionsDoc } from '@/types/logicGames';
-import {
-  BUILDER_DIVISION_LABELS,
-  convertBuilderToInternal,
-  ensureFixedFirstDivisionContainer,
-  FIXED_FIRST_DIVISION_NODE_ID,
-  makeIdFromTitle,
-  makeStableId,
-  newBuilderSpec,
-  type BuilderDivisionLabel,
-  type BuilderNode,
-  type BuilderQuestionTypeFile,
-  type BuilderSpec,
-} from '@/lib/programBuilder';
-import { setDraftProgram } from '@/lib/draftProgramStore';
 
 type Tab = 'overview' | 'users' | 'programs' | 'logicGames';
 
@@ -68,6 +98,148 @@ function stripUndefinedDeep<T>(value: T): T {
   }
 
   return value;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function toPromptBlocks(value: unknown, fallbackText: string): ProgramPromptBlock[] {
+  if (Array.isArray(value) && value.length > 0) {
+    return value
+      .map((block) => {
+        const item = asRecord(block);
+        if (!item || typeof item.type !== 'string') return null;
+        if (item.type === 'text' || item.type === 'note') {
+          return typeof item.text === 'string' ? { type: 'text', text: item.text } satisfies ProgramPromptBlock : null;
+        }
+        if (item.type === 'latex' || item.type === 'math') {
+          return typeof item.text === 'string'
+            ? { type: 'math', latex: item.text } satisfies ProgramPromptBlock
+            : (typeof item.latex === 'string' ? { type: 'math', latex: item.latex } satisfies ProgramPromptBlock : null);
+        }
+        if (item.type === 'image' && typeof item.url === 'string') {
+          return { type: 'image', url: item.url, alt: typeof item.alt === 'string' ? item.alt : undefined } satisfies ProgramPromptBlock;
+        }
+        if (item.type === 'table' && Array.isArray(item.rows)) {
+          return {
+            type: 'table',
+            rows: item.rows.map((row) => (Array.isArray(row) ? row.map((cell) => String(cell)) : [])),
+            headerRows: typeof item.headerRows === 'number' ? item.headerRows : undefined,
+          } satisfies ProgramPromptBlock;
+        }
+        return null;
+      })
+      .filter(Boolean) as ProgramPromptBlock[];
+  }
+  return [{ type: 'text', text: fallbackText }];
+}
+
+function deterministicAnswerToInteraction(value: unknown): ProgramAtomicInteractionSpec | null {
+  const answer = asRecord(value);
+  if (!answer || typeof answer.type !== 'string') return null;
+  if (answer.type === 'choice') {
+    const choices = Array.isArray(answer.choices) ? answer.choices.map((choice) => String(choice)) : [];
+    const correctChoiceIndex = Number(answer.correctChoiceIndex);
+    if (choices.length >= 2 && Number.isInteger(correctChoiceIndex) && correctChoiceIndex >= 0 && correctChoiceIndex < choices.length) {
+      return { type: 'mcq', choices, correctChoiceIndex };
+    }
+    return null;
+  }
+  if (answer.type === 'number') {
+    const rawCorrect = Array.isArray(answer.correct) ? answer.correct : [answer.correct];
+    const correct = rawCorrect
+      .map((item) => (typeof item === 'number' ? item : Number(item)))
+      .filter((item) => Number.isFinite(item));
+    if (correct.length === 0) return null;
+    return {
+      type: 'numeric',
+      correct: correct.length === 1 ? correct[0]! : correct,
+      tolerance: typeof answer.tolerance === 'number' ? answer.tolerance : undefined,
+    };
+  }
+  if (answer.type === 'text') {
+    const accepted = Array.isArray(answer.accepted) ? answer.accepted.map((item) => String(item)).filter(Boolean) : [];
+    if (accepted.length === 0) return null;
+    return {
+      type: 'text',
+      accepted,
+      caseSensitive: answer.caseSensitive === true,
+      trim: answer.trim !== false,
+    };
+  }
+  if (answer.type === 'line_equation') {
+    const forms = Array.isArray(answer.forms) ? answer.forms.map((item) => String(item)).filter((item) => item.trim().length > 0) : [];
+    if (forms.length === 0) return null;
+    return {
+      type: 'line_equation',
+      forms,
+      variable: typeof answer.variable === 'string' && answer.variable.trim().length > 0 ? answer.variable : undefined,
+      caseSensitive: answer.caseSensitive === true,
+      trim: answer.trim !== false,
+    };
+  }
+  if (answer.type === 'point_list') {
+    const points = Array.isArray(answer.points)
+      ? answer.points
+          .map((point) => asRecord(point))
+          .filter(Boolean)
+          .map((point) => ({ x: Number(point?.x), y: Number(point?.y) }))
+          .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      : [];
+    if (points.length === 0) return null;
+    return {
+      type: 'point_list',
+      points,
+      minPoints: typeof answer.minPoints === 'number' ? answer.minPoints : undefined,
+      maxPoints: typeof answer.maxPoints === 'number' ? answer.maxPoints : undefined,
+      ordered: answer.ordered === true,
+      allowEquivalentOrder: answer.allowEquivalentOrder !== false,
+    };
+  }
+  if (answer.type === 'points_on_line') {
+    const lineForms = Array.isArray(answer.lineForms) ? answer.lineForms.map((item) => String(item)).filter((item) => item.trim().length > 0) : [];
+    if (lineForms.length === 0) return null;
+    const disallowGivenPoints = Array.isArray(answer.disallowGivenPoints)
+      ? answer.disallowGivenPoints
+          .map((point) => asRecord(point))
+          .filter(Boolean)
+          .map((point) => ({ x: Number(point?.x), y: Number(point?.y) }))
+          .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      : undefined;
+    return {
+      type: 'points_on_line',
+      lineForms,
+      minPoints: typeof answer.minPoints === 'number' ? answer.minPoints : 1,
+      maxPoints: typeof answer.maxPoints === 'number' ? answer.maxPoints : undefined,
+      disallowGivenPoints,
+      requireDistinct: answer.requireDistinct !== false,
+    };
+  }
+  return null;
+}
+
+function getStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)).filter((item) => item.trim().length > 0) : [];
+}
+
+function getNormalizedSolutionSteps(value: unknown): ProgramStepSpec[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((step, idx) => {
+      const item = asRecord(step);
+      if (!item) return null;
+      const interaction = deterministicAnswerToInteraction(item.answer);
+      if (!interaction) return null;
+      return {
+        id: typeof item.id === 'string' ? item.id : `step_${idx + 1}`,
+        title: typeof item.title === 'string' && item.title.trim() ? item.title : `Step ${idx + 1}`,
+        prompt: toPromptBlocks(item.prompt, typeof item.title === 'string' ? item.title : `Step ${idx + 1}`),
+        interaction,
+        explanation: typeof item.explanation === 'string' ? item.explanation : null,
+      } satisfies ProgramStepSpec;
+    })
+    .filter(Boolean) as ProgramStepSpec[];
 }
 
 export default function SuperAdminPage() {
@@ -1209,7 +1381,7 @@ function LogicGamesAdmin() {
 }
 
 function ProgramsAdmin() {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const [items, setItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string }>>([]);
   const [draftItems, setDraftItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -1238,8 +1410,303 @@ function ProgramsAdmin() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadedImageErr, setUploadedImageErr] = useState<string>('');
 
+  const [digitalizeFiles, setDigitalizeFiles] = useState<File[]>([]);
+  const [digitalizeBusy, setDigitalizeBusy] = useState(false);
+  const [digitalizeStatus, setDigitalizeStatus] = useState('');
+  const [digitalizeError, setDigitalizeError] = useState('');
+  const [digitalizePastedText, setDigitalizePastedText] = useState('');
+
   const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '10px 13px',
+    marginBottom: 12,
+    borderRadius: 8,
+    border: '1px solid #475569',
+    background: 'rgba(0,0,0,0.4)',
+    color: 'white',
+    boxSizing: 'border-box',
+    fontSize: 14,
+    fontFamily: 'inherit',
+    outline: 'none',
+  };
+
+  function cleanGeneratedTitle(raw: string | null | undefined, fallbackFileName?: string): string {
+    const source = (raw ?? '').trim() || (fallbackFileName ?? '').replace(/\.[^.]+$/, '');
+    const withoutPrefix = source.replace(/^[a-z0-9]{6,}(?:[-_\s]+|$)/i, '');
+    const normalized = withoutPrefix
+      .replace(/[_-]+/g, ' ')
+      .replace(/\bEquation\s*20a\b/i, 'Equation')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized || /^[a-z0-9]{6,}$/i.test(normalized) || /^worksheet$/i.test(normalized)) return 'Imported Worksheet';
+    return normalized;
+  }
+
+  function cleanFolderLabel(raw: string): string {
+    const cleaned = raw
+      .replace(/\.[^.]+$/, '')
+      .replace(/^[a-z0-9]{6,}[-_]+/i, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return cleaned || 'Topic 1';
+  }
+
+  function summarizeImportedTopic(text: string): string {
+    const joined = text.toLowerCase();
+    if (/equation of the line|line passes through|points .* line|y\s*=/.test(joined)) return 'Lines and Linear Equations';
+    if (/graph|coordinate/.test(joined)) return 'Graphs and Coordinates';
+    if (/fraction/.test(joined)) return 'Fractions';
+    if (/algebra/.test(joined)) return 'Algebra Practice';
+    return 'Worksheet Practice';
+  }
+
+  function chooseImportedQuestionTypeTitle(text: string): string {
+    if (/equation of the line|line passes through|points .* line|y\s*=/.test(text.toLowerCase())) return 'Line Questions';
+    return 'Practice Questions';
+  }
+
+  function isPlaceholderExtractionText(text: string): boolean {
+    const trimmed = text.trim();
+    return trimmed.length === 0 || /no extractable text found/i.test(trimmed);
+  }
+
+  async function handleDigitalize() {
+    if (!userData || (userData.role !== 'superadmin' && userData.role !== 'admin')) {
+      setDigitalizeError('Only admins and superadmins can digitalize PDFs.');
+      return;
+    }
+    const trimmedPastedText = digitalizePastedText.trim();
+    const filesToProcess = digitalizeFiles.length > 0
+      ? digitalizeFiles
+      : (trimmedPastedText
+          ? [new File([
+              trimmedPastedText,
+            ], `${makeIdFromTitle(builder.programTitle || 'worksheet') || 'worksheet'}.txt`, { type: 'text/plain' })]
+          : []);
+    if (filesToProcess.length === 0) {
+      setDigitalizeError('Add at least one PDF file or paste worksheet text first.');
+      return;
+    }
+    const adminUserId = user?.id;
+    if (!adminUserId) {
+      setDigitalizeError('Authenticated user id is missing. Please sign in again.');
+      return;
+    }
+
+    setDigitalizeBusy(true);
+    setDigitalizeError('');
+    setDigitalizeStatus('Starting digitalization...');
+
+    try {
+      const allQuestions: Array<{
+        id: string;
+        rawText: string;
+        page: number;
+        kind: string;
+        prompt: ProgramPromptBlock[];
+        interaction: ProgramAtomicInteractionSpec | ({ type: 'composite'; final: ProgramAtomicInteractionSpec; steps: ProgramStepSpec[]; allowDirectFinalAnswer?: boolean; scoreStrategy?: 'final_only' | 'final_plus_steps' }) | null;
+        difficulty: 'easy' | 'medium' | 'hard';
+        hint: string[];
+        solution: string | null;
+        stepSolutions: ProgramStepSpec[];
+      }> = [];
+      let titleGuess = '';
+      let structuredHierarchy: Array<{ id: string; type: string; title: string; children: Array<{ id: string; type: string; title: string; children: unknown[]; questionRefs?: string[]; questionTypeTitle?: string }>; questionRefs?: string[]; questionTypeTitle?: string }> = [];
+      let structuredDivisions: BuilderDivisionLabel[] = ['Chapters', 'Topics'];
+
+      for (let fi = 0; fi < filesToProcess.length; fi++) {
+        const file = filesToProcess[fi]!;
+        setDigitalizeStatus(`[${fi + 1}/${filesToProcess.length}] Creating job for ${file.name}...`);
+
+        const created = await createProgramIngestionJob({
+          adminUserId,
+          visibility: 'public',
+          sourceFileName: file.name,
+          title: builder.programTitle.trim() || undefined,
+        });
+
+        setDigitalizeStatus(`[${fi + 1}/${filesToProcess.length}] Uploading ${file.name}...`);
+        await uploadProgramIngestionSource(created.jobId, file);
+
+        const stages = [
+          { stage: 'extractDocument' as const, label: 'Extracting text...' },
+          { stage: 'auditExtraction' as const, label: 'Auditing extraction...' },
+          { stage: 'segmentQuestions' as const, label: 'Segmenting questions...' },
+          { stage: 'normalizeQuestions' as const, label: 'Normalizing with AI...' },
+          { stage: 'structureDraft' as const, label: 'Structuring draft with AI...' },
+        ];
+
+        for (const step of stages) {
+          setDigitalizeStatus(`[${fi + 1}/${filesToProcess.length}] ${step.label}`);
+          await runProgramIngestionStage(created.jobId, step.stage);
+        }
+
+        setDigitalizeStatus(`[${fi + 1}/${filesToProcess.length}] Fetching results...`);
+        const state = await getProgramIngestionJob(created.jobId);
+
+        const extractedPages = ((state.draft as { extractedDocument?: { pages?: Array<{ fullText?: string | null }> } }).extractedDocument?.pages ?? []);
+        const hasReadableExtraction = extractedPages.some((page: { fullText?: string | null }) => !isPlaceholderExtractionText(page.fullText ?? ''));
+        if (!hasReadableExtraction) {
+          throw new Error(
+            `Could not extract readable text from ${file.name}. The PDF appears to be scanned/image-based and OCR did not return usable text. Try a text-based PDF, or we can next improve the OCR prompt/provider.`,
+          );
+        }
+
+        if (!titleGuess && state.draft.extractionReport?.titleGuess) {
+          titleGuess = cleanGeneratedTitle(state.draft.extractionReport.titleGuess, file.name);
+        }
+
+        if (Array.isArray(state.draft.hierarchy) && state.draft.hierarchy.length > 0) {
+          structuredHierarchy = state.draft.hierarchy;
+        }
+
+        for (const q of state.questions) {
+          const nq = q.normalizedQuestion as Record<string, unknown> | null;
+          const prompt = toPromptBlocks(nq?.prompt, q.rawExtractedBlock.rawText);
+          const promptText = prompt.map((b) => ('text' in b ? b.text : 'latex' in b ? b.latex : '')).join(' ').trim() || q.rawExtractedBlock.rawText;
+          if (isPlaceholderExtractionText(promptText)) {
+            continue;
+          }
+          const answerData = asRecord(nq?.answerData);
+          const finalInteraction = deterministicAnswerToInteraction(answerData?.final);
+          const stepSolutions = getNormalizedSolutionSteps(answerData?.steps);
+          const scoreStrategy: 'final_only' | 'final_plus_steps' = (asRecord(nq?.grading)?.mode === 'step_based' || stepSolutions.length > 0)
+            ? 'final_plus_steps'
+            : 'final_only';
+          const interaction = finalInteraction
+            ? (stepSolutions.length > 0
+              ? {
+                  type: 'composite' as const,
+                  final: finalInteraction,
+                  steps: stepSolutions,
+                  allowDirectFinalAnswer: answerData?.allowDirectFinalAnswer !== false,
+                  scoreStrategy,
+                }
+              : finalInteraction)
+            : { type: 'text' as const, accepted: [''], caseSensitive: false, trim: true };
+          const difficulty = nq?.difficulty === 'easy' || nq?.difficulty === 'hard' ? nq.difficulty : 'medium';
+          allQuestions.push({
+            id: q.id,
+            rawText: q.rawExtractedBlock.rawText,
+            page: q.rawExtractedBlock.page,
+            kind: (nq?.kind ?? 'open_response_ai') as string,
+            prompt,
+            interaction,
+            difficulty,
+            hint: getStringArray(nq?.hints),
+            solution: typeof answerData?.solution === 'string'
+              ? answerData.solution
+              : (typeof nq?.explanation === 'string' ? nq.explanation : null),
+            stepSolutions,
+          });
+        }
+      }
+
+      if (allQuestions.length === 0) {
+        throw new Error('No usable questions were extracted from the selected PDF(s). The OCR/extraction output was empty or placeholder-only.');
+      }
+
+      setDigitalizeStatus('Populating builder...');
+
+      const groupedById: Record<string, Record<string, unknown>> = {};
+      const allQuestionText = allQuestions
+        .map((q) => q.prompt.map((b) => ('text' in b ? b.text : 'latex' in b ? b.latex : '')).join('\n').trim() || q.rawText)
+        .join('\n\n');
+      const inferredTopicTitle = summarizeImportedTopic(allQuestionText);
+      const inferredQuestionTypeTitle = chooseImportedQuestionTypeTitle(allQuestionText);
+      const cleanedTitleGuess = cleanGeneratedTitle(titleGuess);
+      const finalTitleGuess = cleanedTitleGuess !== 'Imported Worksheet'
+        ? cleanedTitleGuess
+        : cleanGeneratedTitle(inferredTopicTitle || 'Imported Worksheet');
+
+      for (const q of allQuestions) {
+        const questionText = q.prompt.map((b) => ('text' in b ? b.text : 'latex' in b ? b.latex : '')).join('\n').trim() || q.rawText;
+        groupedById[q.id] = {
+          id: q.id,
+          question: questionText,
+          promptBlocks: q.prompt,
+          interaction: q.interaction,
+          difficulty: q.difficulty,
+          hint: q.hint,
+          solution: q.solution,
+          stepSolutions: q.stepSolutions,
+        };
+      }
+
+      function buildQuestionTypeNode(title: string, questionIds: string[]): BuilderQuestionTypeFile {
+        return {
+          id: makeStableId('qt'),
+          title,
+          jsonText: JSON.stringify(questionIds.map((id) => groupedById[id]).filter(Boolean), null, 2),
+        };
+      }
+
+      function buildTopicNode(topic: { id: string; title: string; questionRefs?: string[]; questionTypeTitle?: string }): BuilderNode {
+        const refs = Array.isArray(topic.questionRefs) ? topic.questionRefs : [];
+        return {
+          id: topic.id || makeStableId('node'),
+          title: cleanFolderLabel(topic.title || inferredTopicTitle || 'Imported Topic'),
+          children: [],
+          questionTypes: [buildQuestionTypeNode(topic.questionTypeTitle || inferredQuestionTypeTitle || 'Practice Questions', refs)],
+        };
+      }
+
+      const chapters: BuilderNode[] = structuredHierarchy.length > 0
+        ? structuredHierarchy.map((chapter) => ({
+            id: chapter.id || makeStableId('node'),
+            title: cleanGeneratedTitle(chapter.title || finalTitleGuess || 'Imported Chapter'),
+            children: (chapter.children ?? []).map((topic) => buildTopicNode(topic)),
+            questionTypes: [],
+          }))
+        : [
+            {
+              id: makeStableId('node'),
+              title: finalTitleGuess,
+              children: [
+                {
+                  id: makeStableId('node'),
+                  title: cleanFolderLabel(inferredTopicTitle || finalTitleGuess || 'Imported Questions'),
+                  children: [],
+                  questionTypes: [buildQuestionTypeNode(inferredQuestionTypeTitle, Object.keys(groupedById))],
+                },
+              ],
+              questionTypes: [],
+            },
+          ];
+
+      setBuilder((prev) => {
+        const spec = ensureFixedFirstDivisionContainer({ ...prev, divisions: structuredDivisions });
+        const fixedIdx = spec.root.children.findIndex((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID);
+        const fixed = fixedIdx >= 0 ? spec.root.children[fixedIdx]! : { id: FIXED_FIRST_DIVISION_NODE_ID, title: 'Chapters', children: [], questionTypes: [] };
+        const updatedFixed = { ...fixed, title: structuredDivisions[0] ?? 'Chapters', children: [...fixed.children, ...chapters] };
+        const nextChildren = [...spec.root.children];
+        if (fixedIdx >= 0) {
+          nextChildren[fixedIdx] = updatedFixed;
+        } else {
+          nextChildren.unshift(updatedFixed);
+        }
+        return ensureFixedFirstDivisionContainer({
+          ...spec,
+          programTitle: cleanGeneratedTitle(spec.programTitle || finalTitleGuess || chapters[0]?.title || 'Imported Worksheet'),
+          root: {
+            ...spec.root,
+            title: spec.root.title === 'Enter program title' ? cleanGeneratedTitle(finalTitleGuess || chapters[0]?.title || 'Imported Worksheet') : spec.root.title,
+            children: nextChildren,
+          },
+        });
+      });
+
+      setBuilderPathIds(['root', chapters[0]?.id ?? 'root', chapters[0]?.children?.[0]?.id ?? 'root']);
+      setDigitalizeStatus(`✅ Imported ${allQuestions.length} question(s) from ${filesToProcess.length} source(s)`);
+    } catch (error) {
+      setDigitalizeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDigitalizeBusy(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -1278,6 +1745,11 @@ function ProgramsAdmin() {
     setBuilder(newBuilderSpec());
     setBuilderPathIds(['root']);
     setBuilderSelectedQuestionTypeId(null);
+
+    setDigitalizeFiles([]);
+    setDigitalizeStatus('');
+    setDigitalizeError('');
+    setDigitalizePastedText('');
   }
 
   function startNewBuilder() {
@@ -1753,6 +2225,78 @@ function ProgramsAdmin() {
             >
               {saving ? 'Publishing...' : 'Publish'}
             </button>
+          </div>
+
+          {/* ── AI DIGITALIZE SECTION ── */}
+          <div style={{ border: '1px solid #334155', borderRadius: 12, background: '#0f172a', padding: 12, marginBottom: 12 }}>
+            <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8, fontWeight: 900 }}>📄 Upload PDFs to Digitalize</label>
+            <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>
+              Upload worksheet PDF(s), or paste worksheet text below, then click Digitalize to auto-populate the builder.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+              <input
+                type="file"
+                accept=".pdf,.txt"
+                multiple
+                onChange={(e) => {
+                  const chosen = Array.from(e.target.files ?? []);
+                  if (chosen.length > 0) {
+                    setDigitalizeFiles((prev) => [...prev, ...chosen]);
+                  }
+                }}
+                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', fontSize: 12 }}
+              />
+              <button
+                onClick={() => void handleDigitalize()}
+                className="ll-btn ll-btn-primary"
+                disabled={digitalizeBusy || (digitalizeFiles.length === 0 && digitalizePastedText.trim().length === 0)}
+                style={{ padding: '7px 14px', fontSize: 12, background: '#8b5cf6', borderColor: '#7c3aed', color: 'white' }}
+              >
+                {digitalizeBusy ? 'Digitalizing...' : `Digitalize (${digitalizeFiles.length > 0 ? `${digitalizeFiles.length} file${digitalizeFiles.length !== 1 ? 's' : ''}` : digitalizePastedText.trim().length > 0 ? 'pasted text' : '0 sources'})`}
+              </button>
+            </div>
+            <textarea
+              value={digitalizePastedText}
+              onChange={(e) => setDigitalizePastedText(e.target.value)}
+              placeholder="Or paste worksheet content here to bypass OCR entirely. Example: 1. Find the equation of the line..."
+              style={{
+                width: '100%',
+                minHeight: 160,
+                resize: 'vertical',
+                padding: '10px 12px',
+                borderRadius: 10,
+                border: '1px solid #334155',
+                background: '#0b1220',
+                color: 'white',
+                outline: 'none',
+                boxSizing: 'border-box',
+                marginBottom: 8,
+                fontFamily: 'inherit',
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
+            />
+            <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>
+              Tip: if OCR fails, paste the sheet text here and Digitalize will send it through the AI structuring pipeline as plain text.
+            </div>
+            {digitalizeFiles.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                {digitalizeFiles.map((f, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 6, background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)' }}>
+                    <span style={{ color: '#c4b5fd', fontSize: 11 }}>{f.name}</span>
+                    <button
+                      onClick={() => setDigitalizeFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                      style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: 12, padding: '0 2px', lineHeight: 1 }}
+                      title="Remove file"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {digitalizeStatus && <div style={{ color: '#93c5fd', fontSize: 11 }}>{digitalizeStatus}</div>}
+            {digitalizeError && <div style={{ color: '#fca5a5', fontSize: 11 }}>{digitalizeError}</div>}
           </div>
 
           <div style={{ border: '1px solid #334155', borderRadius: 12, background: '#0f172a', padding: 12, marginBottom: 12 }}>

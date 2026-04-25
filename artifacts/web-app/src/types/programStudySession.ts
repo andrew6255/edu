@@ -15,6 +15,10 @@ export interface ProgramStudyAnswer {
 
   // New: freeform value (numeric/text)
   valueText?: string;
+
+  // Optional local step work submitted alongside final answer
+  stepValues?: Record<string, string>;
+
   answeredAt: string;
 }
 

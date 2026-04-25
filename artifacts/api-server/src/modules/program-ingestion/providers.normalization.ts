@@ -77,7 +77,7 @@ export class GeminiNormalizationProvider extends BasePromptReadyLlmNormalization
       throw new Error("GEMINI_API_KEY is required when PROGRAM_INGESTION_NORMALIZATION_PROVIDER=gemini.");
     }
 
-    const model = process.env["PROGRAM_INGESTION_GEMINI_MODEL"] ?? "gemini-1.5-pro";
+    const model = process.env["PROGRAM_INGESTION_GEMINI_MODEL"] ?? "gemini-2.0-flash";
     const prompt = buildQuestionNormalizationPrompt(block);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
@@ -103,6 +103,10 @@ export class GeminiNormalizationProvider extends BasePromptReadyLlmNormalization
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        console.warn(`Gemini rate-limited (429). Falling back to deterministic normalizer for block ${block.id}.`);
+        return new DeterministicFallbackNormalizationProvider().normalize(block);
+      }
       const errorText = await response.text();
       throw new Error(`Gemini normalization request failed with status ${response.status}: ${errorText}`);
     }

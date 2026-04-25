@@ -4,6 +4,7 @@ import {
   type ProgramChapter,
   type ProgramDifficulty,
   type ProgramInteractionSpec,
+  type ProgramStepSpec,
   type ProgramPromptBlock,
   type ProgramMetaFile,
   parseJsonText,
@@ -35,6 +36,7 @@ export type BuilderQuestion = {
   time_required_seconds?: number;
   hint?: string | string[] | null;
   solution?: string | null;
+  stepSolutions?: ProgramStepSpec[];
   points?: number;
 
   // New schema (Phase 1): rich prompt blocks + interaction spec.
@@ -140,6 +142,9 @@ export function parseQuestionTypeJson(text: string): BuilderQuestion[] {
     const interaction: ProgramInteractionSpec | undefined = q?.interaction && typeof q.interaction === 'object'
       ? (q.interaction as ProgramInteractionSpec)
       : undefined;
+    const stepSolutions: ProgramStepSpec[] | undefined = Array.isArray(q?.stepSolutions)
+      ? (q.stepSolutions as ProgramStepSpec[])
+      : undefined;
 
     // Legacy MCQ fields (required unless interaction supplies it)
     const options = Array.isArray(q?.options) ? q.options.map((x: any) => String(x)) : [];
@@ -180,6 +185,7 @@ export function parseQuestionTypeJson(text: string): BuilderQuestion[] {
       time_required_seconds: q?.time_required_seconds != null ? Number(q.time_required_seconds) : undefined,
       hint: q?.hint ?? null,
       solution: q?.solution ?? null,
+      stepSolutions,
       points: q?.points != null ? Number(q.points) : undefined,
       promptBlocks,
       interaction,
@@ -228,6 +234,7 @@ export function convertBuilderToInternal(spec: BuilderSpec): {
     version: '1.0',
     program_id: normalized.programId,
     program_title: normalized.programTitle,
+    divisions: normalized.divisions,
   };
 
   const annotations: ProgramAnnotationsFile = {
@@ -315,6 +322,15 @@ export function convertBuilderToInternal(spec: BuilderSpec): {
           if (q.points != null) ann.points = q.points;
           if (q.solution) ann.solution = { raw_text: q.solution };
           if (hintsArr.length > 0) ann.hints = hintsArr.map((h) => ({ raw_text: String(h) }));
+          if (Array.isArray(q.stepSolutions) && q.stepSolutions.length > 0) {
+            ann.stepSolutions = q.stepSolutions.map((step, idx) => ({
+              id: step.id || `step_${idx + 1}`,
+              title: step.title || `Step ${idx + 1}`,
+              prompt: Array.isArray(step.prompt) && step.prompt.length > 0 ? { blocks: step.prompt } : undefined,
+              interaction: step.interaction,
+              explanation: step.explanation ? { raw_text: step.explanation } : undefined,
+            }));
+          }
           annChapter.annotations[key] = ann as any;
         }
 

@@ -68,8 +68,8 @@ export function parseRunIngestionStageInput(body: unknown): RunIngestionStageInp
   const input = body as Record<string, unknown>;
   const stage = input["stage"];
 
-  if (stage !== "extractDocument" && stage !== "auditExtraction" && stage !== "segmentQuestions" && stage !== "normalizeQuestions") {
-    throw new Error("stage must be one of 'extractDocument', 'auditExtraction', 'segmentQuestions', or 'normalizeQuestions'.");
+  if (stage !== "extractDocument" && stage !== "auditExtraction" && stage !== "segmentQuestions" && stage !== "normalizeQuestions" && stage !== "structureDraft") {
+    throw new Error("stage must be one of 'extractDocument', 'auditExtraction', 'segmentQuestions', 'normalizeQuestions', or 'structureDraft'.");
   }
 
   return { stage: stage as RunIngestionStageInput["stage"] };

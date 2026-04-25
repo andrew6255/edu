@@ -1,0 +1,11 @@
+1. Find the equation of the line
+a) Find the equation of the line passing through the points (2,3) and (6, 7).
+b) Find the equation of the line passing through the points (-3,-1) and (5, 3).
+2. Generate 10 points from an equation
+a) The equation of a line is y = 2x + 1. List 10 points that lie on this line.
+b) The equation of a line is y=-x+4. List 10 points that satisfy this equation.
+3. Find points from the equation of a line passing through two given points
+a) The line passes through (3,5) and (7,9). Write the equation of the line and find 3 other
+points in the line.
+b) The line passes through (-1,2) and (4,3). Write the equation of the line and find 3 other
+points in the line.

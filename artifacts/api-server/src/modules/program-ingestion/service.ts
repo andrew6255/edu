@@ -1,6 +1,7 @@
 import { logger } from "../../lib/logger";
 import { storeProgramIngestionSourceFile } from "./fileStore";
 import { getQuestionNormalizationProvider } from "./providers.normalization";
+import { getDraftStructuringProvider, structuredSuggestionToProgramNodes } from "./providers.structuring";
 import { buildExtractionAudit, extractDocumentForJob } from "./pipeline";
 import { segmentQuestionsFromExtractedDocument } from "./segmentation";
 import {
@@ -148,6 +149,41 @@ export class ProgramIngestionService {
       };
     }
 
+    if (input.stage === "structureDraft") {
+      if (!existing.draft.extractedDocument) {
+        throw new Error("Cannot run structureDraft before extractDocument has produced an extracted document.");
+      }
+
+      await this.repository.updateJobStage(jobId, {
+        status: "structuring",
+        stage: input.stage,
+      });
+
+      const provider = getDraftStructuringProvider();
+      const suggestion = await provider.structure(existing);
+      await this.repository.updateDraftStructure(jobId, {
+        title: suggestion.title,
+        hierarchy: structuredSuggestionToProgramNodes(suggestion),
+        aiSessionMeta: {
+          model: provider.name,
+          lastRunAt: new Date().toISOString(),
+          summary: suggestion.summary ?? `Structured draft into ${suggestion.chapters.length} chapter(s).`,
+        },
+      });
+      await this.repository.updateJobStage(jobId, {
+        status: "reviewing",
+        stage: input.stage,
+      });
+
+      logger.info({ jobId, stage: input.stage, provider: provider.name, chapterCount: suggestion.chapters.length }, "Completed draft structuring stage");
+
+      return {
+        jobId,
+        status: "reviewing",
+        stage: input.stage,
+      };
+    }
+
     if (!audit) {
       throw new Error("Cannot run auditExtraction before extractDocument has produced an extraction report.");
     }
@@ -164,6 +200,39 @@ export class ProgramIngestionService {
       status: "reviewing",
       stage: input.stage,
     };
+  }
+
+  async updateQuestion(
+    jobId: string,
+    questionId: string,
+    updates: { reviewStatus?: string; normalizedQuestion?: Record<string, unknown> },
+  ): Promise<void> {
+    const existing = await this.repository.getJobState(jobId);
+    if (!existing) {
+      throw new Error("Program ingestion job not found.");
+    }
+    const question = existing.questions.find((q) => q.id === questionId);
+    if (!question) {
+      throw new Error(`Question ${questionId} not found in job ${jobId}.`);
+    }
+    await this.repository.updateQuestion(questionId, updates);
+    logger.info({ jobId, questionId, reviewStatus: updates.reviewStatus }, "Updated ingestion question");
+  }
+
+  async publishJob(jobId: string): Promise<{ programId: string }> {
+    const existing = await this.repository.getJobState(jobId);
+    if (!existing) {
+      throw new Error("Program ingestion job not found.");
+    }
+    if (existing.job.status === "published") {
+      throw new Error("This ingestion job has already been published.");
+    }
+
+    const programId = await this.repository.publishAsProgram(jobId, existing);
+    await this.repository.updateJobStage(jobId, { status: "published", stage: "published" });
+
+    logger.info({ jobId, programId, questionCount: existing.questions.length }, "Published ingestion job as program");
+    return { programId };
   }
 
   async listJobs(): Promise<IngestionJobSummary[]> {

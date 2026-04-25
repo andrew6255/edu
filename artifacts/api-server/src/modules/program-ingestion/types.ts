@@ -54,6 +54,55 @@ export type PromptBlock =
   | { type: "table"; headers: string[]; rows: string[][] }
   | { type: "note"; text: string };
 
+export type DeterministicAnswerSpec =
+  | {
+      type: "choice";
+      choices: string[];
+      correctChoiceIndex: number;
+    }
+  | {
+      type: "number";
+      correct: Array<number | string>;
+      tolerance?: number;
+    }
+  | {
+      type: "text";
+      accepted: string[];
+      caseSensitive?: boolean;
+      trim?: boolean;
+    }
+  | {
+      type: "line_equation";
+      forms: string[];
+      variable?: string;
+      caseSensitive?: boolean;
+      trim?: boolean;
+    }
+  | {
+      type: "point_list";
+      points: Array<{ x: number; y: number }>;
+      minPoints?: number;
+      maxPoints?: number;
+      ordered?: boolean;
+      allowEquivalentOrder?: boolean;
+    }
+  | {
+      type: "points_on_line";
+      lineForms: string[];
+      minPoints: number;
+      maxPoints?: number;
+      disallowGivenPoints?: Array<{ x: number; y: number }>;
+      requireDistinct?: boolean;
+    };
+
+export interface QuestionSolutionStep {
+  id: string;
+  title: string;
+  prompt: PromptBlock[];
+  answer: DeterministicAnswerSpec;
+  explanation?: string;
+}
+
 export type ExtractionWarningCode =
   | "low_quality_scan"
   | "ocr_unreadable_region"
@@ -83,6 +132,7 @@ export interface ProgramNode {
   title: string;
   children: ProgramNode[];
   questionRefs?: string[];
+  questionTypeTitle?: string;
 }
 
 export interface AiExtractionAudit {
@@ -110,6 +160,24 @@ export interface IngestionJob {
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface StructuredDraftTopicSuggestion {
+  title: string;
+  questionTypeTitle: string;
+  questionIds: string[];
+}
+
+export interface StructuredDraftChapterSuggestion {
+  title: string;
+  topics: StructuredDraftTopicSuggestion[];
+}
+
+export interface StructuredDraftSuggestion {
+  title: string;
+  divisions: string[];
+  chapters: StructuredDraftChapterSuggestion[];
+  summary?: string;
 }
 
 export interface AiQuestionAnalysis {
@@ -173,6 +241,13 @@ export interface QuestionBase {
   tags?: string[];
   hints?: string[];
   explanation?: string;
+  answerData: {
+    final: DeterministicAnswerSpec | null;
+    finalAnswerText: string;
+    solution: string;
+    steps?: QuestionSolutionStep[];
+    allowDirectFinalAnswer?: boolean;
+  };
   review: {
     status: ReviewStatus;
     flags: ReviewFlag[];
@@ -313,5 +388,5 @@ export interface AttachIngestionSourceFileResult {
 }
 
 export interface RunIngestionStageInput {
-  stage: "extractDocument" | "auditExtraction" | "segmentQuestions" | "normalizeQuestions";
+  stage: "extractDocument" | "auditExtraction" | "segmentQuestions" | "normalizeQuestions" | "structureDraft";
 }

@@ -62,3 +62,27 @@ export async function runProgramIngestionStage(req: Request, res: Response): Pro
     res.status(message.includes("not found") ? 404 : 400).json({ error: message });
   }
 }
+
+export async function updateProgramIngestionQuestion(req: Request, res: Response): Promise<void> {
+  try {
+    const jobId = getJobId(req);
+    const questionId = typeof req.params["questionId"] === "string" ? req.params["questionId"] : "";
+    const { reviewStatus, normalizedQuestion } = req.body ?? {};
+    await programIngestionService.updateQuestion(jobId, questionId, { reviewStatus, normalizedQuestion });
+    res.json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    res.status(message.includes("not found") ? 404 : 400).json({ error: message });
+  }
+}
+
+export async function publishProgramIngestionJob(req: Request, res: Response): Promise<void> {
+  try {
+    const jobId = getJobId(req);
+    const result = await programIngestionService.publishJob(jobId);
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    res.status(message.includes("not found") ? 404 : 400).json({ error: message });
+  }
+}

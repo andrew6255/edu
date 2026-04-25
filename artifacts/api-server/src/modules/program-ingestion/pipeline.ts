@@ -25,7 +25,7 @@ export function buildExtractionAudit(document: ExtractedDocument): AiExtractionA
   const isScanProvider = document.extractionProvider.includes("scan");
 
   return {
-    titleGuess: document.fileName.replace(/\.[^.]+$/, ""),
+    titleGuess: (document as any).title || document.fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim(),
     subjectGuess: "mathematics",
     quality: hasLow ? "low" : pages.some((page) => page.quality === "medium") ? "medium" : "high",
     pages,

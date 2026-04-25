@@ -6,10 +6,31 @@ export type ProgramPromptBlock =
   | { type: 'image'; url: string; alt?: string; caption?: string }
   | { type: 'table'; rows: string[][]; headerRows?: number };
 
-export type ProgramInteractionSpec =
+export type ProgramAtomicInteractionSpec =
   | { type: 'mcq'; choices: string[]; correctChoiceIndex: number }
   | { type: 'numeric'; correct: number | number[]; tolerance?: number; format?: 'integer' | 'decimal' | 'fraction'; keypad?: 'basic' | 'scientific' }
-  | { type: 'text'; accepted: string[]; caseSensitive?: boolean; trim?: boolean };
+  | { type: 'text'; accepted: string[]; caseSensitive?: boolean; trim?: boolean }
+  | { type: 'line_equation'; forms: string[]; variable?: string; caseSensitive?: boolean; trim?: boolean }
+  | { type: 'point_list'; points: Array<{ x: number; y: number }>; minPoints?: number; maxPoints?: number; ordered?: boolean; allowEquivalentOrder?: boolean }
+  | { type: 'points_on_line'; lineForms: string[]; minPoints: number; maxPoints?: number; disallowGivenPoints?: Array<{ x: number; y: number }>; requireDistinct?: boolean };
+
+export type ProgramStepSpec = {
+  id: string;
+  title: string;
+  prompt?: ProgramPromptBlock[];
+  interaction: ProgramAtomicInteractionSpec;
+  explanation?: string | null;
+};
+
+export type ProgramInteractionSpec =
+  | ProgramAtomicInteractionSpec
+  | {
+      type: 'composite';
+      final: ProgramAtomicInteractionSpec;
+      steps: ProgramStepSpec[];
+      allowDirectFinalAnswer?: boolean;
+      scoreStrategy?: 'final_only' | 'final_plus_steps';
+    };
 
 export type ProgramChapter = {
   chapter_id: string;
@@ -59,6 +80,13 @@ export type ProgramAnnotationsFile = {
           points?: number;
           solution?: { raw_text?: string | null; latex?: string | null };
           hints?: Array<{ raw_text?: string | null; latex?: string | null }>;
+          stepSolutions?: Array<{
+            id: string;
+            title: string;
+            prompt?: { blocks: ProgramPromptBlock[] };
+            interaction: ProgramAtomicInteractionSpec;
+            explanation?: { raw_text?: string | null; latex?: string | null };
+          }>;
         }
       >;
     }
@@ -69,6 +97,7 @@ export type ProgramMetaFile = {
   version: string;
   program_id: string;
   program_title?: string | null;
+  divisions?: string[];
   defaults?: {
     time_limit_seconds?: number;
     points?: number;
@@ -128,6 +157,9 @@ export type FlatProgramQuestion = {
   difficulty: ProgramDifficulty | null;
   mcq: { choices: string[]; correctChoiceIndex: number } | null;
   interaction: ProgramInteractionSpec | null;
+  solutionText: string | null;
+  hints: string[];
+  stepSolutions: ProgramStepSpec[];
 };
 
 function getText(x: unknown): string | null {
@@ -209,6 +241,20 @@ export function flattenProgramChapter(
           difficulty: (a?.difficulty as ProgramDifficulty) ?? null,
           mcq: a?.mcq && Array.isArray(a.mcq.choices) && typeof a.mcq.correctChoiceIndex === 'number' ? a.mcq : null,
           interaction,
+          solutionText: getText(a?.solution?.raw_text) ?? getText(a?.solution?.latex),
+          hints: Array.isArray(a?.hints) ? a.hints.map((h) => getText(h?.raw_text) ?? getText(h?.latex)).filter(Boolean) as string[] : [],
+          stepSolutions: Array.isArray((a as any)?.stepSolutions)
+            ? ((a as any).stepSolutions as Array<Record<string, unknown>>).map((step, idx) => ({
+                id: typeof step?.id === 'string' ? step.id : `step_${idx + 1}`,
+                title: typeof step?.title === 'string' ? step.title : `Step ${idx + 1}`,
+                prompt: Array.isArray((step?.prompt as { blocks?: unknown } | undefined)?.blocks)
+                  ? (((step?.prompt as { blocks?: unknown[] }).blocks ?? []) as ProgramPromptBlock[])
+                  : undefined,
+                interaction: step?.interaction as ProgramAtomicInteractionSpec,
+                explanation: getText((step?.explanation as { raw_text?: unknown; latex?: unknown } | undefined)?.raw_text)
+                  ?? getText((step?.explanation as { raw_text?: unknown; latex?: unknown } | undefined)?.latex),
+              }))
+            : [],
         });
       } else {
         for (const p of parts) {
@@ -252,6 +298,20 @@ export function flattenProgramChapter(
             difficulty: (a?.difficulty as ProgramDifficulty) ?? null,
             mcq: a?.mcq && Array.isArray(a.mcq.choices) && typeof a.mcq.correctChoiceIndex === 'number' ? a.mcq : null,
             interaction,
+            solutionText: getText(a?.solution?.raw_text) ?? getText(a?.solution?.latex),
+            hints: Array.isArray(a?.hints) ? a.hints.map((h) => getText(h?.raw_text) ?? getText(h?.latex)).filter(Boolean) as string[] : [],
+            stepSolutions: Array.isArray((a as any)?.stepSolutions)
+              ? ((a as any).stepSolutions as Array<Record<string, unknown>>).map((step, idx) => ({
+                  id: typeof step?.id === 'string' ? step.id : `step_${idx + 1}`,
+                  title: typeof step?.title === 'string' ? step.title : `Step ${idx + 1}`,
+                  prompt: Array.isArray((step?.prompt as { blocks?: unknown } | undefined)?.blocks)
+                    ? (((step?.prompt as { blocks?: unknown[] }).blocks ?? []) as ProgramPromptBlock[])
+                    : undefined,
+                  interaction: step?.interaction as ProgramAtomicInteractionSpec,
+                  explanation: getText((step?.explanation as { raw_text?: unknown; latex?: unknown } | undefined)?.raw_text)
+                    ?? getText((step?.explanation as { raw_text?: unknown; latex?: unknown } | undefined)?.latex),
+                }))
+              : [],
           });
         }
       }
