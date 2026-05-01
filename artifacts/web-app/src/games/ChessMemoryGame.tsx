@@ -29,9 +29,15 @@ function pieceStyle(piece: string): React.CSSProperties {
 }
 
 const MEMORIZE_SEC = 4;
-const PIECES_PER_ROUND = 5;
 const TIME_LIMIT = 120;
 const BOARD = 6;
+
+type Difficulty = 'easy' | 'hard';
+
+const DIFFICULTY_CONFIG: Record<Difficulty, { label: string; pieces: number; accent: string }> = {
+  easy: { label: 'Easy', pieces: 4, accent: '#10b981' },
+  hard: { label: 'Hard', pieces: 7, accent: '#f97316' },
+};
 
 interface PiecePlacement {
   piece: string;
@@ -39,8 +45,8 @@ interface PiecePlacement {
   col: number;
 }
 
-function generateRound(): PiecePlacement[] {
-  const shuffled = [...PIECE_LIST].sort(() => Math.random() - 0.5).slice(0, PIECES_PER_ROUND);
+function generateRound(pieceCount: number): PiecePlacement[] {
+  const shuffled = [...PIECE_LIST].sort(() => Math.random() - 0.5).slice(0, pieceCount);
   const used = new Set<string>();
   return shuffled.map(piece => {
     let r, c, key;
@@ -54,6 +60,7 @@ type Phase = 'memorize' | 'recall';
 
 export default function ChessMemoryGame({ onGameOver }: Props) {
   const [started, setStarted] = useState(false);
+  const [difficulty, setDifficulty] = useState<Difficulty>('easy');
   const [phase, setPhase] = useState<Phase>('memorize');
   const [round, setRound] = useState<PiecePlacement[]>([]);
   const [countdown, setCountdown] = useState(MEMORIZE_SEC);
@@ -69,9 +76,10 @@ export default function ChessMemoryGame({ onGameOver }: Props) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
+  const pieceCount = DIFFICULTY_CONFIG[difficulty].pieces;
 
   function startRound() {
-    const r = generateRound();
+    const r = generateRound(pieceCount);
     setRound(r);
     setPlaced(new Map());
     setSelected(null);
@@ -120,7 +128,7 @@ export default function ChessMemoryGame({ onGameOver }: Props) {
     setSelected(null);
     setDraggingPiece(null);
     setDragPoint(null);
-    if (newPlaced.size >= PIECES_PER_ROUND) {
+    if (newPlaced.size >= pieceCount) {
       setTimeout(() => { setTotalPlaced(0); startRound(); }, 800);
     }
   }
@@ -169,7 +177,31 @@ export default function ChessMemoryGame({ onGameOver }: Props) {
         <div style={{ fontSize: 52 }}>♟️</div>
         <div style={{ fontSize: 22, fontWeight: 'bold', color: 'white' }}>Chess Memory</div>
         <div style={{ color: '#94a3b8', textAlign: 'center', maxWidth: 300, lineHeight: 1.6 }}>
-          Memorise {PIECES_PER_ROUND} chess pieces on the board for {MEMORIZE_SEC} seconds. Then place them back in the correct squares! Score per correct placement.
+          Memorise {pieceCount} chess pieces on the board for {MEMORIZE_SEC} seconds. Then place them back in the correct squares! Score per correct placement.
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: -4 }}>
+          {(Object.entries(DIFFICULTY_CONFIG) as [Difficulty, typeof DIFFICULTY_CONFIG[Difficulty]][]).map(([key, config]) => {
+            const active = difficulty === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setDifficulty(key)}
+                style={{
+                  minWidth: 120,
+                  padding: '12px 14px',
+                  borderRadius: 12,
+                  border: `2px solid ${active ? config.accent : '#334155'}`,
+                  background: active ? `${config.accent}22` : 'rgba(15,23,42,0.8)',
+                  color: active ? '#f8fafc' : '#94a3b8',
+                  cursor: 'pointer',
+                  boxShadow: active ? `0 10px 18px ${config.accent}22` : 'none',
+                }}
+              >
+                <div style={{ fontWeight: 'bold', fontSize: 15 }}>{config.label}</div>
+                <div style={{ fontSize: 12, marginTop: 2 }}>{config.pieces} pieces</div>
+              </button>
+            );
+          })}
         </div>
         <button className="ll-btn ll-btn-primary" style={{ padding: '14px 44px', fontSize: 16, marginTop: 8 }} onClick={() => setStarted(true)}>
           Start
@@ -189,7 +221,12 @@ export default function ChessMemoryGame({ onGameOver }: Props) {
     <div style={{ padding: '16px 16px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, height: '100%', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: 380 }}>
         <div style={{ color: '#94a3b8', fontSize: 13 }}>Score: <span style={{ color: 'white', fontWeight: 'bold' }}>{score}</span></div>
-        <div style={{ color: barColor, fontWeight: 'bold', fontSize: 14 }}>{timeLeft}s</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ color: DIFFICULTY_CONFIG[difficulty].accent, fontWeight: 'bold', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            {DIFFICULTY_CONFIG[difficulty].label}
+          </div>
+          <div style={{ color: barColor, fontWeight: 'bold', fontSize: 14 }}>{timeLeft}s</div>
+        </div>
       </div>
       <div style={{ width: '100%', maxWidth: 380, height: 5, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: 3, transition: 'width 1s linear' }} />

@@ -1378,7 +1378,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   const overallSolved = solvedQuestionIds.length;
   const overallTotal = qbQuestions.length;
 
-  const playableOverallTotal = useMemo(() => qbQuestions.filter((q) => !!q.mcq).length, [qbQuestions]);
+  const playableOverallTotal = useMemo(() => qbQuestions.filter((q) => !!q.interaction).length, [qbQuestions]);
 
   const rankRoadmapScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -1409,10 +1409,10 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
 
   const regionTypeCounts = useMemo(() => {
     if (!mapRegionId) return [] as Array<{ tid: string; count: number }>;
-    return Object.entries(qbMcqCounts.byRegionAndType[mapRegionId] ?? {})
+    return Object.entries(qbCounts.byRegionAndType[mapRegionId] ?? {})
       .map(([tid, count]) => ({ tid, count }))
       .sort((a, b) => (qbQuestionTypes.find((t) => t.id === a.tid)?.treeOrder ?? 999) - (qbQuestionTypes.find((t) => t.id === b.tid)?.treeOrder ?? 999));
-  }, [mapRegionId, qbMcqCounts.byRegionAndType, qbQuestionTypes]);
+  }, [mapRegionId, qbCounts.byRegionAndType, qbQuestionTypes]);
 
   const chaptersPathFill = useMemo(() => {
     const total = playableOverallTotal;
@@ -1485,8 +1485,11 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   }, [tocUnits, qbRegions, qbMcqCounts.byRegion, qbMcqRankedSolvedCounts.byRegion]);
 
   const tocUnitsWithQuestions = useMemo(() => {
-    return tocUnits.filter((u) => (unitRankedProgress[u.id]?.total ?? 0) > 0);
-  }, [tocUnits, unitRankedProgress]);
+    const matched = tocUnits.filter((u) => (unitRankedProgress[u.id]?.total ?? 0) > 0);
+    if (matched.length > 0) return matched;
+    if (tocUnits.length > 0 && qbQuestions.length > 0) return tocUnits;
+    return matched;
+  }, [tocUnits, unitRankedProgress, qbQuestions]);
 
   useEffect(() => {
     if (!activeUnitId) return;
@@ -3054,7 +3057,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                         return regionTypeCounts.map(({ tid, count }) => {
                           const tdef = qbQuestionTypes.find((t) => t.id === tid);
                           const ttitle = tdef?.title ?? tid;
-                          const canPlay = qbQuestions.some((q) => q.regionId === mapRegionId && q.questionTypeId === tid && !!q.mcq);
+                          const canPlay = qbQuestions.some((q) => q.regionId === mapRegionId && q.questionTypeId === tid && !!q.interaction);
                           const solved = qbSolvedCounts.byRegionAndType[mapRegionId]?.[tid] ?? 0;
                           const rankedSolved = qbMcqRankedSolvedCounts.byRegionAndType[mapRegionId]?.[tid] ?? 0;
                           const complete = count > 0 && rankedSolved >= count;

@@ -16,6 +16,18 @@ export type ProgramAdminRecord = {
   updatedAt?: string;
 };
 
+function parseJsonField(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
 function fromSupabaseRow(row: Record<string, unknown>): ProgramAdminRecord {
   return {
     id: String(row.id ?? ''),
@@ -23,11 +35,11 @@ function fromSupabaseRow(row: Record<string, unknown>): ProgramAdminRecord {
     subject: typeof row.subject === 'string' ? row.subject : undefined,
     grade_band: typeof row.grade_band === 'string' ? row.grade_band : undefined,
     coverEmoji: typeof row.cover_emoji === 'string' ? row.cover_emoji : undefined,
-    builderSpec: row.builder_spec,
-    toc: row.toc,
-    annotations: row.annotations,
-    programMeta: row.program_meta,
-    questionBanksByChapter: row.question_banks_by_chapter,
+    builderSpec: parseJsonField(row.builder_spec),
+    toc: parseJsonField(row.toc),
+    annotations: parseJsonField(row.annotations),
+    programMeta: parseJsonField(row.program_meta),
+    questionBanksByChapter: parseJsonField(row.question_banks_by_chapter),
     rankedTotalQuestionCount: typeof row.ranked_total_question_count === 'number' ? row.ranked_total_question_count : undefined,
     deletedAt: typeof row.deleted_at === 'string' ? row.deleted_at : undefined,
     updatedAt: typeof row.updated_at === 'string' ? row.updated_at : undefined,

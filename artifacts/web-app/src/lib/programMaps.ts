@@ -1,4 +1,5 @@
 import { getDraftProgram } from '@/lib/draftProgramStore';
+import { ensureFixedFirstDivisionContainer, type BuilderSpec, convertBuilderToInternal } from '@/lib/programBuilder';
 import { getDraftProgramAdmin, getPublishedProgramAdmin, listPublishedProgramsFull } from '@/lib/programAdminService';
 import { getUserData, updateUserData } from '@/lib/userService';
 import { deleteUserDoc } from '@/lib/supabaseDocStore';
@@ -60,23 +61,64 @@ function toPublicProgram(data: Partial<PublicProgram> & { id: string }): PublicP
   };
 }
 
+function hasUsableProgramContent(program: PublicProgram | null): program is PublicProgram {
+  if (!program) return false;
+  if (Array.isArray(program.toc?.toc_tree) && program.toc.toc_tree.length > 0) return true;
+  const banks = program.questionBanksByChapter;
+  return !!banks && typeof banks === 'object' && Object.keys(banks as Record<string, unknown>).length > 0;
+}
+
+function rebuildPublicProgramFromBuilderSpec(data: Partial<PublicProgram> & { id: string; builderSpec?: unknown }): PublicProgram | null {
+  const spec = data.builderSpec as BuilderSpec | undefined;
+  if (!spec || spec.version !== '1.0') return null;
+  try {
+    const normalized = ensureFixedFirstDivisionContainer(spec);
+    const title = normalized.programTitle || normalized.root.title || (typeof data.title === 'string' ? data.title : data.id);
+    const internal = convertBuilderToInternal({ ...normalized, programId: data.id, programTitle: title });
+    return {
+      id: data.id,
+      title,
+      subject: normalized.subject ?? data.subject,
+      grade_band: normalized.gradeBand ?? data.grade_band,
+      coverEmoji: normalized.coverEmoji ?? data.coverEmoji,
+      questionBankPath: typeof (data as any).questionBankPath === 'string' ? ((data as any).questionBankPath as string) : undefined,
+      annotationsPath: typeof (data as any).annotationsPath === 'string' ? ((data as any).annotationsPath as string) : undefined,
+      questionBank: (data as any).questionBank,
+      questionBanksByChapter: internal.questionBanksByChapter,
+      rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+      annotations: internal.annotations,
+      programMeta: internal.programMeta,
+      toc: internal.toc,
+      deletedAt: typeof (data as any).deletedAt === 'string' ? ((data as any).deletedAt as string) : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function toPublicProgramWithBuilderFallback(data: Partial<PublicProgram> & { id: string; builderSpec?: unknown }): PublicProgram | null {
+  const direct = toPublicProgram(data);
+  if (hasUsableProgramContent(direct)) return direct;
+  return rebuildPublicProgramFromBuilderSpec(data) ?? direct;
+}
+
 export async function getDraftProgramFromDb(programId: string): Promise<PublicProgram | null> {
   const data = await getDraftProgramAdmin(programId);
   if (!data) return null;
-  return toPublicProgram(data as Partial<PublicProgram> & { id: string });
+  return toPublicProgramWithBuilderFallback(data as Partial<PublicProgram> & { id: string; builderSpec?: unknown });
 }
 
 export async function listPublicPrograms(): Promise<PublicProgram[]> {
   const rows = await listPublishedProgramsFull();
   return rows
-    .map((row) => toPublicProgram(row as Partial<PublicProgram> & { id: string }))
+    .map((row) => toPublicProgramWithBuilderFallback(row as Partial<PublicProgram> & { id: string; builderSpec?: unknown }))
     .filter((p): p is PublicProgram => !!p);
 }
 
 export async function getPublicProgram(programId: string): Promise<PublicProgram | null> {
   const data = await getPublishedProgramAdmin(programId);
   if (!data) return null;
-  return toPublicProgram(data as Partial<PublicProgram> & { id: string });
+  return toPublicProgramWithBuilderFallback(data as Partial<PublicProgram> & { id: string; builderSpec?: unknown });
 }
 
 export async function getPublicProgramOrDraft(programId: string): Promise<PublicProgram | null> {

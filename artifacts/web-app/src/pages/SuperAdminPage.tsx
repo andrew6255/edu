@@ -67,6 +67,7 @@ import {
 import {
   deleteDraftProgramAdmin,
   getDraftProgramAdmin,
+  getPublishedProgramAdmin,
   listProgramsAdmin,
   publishProgramAdmin,
   saveDraftProgramAdmin,
@@ -1901,26 +1902,35 @@ function ProgramsAdmin() {
     setBuilderSelectedQuestionTypeId(null);
   }
 
-  function startEditBuilder(p: (typeof items)[number]) {
+  async function startEditBuilder(p: (typeof items)[number]) {
     setEditingId(p.id);
     setEditingDraftId(null);
-    const spec = (p as any).builderSpec as BuilderSpec | undefined;
-    const next = spec && typeof spec === 'object' && spec.version === '1.0'
-      ? spec
-      : (() => {
-          const b = newBuilderSpec();
-          b.programId = p.id;
-          b.programTitle = (p.title as string) ?? p.id;
-          b.subject = (p.subject as string) ?? 'mathematics';
-          b.gradeBand = (p.grade_band as string) ?? '';
-          b.coverEmoji = (p.coverEmoji as string) ?? '📘';
-          b.root.title = (p.title as string) ?? p.id;
-          return b;
-        })();
-    setBuilder(ensureFixedFirstDivisionContainer(next));
-    setBuilderPathIds(['root']);
-    setBuilderSelectedQuestionTypeId(null);
-    setView('builder');
+    try {
+      const data = await getPublishedProgramAdmin(p.id);
+      if (!data) {
+        window.alert('Published program not found');
+        return;
+      }
+      const spec = data.builderSpec as BuilderSpec | undefined;
+      const next = spec && typeof spec === 'object' && (spec as BuilderSpec).version === '1.0'
+        ? spec
+        : (() => {
+            const b = newBuilderSpec();
+            b.programId = p.id;
+            b.programTitle = (data.title as string) ?? p.id;
+            b.subject = (data.subject as string) ?? 'mathematics';
+            b.gradeBand = (data.grade_band as string) ?? '';
+            b.coverEmoji = (data.coverEmoji as string) ?? '📘';
+            b.root.title = (data.title as string) ?? p.id;
+            return b;
+          })();
+      setBuilder(ensureFixedFirstDivisionContainer(next));
+      setBuilderPathIds(['root']);
+      setBuilderSelectedQuestionTypeId(null);
+      setView('builder');
+    } catch (e) {
+      window.alert(formatBuilderError(e));
+    }
   }
 
   async function startEditDraftBuilder(d: (typeof draftItems)[number]) {
@@ -2001,6 +2011,25 @@ function ProgramsAdmin() {
     const idBase = builder.programId.trim() || makeIdFromTitle(title) || 'program';
     const id = String(editingId || editingDraftId || idBase).trim() || idBase;
     return { id, title: title || id };
+  }
+
+  function assertBuilderHasContent(spec: BuilderSpec): void {
+    const normalized = ensureFixedFirstDivisionContainer(spec);
+    const fixedContainer = normalized.root.children.find((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID) ?? null;
+    const topFolders = fixedContainer ? fixedContainer.children : normalized.root.children;
+    const hasAnyQuestions = topFolders.some((chapter) => {
+      const stack: BuilderNode[] = [chapter];
+      while (stack.length > 0) {
+        const node = stack.pop()!;
+        if (node.questionTypes.some((qt) => qt.jsonText.trim().length > 0)) return true;
+        stack.push(...node.children);
+      }
+      return false;
+    });
+
+    if (!hasAnyQuestions) {
+      throw new Error('This program has no question content yet. Add at least one chapter/question type with questions before saving or publishing.');
+    }
   }
 
   function formatBuilderError(error: unknown): string {
@@ -2110,6 +2139,7 @@ function ProgramsAdmin() {
     }
     setSaving(true);
     try {
+      assertBuilderHasContent({ ...builder, programId, programTitle: title });
       const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
       const payload: Record<string, unknown> = stripUndefinedDeep({
         title,
@@ -2146,6 +2176,7 @@ function ProgramsAdmin() {
 
     setSaving(true);
     try {
+      assertBuilderHasContent({ ...builder, programId, programTitle: title });
       const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
       const payload: Record<string, unknown> = stripUndefinedDeep({
         title,
@@ -2303,10 +2334,36 @@ function ProgramsAdmin() {
     if (editingId === id) resetDraft();
   }
 
-  function previewProgram(programId: string) {
-    setPreviewProgramId(programId);
-    setPreviewReturnView('list');
-    setView('preview');
+  async function previewProgram(programId: string) {
+    try {
+      const data = await getPublishedProgramAdmin(programId);
+      const spec = data?.builderSpec as BuilderSpec | undefined;
+      if (spec && spec.version === '1.0') {
+        const normalized = ensureFixedFirstDivisionContainer(spec);
+        const title = normalized.programTitle || normalized.root.title || data?.title || programId;
+        const internal = convertBuilderToInternal({ ...normalized, programId, programTitle: title });
+        const key = `published-preview:${programId}`;
+        setDraftProgram(key, {
+          id: programId,
+          title,
+          subject: normalized.subject ?? data?.subject ?? 'mathematics',
+          grade_band: normalized.gradeBand ?? data?.grade_band,
+          coverEmoji: normalized.coverEmoji ?? data?.coverEmoji ?? '📘',
+          toc: internal.toc,
+          questionBanksByChapter: internal.questionBanksByChapter,
+          annotations: internal.annotations,
+          programMeta: internal.programMeta,
+          rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+        });
+        setPreviewProgramId(`ll-draft:${key}`);
+      } else {
+        setPreviewProgramId(programId);
+      }
+      setPreviewReturnView('list');
+      setView('preview');
+    } catch (e) {
+      window.alert(formatBuilderError(e));
+    }
   }
 
   if (loading) return <div style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>Loading programs...</div>;

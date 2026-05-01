@@ -62,8 +62,73 @@ function emptyBoard(): Board {
   return Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
 }
 
-function randomTray(): (Shape | null)[] {
-  return [randomShape(), randomShape(), randomShape()];
+function filledCells(board: Board): number {
+  return board.reduce((sum, row) => sum + row.filter(Boolean).length, 0);
+}
+
+function shapeSize(shape: Shape): number {
+  return shape.cells.length;
+}
+
+function countFits(board: Board, shape: Shape): number {
+  let count = 0;
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      if (canPlace(board, shape, x, y)) count += 1;
+    }
+  }
+  return count;
+}
+
+function maxLineClearPotential(board: Board, shape: Shape): number {
+  let best = 0;
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      if (!canPlace(board, shape, x, y)) continue;
+      const placed = place(board, shape, x, y);
+      const { rows, cols } = findFullLines(placed);
+      best = Math.max(best, rows.size + cols.size);
+    }
+  }
+  return best;
+}
+
+function smartTray(board: Board): (Shape | null)[] {
+  const occupancy = filledCells(board) / (SIZE * SIZE);
+  const fitting = SHAPES.filter(shape => countFits(board, shape) > 0);
+  if (fitting.length === 0) return [null, null, null];
+
+  const ranked = fitting
+    .map(shape => {
+      const fits = countFits(board, shape);
+      const clearPotential = maxLineClearPotential(board, shape);
+      const size = shapeSize(shape);
+      const score = fits * (occupancy > 0.58 ? 2.2 : 1.2)
+        + clearPotential * 16
+        + (occupancy > 0.65 ? Math.max(0, 6 - size) * 4 : Math.max(0, 5 - size));
+      return { shape, fits, clearPotential, size, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const safePool = ranked.filter(item => item.size <= (occupancy > 0.55 ? 4 : 5));
+  const powerPool = ranked.filter(item => item.clearPotential > 0 || item.size >= 4);
+  const balancedPool = ranked.filter(item => item.fits >= Math.max(2, ranked[0]?.fits ? Math.ceil(ranked[0].fits / 3) : 2));
+
+  const chosen: Shape[] = [];
+  const pickFrom = (pool: typeof ranked, fallback: typeof ranked) => {
+    const source = pool.filter(item => !chosen.includes(item.shape));
+    const usable = source.length ? source : fallback.filter(item => !chosen.includes(item.shape));
+    const top = usable.slice(0, Math.min(4, usable.length));
+    const pick = top[Math.floor(Math.random() * top.length)] ?? usable[0];
+    if (pick) chosen.push({ cells: pick.shape.cells.map(c => [...c]), color: pick.shape.color });
+  };
+
+  pickFrom(safePool, ranked);
+  pickFrom(powerPool, balancedPool.length ? balancedPool : ranked);
+  pickFrom(balancedPool, ranked);
+
+  while (chosen.length < 3) chosen.push(randomShape());
+  return chosen;
 }
 
 function canPlace(board: Board, shape: Shape, ox: number, oy: number): boolean {
@@ -137,12 +202,15 @@ function bestGhostPos(board: Board, shape: Shape, cellX: number, cellY: number):
 /* ── Component ─────────────────────────────────────────────────────────────── */
 export default function BlockPuzzleGame({ onGameOver }: GameProps) {
   const [board, setBoard] = useState<Board>(emptyBoard());
-  const [tray, setTray] = useState<(Shape | null)[]>(randomTray());
+  const [tray, setTray] = useState<(Shape | null)[]>(smartTray(emptyBoard()));
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(0);
   const [started, setStarted] = useState(false);
   const [over, setOver] = useState(false);
   const [linesCleared, setLinesCleared] = useState(0);
+  const [recentPlaced, setRecentPlaced] = useState<Set<string>>(new Set());
+  const [recentClears, setRecentClears] = useState<Set<string>>(new Set());
+  const [effectText, setEffectText] = useState<string | null>(null);
 
   // Drag / select state
   const [selected, setSelected] = useState<number | null>(null);  // tap-to-select mode
@@ -169,8 +237,14 @@ export default function BlockPuzzleGame({ onGameOver }: GameProps) {
   function commitPlace(idx: number, pos: { x: number; y: number }) {
     const shape = tray[idx];
     if (!shape || !canPlace(board, shape, pos.x, pos.y)) return;
+    const placedKeys = new Set<string>();
+    shape.cells.forEach(([cx, cy]) => placedKeys.add(`${pos.y + cy}-${pos.x + cx}`));
     let nb = place(board, shape, pos.x, pos.y);
     const placePts = shape.cells.length;
+    const { rows, cols } = findFullLines(nb);
+    const clearKeys = new Set<string>();
+    rows.forEach(r => { for (let c = 0; c < SIZE; c++) clearKeys.add(`${r}-${c}`); });
+    cols.forEach(c => { for (let r = 0; r < SIZE; r++) clearKeys.add(`${r}-${c}`); });
     const [cleared, lines] = clearLines(nb);
     nb = cleared;
     const newCombo = lines > 0 ? combo + 1 : 0;
@@ -180,14 +254,26 @@ export default function BlockPuzzleGame({ onGameOver }: GameProps) {
     setScore(s => s + placePts * 10 + linePts);
     setCombo(newCombo);
     setLinesCleared(l => l + lines);
+    setRecentPlaced(placedKeys);
+    setTimeout(() => setRecentPlaced(new Set()), 180);
+    if (clearKeys.size > 0) {
+      setRecentClears(clearKeys);
+      setTimeout(() => setRecentClears(new Set()), 260);
+      setEffectText(lines > 1 ? `${lines} LINES!` : newCombo > 1 ? `COMBO x${newCombo}` : 'NICE!');
+      setTimeout(() => setEffectText(null), 700);
+    } else if (shape.cells.length >= 5) {
+      setEffectText('SOLID MOVE');
+      setTimeout(() => setEffectText(null), 500);
+    }
 
     const newTray = [...tray];
     newTray[idx] = null;
-    const nextTray = newTray.every(s => s === null) ? randomTray() : newTray;
+    const nextTray = newTray.every(s => s === null) ? smartTray(nb) : newTray;
     setTray(nextTray);
     setSelected(null);
     setDragging(null);
     setGhostPos(null);
+    setDragPoint(null);
 
     if (!anyFits(nb, nextTray)) setOver(true);
   }
@@ -354,25 +440,46 @@ export default function BlockPuzzleGame({ onGameOver }: GameProps) {
           const key = `${ri}-${ci}`;
           const isGhost = ghostCellSet.has(key);
           const willClear = clearPreviewSet.has(key);
+          const isPlaced = recentPlaced.has(key);
+          const isClearing = recentClears.has(key);
           return (
             <div key={key} style={{
               width: CELL, height: CELL,
               background: cell
-                ? willClear
+                ? isClearing
+                  ? '#f8fafc'
+                  : willClear
                   ? '#ffffff'
                   : isGhost ? cell + 'bb' : cell
                 : 'rgba(255,255,255,0.03)',
               borderRadius: 4,
               boxShadow: cell
-                ? willClear
+                ? isClearing
+                  ? '0 0 20px rgba(255,255,255,0.95), inset 0 0 18px rgba(255,255,255,0.85)'
+                  : willClear
                   ? '0 0 8px rgba(255,255,255,0.5)'
-                  : `inset 0 0 ${isGhost ? '12px' : '6px'} rgba(255,255,255,${isGhost ? 0.25 : 0.1})`
+                  : `inset 0 0 ${isGhost ? '12px' : isPlaced ? '16px' : '6px'} rgba(255,255,255,${isGhost ? 0.25 : isPlaced ? 0.32 : 0.1})`
                 : 'none',
-              transition: 'background 0.1s, box-shadow 0.1s',
+              transform: isPlaced ? 'scale(1.05)' : isClearing ? 'scale(1.08)' : 'scale(1)',
+              transition: 'background 0.12s, box-shadow 0.12s, transform 0.12s',
             }} />
           );
         }))}
       </div>
+
+      {effectText && (
+        <div style={{
+          marginTop: -4,
+          marginBottom: -2,
+          color: '#f8fafc',
+          fontWeight: 'bold',
+          fontSize: 18,
+          letterSpacing: 1,
+          textShadow: '0 0 14px rgba(255,255,255,0.28)',
+        }}>
+          {effectText}
+        </div>
+      )}
 
       {dragging !== null && activeShape && activeBounds && dragPoint && (
         <div
