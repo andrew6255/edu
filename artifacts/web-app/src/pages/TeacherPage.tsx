@@ -18,6 +18,7 @@ import {
 import { getClassLeaderboard, type ClassLeaderboardEntry } from '@/lib/statsService';
 import ChatWidget from '@/components/ChatWidget';
 import { requireSupabase } from '@/lib/supabase';
+import { listFreeformReviewsForUsers, type FreeformReviewRow } from '@/lib/freeformReviewService';
 
 const COLOR = '#10b981';
 const COLOR_DIM = '#10b98155';
@@ -27,7 +28,7 @@ const cardStyle: React.CSSProperties = {
 };
 
 type TopTab = 'classes' | 'users' | 'parents';
-type ClassTab = 'students' | 'content' | 'results' | 'leaderboard' | 'chat';
+type ClassTab = 'students' | 'content' | 'results' | 'leaderboard' | 'chat' | 'freeformReview';
 
 export default function TeacherPage() {
   const { user, userData, loading } = useAuth();
@@ -68,6 +69,9 @@ export default function TeacherPage() {
   // leaderboard
   const [leaderboard, setLeaderboard] = useState<ClassLeaderboardEntry[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+
+  const [freeformReviews, setFreeformReviews] = useState<FreeformReviewRow[]>([]);
+  const [loadingFreeformReviews, setLoadingFreeformReviews] = useState(false);
 
   // redirect guard
   useEffect(() => {
@@ -135,6 +139,14 @@ export default function TeacherPage() {
       try { setLeaderboard(await getClassLeaderboard(selectedClass.id)); } catch (e) { console.error(e); }
       finally { setLoadingLeaderboard(false); }
     }
+    if (tab === 'freeformReview' && freeformReviews.length === 0) {
+      setLoadingFreeformReviews(true);
+      try {
+        const userIds = students.filter((student) => student.role === 'student').map((student) => student.user_id);
+        setFreeformReviews(await listFreeformReviewsForUsers(userIds));
+      } catch (e) { console.error(e); }
+      finally { setLoadingFreeformReviews(false); }
+    }
   }
 
   if (loading || loadingData) {
@@ -179,6 +191,7 @@ export default function TeacherPage() {
               { id: 'students' as const, icon: '👥', label: `Students (${students.length})` },
               { id: 'content' as const, icon: '📚', label: 'Content' },
               { id: 'results' as const, icon: '📋', label: 'Quiz Results' },
+              { id: 'freeformReview' as const, icon: '📝', label: `Freeform Review (${freeformReviews.length})` },
               { id: 'leaderboard' as const, icon: '🏆', label: 'Leaderboard' },
               { id: 'chat' as const, icon: '💬', label: 'Chat' },
             ]).map(t => (
@@ -300,6 +313,30 @@ export default function TeacherPage() {
                   })}
                 </div>
               </>
+            )
+          )}
+
+          {classTab === 'freeformReview' && (
+            loadingFreeformReviews ? <Loader /> : freeformReviews.length === 0 ? <Empty icon="📝" text="No freeform submissions yet." /> : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {freeformReviews.map((review) => (
+                  <div key={review.id} style={{ ...cardStyle, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <div style={{ color: 'white', fontWeight: 'bold', fontSize: 13 }}>{review.questionText || 'Untitled freeform response'}</div>
+                      <div style={{ color: review.status === 'pending_review' ? '#93c5fd' : (review.correct ? '#34d399' : '#fca5a5'), fontSize: 11, fontWeight: 'bold' }}>
+                        {review.status === 'pending_review' ? 'Pending review' : (review.correct ? 'Accepted' : 'Rejected')}
+                      </div>
+                    </div>
+                    <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 8 }}>
+                      {new Date(review.createdAt).toLocaleString()} · mode: {review.gradingMode} · provider: {review.provider ?? '—'}
+                    </div>
+                    <div style={{ color: '#cbd5e1', fontSize: 12, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{review.answerText}</div>
+                    {review.feedbackText ? (
+                      <div style={{ color: '#94a3b8', fontSize: 11, whiteSpace: 'pre-wrap' }}>{review.feedbackText}</div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             )
           )}
 

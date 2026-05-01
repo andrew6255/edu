@@ -31,7 +31,7 @@ function makeLineEquationFormsFromPoints(points: Array<{ x: number; y: number }>
 }
 
 function makeGeneratedPointsFromEquation(text: string): Array<{ x: number; y: number }> {
-  const match = text.match(/y\s*=\s*([+-]?\d+(?:\.\d+)?)?x\s*([+-]\s*\d+(?:\.\d+)?)?/i);
+  const match = text.match(/y\s*=\s*([+-]?(?:\d+(?:\.\d+)?)?)x\s*([+-]\s*\d+(?:\.\d+)?)?/i);
   if (!match) return [];
   const mRaw = (match[1] ?? "1").trim();
   const bRaw = (match[2] ?? "0").replace(/\s+/g, "").trim();
@@ -42,6 +42,31 @@ function makeGeneratedPointsFromEquation(text: string): Array<{ x: number; y: nu
     const x = idx;
     return { x, y: m * x + b };
   });
+}
+
+function makeExplanationScenes(solution: string, finalAnswerText: string): NonNullable<Question["answerData"]["explanationScenes"]> {
+  const trimmedSolution = solution.trim();
+  const trimmedFinal = finalAnswerText.trim();
+  const scenes: NonNullable<Question["answerData"]["explanationScenes"]> = [];
+  if (trimmedSolution) {
+    scenes.push({
+      id: "scene_strategy",
+      title: "Plan",
+      narration: trimmedSolution,
+      afterText: trimmedSolution,
+      action: "note",
+    });
+  }
+  if (trimmedFinal) {
+    scenes.push({
+      id: "scene_result",
+      title: "Result",
+      narration: trimmedFinal,
+      afterText: trimmedFinal,
+      action: "reveal",
+    });
+  }
+  return scenes;
 }
 
 function makeAdditionalPointsFromLine(points: Array<{ x: number; y: number }>, count: number): Array<{ x: number; y: number }> {
@@ -71,6 +96,7 @@ export function normalizeQuestionBlock(block: ExtractedQuestionBlock): AiQuestio
   let finalAnswerText = "";
   let solution = "";
   let steps: NonNullable<Question["answerData"]["steps"]> = [];
+  let explanationScenes: NonNullable<Question["answerData"]["explanationScenes"]> = [];
   let grading: Question["grading"] = {
     mode: "ai_rubric",
     answerFormat: "open_text",
@@ -99,23 +125,22 @@ export function normalizeQuestionBlock(block: ExtractedQuestionBlock): AiQuestio
     detectedKind = "ordered_steps";
     recommendedGradingMode = "step_based";
     const forms = makeLineEquationFormsFromPoints(pointPairs);
-    const extraPoints = makeAdditionalPointsFromLine(pointPairs, 3);
     structuredAnswer = forms.length > 0 ? { type: "line_equation", forms, variable: "y", trim: true, caseSensitive: false } : null;
     finalAnswerText = forms[0] ?? "";
     solution = "First determine the equation of the line from the two given points, then substitute new x-values to obtain three additional points on the same line.";
-    steps = extraPoints.length > 0
+    steps = forms.length > 0
       ? [
           {
             id: "step_points",
             title: "Three other points on the line",
             prompt: [{ type: "text", text: "Enter three other points that lie on the same line." }],
             answer: {
-              type: "point_list",
-              points: extraPoints,
+              type: "points_on_line",
+              lineForms: forms,
               minPoints: 3,
               maxPoints: 3,
-              ordered: false,
-              allowEquivalentOrder: true,
+              disallowGivenPoints: pointPairs.slice(0, 2),
+              requireDistinct: true,
             },
             explanation: "Any three distinct points on the same line are acceptable if they satisfy the equation.",
           },
@@ -133,6 +158,8 @@ export function normalizeQuestionBlock(block: ExtractedQuestionBlock): AiQuestio
     warnings.push("True/False wording detected, but answer-key extraction is not implemented yet.");
     grading = { mode: "deterministic", answerFormat: "choice" };
   }
+
+  explanationScenes = makeExplanationScenes(solution, finalAnswerText);
 
   const normalizedQuestion: Question = detectedKind === "open_response_ai"
     ? {
@@ -152,6 +179,7 @@ export function normalizeQuestionBlock(block: ExtractedQuestionBlock): AiQuestio
           finalAnswerText,
           solution,
           steps,
+          explanationScenes,
           allowDirectFinalAnswer: true,
         },
         review: {
@@ -181,7 +209,8 @@ export function normalizeQuestionBlock(block: ExtractedQuestionBlock): AiQuestio
           final: structuredAnswer,
           finalAnswerText,
           solution,
-          steps: [],
+          steps,
+          explanationScenes,
           allowDirectFinalAnswer: true,
         },
         review: {

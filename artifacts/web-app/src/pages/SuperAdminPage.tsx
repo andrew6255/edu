@@ -40,6 +40,7 @@ import {
 import {
   type ProgramAtomicInteractionSpec,
   type ProgramPromptBlock,
+  type ProgramExplanationScene,
   type ProgramStepSpec,
 } from '@/lib/programQuestionBank';
 import {
@@ -217,6 +218,27 @@ function deterministicAnswerToInteraction(value: unknown): ProgramAtomicInteract
     };
   }
   return null;
+}
+
+function getNormalizedExplanationScenes(value: unknown): ProgramExplanationScene[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((scene, idx) => {
+      const item = asRecord(scene);
+      if (!item) return null;
+      return {
+        id: typeof item.id === 'string' ? item.id : `scene_${idx + 1}`,
+        title: typeof item.title === 'string' && item.title.trim() ? item.title : `Step ${idx + 1}`,
+        narration: typeof item.narration === 'string' ? item.narration : null,
+        beforeText: typeof item.beforeText === 'string' ? item.beforeText : null,
+        afterText: typeof item.afterText === 'string' ? item.afterText : null,
+        emphasis: Array.isArray(item.emphasis) ? item.emphasis.map((entry) => String(entry)).filter(Boolean) : undefined,
+        action: item.action === 'highlight' || item.action === 'transform' || item.action === 'note' || item.action === 'reveal'
+          ? item.action
+          : undefined,
+      } satisfies ProgramExplanationScene;
+    })
+    .filter(Boolean) as ProgramExplanationScene[];
 }
 
 function getStringArray(value: unknown): string[] {
@@ -729,9 +751,9 @@ export default function SuperAdminPage() {
         )}
 
         {/* ── PROGRAMS ── */}
-        {tab === 'programs' && (
+        <div style={{ display: tab === 'programs' ? 'block' : 'none' }}>
           <ProgramsAdmin />
-        )}
+        </div>
 
         {/* ── LOGIC GAMES ── */}
         {tab === 'logicGames' && (
@@ -1385,6 +1407,7 @@ function ProgramsAdmin() {
   const [items, setItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string }>>([]);
   const [draftItems, setDraftItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string }>>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [view, setView] = useState<'list' | 'builder' | 'preview'>('list');
   const [previewReturnView, setPreviewReturnView] = useState<'list' | 'builder'>('list');
@@ -1468,6 +1491,175 @@ function ProgramsAdmin() {
     return 'Practice Questions';
   }
 
+  function normalizeOrganizationLabel(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  function extractQuestionPromptText(question: Record<string, unknown>): string {
+    const promptBlocks = Array.isArray(question.promptBlocks) ? question.promptBlocks as Array<Record<string, unknown>> : [];
+    return promptBlocks
+      .map((block) => (typeof block?.text === 'string' ? block.text : (typeof block?.latex === 'string' ? block.latex : '')))
+      .join('\n')
+      .trim() || (typeof question.question === 'string' ? question.question : '');
+  }
+
+  function buildImportedQuestionSignature(question: Record<string, unknown>): string {
+    const promptText = normalizeOrganizationLabel(extractQuestionPromptText(question));
+    const interaction = question.interaction as { type?: string; final?: { type?: string } } | null | undefined;
+    const interactionType = typeof interaction?.type === 'string'
+      ? (interaction.type === 'composite' ? `composite:${interaction.final?.type ?? 'unknown'}` : interaction.type)
+      : 'unknown';
+    return `${interactionType}::${promptText}`;
+  }
+
+  function classifyImportedQuestionType(
+    interaction: ProgramAtomicInteractionSpec | ({ type: 'composite'; final: ProgramAtomicInteractionSpec; steps: ProgramStepSpec[]; allowDirectFinalAnswer?: boolean; scoreStrategy?: 'final_only' | 'final_plus_steps' }) | null,
+    questionText: string,
+  ): string {
+    const lower = questionText.toLowerCase();
+    if (interaction?.type === 'composite') {
+      if (interaction.steps.some((step) => step.interaction.type === 'points_on_line')) return 'Find Equation and Other Points';
+      return 'Multi-Step Questions';
+    }
+    if (interaction?.type === 'point_list') return 'Generate Points from Equation';
+    if (interaction?.type === 'points_on_line') return 'Find Other Points on the Line';
+    if (interaction?.type === 'line_equation') return 'Find Equation from Two Points';
+    if (/find\s+3\s+other\s+points|other\s+points\s+.*line/.test(lower)) return 'Find Equation and Other Points';
+    if (/list\s+10\s+points|generate\s+10\s+points|points\s+that\s+(?:lie|satisfy)/.test(lower)) return 'Generate Points from Equation';
+    if (/equation of the line|passing through the points|passes through/.test(lower)) return 'Find Equation from Two Points';
+    return chooseImportedQuestionTypeTitle(questionText);
+  }
+
+  function collectBuilderQuestions(node: BuilderNode): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const qt of node.questionTypes) {
+      try {
+        const parsed = JSON.parse(qt.jsonText);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+              out.push(item as Record<string, unknown>);
+            }
+          }
+        }
+      } catch {
+        // ignore malformed builder question JSON during auto-organization
+      }
+    }
+    for (const child of node.children) {
+      out.push(...collectBuilderQuestions(child));
+    }
+    return out;
+  }
+
+  function collectExistingOrganizationTitles(chapters: BuilderNode[]): {
+    chapterTitlesByKey: Map<string, string>;
+    questionTypeTitlesByKey: Map<string, string>;
+  } {
+    const chapterTitlesByKey = new Map<string, string>();
+    const questionTypeTitlesByKey = new Map<string, string>();
+    for (const chapter of chapters) {
+      const chapterKey = normalizeOrganizationLabel(chapter.title);
+      if (chapterKey && !chapterTitlesByKey.has(chapterKey)) {
+        chapterTitlesByKey.set(chapterKey, chapter.title);
+      }
+      for (const qt of chapter.questionTypes) {
+        const qtKey = normalizeOrganizationLabel(qt.title);
+        if (qtKey && !questionTypeTitlesByKey.has(qtKey)) {
+          questionTypeTitlesByKey.set(qtKey, qt.title);
+        }
+      }
+    }
+    return { chapterTitlesByKey, questionTypeTitlesByKey };
+  }
+
+  function rebuildImportedOrganization(
+    prev: BuilderSpec,
+    importedQuestions: Array<Record<string, unknown>>,
+    fallbackChapterTitle: string,
+    fallbackProgramTitle: string,
+  ): { builder: BuilderSpec; selectedPathIds: string[]; selectedQuestionTypeId: string | null } {
+    const spec = ensureFixedFirstDivisionContainer({ ...prev, divisions: ['Chapters'] });
+    const fixedIdx = spec.root.children.findIndex((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID);
+    const fixed = fixedIdx >= 0 ? spec.root.children[fixedIdx]! : { id: FIXED_FIRST_DIVISION_NODE_ID, title: 'Chapters', children: [], questionTypes: [] };
+    const { chapterTitlesByKey, questionTypeTitlesByKey } = collectExistingOrganizationTitles(fixed.children);
+    const existingQuestions = fixed.children.flatMap((chapter) => collectBuilderQuestions(chapter));
+    const dedupedQuestions: Array<Record<string, unknown>> = [];
+    const seenQuestionSignatures = new Set<string>();
+    for (const question of [...existingQuestions, ...importedQuestions]) {
+      const signature = buildImportedQuestionSignature(question);
+      if (!signature || seenQuestionSignatures.has(signature)) continue;
+      seenQuestionSignatures.add(signature);
+      dedupedQuestions.push(question);
+    }
+    const chapterMap = new Map<string, { title: string; questionTypes: Map<string, Array<Record<string, unknown>>> }>();
+
+    for (const question of dedupedQuestions) {
+      const promptText = extractQuestionPromptText(question);
+      const classifiedChapterTitle = summarizeImportedTopic(promptText) || fallbackChapterTitle || 'Worksheet Practice';
+      const classifiedChapterKey = normalizeOrganizationLabel(classifiedChapterTitle);
+      const chapterTitle = chapterTitlesByKey.get(classifiedChapterKey) ?? classifiedChapterTitle;
+      const chapterKey = normalizeOrganizationLabel(chapterTitle);
+      const interaction = (question.interaction ?? null) as ProgramAtomicInteractionSpec | ({ type: 'composite'; final: ProgramAtomicInteractionSpec; steps: ProgramStepSpec[]; allowDirectFinalAnswer?: boolean; scoreStrategy?: 'final_only' | 'final_plus_steps' }) | null;
+      const classifiedQuestionTypeTitle = classifyImportedQuestionType(interaction, promptText);
+      const questionTypeTitle = questionTypeTitlesByKey.get(normalizeOrganizationLabel(classifiedQuestionTypeTitle)) ?? classifiedQuestionTypeTitle;
+      const questionTypeKey = normalizeOrganizationLabel(questionTypeTitle);
+      const existingChapter = chapterMap.get(chapterKey) ?? { title: chapterTitle, questionTypes: new Map<string, Array<Record<string, unknown>>>() };
+      const existingQuestionsForType = existingChapter.questionTypes.get(questionTypeKey) ?? [];
+      existingQuestionsForType.push(question);
+      existingChapter.questionTypes.set(questionTypeKey, existingQuestionsForType);
+      chapterMap.set(chapterKey, existingChapter);
+    }
+
+    const rebuiltChapters: BuilderNode[] = Array.from(chapterMap.values())
+      .sort((a, b) => a.title.localeCompare(b.title))
+      .map((chapter) => ({
+        id: makeStableId('node'),
+        title: cleanGeneratedTitle(chapter.title || fallbackChapterTitle || 'Imported Chapter'),
+        children: [],
+        questionTypes: Array.from(chapter.questionTypes.values())
+          .sort((a, b) => {
+            const aTitle = classifyImportedQuestionType((a[0]?.interaction ?? null) as any, typeof a[0]?.question === 'string' ? a[0]!.question as string : '');
+            const bTitle = classifyImportedQuestionType((b[0]?.interaction ?? null) as any, typeof b[0]?.question === 'string' ? b[0]!.question as string : '');
+            return aTitle.localeCompare(bTitle);
+          })
+          .map((questionsForType) => ({
+            id: makeStableId('qt'),
+            title: classifyImportedQuestionType((questionsForType[0]?.interaction ?? null) as any, typeof questionsForType[0]?.question === 'string' ? questionsForType[0]!.question as string : ''),
+            jsonText: JSON.stringify(questionsForType, null, 2),
+          })),
+      }));
+
+    const nextChildren = [...spec.root.children];
+    const updatedFixed = { ...fixed, title: 'Chapters', children: rebuiltChapters };
+    if (fixedIdx >= 0) {
+      nextChildren[fixedIdx] = updatedFixed;
+    } else {
+      nextChildren.unshift(updatedFixed);
+    }
+
+    const selectedChapter = rebuiltChapters.find((chapter) => {
+      const key = normalizeOrganizationLabel(chapter.title);
+      return key === normalizeOrganizationLabel(fallbackChapterTitle);
+    }) ?? rebuiltChapters[0] ?? null;
+    const selectedQuestionType = selectedChapter?.questionTypes[0] ?? null;
+
+    return {
+      builder: ensureFixedFirstDivisionContainer({
+        ...spec,
+        divisions: ['Chapters'],
+        programTitle: cleanGeneratedTitle(spec.programTitle || fallbackProgramTitle || selectedChapter?.title || 'Imported Worksheet'),
+        root: {
+          ...spec.root,
+          title: spec.root.title === 'Enter program title' ? cleanGeneratedTitle(fallbackProgramTitle || selectedChapter?.title || 'Imported Worksheet') : spec.root.title,
+          children: nextChildren,
+        },
+      }),
+      selectedPathIds: ['root', selectedChapter?.id ?? 'root'],
+      selectedQuestionTypeId: selectedQuestionType?.id ?? null,
+    };
+  }
+
   function isPlaceholderExtractionText(text: string): boolean {
     const trimmed = text.trim();
     return trimmed.length === 0 || /no extractable text found/i.test(trimmed);
@@ -1511,11 +1703,11 @@ function ProgramsAdmin() {
         difficulty: 'easy' | 'medium' | 'hard';
         hint: string[];
         solution: string | null;
+        explanationScenes: ProgramExplanationScene[];
         stepSolutions: ProgramStepSpec[];
       }> = [];
       let titleGuess = '';
       let structuredHierarchy: Array<{ id: string; type: string; title: string; children: Array<{ id: string; type: string; title: string; children: unknown[]; questionRefs?: string[]; questionTypeTitle?: string }>; questionRefs?: string[]; questionTypeTitle?: string }> = [];
-      let structuredDivisions: BuilderDivisionLabel[] = ['Chapters', 'Topics'];
 
       for (let fi = 0; fi < filesToProcess.length; fi++) {
         const file = filesToProcess[fi]!;
@@ -1573,9 +1765,11 @@ function ProgramsAdmin() {
           const answerData = asRecord(nq?.answerData);
           const finalInteraction = deterministicAnswerToInteraction(answerData?.final);
           const stepSolutions = getNormalizedSolutionSteps(answerData?.steps);
+          const explanationScenes = getNormalizedExplanationScenes(answerData?.explanationScenes);
           const scoreStrategy: 'final_only' | 'final_plus_steps' = (asRecord(nq?.grading)?.mode === 'step_based' || stepSolutions.length > 0)
             ? 'final_plus_steps'
             : 'final_only';
+          const fallbackGrading: 'ai' | 'manual' = asRecord(nq?.grading)?.mode === 'ai_rubric' ? 'ai' : 'manual';
           const interaction = finalInteraction
             ? (stepSolutions.length > 0
               ? {
@@ -1586,7 +1780,7 @@ function ProgramsAdmin() {
                   scoreStrategy,
                 }
               : finalInteraction)
-            : { type: 'text' as const, accepted: [''], caseSensitive: false, trim: true };
+            : { type: 'freeform' as const, grading: fallbackGrading, placeholder: 'Type your answer', rubricSummary: typeof nq?.explanation === 'string' ? nq.explanation : null, acceptSteps: true };
           const difficulty = nq?.difficulty === 'easy' || nq?.difficulty === 'hard' ? nq.difficulty : 'medium';
           allQuestions.push({
             id: q.id,
@@ -1600,6 +1794,7 @@ function ProgramsAdmin() {
             solution: typeof answerData?.solution === 'string'
               ? answerData.solution
               : (typeof nq?.explanation === 'string' ? nq.explanation : null),
+            explanationScenes,
             stepSolutions,
           });
         }
@@ -1616,7 +1811,6 @@ function ProgramsAdmin() {
         .map((q) => q.prompt.map((b) => ('text' in b ? b.text : 'latex' in b ? b.latex : '')).join('\n').trim() || q.rawText)
         .join('\n\n');
       const inferredTopicTitle = summarizeImportedTopic(allQuestionText);
-      const inferredQuestionTypeTitle = chooseImportedQuestionTypeTitle(allQuestionText);
       const cleanedTitleGuess = cleanGeneratedTitle(titleGuess);
       const finalTitleGuess = cleanedTitleGuess !== 'Imported Worksheet'
         ? cleanedTitleGuess
@@ -1636,70 +1830,11 @@ function ProgramsAdmin() {
         };
       }
 
-      function buildQuestionTypeNode(title: string, questionIds: string[]): BuilderQuestionTypeFile {
-        return {
-          id: makeStableId('qt'),
-          title,
-          jsonText: JSON.stringify(questionIds.map((id) => groupedById[id]).filter(Boolean), null, 2),
-        };
-      }
-
-      function buildTopicNode(topic: { id: string; title: string; questionRefs?: string[]; questionTypeTitle?: string }): BuilderNode {
-        const refs = Array.isArray(topic.questionRefs) ? topic.questionRefs : [];
-        return {
-          id: topic.id || makeStableId('node'),
-          title: cleanFolderLabel(topic.title || inferredTopicTitle || 'Imported Topic'),
-          children: [],
-          questionTypes: [buildQuestionTypeNode(topic.questionTypeTitle || inferredQuestionTypeTitle || 'Practice Questions', refs)],
-        };
-      }
-
-      const chapters: BuilderNode[] = structuredHierarchy.length > 0
-        ? structuredHierarchy.map((chapter) => ({
-            id: chapter.id || makeStableId('node'),
-            title: cleanGeneratedTitle(chapter.title || finalTitleGuess || 'Imported Chapter'),
-            children: (chapter.children ?? []).map((topic) => buildTopicNode(topic)),
-            questionTypes: [],
-          }))
-        : [
-            {
-              id: makeStableId('node'),
-              title: finalTitleGuess,
-              children: [
-                {
-                  id: makeStableId('node'),
-                  title: cleanFolderLabel(inferredTopicTitle || finalTitleGuess || 'Imported Questions'),
-                  children: [],
-                  questionTypes: [buildQuestionTypeNode(inferredQuestionTypeTitle, Object.keys(groupedById))],
-                },
-              ],
-              questionTypes: [],
-            },
-          ];
-
-      setBuilder((prev) => {
-        const spec = ensureFixedFirstDivisionContainer({ ...prev, divisions: structuredDivisions });
-        const fixedIdx = spec.root.children.findIndex((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID);
-        const fixed = fixedIdx >= 0 ? spec.root.children[fixedIdx]! : { id: FIXED_FIRST_DIVISION_NODE_ID, title: 'Chapters', children: [], questionTypes: [] };
-        const updatedFixed = { ...fixed, title: structuredDivisions[0] ?? 'Chapters', children: [...fixed.children, ...chapters] };
-        const nextChildren = [...spec.root.children];
-        if (fixedIdx >= 0) {
-          nextChildren[fixedIdx] = updatedFixed;
-        } else {
-          nextChildren.unshift(updatedFixed);
-        }
-        return ensureFixedFirstDivisionContainer({
-          ...spec,
-          programTitle: cleanGeneratedTitle(spec.programTitle || finalTitleGuess || chapters[0]?.title || 'Imported Worksheet'),
-          root: {
-            ...spec.root,
-            title: spec.root.title === 'Enter program title' ? cleanGeneratedTitle(finalTitleGuess || chapters[0]?.title || 'Imported Worksheet') : spec.root.title,
-            children: nextChildren,
-          },
-        });
-      });
-
-      setBuilderPathIds(['root', chapters[0]?.id ?? 'root', chapters[0]?.children?.[0]?.id ?? 'root']);
+      const importedQuestionDocs = Object.keys(groupedById).map((id) => groupedById[id]).filter(Boolean);
+      const reorganized = rebuildImportedOrganization(builder, importedQuestionDocs, inferredTopicTitle || finalTitleGuess, finalTitleGuess);
+      setBuilder(reorganized.builder);
+      setBuilderPathIds(reorganized.selectedPathIds);
+      setBuilderSelectedQuestionTypeId(reorganized.selectedQuestionTypeId);
       setDigitalizeStatus(`✅ Imported ${allQuestions.length} question(s) from ${filesToProcess.length} source(s)`);
     } catch (error) {
       setDigitalizeError(error instanceof Error ? error.message : String(error));
@@ -1710,6 +1845,7 @@ function ProgramsAdmin() {
 
   async function load() {
     setLoading(true);
+    setLoadError(null);
     try {
       const [next, dnext] = await Promise.all([
         listProgramsAdmin('published'),
@@ -1717,6 +1853,9 @@ function ProgramsAdmin() {
       ]);
       setItems(next as typeof items);
       setDraftItems(dnext as typeof draftItems);
+    } catch (error) {
+      console.error('Failed to load programs:', error);
+      setLoadError(error instanceof Error ? error.message : 'Failed to load programs.');
     } finally {
       setLoading(false);
     }
@@ -2171,6 +2310,18 @@ function ProgramsAdmin() {
   }
 
   if (loading) return <div style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>Loading programs...</div>;
+
+  if (loadError) {
+    return (
+      <div style={{ animation: 'fadeIn 0.3s ease' }}>
+        <div style={{ background: '#1e293b', borderRadius: 12, border: '1px solid #7f1d1d', padding: 16, color: '#fecaca' }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Failed to load programs</div>
+          <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 12 }}>{loadError}</div>
+          <button className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }} onClick={load}>Retry</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>

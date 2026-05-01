@@ -13,6 +13,20 @@ const PIECE_LABELS: Record<string, string> = {
   '♚': 'B.King', '♛': 'B.Queen', '♜': 'B.Rook', '♝': 'B.Bishop', '♞': 'B.Knight', '♟': 'B.Pawn',
 };
 const WHITE_PIECES = new Set(['♔', '♕', '♖', '♗', '♘', '♙']);
+const BOARD_CELL = 54;
+
+function pieceStyle(piece: string): React.CSSProperties {
+  const isWhite = WHITE_PIECES.has(piece);
+  return {
+    fontSize: 34,
+    lineHeight: 1,
+    color: isWhite ? '#f8fafc' : '#0f172a',
+    textShadow: isWhite
+      ? '0 2px 0 rgba(15,23,42,0.9), 0 0 8px rgba(255,255,255,0.18)'
+      : '0 2px 0 rgba(255,255,255,0.18), 0 0 8px rgba(15,23,42,0.25)',
+    filter: isWhite ? 'drop-shadow(0 2px 6px rgba(15,23,42,0.35))' : 'drop-shadow(0 2px 6px rgba(0,0,0,0.35))',
+  };
+}
 
 const MEMORIZE_SEC = 4;
 const PIECES_PER_ROUND = 5;
@@ -49,15 +63,20 @@ export default function ChessMemoryGame({ onGameOver }: Props) {
   const [totalPlaced, setTotalPlaced] = useState(0);
   const [timeLeft, setTimeLeft] = useState(TIME_LIMIT);
   const [flashCell, setFlashCell] = useState<{ key: string; correct: boolean } | null>(null);
+  const [draggingPiece, setDraggingPiece] = useState<string | null>(null);
+  const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null);
   const scoreRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cdRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
 
   function startRound() {
     const r = generateRound();
     setRound(r);
     setPlaced(new Map());
     setSelected(null);
+    setDraggingPiece(null);
+    setDragPoint(null);
     setPhase('memorize');
     setCountdown(MEMORIZE_SEC);
     clearInterval(cdRef.current!);
@@ -82,11 +101,13 @@ export default function ChessMemoryGame({ onGameOver }: Props) {
   }, [started]);
 
   function clickSquare(r: number, c: number) {
-    if (phase !== 'recall' || !selected) return;
+    if (phase !== 'recall' || !(draggingPiece ?? selected)) return;
     const key = `${r},${c}`;
-    const correct = round.find(p => p.row === r && p.col === c && p.piece === selected);
+    const activePiece = draggingPiece ?? selected;
+    if (!activePiece) return;
+    const correct = round.find(p => p.row === r && p.col === c && p.piece === activePiece);
     const newPlaced = new Map(placed);
-    newPlaced.set(key, selected);
+    newPlaced.set(key, activePiece);
     setPlaced(newPlaced);
     setFlashCell({ key, correct: !!correct });
     setTimeout(() => setFlashCell(null), 400);
@@ -97,9 +118,47 @@ export default function ChessMemoryGame({ onGameOver }: Props) {
       setScore(s => s + 1);
     }
     setSelected(null);
+    setDraggingPiece(null);
+    setDragPoint(null);
     if (newPlaced.size >= PIECES_PER_ROUND) {
       setTimeout(() => { setTotalPlaced(0); startRound(); }, 800);
     }
+  }
+
+  function boardCellFromPoint(clientX: number, clientY: number): { row: number; col: number } | null {
+    if (!boardRef.current) return null;
+    const rect = boardRef.current.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+    const col = Math.floor(((clientX - rect.left) / rect.width) * BOARD);
+    const row = Math.floor(((clientY - rect.top) / rect.height) * BOARD);
+    if (row < 0 || row >= BOARD || col < 0 || col >= BOARD) return null;
+    return { row, col };
+  }
+
+  function handlePiecePointerDown(piece: string, e: React.PointerEvent) {
+    if (phase !== 'recall') return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setSelected(piece);
+    setDraggingPiece(piece);
+    setDragPoint({ x: e.clientX, y: e.clientY });
+  }
+
+  function handlePiecePointerMove(e: React.PointerEvent) {
+    if (!draggingPiece) return;
+    setDragPoint({ x: e.clientX, y: e.clientY });
+  }
+
+  function handlePiecePointerUp(e: React.PointerEvent) {
+    if (draggingPiece) {
+      const cell = boardCellFromPoint(e.clientX, e.clientY);
+      if (cell) {
+        clickSquare(cell.row, cell.col);
+        return;
+      }
+    }
+    setDraggingPiece(null);
+    setDragPoint(null);
   }
 
   const targetMap = new Map(round.map(p => [`${p.row},${p.col}`, p.piece]));
@@ -142,12 +201,12 @@ export default function ChessMemoryGame({ onGameOver }: Props) {
         </div>
       ) : (
         <div style={{ color: selected ? '#3b82f6' : '#94a3b8', fontSize: 13, fontWeight: selected ? 'bold' : 'normal' }}>
-          {selected ? `Place ${PIECE_LABELS[selected]} on the board` : 'Select a piece below, then tap its square'}
+          {selected ? `Place ${PIECE_LABELS[selected]} on the board` : 'Select or drag a piece below, then place it on the board'}
         </div>
       )}
 
       {/* Chess board */}
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${BOARD}, 1fr)`, gap: 2, borderRadius: 8, overflow: 'hidden', border: '2px solid #334155' }}>
+      <div ref={boardRef} style={{ display: 'grid', gridTemplateColumns: `repeat(${BOARD}, 1fr)`, gap: 2, borderRadius: 10, overflow: 'hidden', border: '2px solid #334155', boxShadow: '0 10px 26px rgba(0,0,0,0.25)' }}>
         {Array.from({ length: BOARD * BOARD }, (_, idx) => {
           const r = Math.floor(idx / BOARD);
           const c = idx % BOARD;
@@ -157,28 +216,28 @@ export default function ChessMemoryGame({ onGameOver }: Props) {
           const placedPiece = placed.get(key);
           const isFlashing = flashCell?.key === key;
           const isCorrect = flashCell?.correct;
-          const isWhite = targetPiece ? WHITE_PIECES.has(targetPiece) : (placedPiece ? WHITE_PIECES.has(placedPiece) : false);
 
           return (
             <button
               key={idx}
               onClick={() => clickSquare(r, c)}
               style={{
-                width: 46, height: 46,
+                width: BOARD_CELL, height: BOARD_CELL,
                 background: isFlashing
                   ? (isCorrect ? '#065f46' : '#7f1d1d')
-                  : isLight ? '#cbd5e1' : '#475569',
-                border: selected && phase === 'recall' ? '1px solid rgba(59,130,246,0.4)' : '1px solid transparent',
-                cursor: phase === 'recall' && selected ? 'pointer' : 'default',
+                  : isLight ? '#e2e8f0' : '#64748b',
+                border: selected && phase === 'recall' ? '1px solid rgba(59,130,246,0.45)' : '1px solid rgba(255,255,255,0.03)',
+                cursor: phase === 'recall' && (selected || draggingPiece) ? 'pointer' : 'default',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 24, padding: 0,
-                transition: 'background 0.2s',
-                color: isWhite ? '#0f172a' : '#1e293b',
-                textShadow: isWhite ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(0,0,0,0.5)',
+                padding: 0,
+                transition: 'background 0.2s, transform 0.15s, box-shadow 0.15s',
+                boxShadow: selected && phase === 'recall' ? 'inset 0 0 0 1px rgba(96,165,250,0.25)' : 'none',
                 WebkitTapHighlightColor: 'transparent'
               }}
             >
-              {phase === 'memorize' ? targetPiece ?? '' : placedPiece ?? ''}
+              <span style={pieceStyle((phase === 'memorize' ? targetPiece : placedPiece) ?? '')}>
+                {phase === 'memorize' ? targetPiece ?? '' : placedPiece ?? ''}
+              </span>
             </button>
           );
         })}
@@ -191,22 +250,51 @@ export default function ChessMemoryGame({ onGameOver }: Props) {
             <button
               key={`${piece}-${i}`}
               onClick={() => setSelected(selected === piece ? null : piece)}
+              onPointerDown={(e) => handlePiecePointerDown(piece, e)}
+              onPointerMove={handlePiecePointerMove}
+              onPointerUp={(e) => handlePiecePointerUp(e)}
+              onPointerCancel={(e) => handlePiecePointerUp(e)}
               style={{
-                width: 46, height: 46, borderRadius: 10, border: 'none',
-                background: selected === piece ? '#1d4ed8' : '#1e293b',
-                color: WHITE_PIECES.has(piece) ? '#f1f5f9' : '#94a3b8',
-                fontSize: 24, cursor: 'pointer',
+                width: 56, height: 56, borderRadius: 12, border: 'none',
+                background: selected === piece ? 'linear-gradient(180deg, #1d4ed8, #1e3a8a)' : 'linear-gradient(180deg, #1e293b, #0f172a)',
+                color: WHITE_PIECES.has(piece) ? '#f1f5f9' : '#0f172a',
+                cursor: 'grab',
                 outline: selected === piece ? '2px solid #60a5fa' : '2px solid #334155',
+                boxShadow: selected === piece ? '0 10px 18px rgba(37,99,235,0.28)' : '0 6px 12px rgba(0,0,0,0.2)',
                 transition: 'all 0.15s', padding: 0,
                 WebkitTapHighlightColor: 'transparent'
               }}
             >
-              {piece}
+              <span style={pieceStyle(piece)}>{piece}</span>
             </button>
           ))}
           {remainingPieces.length === 0 && (
             <div style={{ color: '#10b981', fontSize: 13, fontWeight: 'bold' }}>✅ Next round loading…</div>
           )}
+        </div>
+      )}
+
+      {draggingPiece && dragPoint && (
+        <div
+          style={{
+            position: 'fixed',
+            left: dragPoint.x,
+            top: dragPoint.y,
+            transform: 'translate(-50%, -55%)',
+            width: 62,
+            height: 62,
+            borderRadius: 14,
+            background: 'rgba(15,23,42,0.88)',
+            border: '2px solid #60a5fa',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+            boxShadow: '0 14px 28px rgba(37,99,235,0.28)',
+            zIndex: 30,
+          }}
+        >
+          <span style={pieceStyle(draggingPiece)}>{draggingPiece}</span>
         </div>
       )}
     </div>

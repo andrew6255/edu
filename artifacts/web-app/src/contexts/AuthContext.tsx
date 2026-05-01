@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sequence_10s: 0, sequence_60s: 0,
         numGrid: 0, blockPuzzle: 0, ticTacToe: 0,
         fifteenPuzzle: 0, memoOrder: 0, pyramid: 0, memoCells: 0,
-        chessMemory: 0, nameSquare10: 0, nameSquare60: 0, findSquare10: 0, findSquare60: 0,
+        chessMemory: 0, nameSquare_10s: 0, nameSquare_60s: 0, findSquare_10s: 0, findSquare_60s: 0,
       },
       warmup_date: '',
       played_categories: [],

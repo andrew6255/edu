@@ -28,7 +28,7 @@ interface Props {
 }
 
 export default function ChessSquareGame({ gameId, mode, onGameOver, variant, timeMode }: Props) {
-  const CELL = 44;
+  const CELL = 46;
   const timeLimit = timeMode === '10s' ? 10 : 60;
 
   const [score, setScore] = useState(0);
@@ -196,7 +196,8 @@ export default function ChessSquareGame({ gameId, mode, onGameOver, variant, tim
       <div style={{
         display: 'grid', gridTemplateColumns: `repeat(8, ${CELL}px)`, gridTemplateRows: `repeat(8, ${CELL}px)`,
         border: '2px solid #475569', borderRadius: 8, overflow: 'hidden', flexShrink: 0,
-        boxShadow: wrongAnim ? '0 0 20px rgba(239,68,68,0.6)' : feedback === 'correct' ? '0 0 20px rgba(16,185,129,0.5)' : 'none',
+        background: '#0f172a',
+        boxShadow: wrongAnim ? '0 0 20px rgba(239,68,68,0.6)' : feedback === 'correct' ? '0 0 20px rgba(16,185,129,0.5)' : '0 12px 28px rgba(0,0,0,0.28)',
         transition: 'box-shadow 0.2s'
       }}>
         {RANKS.map((rank, r) =>
@@ -207,7 +208,7 @@ export default function ChessSquareGame({ gameId, mode, onGameOver, variant, tim
             const isClicked = clickedCell === sq;
             const dark = isDark(c, r);
 
-            let bg = dark ? '#b58863' : '#f0d9b5';
+            let bg = dark ? 'linear-gradient(180deg, #b58863, #9a6f48)' : 'linear-gradient(180deg, #f8e7c9, #ead3ae)';
             if (isHighlight) bg = feedback === 'wrong' ? '#ef4444' : feedback === 'correct' ? '#10b981' : '#3b82f6';
             if (variant === 'find' && isClicked && !isTarget) bg = '#ef4444';
             if (variant === 'find' && isClicked && isTarget) bg = '#10b981';
@@ -220,9 +221,12 @@ export default function ChessSquareGame({ gameId, mode, onGameOver, variant, tim
                   width: CELL, height: CELL, background: bg, position: 'relative',
                   cursor: variant === 'find' ? 'pointer' : 'default',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'background 0.15s',
+                  transition: 'background 0.15s, transform 0.12s, box-shadow 0.12s',
                   boxSizing: 'border-box',
                   border: isTarget && variant === 'find' ? '2px solid transparent' : 'none',
+                  boxShadow: variant === 'find' && isClicked
+                    ? (isTarget ? 'inset 0 0 0 2px rgba(255,255,255,0.55)' : 'inset 0 0 0 2px rgba(255,255,255,0.35)')
+                    : 'inset 0 0 0 1px rgba(255,255,255,0.06)',
                 }}
               >
                 {c === 0 && (
@@ -277,17 +281,15 @@ export default function ChessSquareGame({ gameId, mode, onGameOver, variant, tim
   );
 }
 
-// ── 4 exported wrappers ──────────────────────────────────────────────────────
+// ── exported warmup wrappers ────────────────────────────────────────────────
 
-export function NameSquare10Game(props: { gameId: string; mode: GameMode; onGameOver: (s: number) => void }) {
-  return <ChessSquareGame {...props} variant="name" timeMode="10s" />;
+function timeModeFromGameId(gameId: string): '10s' | '60s' {
+  return gameId.endsWith('_60s') ? '60s' : '10s';
 }
-export function NameSquare60Game(props: { gameId: string; mode: GameMode; onGameOver: (s: number) => void }) {
-  return <ChessSquareGame {...props} variant="name" timeMode="60s" />;
+
+export function NameSquareGame(props: { gameId: string; mode: GameMode; onGameOver: (s: number) => void }) {
+  return <ChessSquareGame {...props} variant="name" timeMode={timeModeFromGameId(props.gameId)} />;
 }
-export function FindSquare10Game(props: { gameId: string; mode: GameMode; onGameOver: (s: number) => void }) {
-  return <ChessSquareGame {...props} variant="find" timeMode="10s" />;
-}
-export function FindSquare60Game(props: { gameId: string; mode: GameMode; onGameOver: (s: number) => void }) {
-  return <ChessSquareGame {...props} variant="find" timeMode="60s" />;
+export function FindSquareGame(props: { gameId: string; mode: GameMode; onGameOver: (s: number) => void }) {
+  return <ChessSquareGame {...props} variant="find" timeMode={timeModeFromGameId(props.gameId)} />;
 }

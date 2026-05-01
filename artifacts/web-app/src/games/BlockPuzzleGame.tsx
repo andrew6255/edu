@@ -9,6 +9,7 @@ const CELL = 40;
 const GAP = 2;
 const PAD = 4;
 const TRAY_CELL = 20;
+const DRAG_THRESHOLD = 8;
 
 type Board = (string | null)[][];
 type Shape = { cells: number[][]; color: string };
@@ -147,8 +148,10 @@ export default function BlockPuzzleGame({ onGameOver }: GameProps) {
   const [selected, setSelected] = useState<number | null>(null);  // tap-to-select mode
   const [dragging, setDragging] = useState<number | null>(null);  // pointer-drag mode
   const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null);
+  const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const didDragRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const getBoardCell = useCallback((clientX: number, clientY: number) => {
     if (!boardRef.current) return null;
@@ -197,11 +200,19 @@ export default function BlockPuzzleGame({ onGameOver }: GameProps) {
     setDragging(idx);
     setSelected(null);
     setGhostPos(null);
+    setDragPoint({ x: e.clientX, y: e.clientY });
     didDragRef.current = false;
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
   }
 
   function handlePointerMove(e: React.PointerEvent) {
     if (dragging === null) return;
+    setDragPoint({ x: e.clientX, y: e.clientY });
+    const start = dragStartRef.current;
+    if (!start) return;
+    const deltaX = e.clientX - start.x;
+    const deltaY = e.clientY - start.y;
+    if (!didDragRef.current && Math.hypot(deltaX, deltaY) < DRAG_THRESHOLD) return;
     didDragRef.current = true;
     const shape = tray[dragging];
     if (!shape) return;
@@ -218,10 +229,13 @@ export default function BlockPuzzleGame({ onGameOver }: GameProps) {
         // User just tapped on a tray piece without dragging → select it
         setSelected(dragging);
         setDragging(null);
+        setDragPoint(null);
       } else {
         setDragging(null);
         setGhostPos(null);
+        setDragPoint(null);
       }
+      dragStartRef.current = null;
     }
   }
 
@@ -245,6 +259,7 @@ export default function BlockPuzzleGame({ onGameOver }: GameProps) {
   const displayBoard: Board = board.map(r => [...r]);
   const ghostCellSet = new Set<string>();
   const clearPreviewSet = new Set<string>();
+  const activeBounds = activeShape ? shapeBounds(activeShape) : null;
 
   if (activeShape && ghostPos) {
     // Add ghost cells to display board
@@ -323,7 +338,7 @@ export default function BlockPuzzleGame({ onGameOver }: GameProps) {
         ref={boardRef}
         onClick={handleBoardClick}
         onMouseMove={handleBoardHover}
-        onMouseLeave={() => { if (selected !== null) setGhostPos(null); }}
+        onMouseLeave={() => { if (selected !== null || dragging !== null) setGhostPos(null); }}
         style={{
           display: 'grid',
           gridTemplateColumns: `repeat(${SIZE}, ${CELL}px)`,
@@ -358,6 +373,48 @@ export default function BlockPuzzleGame({ onGameOver }: GameProps) {
           );
         }))}
       </div>
+
+      {dragging !== null && activeShape && activeBounds && dragPoint && (
+        <div
+          style={{
+            position: 'fixed',
+            left: dragPoint.x,
+            top: dragPoint.y,
+            transform: 'translate(-50%, -55%)',
+            display: 'grid',
+            gridTemplateColumns: `repeat(${activeBounds.w}, ${CELL}px)`,
+            gridTemplateRows: `repeat(${activeBounds.h}, ${CELL}px)`,
+            gap: GAP,
+            padding: 6,
+            borderRadius: 12,
+            background: 'rgba(15,23,42,0.55)',
+            border: `2px solid ${ghostPos ? '#10b981' : '#64748b'}`,
+            boxShadow: ghostPos ? '0 14px 34px rgba(16,185,129,0.24)' : '0 12px 28px rgba(0,0,0,0.28)',
+            pointerEvents: 'none',
+            zIndex: 20,
+            opacity: didDragRef.current ? 0.96 : 0.7,
+            transition: 'border-color 0.12s, box-shadow 0.12s, opacity 0.12s',
+          }}
+        >
+          {Array.from({ length: activeBounds.h }, (_, r) =>
+            Array.from({ length: activeBounds.w }, (_, c) => {
+              const filled = activeShape.cells.some(([cx, cy]) => cx === c && cy === r);
+              return (
+                <div
+                  key={`drag-${r}-${c}`}
+                  style={{
+                    width: CELL,
+                    height: CELL,
+                    borderRadius: 7,
+                    background: filled ? activeShape.color : 'transparent',
+                    boxShadow: filled ? 'inset 0 0 10px rgba(255,255,255,0.18)' : 'none',
+                  }}
+                />
+              );
+            })
+          )}
+        </div>
+      )}
 
       {/* Tray — 3 pieces */}
       <div style={{ display: 'flex', gap: 16, justifyContent: 'center', alignItems: 'center', minHeight: 80 }}>

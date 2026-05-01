@@ -13,9 +13,9 @@ export function buildQuestionNormalizationPrompt(block: ExtractedQuestionBlock):
       "Never invent unreadable content.",
       "Choose the simplest valid question kind.",
       "Prefer deterministic grading when possible.",
-      "For line equations, coordinates, and lists of points, prefer structured deterministic answer types over generic text whenever the answer can be recovered.",
+      "For line equations, coordinates, lists of points, and points constrained by a line, prefer structured deterministic answer types over generic text whenever the answer can be recovered.",
       "Use open_response_ai only when deterministic or step-based grading is insufficient.",
-      "Every normalized question must include answerData with a final answer, a concise solution, and optional worked steps.",
+      "Every normalized question must include answerData with a final answer, a concise solution, and optional worked steps/explanation scenes.",
       "If the source is unreadable or the answer cannot be recovered reliably, lower confidence, add warnings, and still return the best safe structured answerData you can justify from the source.",
     ].join(" "),
     user: JSON.stringify(
@@ -52,7 +52,7 @@ export function buildQuestionNormalizationPrompt(block: ExtractedQuestionBlock):
             explanation: "optional explanation",
             answerData: {
               final: {
-                type: "choice | number | text | line_equation | point_list",
+                type: "choice | number | text | line_equation | point_list | points_on_line",
               },
               finalAnswerText: "required final answer summary",
               solution: "required concise worked solution",
@@ -62,9 +62,20 @@ export function buildQuestionNormalizationPrompt(block: ExtractedQuestionBlock):
                   title: "Step 1",
                   prompt: [{ type: "text", text: "step prompt" }],
                   answer: {
-                    type: "choice | number | text | line_equation | point_list",
+                    type: "choice | number | text | line_equation | point_list | points_on_line",
                   },
                   explanation: "optional step explanation",
+                },
+              ],
+              explanationScenes: [
+                {
+                  id: "scene_1",
+                  title: "Plan",
+                  narration: "Describe the move",
+                  beforeText: "optional before state",
+                  afterText: "optional after state",
+                  emphasis: ["optional token"],
+                  action: "highlight | transform | note | reveal",
                 },
               ],
               allowDirectFinalAnswer: true,
@@ -83,6 +94,14 @@ export function buildQuestionNormalizationPrompt(block: ExtractedQuestionBlock):
             maxPoints: 10,
             ordered: false,
             allowEquivalentOrder: true,
+          },
+          points_on_line: {
+            type: "points_on_line",
+            lineForms: ["y=x+1", "x-y+1=0"],
+            minPoints: 3,
+            maxPoints: 3,
+            disallowGivenPoints: [{ x: 0, y: 1 }],
+            requireDistinct: true,
           },
         },
         block,

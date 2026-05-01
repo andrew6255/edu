@@ -39,10 +39,13 @@ import {
   type FlatProgramQuestion,
   type ProgramAtomicInteractionSpec,
   type ProgramAnnotationsFile,
+  type ProgramExplanationScene,
   type ProgramPromptBlock,
   type ProgramStepSpec,
 } from '@/lib/programQuestionBank';
-import { gradeInteraction } from '@/lib/interactionGrader';
+import { gradeInteraction, type InteractionGradeResult } from '@/lib/interactionGrader';
+import { gradeFreeformAnswer } from '@/lib/freeformGradingService';
+import { recordFreeformSubmission } from '@/lib/freeformHistoryService';
 
 type Selected = { id: string; title: string; ref?: string | null } | null;
 
@@ -84,8 +87,35 @@ function isNumericInteraction(interaction: ProgramAtomicInteractionSpec | null):
   return !!interaction && interaction.type === 'numeric';
 }
 
+function isFreeformFallbackInteraction(interaction: ProgramAtomicInteractionSpec | null): interaction is Extract<ProgramAtomicInteractionSpec, { type: 'freeform' }> {
+  return !!interaction && interaction.type === 'freeform';
+}
+
+function isDeterministicallyGradedInteraction(interaction: ProgramAtomicInteractionSpec | null): boolean {
+  return !!interaction && interaction.type !== 'freeform';
+}
+
 function isTextSubmittedInteraction(interaction: ProgramAtomicInteractionSpec | null): interaction is Extract<ProgramAtomicInteractionSpec, { type: 'text' | 'line_equation' | 'point_list' | 'points_on_line' }> {
   return !!interaction && (interaction.type === 'text' || interaction.type === 'line_equation' || interaction.type === 'point_list' || interaction.type === 'points_on_line');
+}
+
+function buildExplanationScenes(question: FlatProgramQuestion | null): ProgramExplanationScene[] {
+  if (!question) return [];
+  if (Array.isArray(question.explanationScenes) && question.explanationScenes.length > 0) return question.explanationScenes;
+  const fromSteps = Array.isArray(question.stepSolutions)
+    ? question.stepSolutions.map((step, idx) => ({
+        id: `step_scene_${step.id || idx + 1}`,
+        title: step.title || `Step ${idx + 1}`,
+        narration: step.explanation ?? null,
+        afterText: step.explanation ?? null,
+        action: 'reveal' as const,
+      }))
+    : [];
+  if (fromSteps.length > 0) return fromSteps;
+  if (question.solutionText) {
+    return [{ id: 'solution_scene', title: 'Solution', narration: question.solutionText, afterText: question.solutionText, action: 'note' }];
+  }
+  return [];
 }
 
 function parsePointListDraft(valueText: string): Array<{ x: string; y: string }> {
@@ -217,7 +247,6 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   const [isNarrow, setIsNarrow] = useState<boolean>(() => (typeof window !== 'undefined' ? window.innerWidth < 760 : false));
   const [qbLoading, setQbLoading] = useState<boolean>(false);
   const [qbError, setQbError] = useState<string | null>(null);
-  const [qbChapterId, setQbChapterId] = useState<string | null>(null);
   const [qbAnnotations, setQbAnnotations] = useState<ProgramAnnotationsFile | null>(null);
   const [qbQuestions, setQbQuestions] = useState<FlatProgramQuestion[]>([]);
   const [qbRegions, setQbRegions] = useState<Array<{ regionId: string; title: string; label: string | null; theme: string | null }>>([]);
@@ -231,10 +260,12 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   const [soloQuestionTypeId, setSoloQuestionTypeId] = useState<string | null>(null);
   const [soloQuestionId, setSoloQuestionId] = useState<string | null>(null);
   const [soloSeenIds, setSoloSeenIds] = useState<string[]>([]);
-  const [soloFeedback, setSoloFeedback] = useState<{ correct: boolean; correctIndex: number } | null>(null);
+  const [soloFeedback, setSoloFeedback] = useState<InteractionGradeResult | null>(null);
   const [soloAwarding, setSoloAwarding] = useState(false);
   const [soloTextAnswer, setSoloTextAnswer] = useState('');
   const [soloStepAnswers, setSoloStepAnswers] = useState<Record<string, string>>({});
+  const [soloShowExplanation, setSoloShowExplanation] = useState(false);
+  const [soloExplanationIndex, setSoloExplanationIndex] = useState(0);
 
   const [friendCode, setFriendCode] = useState('');
   const [friendBusy, setFriendBusy] = useState(false);
@@ -257,7 +288,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   const [rankedRegionId, setRankedRegionId] = useState<string | null>(null);
   const [rankedQuestionTypeId, setRankedQuestionTypeId] = useState<string | null>(null);
   const [rankedQuestionId, setRankedQuestionId] = useState<string | null>(null);
-  const [rankedFeedback, setRankedFeedback] = useState<{ correct: boolean; correctIndex: number } | null>(null);
+  const [rankedFeedback, setRankedFeedback] = useState<InteractionGradeResult | null>(null);
   const [rankedSaving, setRankedSaving] = useState(false);
   const [rankedTextAnswer, setRankedTextAnswer] = useState('');
   const [rankedStepAnswers, setRankedStepAnswers] = useState<Record<string, string>>({});
@@ -399,6 +430,35 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
           }
           return null;
         })}
+      </div>
+    );
+  }
+
+  function renderExplanationViewer(q: FlatProgramQuestion | null, sceneIndex: number, setSceneIndex: Dispatch<SetStateAction<number>>) {
+    const scenes = buildExplanationScenes(q);
+    if (scenes.length === 0) return null;
+    const current = scenes[Math.max(0, Math.min(sceneIndex, scenes.length - 1))] ?? null;
+    if (!current) return null;
+    return (
+      <div style={{ marginTop: 12, border: '1px solid #1f2a44', borderRadius: 14, padding: 12, background: 'rgba(15,23,42,0.45)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ color: '#93c5fd', fontWeight: 900, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>Explanation</div>
+          <div style={{ color: '#94a3b8', fontSize: 12 }}>{sceneIndex + 1} / {scenes.length}</div>
+        </div>
+        <div style={{ color: 'white', fontWeight: 900 }}>{current.title}</div>
+        {current.beforeText && (
+          <div style={{ color: '#cbd5e1', fontSize: 13, whiteSpace: 'pre-wrap' }}>{current.beforeText}</div>
+        )}
+        {(current.narration || current.afterText) && (
+          <div style={{ color: '#e2e8f0', fontSize: 13, lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>{current.narration ?? current.afterText}</div>
+        )}
+        {current.afterText && current.afterText !== current.narration && (
+          <div style={{ color: '#34d399', fontWeight: 800, fontSize: 13, whiteSpace: 'pre-wrap' }}>{current.afterText}</div>
+        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="ll-btn" disabled={sceneIndex <= 0} onClick={() => setSceneIndex((prev) => Math.max(0, prev - 1))} style={{ padding: '8px 10px', fontSize: 12 }}>Previous</button>
+          <button className="ll-btn ll-btn-primary" disabled={sceneIndex >= scenes.length - 1} onClick={() => setSceneIndex((prev) => Math.min(scenes.length - 1, prev + 1))} style={{ padding: '8px 10px', fontSize: 12 }}>Next</button>
+        </div>
       </div>
     );
   }
@@ -592,7 +652,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   const rankedCandidates = useMemo(() => {
     if (!rankedActive || !rankedRegionId || !rankedQuestionTypeId) return [];
     return qbQuestions
-      .filter((q) => q.regionId === rankedRegionId && q.questionTypeId === rankedQuestionTypeId && !!q.interaction)
+      .filter((q) => q.regionId === rankedRegionId && q.questionTypeId === rankedQuestionTypeId && isDeterministicallyGradedInteraction(getFinalInteraction(q)))
       .sort((a, b) => {
         const da = difficultyRank(a.difficulty);
         const db = difficultyRank(b.difficulty);
@@ -746,6 +806,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     setSoloAwarding(false);
     setSoloTextAnswer('');
     setSoloStepAnswers({});
+    setSoloShowExplanation(false);
+    setSoloExplanationIndex(0);
     setRankedRegionId(null);
     setRankedQuestionTypeId(null);
     setRankedQuestionId(null);
@@ -795,7 +857,6 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
       if (!programId) {
         setQbLoading(false);
         setQbError(null);
-        setQbChapterId(null);
         setQbAnnotations(null);
         setQbQuestions([]);
         setQbRegions([]);
@@ -862,54 +923,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
 
         const flat = flattenProgramChapter(chapter, (annotations as ProgramAnnotationsFile | null) ?? null);
 
-        const existingHasMcq = new Set<string>();
-        for (const q of flat.questions) {
-          if (!q.mcq) continue;
-          if (!q.regionId || !q.questionTypeId) continue;
-          existingHasMcq.add(`${q.regionId}::${q.questionTypeId}`);
-        }
-
-        const dummyQuestions: FlatProgramQuestion[] = [];
-        for (const r of flat.regions) {
-          for (const t of flat.questionTypes) {
-            const key = `${r.regionId}::${t.id}`;
-            if (existingHasMcq.has(key)) continue;
-            for (let i = 0; i < 3; i++) {
-              const id = `DUMMY::${r.regionId}::${t.id}::${i + 1}`;
-              dummyQuestions.push({
-                id,
-                chapterId: flat.chapterId,
-                regionId: r.regionId,
-                nodeId: 'DUMMY_NODE',
-                nodeType: 'exercise',
-                questionId: `DUMMY_Q${i + 1}`,
-                partId: null,
-                stemRawText: null,
-                stemLatex: null,
-                partRawText: null,
-                partLatex: null,
-                promptRawText: `Dummy question (${t.title})`,
-                promptLatex: null,
-                promptBlocks: null,
-                annotationKey: id,
-                questionTypeId: t.id,
-                difficulty: 'easy',
-                mcq: {
-                  choices: ['Choice A', 'Choice B', 'Choice C', 'Choice D'],
-                  correctChoiceIndex: 0,
-                },
-                interaction: { type: 'mcq', choices: ['Choice A', 'Choice B', 'Choice C', 'Choice D'], correctChoiceIndex: 0 },
-                solutionText: null,
-                hints: [],
-                stepSolutions: [],
-              });
-            }
-          }
-        }
-
-        setQbChapterId(flat.chapterId);
         setQbAnnotations((annotations as ProgramAnnotationsFile | null) ?? null);
-        setQbQuestions([...flat.questions, ...dummyQuestions]);
+        setQbQuestions(flat.questions);
         setQbRegions(flat.regions);
         setQbQuestionTypes(flat.questionTypes);
         setQbLoading(false);
@@ -1516,6 +1531,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     setSoloFeedback(null);
     setSoloTextAnswer('');
     setSoloStepAnswers({});
+    setSoloShowExplanation(false);
+    setSoloExplanationIndex(0);
     setSoloQuestionId(null);
     pickNextSoloQuestion({ regionId, questionTypeId, seen: [] });
   }
@@ -1528,6 +1545,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     setSoloSeenIds([]);
     setSoloFeedback(null);
     setSoloAwarding(false);
+    setSoloShowExplanation(false);
+    setSoloExplanationIndex(0);
     setPracticeMode(null);
     setScreen('types');
   }
@@ -1681,9 +1700,6 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
       }, msRemaining);
     }
 
-    return () => {
-      if (timer != null) window.clearTimeout(timer);
-    };
   }, [practiceMode, friendSessionId, friendSession]);
 
   const friendCandidates = useMemo(() => {
@@ -1691,13 +1707,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     const tid = soloQuestionTypeId;
     if (!rid || !tid) return [] as FlatProgramQuestion[];
     return qbQuestions
-      .filter((q) => q.regionId === rid && q.questionTypeId === tid && !!q.interaction)
-      .sort((a, b) => {
-        const da = difficultyRank(a.difficulty);
-        const db = difficultyRank(b.difficulty);
-        if (da !== db) return da - db;
-        return a.id.localeCompare(b.id);
-      });
+      .filter((q) => q.regionId === rid && q.questionTypeId === tid && isDeterministicallyGradedInteraction(getFinalInteraction(q)))
+      .sort((a, b) => a.id.localeCompare(b.id));
   }, [qbQuestions, soloRegionId, soloQuestionTypeId]);
 
   const friendCurrent = useMemo(() => {
@@ -1812,13 +1823,36 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     const finalInteraction = getFinalInteraction(friendCurrent);
     if (!friendMyUid || !friendSession || !friendCurrent?.interaction || !finalInteraction) return;
     if (kind === 'numeric' && !isNumericInteraction(finalInteraction)) return;
-    if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction)) return;
+    if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction) && !isFreeformFallbackInteraction(finalInteraction)) return;
     const qid = friendSession.questionIds?.[friendSession.currentIndex] ?? null;
     if (!qid) return;
     const already = friendSession.answers?.[qid]?.[friendMyUid];
     if (already) return;
 
-    const g = gradeInteraction(friendCurrent.interaction, { kind, valueText: soloTextAnswer });
+    let g: InteractionGradeResult;
+    if (kind === 'text' && isFreeformFallbackInteraction(finalInteraction)) {
+      g = await gradeFreeformAnswer({
+        questionText: friendCurrent.promptRawText || friendCurrent.partRawText || friendCurrent.stemRawText || '',
+        answerText: soloTextAnswer,
+        grading: finalInteraction.grading,
+        rubricSummary: finalInteraction.rubricSummary ?? null,
+        solutionText: friendCurrent.solutionText ?? null,
+        hints: friendCurrent.hints,
+        stepValues: compactStepValues(soloStepAnswers) ?? null,
+      });
+      await recordFreeformSubmission({
+        uid: friendMyUid,
+        programId: friendSession.programId ?? null,
+        questionId: friendCurrent.id,
+        questionText: friendCurrent.promptRawText || friendCurrent.partRawText || friendCurrent.stemRawText || '',
+        answerText: soloTextAnswer,
+        gradingMode: finalInteraction.grading,
+        stepValues: compactStepValues(soloStepAnswers) ?? null,
+        result: g,
+      });
+    } else {
+      g = gradeInteraction(friendCurrent.interaction, { kind, valueText: soloTextAnswer });
+    }
     await submitProgramFriendAnswer({
       sessionId: friendSession.id,
       uid: friendMyUid,
@@ -1962,11 +1996,33 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     const finalInteraction = getFinalInteraction(studyCurrent);
     if (!uid || !studySession || !studyCurrent?.interaction || !finalInteraction) return;
     if (kind === 'numeric' && !isNumericInteraction(finalInteraction)) return;
-    if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction)) return;
+    if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction) && !isFreeformFallbackInteraction(finalInteraction)) return;
     const qid = studySession.questionIds?.[studySession.currentIndex] ?? null;
     if (!qid) return;
     const already = studySession.answers?.[qid]?.[uid];
     if (already) return;
+
+    if (kind === 'text' && isFreeformFallbackInteraction(finalInteraction)) {
+      const g = await gradeFreeformAnswer({
+        questionText: studyCurrent.promptRawText || studyCurrent.partRawText || studyCurrent.stemRawText || '',
+        answerText: soloTextAnswer,
+        grading: finalInteraction.grading,
+        rubricSummary: finalInteraction.rubricSummary ?? null,
+        solutionText: studyCurrent.solutionText ?? null,
+        hints: studyCurrent.hints,
+        stepValues: compactStepValues(soloStepAnswers) ?? null,
+      });
+      await recordFreeformSubmission({
+        uid,
+        programId: studySession.programId ?? null,
+        questionId: studyCurrent.id,
+        questionText: studyCurrent.promptRawText || studyCurrent.partRawText || studyCurrent.stemRawText || '',
+        answerText: soloTextAnswer,
+        gradingMode: finalInteraction.grading,
+        stepValues: compactStepValues(soloStepAnswers) ?? null,
+        result: g,
+      });
+    }
 
     await submitProgramStudyAnswer({
       sessionId: studySession.id,
@@ -2006,7 +2062,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
 
   async function answerSoloMcq(idx: number) {
     const finalInteraction = getFinalInteraction(soloCurrent);
-    if (!soloCurrent?.interaction || !finalInteraction || finalInteraction.type !== 'mcq' || soloFeedback) return;
+    if (!soloCurrent?.interaction || !finalInteraction || finalInteraction.type !== 'mcq') return;
     const g = gradeInteraction(soloCurrent.interaction, { kind: 'mcq', choiceIndex: idx });
     setSoloFeedback(g);
 
@@ -2028,14 +2084,59 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
 
   async function answerSoloFreeform(kind: 'numeric' | 'text') {
     const finalInteraction = getFinalInteraction(soloCurrent);
-    if (!soloCurrent?.interaction || !finalInteraction || soloFeedback) return;
+    if (!soloCurrent?.interaction || !finalInteraction) return;
     if (kind === 'numeric' && !isNumericInteraction(finalInteraction)) return;
-    if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction)) return;
+    if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction) && !isFreeformFallbackInteraction(finalInteraction)) return;
 
-    const g = gradeInteraction(soloCurrent.interaction, { kind, valueText: soloTextAnswer });
+    let g: InteractionGradeResult;
+    if (kind === 'text' && isFreeformFallbackInteraction(finalInteraction)) {
+      try {
+        setSoloAwarding(true);
+        g = await gradeFreeformAnswer({
+          questionText: soloCurrent.promptRawText || soloCurrent.partRawText || soloCurrent.stemRawText || '',
+          answerText: soloTextAnswer,
+          grading: finalInteraction.grading,
+          rubricSummary: finalInteraction.rubricSummary ?? null,
+          solutionText: soloCurrent.solutionText ?? null,
+          hints: soloCurrent.hints,
+          stepValues: compactStepValues(soloStepAnswers) ?? null,
+        });
+      } catch (error) {
+        g = {
+          correct: false,
+          correctIndex: 0,
+          status: 'pending_review',
+          method: 'fallback',
+          feedbackText: error instanceof Error ? error.message : 'Failed to grade answer. Please try again.',
+        };
+      } finally {
+        setSoloAwarding(false);
+      }
+    } else {
+      g = gradeInteraction(soloCurrent.interaction, { kind, valueText: soloTextAnswer });
+    }
+
     setSoloFeedback(g);
+    setSoloShowExplanation(false);
+    setSoloExplanationIndex(0);
 
-    if (g.correct && uid) {
+    if (kind === 'text' && isFreeformFallbackInteraction(finalInteraction) && uid) {
+      try {
+        await recordFreeformSubmission({
+          uid,
+          programId: programId ?? null,
+          questionId: soloCurrent.id,
+          questionText: soloCurrent.promptRawText || soloCurrent.partRawText || soloCurrent.stemRawText || '',
+          answerText: soloTextAnswer,
+          gradingMode: finalInteraction.grading,
+          stepValues: compactStepValues(soloStepAnswers) ?? null,
+          result: g,
+        });
+      } catch {
+      }
+    }
+
+    if (g.correct && g.status !== 'pending_review' && uid) {
       try {
         setSoloAwarding(true);
         if (programId) {
@@ -2058,6 +2159,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     setSoloFeedback(null);
     setSoloTextAnswer('');
     setSoloStepAnswers({});
+    setSoloShowExplanation(false);
+    setSoloExplanationIndex(0);
     if (!soloRegionId || !soloQuestionTypeId) return;
     pickNextSoloQuestion({ regionId: soloRegionId, questionTypeId: soloQuestionTypeId, seen: nextSeen });
   }
@@ -2729,9 +2832,6 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                         {' '}› {selected?.title ?? mapRegion.title}
                       </span>
                     ) : null}
-                  </div>
-                  <div style={{ color: '#64748b', fontSize: 12, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    Question Bank: {qbChapterId ?? '—'}
                   </div>
                 </div>
                 <div style={{ color: '#94a3b8', fontSize: 12 }}>
@@ -3930,9 +4030,9 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                             const finalInteraction = getFinalInteraction(soloCurrent);
                             return finalInteraction?.type === 'mcq' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                              {renderCompositeStepCards(soloCurrent, soloStepAnswers, setSoloStepAnswers, !!soloFeedback)}
+                              {renderCompositeStepCards(soloCurrent, soloStepAnswers, setSoloStepAnswers, false)}
                               {finalInteraction.choices.map((c, idx) => {
-                                const disabled = !!soloFeedback;
+                                const disabled = false;
                                 const isCorrect = soloFeedback?.correctIndex === idx;
                                 const isChosenWrong = soloFeedback && !soloFeedback.correct && idx !== soloFeedback.correctIndex;
                                 const bg = !soloFeedback
@@ -3968,10 +4068,10 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                             </div>
                           ) : finalInteraction?.type === 'numeric' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                              {renderCompositeStepCards(soloCurrent, soloStepAnswers, setSoloStepAnswers, !!soloFeedback)}
+                              {renderCompositeStepCards(soloCurrent, soloStepAnswers, setSoloStepAnswers, false)}
                               <input
                                 value={soloTextAnswer}
-                                disabled={!!soloFeedback}
+                                disabled={false}
                                 inputMode="decimal"
                                 onChange={(e) => setSoloTextAnswer(e.target.value)}
                                 placeholder="Enter answer"
@@ -3993,9 +4093,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                   <button
                                     key={k}
                                     className="ll-btn"
-                                    disabled={!!soloFeedback}
+                                    disabled={false}
                                     onClick={() => {
-                                      if (soloFeedback) return;
                                       if (k === '⌫') {
                                         setSoloTextAnswer((p) => p.slice(0, -1));
                                       } else if (k === '-') {
@@ -4013,7 +4112,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
 
                               <button
                                 className="ll-btn ll-btn-primary"
-                                disabled={!!soloFeedback || !soloTextAnswer.trim()}
+                                disabled={!soloTextAnswer.trim()}
                                 onClick={() => answerSoloFreeform('numeric')}
                                 style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
                               >
@@ -4022,8 +4121,31 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                             </div>
                           ) : isTextSubmittedInteraction(finalInteraction) ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                              {renderCompositeStepCards(soloCurrent, soloStepAnswers, setSoloStepAnswers, !!soloFeedback)}
-                              {renderTextSubmittedEditor(finalInteraction, soloTextAnswer, setSoloTextAnswer, !!soloFeedback, () => answerSoloFreeform('text'))}
+                              {renderCompositeStepCards(soloCurrent, soloStepAnswers, setSoloStepAnswers, false)}
+                              {renderTextSubmittedEditor(finalInteraction, soloTextAnswer, setSoloTextAnswer, false, () => answerSoloFreeform('text'))}
+                            </div>
+                          ) : isFreeformFallbackInteraction(finalInteraction) ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                              {renderCompositeStepCards(soloCurrent, soloStepAnswers, setSoloStepAnswers, false)}
+                              <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                                {finalInteraction.grading === 'ai' ? 'This question will be reviewed with AI assistance.' : 'This question currently needs manual review.'}
+                              </div>
+                              <textarea
+                                value={soloTextAnswer}
+                                disabled={false}
+                                onChange={(e) => setSoloTextAnswer(e.target.value)}
+                                placeholder={finalInteraction.placeholder ?? 'Type your answer'}
+                                rows={5}
+                                style={{ width: '100%', padding: '12px 12px', borderRadius: 12, border: '1px solid #1f2a44', background: 'rgba(15,23,42,0.6)', color: 'white', outline: 'none', fontSize: 14, resize: 'vertical' }}
+                              />
+                              <button
+                                className="ll-btn ll-btn-primary"
+                                disabled={!soloTextAnswer.trim()}
+                                onClick={() => answerSoloFreeform('text')}
+                                style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
+                              >
+                                Submit for Review
+                              </button>
                             </div>
                           ) : (
                             <div style={{ color: '#94a3b8', fontSize: 13 }}>This question type is not supported yet.</div>
@@ -4033,12 +4155,27 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                           {soloFeedback && (
                             <div style={{ marginTop: 12 }}>
                               <div style={{
-                                color: soloFeedback.correct ? '#34d399' : '#fca5a5',
+                                color: soloFeedback.status === 'pending_review' ? '#93c5fd' : (soloFeedback.correct ? '#34d399' : '#fca5a5'),
                                 fontWeight: 900,
                                 marginBottom: 10,
                               }}>
-                                {soloFeedback.correct ? 'Correct!' : 'Not quite'}
+                                {soloFeedback.status === 'pending_review'
+                                  ? (soloFeedback.feedbackText ?? 'Submitted for review')
+                                  : (soloFeedback.correct ? 'Correct!' : 'Not quite')}
                               </div>
+                              {buildExplanationScenes(soloCurrent).length > 0 && (
+                                <button
+                                  onClick={() => {
+                                    setSoloShowExplanation((prev) => !prev);
+                                    setSoloExplanationIndex(0);
+                                  }}
+                                  className="ll-btn"
+                                  style={{ padding: '10px 12px', fontSize: 13, width: '100%', marginBottom: 10 }}
+                                >
+                                  {soloShowExplanation ? 'Hide Explanation' : 'Show Explanation'}
+                                </button>
+                              )}
+                              {soloShowExplanation && renderExplanationViewer(soloCurrent, soloExplanationIndex, setSoloExplanationIndex)}
                               <button onClick={nextSolo} className="ll-btn ll-btn-primary" style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}>
                                 Next Question
                               </button>

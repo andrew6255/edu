@@ -6,13 +6,24 @@ export type ProgramPromptBlock =
   | { type: 'image'; url: string; alt?: string; caption?: string }
   | { type: 'table'; rows: string[][]; headerRows?: number };
 
+export type ProgramExplanationScene = {
+  id: string;
+  title: string;
+  narration?: string | null;
+  beforeText?: string | null;
+  afterText?: string | null;
+  emphasis?: string[];
+  action?: 'highlight' | 'transform' | 'note' | 'reveal';
+};
+
 export type ProgramAtomicInteractionSpec =
   | { type: 'mcq'; choices: string[]; correctChoiceIndex: number }
   | { type: 'numeric'; correct: number | number[]; tolerance?: number; format?: 'integer' | 'decimal' | 'fraction'; keypad?: 'basic' | 'scientific' }
   | { type: 'text'; accepted: string[]; caseSensitive?: boolean; trim?: boolean }
   | { type: 'line_equation'; forms: string[]; variable?: string; caseSensitive?: boolean; trim?: boolean }
   | { type: 'point_list'; points: Array<{ x: number; y: number }>; minPoints?: number; maxPoints?: number; ordered?: boolean; allowEquivalentOrder?: boolean }
-  | { type: 'points_on_line'; lineForms: string[]; minPoints: number; maxPoints?: number; disallowGivenPoints?: Array<{ x: number; y: number }>; requireDistinct?: boolean };
+  | { type: 'points_on_line'; lineForms: string[]; minPoints: number; maxPoints?: number; disallowGivenPoints?: Array<{ x: number; y: number }>; requireDistinct?: boolean }
+  | { type: 'freeform'; grading: 'ai' | 'manual'; placeholder?: string; rubricSummary?: string | null; acceptSteps?: boolean };
 
 export type ProgramStepSpec = {
   id: string;
@@ -80,6 +91,7 @@ export type ProgramAnnotationsFile = {
           points?: number;
           solution?: { raw_text?: string | null; latex?: string | null };
           hints?: Array<{ raw_text?: string | null; latex?: string | null }>;
+          explanationScenes?: ProgramExplanationScene[];
           stepSolutions?: Array<{
             id: string;
             title: string;
@@ -159,6 +171,7 @@ export type FlatProgramQuestion = {
   interaction: ProgramInteractionSpec | null;
   solutionText: string | null;
   hints: string[];
+  explanationScenes: ProgramExplanationScene[];
   stepSolutions: ProgramStepSpec[];
 };
 
@@ -243,6 +256,19 @@ export function flattenProgramChapter(
           interaction,
           solutionText: getText(a?.solution?.raw_text) ?? getText(a?.solution?.latex),
           hints: Array.isArray(a?.hints) ? a.hints.map((h) => getText(h?.raw_text) ?? getText(h?.latex)).filter(Boolean) as string[] : [],
+          explanationScenes: Array.isArray((a as any)?.explanationScenes)
+            ? ((a as any).explanationScenes as Array<Record<string, unknown>>).map((scene, idx) => ({
+                id: typeof scene?.id === 'string' ? scene.id : `scene_${idx + 1}`,
+                title: typeof scene?.title === 'string' && scene.title.trim() ? scene.title : `Step ${idx + 1}`,
+                narration: getText(scene?.narration),
+                beforeText: getText(scene?.beforeText),
+                afterText: getText(scene?.afterText),
+                emphasis: Array.isArray(scene?.emphasis) ? scene.emphasis.map((item) => String(item)).filter(Boolean) : undefined,
+                action: scene?.action === 'highlight' || scene?.action === 'transform' || scene?.action === 'note' || scene?.action === 'reveal'
+                  ? scene.action
+                  : undefined,
+              }))
+            : [],
           stepSolutions: Array.isArray((a as any)?.stepSolutions)
             ? ((a as any).stepSolutions as Array<Record<string, unknown>>).map((step, idx) => ({
                 id: typeof step?.id === 'string' ? step.id : `step_${idx + 1}`,
@@ -300,6 +326,19 @@ export function flattenProgramChapter(
             interaction,
             solutionText: getText(a?.solution?.raw_text) ?? getText(a?.solution?.latex),
             hints: Array.isArray(a?.hints) ? a.hints.map((h) => getText(h?.raw_text) ?? getText(h?.latex)).filter(Boolean) as string[] : [],
+            explanationScenes: Array.isArray((a as any)?.explanationScenes)
+              ? ((a as any).explanationScenes as Array<Record<string, unknown>>).map((scene, idx) => ({
+                  id: typeof scene?.id === 'string' ? scene.id : `scene_${idx + 1}`,
+                  title: typeof scene?.title === 'string' && scene.title.trim() ? scene.title : `Step ${idx + 1}`,
+                  narration: getText(scene?.narration),
+                  beforeText: getText(scene?.beforeText),
+                  afterText: getText(scene?.afterText),
+                  emphasis: Array.isArray(scene?.emphasis) ? scene.emphasis.map((item) => String(item)).filter(Boolean) : undefined,
+                  action: scene?.action === 'highlight' || scene?.action === 'transform' || scene?.action === 'note' || scene?.action === 'reveal'
+                    ? scene.action
+                    : undefined,
+                }))
+              : [],
             stepSolutions: Array.isArray((a as any)?.stepSolutions)
               ? ((a as any).stepSolutions as Array<Record<string, unknown>>).map((step, idx) => ({
                   id: typeof step?.id === 'string' ? step.id : `step_${idx + 1}`,

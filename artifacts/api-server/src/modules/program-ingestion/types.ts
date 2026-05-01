@@ -103,6 +103,16 @@ export interface QuestionSolutionStep {
   explanation?: string;
 }
 
+export interface ExplanationScene {
+  id: string;
+  title: string;
+  narration?: string;
+  beforeText?: string;
+  afterText?: string;
+  emphasis?: string[];
+  action?: "highlight" | "transform" | "note" | "reveal";
+}
+
 export type ExtractionWarningCode =
   | "low_quality_scan"
   | "ocr_unreadable_region"
@@ -246,6 +256,7 @@ export interface QuestionBase {
     finalAnswerText: string;
     solution: string;
     steps?: QuestionSolutionStep[];
+    explanationScenes?: ExplanationScene[];
     allowDirectFinalAnswer?: boolean;
   };
   review: {

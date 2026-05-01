@@ -25,7 +25,7 @@ import NeonGridGame from '@/games/NeonGridGame';
 import FlipCupGame from '@/games/FlipCupGame';
 import TicTacToeGame from '@/games/TicTacToeGame';
 import ChessMemoryGame from '@/games/ChessMemoryGame';
-import { NameSquare10Game, NameSquare60Game, FindSquare10Game, FindSquare60Game } from '@/games/ChessSquareGame';
+import { NameSquareGame, FindSquareGame } from '@/games/ChessSquareGame';
 
 export type WarmupCategory = 'rapid' | 'memory' | 'spatial' | 'logic';
 
@@ -45,32 +45,29 @@ export interface GameConfig {
   category: WarmupCategory;
   description: string;
   component: React.ComponentType<{ gameId: string; mode: GameMode; onGameOver: (score: number) => void }>;
-  isNew?: boolean;
   supportsVariants?: boolean;
 }
 
 const GAMES: GameConfig[] = [
   { id: 'quickMath',    label: 'Quick Math',         icon: '🧮', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: QuickMathGame, supportsVariants: true },
   { id: 'advQuickMath', label: 'Advanced Math',      icon: '⚡', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: QuickMathGame, supportsVariants: true },
-  { id: 'trueFalse',    label: 'True or False',      icon: '✅', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: TrueFalseGame, isNew: true, supportsVariants: true },
-  { id: 'compareExp',   label: 'Compare Expressions',icon: '⚖️', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: CompareExpGame, isNew: true, supportsVariants: true },
-  { id: 'missingOp',    label: 'Missing Operator',   icon: '🔣', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: MissingOpGame, isNew: true, supportsVariants: true },
-  { id: 'completeEq',   label: 'Complete Equation',  icon: '📝', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: CompleteEqGame, isNew: true, supportsVariants: true },
+  { id: 'trueFalse',    label: 'True or False',      icon: '✅', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: TrueFalseGame, supportsVariants: true },
+  { id: 'compareExp',   label: 'Compare Expressions',icon: '⚖️', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: CompareExpGame, supportsVariants: true },
+  { id: 'missingOp',    label: 'Missing Operator',   icon: '🔣', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: MissingOpGame, supportsVariants: true },
+  { id: 'completeEq',   label: 'Complete Equation',  icon: '📝', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: CompleteEqGame, supportsVariants: true },
   { id: 'sequence',     label: 'Sequence',           icon: '🔗', category: 'rapid',   description: 'Choose 10s or 60s mode',   component: SequenceGame, supportsVariants: true },
-  { id: 'memoCells',    label: 'Memo Cells',         icon: '🧠', category: 'memory',  description: 'Memorize flashing cells, then recall them',      component: MemoCellsGame, isNew: true },
-  { id: 'memoOrder',    label: 'Memo Order',         icon: '🔢', category: 'memory',  description: 'Tap numbers in the order they appeared',        component: MemoOrderGame, isNew: true },
+  { id: 'memoCells',    label: 'Memo Cells',         icon: '🧠', category: 'memory',  description: 'Memorize flashing cells, then recall them',      component: MemoCellsGame },
+  { id: 'memoOrder',    label: 'Memo Order',         icon: '🔢', category: 'memory',  description: 'Tap numbers in the order they appeared',        component: MemoOrderGame },
   { id: 'pyramid',      label: 'Number Pyramid',     icon: '△',  category: 'rapid',   description: 'Fill in the pyramid using addition',            component: PyramidGame },
   { id: 'flipNodes',    label: 'Flip Nodes',         icon: '⬡',  category: 'logic',   description: 'Solve the parity flipping puzzle',              component: FlipNodesGame },
   { id: 'blockPuzzle',  label: 'Block Blast',        icon: '🟦', category: 'spatial', description: 'Drag blocks to fill rows & columns',           component: BlockPuzzleGame },
   { id: 'fifteenPuzzle',label: '15 Puzzle',          icon: '🔀', category: 'spatial', description: 'Slide tiles to sort 1–15 in order',             component: FifteenGame },
-  { id: 'neonGrid',     label: 'Neon Grid',          icon: '💡', category: 'spatial', description: 'Copy the glowing pattern by toggling cells',      component: NeonGridGame,   isNew: true },
-  { id: 'flipCup',      label: 'Flip Cup',           icon: '🥤', category: 'logic',   description: 'Tap to flip cups and neighbors — all upright!',  component: FlipCupGame,    isNew: true },
-  { id: 'ticTacToe',   label: 'Tic Tac Toe',        icon: '❌', category: 'logic',   description: 'Beat the unbeatable bot as many times as you can',component: TicTacToeGame,  isNew: true },
-  { id: 'chessMemory',   label: 'Chess Memory',          icon: '♟️', category: 'memory',  description: 'Memorise piece positions then place them back',      component: ChessMemoryGame,  isNew: true },
-  { id: 'nameSquare10',  label: 'Name Square (10s)',      icon: '♜', category: 'memory',  description: '10 seconds to name the highlighted square',           component: NameSquare10Game, isNew: true },
-  { id: 'nameSquare60',  label: 'Name Square (60s)',      icon: '♝', category: 'memory',  description: '60 seconds — name as many squares as you can',       component: NameSquare60Game, isNew: true },
-  { id: 'findSquare10',  label: 'Find Square (10s)',      icon: '♞', category: 'memory',  description: '10 seconds to click the named square on the board',  component: FindSquare10Game, isNew: true },
-  { id: 'findSquare60',  label: 'Find Square (60s)',      icon: '♛', category: 'memory',  description: '60 seconds — find as many squares as you can',       component: FindSquare60Game, isNew: true },
+  { id: 'neonGrid',     label: 'Neon Grid',          icon: '💡', category: 'spatial', description: 'Copy the glowing pattern by toggling cells',      component: NeonGridGame },
+  { id: 'flipCup',      label: 'Flip Cup',           icon: '🥤', category: 'logic',   description: 'Tap to flip cups and neighbors — all upright!',  component: FlipCupGame },
+  { id: 'ticTacToe',   label: 'Tic Tac Toe',        icon: '❌', category: 'logic',   description: 'Beat the unbeatable bot as many times as you can',component: TicTacToeGame },
+  { id: 'chessMemory',   label: 'Chess Memory',          icon: '♟️', category: 'memory',  description: 'Memorise piece positions then place them back',      component: ChessMemoryGame },
+  { id: 'nameSquare',    label: 'Name Square',            icon: '♜', category: 'memory',  description: 'Choose 10s or 60s mode',                             component: NameSquareGame, supportsVariants: true },
+  { id: 'findSquare',    label: 'Find Square',            icon: '♞', category: 'memory',  description: 'Choose 10s or 60s mode',                             component: FindSquareGame, supportsVariants: true },
 ];
 
 const CATEGORIES = [
@@ -392,13 +389,6 @@ export default function WarmupView() {
                 el.style.boxShadow = '';
               }}
             >
-              {game.isNew && (
-                <div style={{
-                  position: 'absolute', top: 7, left: 7,
-                  background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)',
-                  borderRadius: 4, padding: '1px 5px', fontSize: 8, color: '#10b981', fontWeight: 'bold'
-                }}>NEW</div>
-              )}
               <div style={{
                 position: 'absolute', top: 7, right: 7,
                 background: 'rgba(30,41,59,0.8)', borderRadius: 4, padding: '2px 6px',

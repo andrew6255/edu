@@ -1,5 +1,5 @@
 import { getDraftProgram } from '@/lib/draftProgramStore';
-import { getDraftProgramAdmin, getPublishedProgramAdmin, listProgramsAdmin } from '@/lib/programAdminService';
+import { getDraftProgramAdmin, getPublishedProgramAdmin, listPublishedProgramsFull } from '@/lib/programAdminService';
 import { getUserData, updateUserData } from '@/lib/userService';
 import { deleteUserDoc } from '@/lib/supabaseDocStore';
 
@@ -67,7 +67,7 @@ export async function getDraftProgramFromDb(programId: string): Promise<PublicPr
 }
 
 export async function listPublicPrograms(): Promise<PublicProgram[]> {
-  const rows = await listProgramsAdmin('published');
+  const rows = await listPublishedProgramsFull();
   return rows
     .map((row) => toPublicProgram(row as Partial<PublicProgram> & { id: string }))
     .filter((p): p is PublicProgram => !!p);

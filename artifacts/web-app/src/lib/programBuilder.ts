@@ -3,6 +3,7 @@ import {
   type ProgramAnnotationsFile,
   type ProgramChapter,
   type ProgramDifficulty,
+  type ProgramExplanationScene,
   type ProgramInteractionSpec,
   type ProgramStepSpec,
   type ProgramPromptBlock,
@@ -36,6 +37,7 @@ export type BuilderQuestion = {
   time_required_seconds?: number;
   hint?: string | string[] | null;
   solution?: string | null;
+  explanationScenes?: ProgramExplanationScene[];
   stepSolutions?: ProgramStepSpec[];
   points?: number;
 
@@ -145,6 +147,9 @@ export function parseQuestionTypeJson(text: string): BuilderQuestion[] {
     const stepSolutions: ProgramStepSpec[] | undefined = Array.isArray(q?.stepSolutions)
       ? (q.stepSolutions as ProgramStepSpec[])
       : undefined;
+    const explanationScenes: ProgramExplanationScene[] | undefined = Array.isArray(q?.explanationScenes)
+      ? (q.explanationScenes as ProgramExplanationScene[])
+      : undefined;
 
     // Legacy MCQ fields (required unless interaction supplies it)
     const options = Array.isArray(q?.options) ? q.options.map((x: any) => String(x)) : [];
@@ -185,6 +190,7 @@ export function parseQuestionTypeJson(text: string): BuilderQuestion[] {
       time_required_seconds: q?.time_required_seconds != null ? Number(q.time_required_seconds) : undefined,
       hint: q?.hint ?? null,
       solution: q?.solution ?? null,
+      explanationScenes,
       stepSolutions,
       points: q?.points != null ? Number(q.points) : undefined,
       promptBlocks,
@@ -212,6 +218,15 @@ function tocItemFromNode(node: BuilderNode, level: number): TocItem {
   };
 }
 
+function tocChildrenFromQuestionTypes(node: BuilderNode, level: number): TocItem[] {
+  return node.questionTypes.map((qt) => ({
+    id: `${node.id}__${qt.id}`,
+    title: qt.title,
+    level,
+    children: [],
+  }));
+}
+
 export function convertBuilderToInternal(spec: BuilderSpec): {
   toc: TocData;
   questionBanksByChapter: Record<string, ProgramChapter>;
@@ -226,7 +241,10 @@ export function convertBuilderToInternal(spec: BuilderSpec): {
   const toc: TocData = {
     program_id: normalized.programId,
     program_title: normalized.programTitle,
-    toc_tree: topFolders.map((c) => tocItemFromNode(c, 1)),
+    toc_tree: topFolders.map((c) => ({
+      ...tocItemFromNode(c, 1),
+      children: c.children.length > 0 ? c.children.map((child) => tocItemFromNode(child, 2)) : tocChildrenFromQuestionTypes(c, 2),
+    })),
     toc_notes: [],
   };
 
@@ -275,16 +293,18 @@ export function convertBuilderToInternal(spec: BuilderSpec): {
       if (depthUnderTop < 0) return;
 
       const isLeafFolder = depthUnderTop === normalized.divisions.length - 1;
-      if (!isLeafFolder) return;
-
-      const regionId = n.id;
-      if (!chapter.regions!.some((r) => r.region_id === regionId)) {
-        chapter.regions!.push({ region_id: regionId, section_title: n.title });
-      }
+      const isDirectChapterQuestionTypeLevel = depthUnderTop === 0 && n.questionTypes.length > 0 && n.children.length === 0;
+      if (!isLeafFolder && !isDirectChapterQuestionTypeLevel) return;
 
       let treeOrder = 1;
 
       for (const qt of n.questionTypes) {
+        const regionId = isDirectChapterQuestionTypeLevel ? `${n.id}__${qt.id}` : n.id;
+        const regionTitle = isDirectChapterQuestionTypeLevel ? qt.title : n.title;
+        if (!chapter.regions!.some((r) => r.region_id === regionId)) {
+          chapter.regions!.push({ region_id: regionId, section_title: regionTitle });
+        }
+
         const typeId = qt.id;
         if (!annChapter.questionTypes) annChapter.questionTypes = {};
         if (!annChapter.questionTypes[typeId]) {
@@ -322,6 +342,7 @@ export function convertBuilderToInternal(spec: BuilderSpec): {
           if (q.points != null) ann.points = q.points;
           if (q.solution) ann.solution = { raw_text: q.solution };
           if (hintsArr.length > 0) ann.hints = hintsArr.map((h) => ({ raw_text: String(h) }));
+          if (Array.isArray(q.explanationScenes) && q.explanationScenes.length > 0) ann.explanationScenes = q.explanationScenes;
           if (Array.isArray(q.stepSolutions) && q.stepSolutions.length > 0) {
             ann.stepSolutions = q.stepSolutions.map((step, idx) => ({
               id: step.id || `step_${idx + 1}`,

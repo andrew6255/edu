@@ -57,6 +57,18 @@ export async function listProgramsAdmin(status: 'draft' | 'published'): Promise<
   const supabase = requireSupabase();
   const { data, error } = await supabase
     .from(tableName)
+    .select('id,title,subject,grade_band,cover_emoji,ranked_total_question_count,deleted_at,updated_at')
+    .order('title', { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as Record<string, unknown>[])
+    .map((row: Record<string, unknown>) => fromSupabaseRow(row))
+    .filter((row: ProgramAdminRecord) => !(typeof row.deletedAt === 'string' && row.deletedAt));
+}
+
+export async function listPublishedProgramsFull(): Promise<ProgramAdminRecord[]> {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase
+    .from('public_programs')
     .select('*')
     .order('title', { ascending: true });
   if (error) throw error;

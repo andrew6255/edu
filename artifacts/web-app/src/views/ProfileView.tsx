@@ -58,10 +58,10 @@ const GAME_META: Record<string, { label: string; icon: string }> = {
   chessMemory:  { label: 'Chess Memory',        icon: '♟️' },
   neonGrid:     { label: 'Neon Grid',           icon: '🌐' },
   flipCup:      { label: 'Flip Cup',            icon: '🥤' },
-  nameSquare10: { label: 'Name Square (10s)',   icon: '♜' },
-  nameSquare60: { label: 'Name Square (60s)',   icon: '♝' },
-  findSquare10: { label: 'Find Square (10s)',   icon: '♞' },
-  findSquare60: { label: 'Find Square (60s)',   icon: '♛' },
+  nameSquare_10s: { label: 'Name Square (10s)', icon: '♜' },
+  nameSquare_60s: { label: 'Name Square (60s)', icon: '♝' },
+  findSquare_10s: { label: 'Find Square (10s)', icon: '♞' },
+  findSquare_60s: { label: 'Find Square (60s)', icon: '♛' },
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────

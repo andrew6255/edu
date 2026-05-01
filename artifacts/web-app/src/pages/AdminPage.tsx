@@ -28,6 +28,7 @@ import {
 } from '@/lib/adminService';
 import { getClassLeaderboard, type ClassLeaderboardEntry } from '@/lib/statsService';
 import { adminUpdateEconomy, adminGetStudentEconomy, createUserDataAdmin, isUsernameTaken, type EconomyDeltas } from '@/lib/userService';
+import { listFreeformReviewsForUsers, type FreeformReviewRow } from '@/lib/freeformReviewService';
 
 type Tab = 'users' | 'classes';
 
@@ -97,10 +98,13 @@ export default function AdminPage() {
   // which class to add to (from users tab)
   const [addToClassId, setAddToClassId] = useState<string | null>(null);
 
-  const [classDetailTab, setClassDetailTab] = useState<'members' | 'content' | 'programs' | 'stats'>('members');
+  const [classDetailTab, setClassDetailTab] = useState<'members' | 'content' | 'programs' | 'stats' | 'freeformReview'>('members');
 
   const [leaderboard, setLeaderboard] = useState<ClassLeaderboardEntry[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+
+  const [freeformReviews, setFreeformReviews] = useState<FreeformReviewRow[]>([]);
+  const [loadingFreeformReviews, setLoadingFreeformReviews] = useState(false);
 
   const [contentItems, setContentItems] = useState<ClassContentRow[]>([]);
   const [loadingContent, setLoadingContent] = useState(false);
@@ -209,6 +213,7 @@ export default function AdminPage() {
     setLoadingMembers(true);
     setLoadingContent(true);
     setLeaderboard([]);
+    setFreeformReviews([]);
     try {
       const [m, cc] = await Promise.all([listClassMembers(classId), listClassContent(classId)]);
       setMembers(m);
@@ -544,11 +549,20 @@ export default function AdminPage() {
                   { id: 'members' as const, icon: '👥', label: `Members (${members.length})` },
                   { id: 'content' as const, icon: '📚', label: `Content (${contentItems.filter(c => c.content_type !== 'program').length})` },
                   { id: 'programs' as const, icon: '📘', label: `Programs (${contentItems.filter(c => c.content_type === 'program').length})` },
-                  { id: 'stats' as const, icon: '📊', label: 'Performance' }
+                  { id: 'stats' as const, icon: '📊', label: 'Performance' },
+                  { id: 'freeformReview' as const, icon: '📝', label: `Freeform Review (${freeformReviews.length})` }
                 ]).map(st => (
                   <button key={st.id} onClick={() => {
                     setClassDetailTab(st.id);
                     if (st.id === 'stats' && leaderboard.length === 0 && selectedClassId) { setLoadingLeaderboard(true); getClassLeaderboard(selectedClassId).then(lb => { setLeaderboard(lb); setLoadingLeaderboard(false); }).catch(() => setLoadingLeaderboard(false)); }
+                    if (st.id === 'freeformReview' && freeformReviews.length === 0) {
+                      setLoadingFreeformReviews(true);
+                      const userIds = members.filter((member) => member.role === 'student').map((member) => member.user_id);
+                      listFreeformReviewsForUsers(userIds)
+                        .then((rows) => setFreeformReviews(rows))
+                        .catch(() => setFreeformReviews([]))
+                        .finally(() => setLoadingFreeformReviews(false));
+                    }
                   }} style={{ padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit', background: classDetailTab === st.id ? `${COLOR}33` : 'transparent', border: `1px solid ${classDetailTab === st.id ? COLOR_DIM : 'transparent'}`, color: classDetailTab === st.id ? COLOR : '#64748b', cursor: 'pointer' }}>
                     {st.icon} {st.label}
                   </button>
@@ -593,6 +607,27 @@ export default function AdminPage() {
                     <div style={{ width: 70, textAlign: 'center', color: '#10b981', fontWeight: 'bold', fontSize: 13 }}>{e.quizzes_graded > 0 ? e.avg_score : '—'}</div>
                     <div style={{ width: 70, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>{e.quizzes_taken}</div>
                     <div style={{ width: 70, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>{e.questions_solved}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {classDetailTab === 'freeformReview' && (loadingFreeformReviews ? <div style={{ color: '#64748b', textAlign: 'center', marginTop: 20 }}>Loading...</div> :
+              freeformReviews.length === 0 ? <div style={{ textAlign: 'center', color: '#64748b', marginTop: 30 }}><div style={{ fontSize: 30, marginBottom: 8 }}>📝</div><div>No freeform submissions yet.</div></div> :
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {freeformReviews.map((review) => (
+                  <div key={review.id} style={{ ...cardStyle, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <div style={{ color: 'white', fontWeight: 'bold', fontSize: 13 }}>{review.questionText || 'Untitled freeform response'}</div>
+                      <div style={{ color: review.status === 'pending_review' ? '#93c5fd' : (review.correct ? '#34d399' : '#fca5a5'), fontSize: 11, fontWeight: 'bold' }}>
+                        {review.status === 'pending_review' ? 'Pending review' : (review.correct ? 'Accepted' : 'Rejected')}
+                      </div>
+                    </div>
+                    <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 8 }}>
+                      {new Date(review.createdAt).toLocaleString()} · mode: {review.gradingMode} · provider: {review.provider ?? '—'}
+                    </div>
+                    <div style={{ color: '#cbd5e1', fontSize: 12, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{review.answerText}</div>
+                    {review.feedbackText ? <div style={{ color: '#94a3b8', fontSize: 11, whiteSpace: 'pre-wrap' }}>{review.feedbackText}</div> : null}
                   </div>
                 ))}
               </div>
