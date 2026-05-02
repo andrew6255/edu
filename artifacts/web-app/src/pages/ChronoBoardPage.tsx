@@ -291,6 +291,14 @@ export default function ChronoBoardPage() {
     }
     const gs = buyBooth(gameState, landing.tileId, landing.buyPrice);
     void persistState(gs);
+    if (user?.uid) {
+      void (async () => {
+        try {
+          const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
+          await incrementTaskProgress(user.uid, 'booth_buy', 1);
+        } catch { /* best-effort */ }
+      })();
+    }
     setLandingMsg(`✅ Bought Booth #${landing.tileId} for ${landing.buyPrice} coins!`);
     setLanding(null);
     setTimeout(() => setLandingMsg(null), 2500);
@@ -383,6 +391,14 @@ export default function ChronoBoardPage() {
     if (!auction || !gameState) return;
     const gs = resolveAuction(gameState, auction);
     void persistState(gs);
+    if (user?.uid && auction.currentBidder === 'player') {
+      void (async () => {
+        try {
+          const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
+          await incrementTaskProgress(user.uid, 'auction_win', 1);
+        } catch { /* best-effort */ }
+      })();
+    }
     setLandingMsg(auction.currentBidder === 'player'
       ? `🏆 You won Booth #${auction.tileId} for ${auction.currentBid} coins!`
       : auction.currentBidder

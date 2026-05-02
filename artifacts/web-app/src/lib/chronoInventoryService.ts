@@ -83,6 +83,12 @@ export async function addCardCopies(uid: string, cardId: string, count: number):
     [`cards.${cardId}`]: updated,
     updatedAt: nowIso(),
   });
+  try {
+    const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
+    await incrementTaskProgress(uid, 'card_copies', Math.max(0, count));
+  } catch {
+    // Best-effort task hook.
+  }
   return updated;
 }
 
@@ -125,6 +131,13 @@ export async function upgradeCard(uid: string, cardId: string): Promise<UpgradeR
     await updateUserDoc(uid, 'chrono_economy', 'global', {
       gold: gold - nextDef.coinCost,
     });
+  }
+
+  try {
+    const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
+    await incrementTaskProgress(uid, 'card_upgrade', 1);
+  } catch {
+    // Best-effort task hook.
   }
 
   return { ok: true, card: updated };

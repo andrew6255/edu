@@ -4,13 +4,19 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ensureChronoEmpiresState, getChronoEmpiresState, type ChronoEmpiresStateDoc } from '@/lib/chronoEmpiresService';
 import { BOARDS, boardToClass, gemsToClass, ALL_CATEGORY_CARDS, ALL_TRANSPORT_CARDS, CARD_UPGRADE_LEVELS, WHEEL_SEGMENTS, spinWheel, type CardCategory, type CategoryCard } from '@/lib/chronoCards';
 import { getInventory, ensureInventory, addCardCopies, upgradeCard, addToDeck, removeFromDeck, addTransportCard, addCombatCard, type ChronoInventoryDoc, type OwnedCard } from '@/lib/chronoInventoryService';
+import { claimIdleVault, syncIdleVault, type ChronoIdleVaultStatus } from '@/lib/chronoIdleVaultService';
+import { buildCollectionSetViewModels, claimCollectionSetReward } from '@/lib/chronoCollectionSetsService';
+import { buildDiscoveryWorkshopView, combineDiscovery } from '@/lib/chronoDiscoveryService';
+import { buildChronoPrestigeViewModel, prestigeChronoRun, type ChronoPrestigeViewModel } from '@/lib/chronoPrestigeService';
+import { claimChronoRewardChest, getChronoRewardChestStatus, type ChronoRewardChestStatus } from '@/lib/chronoRewardChestService';
 
-type Section = 'road' | 'wheel' | 'inventory' | 'shop' | 'tasks' | 'friends' | 'battlepass';
+type Section = 'road' | 'wheel' | 'inventory' | 'workshop' | 'shop' | 'tasks' | 'friends' | 'battlepass';
 
 const SECTIONS: Array<{ id: Section; label: string; icon: string }> = [
   { id: 'road',       label: 'Road',        icon: '🛣️' },
   { id: 'wheel',      label: 'Wheel',       icon: '🎡' },
   { id: 'inventory',  label: 'Inventory',   icon: '🎒' },
+  { id: 'workshop',   label: 'Workshop',    icon: '🧪' },
   { id: 'shop',       label: 'Shop',        icon: '🛒' },
   { id: 'tasks',      label: 'Tasks',       icon: '✅' },
   { id: 'friends',    label: 'Friends',     icon: '👥' },
@@ -62,6 +68,15 @@ export default function ChronoEmpiresView() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [state, setState] = useState<ChronoEmpiresStateDoc | null>(null);
+  const [idleVault, setIdleVault] = useState<ChronoIdleVaultStatus | null>(null);
+  const [idleVaultBusy, setIdleVaultBusy] = useState(false);
+  const [idleVaultMsg, setIdleVaultMsg] = useState<string | null>(null);
+  const [rewardChest, setRewardChest] = useState<ChronoRewardChestStatus | null>(null);
+  const [rewardChestBusy, setRewardChestBusy] = useState(false);
+  const [rewardChestMsg, setRewardChestMsg] = useState<string | null>(null);
+  const [prestige, setPrestige] = useState<ChronoPrestigeViewModel | null>(null);
+  const [prestigeBusy, setPrestigeBusy] = useState(false);
+  const [prestigeMsg, setPrestigeMsg] = useState<string | null>(null);
 
   const roadRef = useRef<HTMLDivElement | null>(null);
   const [inventory, setInventory] = useState<ChronoInventoryDoc | null>(null);
@@ -81,12 +96,80 @@ export default function ChronoEmpiresView() {
       await ensureChronoEmpiresState(uid);
       const s = await getChronoEmpiresState(uid);
       setState(s);
+      const board = s?.currentBoard ?? 100;
+      const vault = await syncIdleVault(uid, board);
+      const chest = await getChronoRewardChestStatus(uid, board);
+      const prestigeVm = await buildChronoPrestigeViewModel(uid, board);
+      setIdleVault(vault);
+      setRewardChest(chest);
+      setPrestige(prestigeVm);
       await loadInventory();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setErr(msg || 'Failed to load Chrono Empires');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleClaimIdleVault() {
+    if (!uid) return;
+    setIdleVaultBusy(true);
+    setIdleVaultMsg(null);
+    try {
+      const result = await claimIdleVault(uid);
+      if (!result.ok) {
+        setIdleVaultMsg(result.reason);
+        return;
+      }
+      setIdleVaultMsg(`💰 Claimed ${result.coins.toLocaleString()} coins from your Idle Vault.`);
+      await load();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setIdleVaultMsg(msg || 'Failed to claim Idle Vault.');
+    } finally {
+      setIdleVaultBusy(false);
+    }
+  }
+
+  async function handleClaimRewardChest() {
+    if (!uid) return;
+    setRewardChestBusy(true);
+    setRewardChestMsg(null);
+    try {
+      const result = await claimChronoRewardChest(uid, state?.currentBoard ?? 100);
+      if (!result.ok) {
+        setRewardChestMsg(result.reason);
+        return;
+      }
+      const cardPart = result.reward.cardName ? ` + ${result.reward.cardEmoji ?? '🎴'} ${result.reward.cardName}` : '';
+      setRewardChestMsg(`🎁 Claimed ${result.reward.coins.toLocaleString()} coins, ${result.reward.gems} gems, ${result.reward.energy} energy${cardPart}.`);
+      await load();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setRewardChestMsg(msg || 'Failed to claim reward chest.');
+    } finally {
+      setRewardChestBusy(false);
+    }
+  }
+
+  async function handlePrestige() {
+    if (!uid) return;
+    setPrestigeBusy(true);
+    setPrestigeMsg(null);
+    try {
+      const result = await prestigeChronoRun(uid, state?.currentBoard ?? 100);
+      if (!result.ok) {
+        setPrestigeMsg(result.reason);
+        return;
+      }
+      setPrestigeMsg(`✨ Prestiged into Season ${result.newSeason} and earned ${result.sigilsEarned} Chrono Sigil${result.sigilsEarned === 1 ? '' : 's'}.`);
+      await load();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setPrestigeMsg(msg || 'Failed to prestige.');
+    } finally {
+      setPrestigeBusy(false);
     }
   }
 
@@ -152,6 +235,34 @@ export default function ChronoEmpiresView() {
         </div>
       )}
 
+      <div style={{ padding: '0 12px 8px' }}>
+        <IdleVaultCard
+          status={idleVault}
+          busy={idleVaultBusy}
+          message={idleVaultMsg}
+          onClaim={() => void handleClaimIdleVault()}
+        />
+      </div>
+
+      <div style={{ padding: '0 12px 8px' }}>
+        <RewardChestCard
+          status={rewardChest}
+          busy={rewardChestBusy}
+          message={rewardChestMsg}
+          onClaim={() => void handleClaimRewardChest()}
+        />
+      </div>
+
+      <div style={{ padding: '0 12px 8px' }}>
+        <PrestigeCard
+          prestige={prestige}
+          currentBoard={currentBoard}
+          busy={prestigeBusy}
+          message={prestigeMsg}
+          onPrestige={() => void handlePrestige()}
+        />
+      </div>
+
       {/* ── Content area ───────────────────────────── */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '0 12px 12px' }}>
         {loading ? (
@@ -169,10 +280,12 @@ export default function ChronoEmpiresView() {
           <WheelSection uid={uid} energy={energy} inventory={inventory} onRefresh={loadInventory} onReload={load} />
         ) : section === 'inventory' ? (
           <InventorySection uid={uid} currentBoard={currentBoard} inventory={inventory} onRefresh={loadInventory} />
+        ) : section === 'workshop' ? (
+          <DiscoveryWorkshopSection uid={uid} currentBoard={currentBoard} onRefresh={loadInventory} />
         ) : section === 'shop' ? (
           <ShopSection uid={uid} currentBoard={currentBoard} inventory={inventory} onRefresh={loadInventory} />
         ) : section === 'tasks' ? (
-          <TasksSection currentBoard={currentBoard} currentClass={currentClass} gems={gems} />
+          <TasksSection uid={uid} currentBoard={currentBoard} currentClass={currentClass} gems={gems} onReload={load} />
         ) : section === 'friends' ? (
           <FriendsSection currentClass={currentClass} />
         ) : (
@@ -189,10 +302,403 @@ export default function ChronoEmpiresView() {
   );
 }
 
+function IdleVaultCard({
+  status,
+  busy,
+  message,
+  onClaim,
+}: {
+  status: ChronoIdleVaultStatus | null;
+  busy: boolean;
+  message: string | null;
+  onClaim: () => void;
+}) {
+  const accruedCoins = status?.accruedCoins ?? 0;
+  const warmupProgress = status?.warmupProgress ?? 0;
+  const warmupGoal = status?.warmupGoal ?? 3;
+  const claimReady = !!status?.claimReady;
+  const hourlyIncome = status?.hourlyIncome ?? 0;
+  const maxStoredCoins = status?.maxStoredCoins ?? 0;
 
-/* ══════════════════════════════════════════════════════════
-   Board Road Section
-   ══════════════════════════════════════════════════════════ */
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, rgba(30,41,59,0.92), rgba(15,23,42,0.98))',
+      border: '1px solid rgba(250,204,21,0.24)',
+      borderRadius: 14,
+      padding: 14,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ color: 'white', fontWeight: 1000, fontSize: 15 }}>🏦 Idle Vault</div>
+          <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+            Your owned booths generate offline rent while you are away. Answer 3 study questions correctly to unlock the vault.
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ color: '#facc15', fontWeight: 1000, fontSize: 20 }}>🪙 {accruedCoins.toLocaleString()}</div>
+          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 800 }}>Stored cap: {maxStoredCoins.toLocaleString()}</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+        <div style={{ background: 'rgba(15,23,42,0.65)', border: '1px solid #334155', borderRadius: 10, padding: '8px 10px' }}>
+          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 900 }}>Offline income / hour</div>
+          <div style={{ color: 'white', fontWeight: 1000, marginTop: 4 }}>{hourlyIncome.toLocaleString()} coins</div>
+        </div>
+        <div style={{ background: 'rgba(15,23,42,0.65)', border: '1px solid #334155', borderRadius: 10, padding: '8px 10px' }}>
+          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 900 }}>Morning warmup</div>
+          <div style={{ color: claimReady ? '#6ee7b7' : '#fde68a', fontWeight: 1000, marginTop: 4 }}>
+            {warmupProgress}/{warmupGoal} correct answers
+          </div>
+        </div>
+      </div>
+
+      <div style={{ height: 10, borderRadius: 999, overflow: 'hidden', background: 'rgba(51,65,85,0.75)', border: '1px solid #334155' }}>
+        <div style={{
+          width: `${Math.max(0, Math.min(100, (warmupProgress / warmupGoal) * 100))}%`,
+          height: '100%',
+          background: claimReady ? 'linear-gradient(90deg, #10b981, #34d399)' : 'linear-gradient(90deg, #f59e0b, #facc15)',
+          transition: 'width 0.2s ease',
+        }} />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ color: message ? '#e2e8f0' : '#94a3b8', fontSize: 12, fontWeight: 800 }}>
+          {message ?? (claimReady ? 'Vault unlocked. Claim your offline coins now.' : 'Study progress updates this warmup automatically when you answer correctly.')}
+        </div>
+        <button
+          onClick={onClaim}
+          disabled={busy || !claimReady || accruedCoins <= 0}
+          style={{
+            padding: '10px 14px',
+            borderRadius: 10,
+            border: claimReady ? '1px solid rgba(250,204,21,0.45)' : '1px solid #334155',
+            background: claimReady ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(30,41,59,0.8)',
+            color: claimReady ? 'white' : '#64748b',
+            fontSize: 12,
+            fontWeight: 1000,
+            cursor: busy || !claimReady || accruedCoins <= 0 ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {busy ? 'Claiming…' : claimReady ? 'Claim Idle Vault' : 'Study to Unlock'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DiscoveryWorkshopSection({ uid, currentBoard, onRefresh }: {
+  uid: string;
+  currentBoard: number;
+  onRefresh: () => Promise<void>;
+}) {
+  type WorkshopVm = Awaited<ReturnType<typeof buildDiscoveryWorkshopView>>;
+  const [workshop, setWorkshop] = useState<WorkshopVm | null>(null);
+  const [loadingWorkshop, setLoadingWorkshop] = useState(true);
+  const [left, setLeft] = useState('');
+  const [right, setRight] = useState('');
+  const [combining, setCombining] = useState(false);
+  const [workshopMsg, setWorkshopMsg] = useState<string | null>(null);
+
+  const loadWorkshop = useCallback(async () => {
+    setLoadingWorkshop(true);
+    try {
+      const next = await buildDiscoveryWorkshopView(uid, currentBoard);
+      setWorkshop(next);
+      setLeft((prev) => prev || next.elements[0]?.id || '');
+      setRight((prev) => prev || next.elements[1]?.id || next.elements[0]?.id || '');
+    } catch (e) {
+      setWorkshopMsg(e instanceof Error ? e.message : 'Failed to load Discovery Workshop.');
+    } finally {
+      setLoadingWorkshop(false);
+    }
+  }, [uid, currentBoard]);
+
+  useEffect(() => { void loadWorkshop(); }, [loadWorkshop]);
+
+  async function handleCombine() {
+    setCombining(true);
+    setWorkshopMsg(null);
+    try {
+      const res = await combineDiscovery(uid, currentBoard, left, right);
+      if (res.ok) {
+        setWorkshopMsg(
+          res.alreadyDiscovered
+            ? `🧠 Already discovered: ${res.cardEmoji} ${res.cardName}`
+            : `✨ New discovery: ${res.cardEmoji} ${res.cardName} (Board ${res.boardId})`
+        );
+        await Promise.all([loadWorkshop(), onRefresh()]);
+      } else {
+        setWorkshopMsg(`❌ ${res.reason}`);
+      }
+    } catch (e) {
+      setWorkshopMsg(e instanceof Error ? e.message : 'Discovery failed.');
+    } finally {
+      setCombining(false);
+    }
+  }
+
+  const elements = workshop?.elements ?? [];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{
+        padding: 14,
+        borderRadius: 14,
+        background: 'linear-gradient(135deg, rgba(30,41,59,0.92), rgba(15,23,42,0.98))',
+        border: '1px solid rgba(34,211,238,0.20)',
+      }}>
+        <div style={{ color: 'white', fontWeight: 1000, fontSize: 15 }}>🧪 Discovery Workshop</div>
+        <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+          Combine cultural elements to discover real Chrono cards. First-time discoveries grant a card copy to your inventory.
+        </div>
+      </div>
+
+      {workshopMsg && (
+        <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(34,211,238,0.12)', border: '1px solid rgba(34,211,238,0.30)', color: '#67e8f9', fontSize: 12, fontWeight: 900 }}>
+          {workshopMsg}
+        </div>
+      )}
+
+      {loadingWorkshop ? (
+        <div style={{ color: '#94a3b8', padding: 20, textAlign: 'center' }}>Loading workshop…</div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+            <div style={{ padding: 12, borderRadius: 12, background: 'rgba(30,41,59,0.8)', border: '1px solid #334155' }}>
+              <div style={{ color: '#e2e8f0', fontWeight: 1000, fontSize: 12, marginBottom: 8 }}>Element A</div>
+              <select value={left} onChange={(e) => setLeft(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, background: '#0f172a', color: 'white', border: '1px solid #334155' }}>
+                {elements.map((element) => (
+                  <option key={element.id} value={element.id}>{element.emoji} {element.label}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ padding: 12, borderRadius: 12, background: 'rgba(30,41,59,0.8)', border: '1px solid #334155' }}>
+              <div style={{ color: '#e2e8f0', fontWeight: 1000, fontSize: 12, marginBottom: 8 }}>Element B</div>
+              <select value={right} onChange={(e) => setRight(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, background: '#0f172a', color: 'white', border: '1px solid #334155' }}>
+                {elements.map((element) => (
+                  <option key={element.id} value={element.id}>{element.emoji} {element.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <button
+            onClick={() => void handleCombine()}
+            disabled={combining || !left || !right}
+            style={{
+              padding: '12px 14px',
+              borderRadius: 12,
+              border: '1px solid rgba(34,211,238,0.35)',
+              background: 'linear-gradient(135deg, #0891b2, #7c3aed)',
+              color: 'white',
+              fontSize: 13,
+              fontWeight: 1000,
+              cursor: combining || !left || !right ? 'not-allowed' : 'pointer',
+              opacity: combining || !left || !right ? 0.7 : 1,
+            }}
+          >
+            {combining ? 'Combining…' : '⚗️ Combine Elements'}
+          </button>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+            <div style={{ padding: 12, borderRadius: 12, background: 'rgba(15,23,42,0.75)', border: '1px solid #334155' }}>
+              <div style={{ color: '#64748b', fontSize: 10, fontWeight: 900 }}>Unlocked elements</div>
+              <div style={{ color: 'white', fontWeight: 1000, marginTop: 4 }}>{elements.length}</div>
+            </div>
+            <div style={{ padding: 12, borderRadius: 12, background: 'rgba(15,23,42,0.75)', border: '1px solid #334155' }}>
+              <div style={{ color: '#64748b', fontSize: 10, fontWeight: 900 }}>Recipes discovered</div>
+              <div style={{ color: 'white', fontWeight: 1000, marginTop: 4 }}>{workshop?.totalRecipesUnlocked ?? 0} / {workshop?.totalRecipesAvailable ?? 0}</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ color: 'white', fontWeight: 1000, fontSize: 14 }}>📓 Discovery Journal</div>
+            {workshop && workshop.discovered.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+                {workshop.discovered.map((entry) => (
+                  <div key={entry.recipeId} style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    background: 'rgba(30,41,59,0.80)',
+                    border: '1px solid rgba(16,185,129,0.25)',
+                  }}>
+                    <div style={{ fontSize: 24 }}>{entry.cardEmoji}</div>
+                    <div style={{ color: 'white', fontWeight: 1000, fontSize: 12, marginTop: 6 }}>{entry.cardName}</div>
+                    <div style={{ color: '#64748b', fontSize: 10, marginTop: 3 }}>Board {entry.boardId}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ color: '#64748b', fontSize: 12, padding: 16, textAlign: 'center', borderRadius: 12, background: 'rgba(15,23,42,0.55)', border: '1px solid #334155' }}>
+                No discoveries yet. Start experimenting with combinations.
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RewardChestCard({
+  status,
+  busy,
+  message,
+  onClaim,
+}: {
+  status: ChronoRewardChestStatus | null;
+  busy: boolean;
+  message: string | null;
+  onClaim: () => void;
+}) {
+  const ready = !!status?.ready;
+  const preview = status?.rewardPreview ?? { coins: 0, gems: 0, energy: 0 };
+  const lastReward = status?.lastReward;
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, rgba(30,41,59,0.92), rgba(15,23,42,0.98))',
+      border: '1px solid rgba(251,191,36,0.22)',
+      borderRadius: 14,
+      padding: 14,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ color: 'white', fontWeight: 1000, fontSize: 15 }}>🎁 Daily Reward Chest</div>
+          <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+            Open one chest per day after making study progress. Rewards scale with your current board.
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ color: ready ? '#fde68a' : '#94a3b8', fontWeight: 1000, fontSize: 16 }}>{ready ? 'Ready now' : `${status?.hoursRemaining ?? 0}h left`}</div>
+          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 800 }}>Next: {preview.coins.toLocaleString()} coins · 💎 {preview.gems} · ⚡ {preview.energy}</div>
+        </div>
+      </div>
+
+      {lastReward && (
+        <div style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(15,23,42,0.65)', border: '1px solid #334155', color: '#cbd5e1', fontSize: 11, fontWeight: 800 }}>
+          Last chest: {lastReward.coins.toLocaleString()} coins · 💎 {lastReward.gems} · ⚡ {lastReward.energy}{lastReward.cardName ? ` · ${lastReward.cardEmoji ?? '🎴'} ${lastReward.cardName}` : ''}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ color: message ? '#e2e8f0' : '#94a3b8', fontSize: 12, fontWeight: 800 }}>
+          {message ?? (ready ? 'Your chest is ready to open.' : 'Complete at least 5 study-question task progress and wait for the daily reset.')}
+        </div>
+        <button
+          onClick={onClaim}
+          disabled={busy || !ready}
+          style={{
+            padding: '10px 14px',
+            borderRadius: 10,
+            border: ready ? '1px solid rgba(251,191,36,0.40)' : '1px solid #334155',
+            background: ready ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(30,41,59,0.8)',
+            color: ready ? 'white' : '#64748b',
+            fontSize: 12,
+            fontWeight: 1000,
+            cursor: busy || !ready ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {busy ? 'Opening…' : ready ? 'Open Chest' : 'Chest Locked'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PrestigeCard({
+  prestige,
+  currentBoard,
+  busy,
+  message,
+  onPrestige,
+}: {
+  prestige: ChronoPrestigeViewModel | null;
+  currentBoard: number;
+  busy: boolean;
+  message: string | null;
+  onPrestige: () => void;
+}) {
+  const eligible = !!prestige?.eligibility.eligible;
+  const blockers = prestige?.eligibility.reasons ?? [];
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, rgba(49,46,129,0.92), rgba(15,23,42,0.98))',
+      border: '1px solid rgba(167,139,250,0.30)',
+      borderRadius: 14,
+      padding: 14,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ color: 'white', fontWeight: 1000, fontSize: 15 }}>🌌 Season Prestige</div>
+          <div style={{ color: '#c4b5fd', fontSize: 12, marginTop: 4 }}>
+            Reset your current run to Board 100, start a new season, and bank permanent Chrono Sigils.
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ color: '#ede9fe', fontWeight: 1000, fontSize: 16 }}>Season {prestige?.currentSeason ?? 1}</div>
+          <div style={{ color: '#c4b5fd', fontSize: 10, fontWeight: 800 }}>Sigils: {prestige?.sigils ?? 0} · Prestiges: {prestige?.prestigeCount ?? 0}</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+        <div style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(99,102,241,0.30)' }}>
+          <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 800 }}>Current Board</div>
+          <div style={{ color: 'white', fontSize: 14, fontWeight: 1000, marginTop: 2 }}>{currentBoard}</div>
+        </div>
+        <div style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(99,102,241,0.30)' }}>
+          <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 800 }}>Next Reward</div>
+          <div style={{ color: '#fde68a', fontSize: 14, fontWeight: 1000, marginTop: 2 }}>{prestige?.nextPrestigeRewardSigils ?? 1} Sigil{(prestige?.nextPrestigeRewardSigils ?? 1) === 1 ? '' : 's'}</div>
+        </div>
+      </div>
+
+      <div style={{ color: message ? '#e9d5ff' : eligible ? '#86efac' : '#cbd5e1', fontSize: 12, fontWeight: 800 }}>
+        {message ?? (eligible ? 'You can prestige now.' : blockers[0] ?? 'Keep progressing to unlock prestige.')}
+      </div>
+
+      {!eligible && blockers.length > 1 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {blockers.slice(0, 3).map((reason) => (
+            <div key={reason} style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700 }}>
+              {reason}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          onClick={onPrestige}
+          disabled={busy || !eligible}
+          style={{
+            padding: '10px 14px',
+            borderRadius: 10,
+            border: eligible ? '1px solid rgba(167,139,250,0.45)' : '1px solid #334155',
+            background: eligible ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'rgba(30,41,59,0.8)',
+            color: eligible ? 'white' : '#64748b',
+            fontSize: 12,
+            fontWeight: 1000,
+            cursor: busy || !eligible ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {busy ? 'Prestiging…' : eligible ? 'Prestige Run' : 'Locked'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RoadSection({
   currentBoard, currentClass, gemClass, gems, roadRef, onOpenBoard,
 }: {
@@ -203,13 +709,10 @@ function RoadSection({
   roadRef: React.RefObject<HTMLDivElement | null>;
   onOpenBoard: (b: number) => void;
 }) {
-  /* ── Top info card ─────────────────────────── */
   const tier = tierInfo(currentClass);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-
-      {/* ── Status card ─────────────────────────── */}
       <div style={{
         background: 'linear-gradient(135deg, rgba(30,41,59,0.90), rgba(15,23,42,0.95))',
         border: '1px solid #334155', borderRadius: 14, padding: 14,
@@ -239,7 +742,6 @@ function RoadSection({
         </button>
       </div>
 
-      {/* ── Road list with spectrum bar ──────────── */}
       <div
         ref={roadRef}
         style={{
@@ -247,96 +749,56 @@ function RoadSection({
           border: '1px solid #334155', background: 'rgba(15,23,42,0.55)',
         }}
       >
-        {/* Left: Spectrum bar */}
         <div style={{ width: 36, flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
-          {/* Main gradient */}
           <div style={{
             position: 'absolute', inset: 0,
             background: 'linear-gradient(to bottom, #EF4444 0%, #3B82F6 33%, #064E3B 66%, #111827 100%)',
           }} />
-          {/* Metallic sheen on lower half */}
           <div style={{
             position: 'absolute', left: 0, right: 0, top: '55%', bottom: 0,
             background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 40%, rgba(255,255,255,0.05) 60%, transparent 100%)',
-            pointerEvents: 'none',
           }} />
-          {/* Class labels */}
-          {BOARDS.map((b, i) => {
-            const cls = i + 1;
-            const pct = i / (BOARDS.length - 1);
-            return (
-              <div key={b} style={{
-                position: 'absolute', left: 0, right: 0,
-                top: `${pct * 100}%`, transform: 'translateY(-50%)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 8, fontWeight: 1000, color: pct < 0.5 ? 'rgba(255,255,255,0.70)' : 'rgba(255,255,255,0.55)',
-                textShadow: '0 1px 3px rgba(0,0,0,0.60)', lineHeight: 1,
-                userSelect: 'none',
-              }}>
-                C{cls}
-              </div>
-            );
-          })}
         </div>
 
-        {/* Right: Board list (scrollable) */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px' }}>
-          {BOARDS.map((b, i) => {
-            const cls = i + 1;
-            const isCurrent = b === currentBoard;
-            const isPast = b < currentBoard;
-            const isLocked = b > currentBoard;
-            const pct = i / (BOARDS.length - 1);
-            const dotColor = spectrumColor(pct);
-            const ti = tierInfo(cls);
-
+        <div style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {BOARDS.map((boardId, idx) => {
+            const cls = idx + 1;
+            const active = boardId === currentBoard;
+            const unlocked = cls <= gemClass + 1;
             return (
               <button
-                key={b}
-                disabled={isLocked}
-                onClick={() => { if (isCurrent) onOpenBoard(b); }}
+                key={boardId}
+                onClick={() => onOpenBoard(boardId)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                  padding: '10px 10px', marginBottom: 4, borderRadius: 10, cursor: isCurrent ? 'pointer' : 'default',
-                  textAlign: 'left', boxSizing: 'border-box',
-                  background: isCurrent
-                    ? 'linear-gradient(135deg, rgba(139,92,246,0.16), rgba(96,165,250,0.08))'
-                    : 'transparent',
-                  border: isCurrent ? '1px solid rgba(139,92,246,0.45)' : '1px solid transparent',
-                  opacity: isLocked ? 0.38 : isPast ? 0.60 : 1,
-                  animation: isCurrent ? 'ce-road-pulse 2.5s ease-in-out infinite' : 'none',
-                  transition: 'all 0.15s',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                  width: '100%', padding: '10px 12px', borderRadius: 12,
+                  background: active ? 'rgba(139,92,246,0.16)' : 'rgba(30,41,59,0.75)',
+                  border: active ? '1px solid rgba(139,92,246,0.50)' : `1px solid ${unlocked ? '#334155' : 'rgba(51,65,85,0.45)'}`,
+                  color: unlocked ? 'white' : '#64748b',
+                  cursor: 'pointer', textAlign: 'left',
+                  opacity: unlocked ? 1 : 0.6,
                 }}
               >
-                {/* Dot */}
-                <div style={{
-                  width: 12, height: 12, borderRadius: 999, flexShrink: 0,
-                  background: isCurrent ? '#a78bfa' : dotColor,
-                  border: isCurrent ? '2px solid white' : `2px solid ${dotColor}`,
-                  boxShadow: isCurrent ? '0 0 8px rgba(167,139,250,0.50)' : 'none',
-                }} />
-
-                {/* Info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: 'white', fontWeight: 1000, fontSize: 13 }}>
-                    Board {b}
-                    <span style={{ marginLeft: 8, color: '#64748b', fontSize: 10, fontWeight: 800 }}>
-                      Class {cls} · {ti.emoji} {ti.label}
-                    </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{
+                    width: 12, height: 12, borderRadius: '50%',
+                    background: spectrumColor(idx / Math.max(1, BOARDS.length - 1)),
+                    boxShadow: active ? '0 0 0 6px rgba(139,92,246,0.15)' : 'none',
+                    animation: active ? 'ce-road-pulse 1.8s infinite' : 'none',
+                  }} />
+                  <div>
+                    <div style={{ fontWeight: 1000, fontSize: 12 }}>Board {boardId}</div>
+                    <div style={{ color: active ? '#c4b5fd' : '#94a3b8', fontSize: 10 }}>Class {cls}</div>
                   </div>
                 </div>
-
-                {/* Status */}
-                <div style={{ flexShrink: 0 }}>
-                  {isCurrent ? (
-                    <span style={{ background: 'rgba(139,92,246,0.20)', border: '1px solid rgba(139,92,246,0.40)', borderRadius: 20, padding: '2px 10px', fontSize: 10, fontWeight: 1000, color: '#c4b5fd' }}>
-                      ▶ Current
-                    </span>
-                  ) : isPast ? (
-                    <span style={{ color: '#4ade80', fontSize: 10, fontWeight: 900 }}>✅ Cleared</span>
-                  ) : (
-                    <span style={{ color: '#475569', fontSize: 10, fontWeight: 900 }}>🔒</span>
-                  )}
+                <div style={{
+                  padding: '4px 8px', borderRadius: 999,
+                  background: active ? 'rgba(139,92,246,0.18)' : unlocked ? 'rgba(16,185,129,0.10)' : 'rgba(51,65,85,0.45)',
+                  border: active ? '1px solid rgba(139,92,246,0.35)' : unlocked ? '1px solid rgba(16,185,129,0.25)' : '1px solid #334155',
+                  color: active ? '#ddd6fe' : unlocked ? '#86efac' : '#64748b',
+                  fontSize: 10, fontWeight: 1000,
+                }}>
+                  {active ? 'Current' : unlocked ? 'Open' : 'Locked'}
                 </div>
               </button>
             );
@@ -393,10 +855,17 @@ function WheelSection({ uid, energy, inventory, onRefresh, onReload }: {
     // Apply reward after animation
     setTimeout(async () => {
       try {
-        if (seg.id.startsWith('w_') && seg.id !== 'w_cat' && seg.id !== 'w_trans' && seg.id !== 'w_defend' && seg.id !== 'w_attack') {
-          // Coin reward — would update gold via service (simplified)
+        const COIN_AMOUNTS: Record<string, number> = {
+          w_1k: 1000, w_5k: 5000, w_10k: 10000, w_25k: 25000, w_50k: 50000, w_100k: 100000,
+        };
+        if (COIN_AMOUNTS[seg.id] !== undefined) {
+          const { getUserDoc, updateUserDoc, setUserDoc } = await import('@/lib/supabaseDocStore');
+          const econRaw = await getUserDoc(uid, 'chrono_economy', 'global');
+          const curGold = econRaw && typeof (econRaw as any).gold === 'number' ? (econRaw as any).gold as number : 0;
+          const next = curGold + COIN_AMOUNTS[seg.id];
+          if (econRaw) await updateUserDoc(uid, 'chrono_economy', 'global', { gold: next });
+          else await setUserDoc(uid, 'chrono_economy', 'global', { gold: next });
         } else if (seg.id === 'w_cat') {
-          // Random category card
           const randomCard = ALL_CATEGORY_CARDS[Math.floor(Math.random() * ALL_CATEGORY_CARDS.length)];
           await addCardCopies(uid, randomCard.id, 1);
         } else if (seg.id === 'w_trans') {
@@ -407,6 +876,10 @@ function WheelSection({ uid, energy, inventory, onRefresh, onReload }: {
         } else if (seg.id === 'w_attack') {
           await addCombatCard(uid, 'attack', 1);
         }
+        try {
+          const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
+          await incrementTaskProgress(uid, 'wheel_spin', 1);
+        } catch { /* best-effort */ }
         await onRefresh();
         await onReload();
       } catch { /* ignore */ }
@@ -536,7 +1009,7 @@ const CAT_LABELS: Record<CardCategory, { emoji: string; label: string; color: st
   history: { emoji: '🏛️', label: 'History', color: '#d97706' },
 };
 
-type InvTab = 'collection' | 'deck' | 'transport' | 'tokens';
+type InvTab = 'collection' | 'sets' | 'deck' | 'transport' | 'tokens';
 
 function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
   uid: string;
@@ -548,11 +1021,30 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
   const [filterCat, setFilterCat] = useState<CardCategory | 'all'>('all');
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [upgradeMsg, setUpgradeMsg] = useState<string | null>(null);
+  type CollectionSetVm = Awaited<ReturnType<typeof buildCollectionSetViewModels>>[number];
+  const [sets, setSets] = useState<CollectionSetVm[]>([]);
+  const [setsLoading, setSetsLoading] = useState(true);
+  const [claimingSet, setClaimingSet] = useState<string | null>(null);
 
   if (!inventory) return <div style={{ color: '#94a3b8', padding: 20 }}>Loading inventory…</div>;
 
+  const loadSets = useCallback(async () => {
+    setSetsLoading(true);
+    try {
+      const next = await buildCollectionSetViewModels(uid, currentBoard);
+      setSets(next);
+    } catch (e) {
+      setUpgradeMsg(e instanceof Error ? e.message : 'Failed to load collection sets.');
+    } finally {
+      setSetsLoading(false);
+    }
+  }, [uid, currentBoard]);
+
+  useEffect(() => { void loadSets(); }, [loadSets, inventory.updatedAt]);
+
   const tabs: Array<{ id: InvTab; icon: string; label: string }> = [
     { id: 'collection', icon: '🎴', label: 'Cards' },
+    { id: 'sets', icon: '🧩', label: 'Sets' },
     { id: 'deck', icon: '🃏', label: 'Deck' },
     { id: 'transport', icon: '🚐', label: 'Transport' },
     { id: 'tokens', icon: '🎯', label: 'Tokens' },
@@ -588,6 +1080,29 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
       setUpgradeMsg(e instanceof Error ? e.message : 'Error');
       setTimeout(() => setUpgradeMsg(null), 2000);
     }
+  }
+
+  async function handleClaimSet(setId: string) {
+    setClaimingSet(setId);
+    setUpgradeMsg(null);
+    try {
+      const res = await claimCollectionSetReward(uid, setId);
+      if (res.ok) {
+        const rewardParts = [
+          (res.reward.coins ?? 0) > 0 ? `${(res.reward.coins ?? 0).toLocaleString()} coins` : null,
+          (res.reward.gems ?? 0) > 0 ? `${res.reward.gems} gems` : null,
+          (res.reward.energy ?? 0) > 0 ? `${res.reward.energy} energy` : null,
+        ].filter(Boolean).join(' + ');
+        setUpgradeMsg(`✅ Set reward claimed: ${rewardParts}`);
+        await loadSets();
+      } else {
+        setUpgradeMsg(`❌ ${res.reason}`);
+      }
+    } catch (e) {
+      setUpgradeMsg(e instanceof Error ? e.message : 'Failed to claim set reward.');
+    }
+    setClaimingSet(null);
+    setTimeout(() => setUpgradeMsg(null), 2500);
   }
 
   return (
@@ -715,6 +1230,112 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
             })}
           </div>
         </>
+      )}
+
+      {tab === 'sets' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{
+            padding: 12,
+            borderRadius: 12,
+            background: 'linear-gradient(135deg, rgba(30,41,59,0.88), rgba(15,23,42,0.95))',
+            border: '1px solid #334155',
+          }}>
+            <div style={{ color: 'white', fontWeight: 1000, fontSize: 14 }}>🧩 Collection Sets</div>
+            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+              Complete all 3 cards from a board-category album to claim a set reward.
+            </div>
+          </div>
+
+          {setsLoading ? (
+            <div style={{ color: '#94a3b8', fontSize: 12, padding: 16 }}>Loading sets…</div>
+          ) : sets.length === 0 ? (
+            <div style={{ color: '#475569', fontSize: 12, padding: 16, textAlign: 'center' }}>No sets unlocked yet.</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+              {sets.map((set) => (
+                <div key={set.def.id} style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  background: set.completed ? 'rgba(30,41,59,0.88)' : 'rgba(15,23,42,0.6)',
+                  border: `1px solid ${set.claimed ? 'rgba(16,185,129,0.35)' : set.completed ? 'rgba(250,204,21,0.35)' : '#334155'}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div>
+                      <div style={{ color: 'white', fontWeight: 1000, fontSize: 12 }}>{set.def.emoji} {set.def.label}</div>
+                      <div style={{ color: '#64748b', fontSize: 10, marginTop: 2 }}>Board {set.def.boardId} · {set.ownedCount}/{set.totalCount} cards</div>
+                    </div>
+                    <div style={{
+                      padding: '4px 8px',
+                      borderRadius: 999,
+                      background: set.claimed ? 'rgba(16,185,129,0.12)' : set.completed ? 'rgba(250,204,21,0.12)' : 'rgba(51,65,85,0.55)',
+                      border: `1px solid ${set.claimed ? 'rgba(16,185,129,0.35)' : set.completed ? 'rgba(250,204,21,0.35)' : '#334155'}`,
+                      color: set.claimed ? '#6ee7b7' : set.completed ? '#fde68a' : '#94a3b8',
+                      fontSize: 10,
+                      fontWeight: 1000,
+                    }}>
+                      {set.claimed ? 'Claimed' : set.completed ? 'Complete' : 'In Progress'}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 10, height: 8, borderRadius: 999, overflow: 'hidden', background: 'rgba(51,65,85,0.75)', border: '1px solid #334155' }}>
+                    <div style={{
+                      width: `${Math.max(0, Math.min(100, (set.ownedCount / set.totalCount) * 100))}%`,
+                      height: '100%',
+                      background: set.completed ? 'linear-gradient(90deg, #f59e0b, #facc15)' : 'linear-gradient(90deg, #8b5cf6, #3b82f6)',
+                    }} />
+                  </div>
+
+                  <div style={{ marginTop: 10, color: '#cbd5e1', fontSize: 11, fontWeight: 800 }}>
+                    Reward: {set.def.reward.coins ? `${set.def.reward.coins.toLocaleString()} coins` : ''}{set.def.reward.coins && set.def.reward.gems ? ' + ' : ''}{set.def.reward.gems ? `${set.def.reward.gems} gems` : ''}
+                  </div>
+
+                  <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {set.def.cardIds.map((cardId) => {
+                      const card = ALL_CATEGORY_CARDS.find((c) => c.id === cardId);
+                      const owned = inventory.cards[cardId];
+                      return (
+                        <div key={cardId} style={{
+                          flex: '1 1 30%',
+                          minWidth: 58,
+                          padding: '6px 4px',
+                          borderRadius: 8,
+                          textAlign: 'center',
+                          background: owned && owned.level > 0 ? 'rgba(16,185,129,0.10)' : 'rgba(30,41,59,0.65)',
+                          border: `1px solid ${owned && owned.level > 0 ? 'rgba(16,185,129,0.30)' : '#334155'}`,
+                          color: owned && owned.level > 0 ? '#d1fae5' : '#64748b',
+                        }}>
+                          <div style={{ fontSize: 18 }}>{card?.emoji ?? '🎴'}</div>
+                          <div style={{ fontSize: 9, fontWeight: 900, lineHeight: 1.2 }}>{card?.name ?? cardId}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {!set.claimed && (
+                    <button
+                      disabled={!set.completed || claimingSet === set.def.id}
+                      onClick={() => void handleClaimSet(set.def.id)}
+                      style={{
+                        marginTop: 10,
+                        width: '100%',
+                        padding: '8px 0',
+                        borderRadius: 8,
+                        fontSize: 11,
+                        fontWeight: 1000,
+                        cursor: !set.completed || claimingSet === set.def.id ? 'not-allowed' : 'pointer',
+                        background: set.completed ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(30,41,59,0.7)',
+                        border: set.completed ? '1px solid rgba(250,204,21,0.35)' : '1px solid #334155',
+                        color: set.completed ? 'white' : '#64748b',
+                      }}
+                    >
+                      {claimingSet === set.def.id ? 'Claiming…' : set.completed ? 'Claim Set Reward' : 'Collect Missing Cards'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {tab === 'deck' && (
@@ -958,61 +1579,100 @@ function ShopSection({ uid, currentBoard, inventory, onRefresh }: {
 }
 
 /* ══════════════════════════════════════════════════════════
-   ✅ Tasks Section (Daily / Weekly / Lifetime + Gem Milestones)
+   ✅ Tasks Section (real — daily / weekly / lifetime + gem milestones)
    ══════════════════════════════════════════════════════════ */
 
 type TaskTab = 'daily' | 'weekly' | 'lifetime' | 'gems';
 
-interface TaskItem {
-  id: string;
-  label: string;
-  emoji: string;
-  reward: string;
-  rewardEmoji: string;
-  progress: number;
-  goal: number;
-  completed: boolean;
+function formatReward(reward: { coins?: number; energy?: number; gems?: number }): string {
+  const parts: string[] = [];
+  if (reward.coins)  parts.push(`🪙 ${reward.coins.toLocaleString()}`);
+  if (reward.energy) parts.push(`⚡ ${reward.energy}`);
+  if (reward.gems)   parts.push(`💎 ${reward.gems}`);
+  return parts.join(' + ') || '—';
 }
 
-const PLACEHOLDER_DAILY: TaskItem[] = [
-  { id: 'd1', label: 'Spin the Wheel 3 times',        emoji: '🎡', reward: '500 Coins',   rewardEmoji: '🪙', progress: 0, goal: 3, completed: false },
-  { id: 'd2', label: 'Win 1 Auction',                  emoji: '🔨', reward: '1 Energy',    rewardEmoji: '⚡', progress: 0, goal: 1, completed: false },
-  { id: 'd3', label: 'Land on 5 booths',               emoji: '🎲', reward: '200 Coins',   rewardEmoji: '🪙', progress: 0, goal: 5, completed: false },
-  { id: 'd4', label: 'Use a Transport Card',           emoji: '🚗', reward: '10 XP',       rewardEmoji: '⭐', progress: 0, goal: 1, completed: false },
-];
-
-const PLACEHOLDER_WEEKLY: TaskItem[] = [
-  { id: 'w1', label: 'Collect 10 card copies',         emoji: '🎴', reward: '3,000 Coins', rewardEmoji: '🪙', progress: 0, goal: 10, completed: false },
-  { id: 'w2', label: 'Bankrupt 1 bot',                 emoji: '💀', reward: '5 Energy',    rewardEmoji: '⚡', progress: 0, goal: 1,  completed: false },
-  { id: 'w3', label: 'Win 5 Auctions',                 emoji: '🔨', reward: '2,000 Coins', rewardEmoji: '🪙', progress: 0, goal: 5,  completed: false },
-  { id: 'w4', label: 'Upgrade any card to Lv.2',       emoji: '⬆️', reward: '50 XP',       rewardEmoji: '⭐', progress: 0, goal: 1,  completed: false },
-];
-
-const PLACEHOLDER_LIFETIME: TaskItem[] = [
-  { id: 'l1', label: 'Own 50 unique cards',            emoji: '📚', reward: '10,000 Coins', rewardEmoji: '🪙', progress: 0, goal: 50,  completed: false },
-  { id: 'l2', label: 'Reach Class 10',                 emoji: '🏆', reward: '20 Energy',    rewardEmoji: '⚡', progress: 0, goal: 1,   completed: false },
-  { id: 'l3', label: 'Max upgrade a card to Lv.4',     emoji: '💎', reward: '500 XP',       rewardEmoji: '⭐', progress: 0, goal: 1,   completed: false },
-  { id: 'l4', label: 'Win 100 total Auctions',         emoji: '🔨', reward: '50,000 Coins', rewardEmoji: '🪙', progress: 0, goal: 100, completed: false },
-];
-
-function TasksSection({ currentBoard, currentClass, gems }: {
+function TasksSection({ uid, currentBoard, currentClass, gems, onReload }: {
+  uid: string;
   currentBoard: number;
   currentClass: number;
   gems: number;
+  onReload: () => Promise<void>;
 }) {
   const [tab, setTab] = useState<TaskTab>('daily');
+  type TasksState = Awaited<ReturnType<typeof import('@/lib/chronoTasksService').getTasksState>>;
+  type GemMilestoneVm = Awaited<ReturnType<typeof import('@/lib/chronoGemMilestonesService').buildGemMilestoneViewModels>>[number];
+  const [state, setState] = useState<TasksState | null>(null);
+  const [loadingTasks, setLoadingTasks] = useState(true);
+  const [gemMilestones, setGemMilestones] = useState<GemMilestoneVm[]>([]);
+  const [loadingGemMilestones, setLoadingGemMilestones] = useState(true);
+  const [claiming, setClaiming] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const loadTasks = useCallback(async () => {
+    setLoadingTasks(true);
+    try {
+      const { getTasksState } = await import('@/lib/chronoTasksService');
+      const s = await getTasksState(uid);
+      setState(s);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Failed to load tasks.');
+    } finally {
+      setLoadingTasks(false);
+    }
+  }, [uid]);
+
+  const loadGemMilestones = useCallback(async () => {
+    setLoadingGemMilestones(true);
+    try {
+      const { buildGemMilestoneViewModels } = await import('@/lib/chronoGemMilestonesService');
+      const next = await buildGemMilestoneViewModels(uid, currentBoard);
+      setGemMilestones(next);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Failed to load gem milestones.');
+    } finally {
+      setLoadingGemMilestones(false);
+    }
+  }, [uid, currentBoard]);
+
+  useEffect(() => { void loadTasks(); }, [loadTasks]);
+  useEffect(() => { void loadGemMilestones(); }, [loadGemMilestones]);
+
+  async function handleClaim(taskId: string) {
+    setClaiming(taskId);
+    setMsg(null);
+    try {
+      const isGemMilestone = taskId.startsWith(`gm_${currentBoard}_`);
+      const res = isGemMilestone
+        ? await (async () => {
+            const { claimGemMilestoneReward } = await import('@/lib/chronoGemMilestonesService');
+            const gemRes = await claimGemMilestoneReward(uid, taskId);
+            return gemRes.ok
+              ? { ok: true as const, reward: { gems: gemRes.reward.gems } }
+              : { ok: false as const, reason: gemRes.reason };
+          })()
+        : await (async () => {
+            const { claimTaskReward } = await import('@/lib/chronoTasksService');
+            return claimTaskReward(uid, taskId);
+          })();
+      if (res.ok) {
+        setMsg(`✅ Claimed: ${formatReward(res.reward)}`);
+        await loadTasks();
+        await loadGemMilestones();
+        await onReload();
+      } else {
+        setMsg(`❌ ${res.reason}`);
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Claim failed.');
+    }
+    setClaiming(null);
+    setTimeout(() => setMsg(null), 2500);
+  }
 
   const gemsNeededForNextClass = currentClass * 100;
   const gemsInCurrentClass = gems - (currentClass - 1) * 100;
   const gemsRemaining = Math.max(0, gemsNeededForNextClass - gems);
-
-  // Placeholder gem milestones for current board
-  const milestones = [
-    { id: `gm_${currentBoard}_1`, label: `Complete Board ${currentBoard} — Milestone 1`, emoji: '🎯', reward: `25 💎 Gems`, rewardEmoji: '💎', progress: 0, goal: 1, completed: false },
-    { id: `gm_${currentBoard}_2`, label: `Complete Board ${currentBoard} — Milestone 2`, emoji: '🎯', reward: `25 💎 Gems`, rewardEmoji: '💎', progress: 0, goal: 1, completed: false },
-    { id: `gm_${currentBoard}_3`, label: `Complete Board ${currentBoard} — Milestone 3`, emoji: '🎯', reward: `25 💎 Gems`, rewardEmoji: '💎', progress: 0, goal: 1, completed: false },
-    { id: `gm_${currentBoard}_4`, label: `Complete Board ${currentBoard} — Milestone 4`, emoji: '🎯', reward: `25 💎 Gems`, rewardEmoji: '💎', progress: 0, goal: 1, completed: false },
-  ];
 
   const tabs: Array<{ id: TaskTab; icon: string; label: string }> = [
     { id: 'daily',    icon: '📅', label: 'Daily' },
@@ -1021,11 +1681,270 @@ function TasksSection({ currentBoard, currentClass, gems }: {
     { id: 'gems',     icon: '💎', label: 'Gem Milestones' },
   ];
 
-  const tasks = tab === 'daily' ? PLACEHOLDER_DAILY
-    : tab === 'weekly' ? PLACEHOLDER_WEEKLY
-    : tab === 'lifetime' ? PLACEHOLDER_LIFETIME
-    : milestones;
+  return <TasksSectionBody
+    tab={tab} setTab={setTab} tabs={tabs}
+    uid={uid} currentBoard={currentBoard} currentClass={currentClass} gems={gems}
+    gemsInCurrentClass={gemsInCurrentClass} gemsRemaining={gemsRemaining}
+    milestones={gemMilestones}
+    state={state} loadingTasks={loadingTasks}
+    loadingGemMilestones={loadingGemMilestones}
+    claiming={claiming} msg={msg}
+    onClaim={handleClaim}
+  />;
+}
 
+function TasksSectionBody(_props: {
+  tab: TaskTab;
+  setTab: (t: TaskTab) => void;
+  tabs: Array<{ id: TaskTab; icon: string; label: string }>;
+  uid: string;
+  currentBoard: number;
+  currentClass: number;
+  gems: number;
+  gemsInCurrentClass: number;
+  gemsRemaining: number;
+  milestones: Array<{ def: { id: string; label: string; emoji: string; reward: { gems: number }; goal: number }; progress: number; completed: boolean; claimed: boolean }>;
+  state: Awaited<ReturnType<typeof import('@/lib/chronoTasksService').getTasksState>> | null;
+  loadingTasks: boolean;
+  loadingGemMilestones: boolean;
+  claiming: string | null;
+  msg: string | null;
+  onClaim: (taskId: string) => Promise<void>;
+}) {
+  const { tab, setTab, tabs, currentBoard, currentClass, gems, gemsInCurrentClass, gemsRemaining, milestones, state, loadingTasks, loadingGemMilestones, claiming, msg, onClaim } = _props;
+  // Gates unused currentClass warning
+  void currentClass; void gems;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+      {/* Sub-tabs */}
+      <div style={{ display: 'flex', gap: 5, overflowX: 'auto' }}>
+        {tabs.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            padding: '5px 10px', fontSize: 11, borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
+            background: tab === t.id ? 'rgba(139,92,246,0.18)' : 'rgba(15,23,42,0.55)',
+            border: tab === t.id ? '1px solid rgba(139,92,246,0.50)' : '1px solid #334155',
+            color: tab === t.id ? '#ddd6fe' : '#94a3b8', fontWeight: 1000,
+          }}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {msg && (
+        <div style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(34,211,238,0.12)', border: '1px solid rgba(34,211,238,0.30)', color: '#67e8f9', fontSize: 12, fontWeight: 900 }}>
+          {msg}
+        </div>
+      )}
+
+      {/* Gem progress bar */}
+      {tab === 'gems' && (
+        <div style={{
+          padding: 12, borderRadius: 10,
+          background: 'linear-gradient(135deg, rgba(139,92,246,0.10), rgba(15,23,42,0.60))',
+          border: '1px solid rgba(139,92,246,0.30)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span style={{ color: '#c4b5fd', fontWeight: 1000, fontSize: 12 }}>
+              💎 Board {currentBoard} · Class {currentClass}
+            </span>
+            <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 900 }}>
+              {gems} / {currentClass * 100} gems
+            </span>
+          </div>
+          <div style={{ width: '100%', height: 8, background: '#1e293b', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{
+              width: `${Math.min(100, (gemsInCurrentClass / 100) * 100)}%`,
+              height: '100%', borderRadius: 4,
+              background: 'linear-gradient(90deg, #7c3aed, #a78bfa)',
+              transition: 'width 0.3s',
+            }} />
+          </div>
+          <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>
+            {gemsRemaining > 0
+              ? `${gemsRemaining} more gems to unlock Class ${currentClass + 1}`
+              : '✅ Ready for next class!'
+            }
+          </div>
+        </div>
+      )}
+
+      {/* Info banner */}
+      {tab !== 'gems' && (
+        <div style={{
+          padding: '8px 12px', borderRadius: 8,
+          background: 'rgba(34,211,238,0.06)', border: '1px solid rgba(34,211,238,0.18)',
+          color: '#94a3b8', fontSize: 11, fontWeight: 800,
+        }}>
+          {tab === 'daily' && '📅 Resets daily (UTC). Answer study questions in your program to progress the 📚 tasks — each correct ranked answer counts.'}
+          {tab === 'weekly' && '📆 Resets weekly (UTC Monday). Bigger challenges, bigger rewards.'}
+          {tab === 'lifetime' && '🏆 Permanent achievements. No reset.'}
+        </div>
+      )}
+
+      {/* Task list */}
+      {tab === 'gems' ? (
+        loadingGemMilestones ? (
+          <div style={{ color: '#94a3b8', padding: 20, textAlign: 'center' }}>Loading gem milestones…</div>
+        ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {milestones.map((milestone) => {
+            const task = milestone.def;
+            const pct = Math.min(100, (milestone.progress / task.goal) * 100);
+            return (
+            <div key={task.id} style={{
+              padding: '10px 12px', borderRadius: 10,
+              background: milestone.claimed ? 'rgba(16,185,129,0.08)' : milestone.completed ? 'rgba(251,191,36,0.08)' : 'rgba(30,41,59,0.60)',
+              border: `1px solid ${milestone.claimed ? 'rgba(16,185,129,0.30)' : milestone.completed ? 'rgba(251,191,36,0.35)' : '#334155'}`,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <div style={{ fontSize: 22, flexShrink: 0 }}>{task.emoji}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: 'white', fontWeight: 1000, fontSize: 12 }}>{task.label}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <div style={{ flex: 1, height: 5, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: milestone.claimed ? '#4ade80' : milestone.completed ? '#fbbf24' : '#7c3aed', transition: 'width 0.3s' }} />
+                  </div>
+                  <span style={{ color: '#64748b', fontSize: 9, fontWeight: 900, flexShrink: 0 }}>
+                    {milestone.progress}/{task.goal}
+                  </span>
+                </div>
+              </div>
+              {milestone.claimed ? (
+                <span style={{ color: '#4ade80', fontSize: 10, fontWeight: 1000 }}>✅ Claimed</span>
+              ) : milestone.completed ? (
+                <button
+                  disabled={claiming === task.id}
+                  onClick={() => void onClaim(task.id)}
+                  style={{
+                    padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 1000,
+                    background: 'linear-gradient(135deg,#f59e0b,#d97706)', border: 'none',
+                    color: 'white', cursor: claiming === task.id ? 'wait' : 'pointer',
+                    opacity: claiming === task.id ? 0.6 : 1,
+                  }}
+                >
+                  {claiming === task.id ? '…' : `Claim 💎 ${task.reward.gems}`}
+                </button>
+              ) : (
+                <div style={{ padding: '3px 8px', borderRadius: 6, fontSize: 10, fontWeight: 1000,
+                  background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.30)',
+                  color: '#c4b5fd', whiteSpace: 'nowrap' }}>
+                  💎 {task.reward.gems}
+                </div>
+              )}
+            </div>
+          );})}
+        </div>
+        )
+      ) : loadingTasks || !state ? (
+        <div style={{ color: '#94a3b8', padding: 20, textAlign: 'center' }}>Loading tasks…</div>
+      ) : (
+        (() => {
+          // Lazy import type-only; catalog loaded synchronously via module-level require substitute
+          // We'll dynamic-import here via a React state (one-shot fetch)
+          return <TasksListForPeriod period={tab} state={state} claiming={claiming} onClaim={onClaim} />;
+        })()
+      )}
+    </div>
+  );
+}
+
+function TasksListForPeriod({ period, state, claiming, onClaim }: {
+  period: TaskTab;
+  state: Awaited<ReturnType<typeof import('@/lib/chronoTasksService').getTasksState>>;
+  claiming: string | null;
+  onClaim: (taskId: string) => Promise<void>;
+}) {
+  const [vms, setVms] = useState<Array<{ def: { id: string; label: string; emoji: string; goal: number; reward: { coins?: number; energy?: number; gems?: number } }; progress: number; completed: boolean; claimed: boolean }>>([]);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      if (period === 'gems') return;
+      const { buildTaskViewModels } = await import('@/lib/chronoTasksService');
+      const next = buildTaskViewModels(state, period as 'daily' | 'weekly' | 'lifetime');
+      if (alive) setVms(next as any);
+    })();
+    return () => { alive = false; };
+  }, [period, state]);
+
+  if (vms.length === 0) return (
+    <div style={{ color: '#64748b', padding: 12, textAlign: 'center', fontSize: 12 }}>No tasks in this tab yet.</div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {vms.map((vm) => {
+        const t = vm.def;
+        const pct = Math.min(100, (vm.progress / t.goal) * 100);
+        const stateColor = vm.claimed ? '#4ade80' : vm.completed ? '#fbbf24' : '#7c3aed';
+        return (
+          <div key={t.id} style={{
+            padding: '10px 12px', borderRadius: 10,
+            background: vm.claimed ? 'rgba(16,185,129,0.08)' : vm.completed ? 'rgba(251,191,36,0.08)' : 'rgba(30,41,59,0.60)',
+            border: `1px solid ${vm.claimed ? 'rgba(16,185,129,0.30)' : vm.completed ? 'rgba(251,191,36,0.35)' : '#334155'}`,
+            display: 'flex', alignItems: 'center', gap: 10,
+            opacity: vm.claimed ? 0.75 : 1,
+          }}>
+            <div style={{ fontSize: 22, flexShrink: 0 }}>{t.emoji}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: 'white', fontWeight: 1000, fontSize: 12 }}>{t.label}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                <div style={{ flex: 1, height: 5, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: stateColor, transition: 'width 0.3s' }} />
+                </div>
+                <span style={{ color: '#64748b', fontSize: 9, fontWeight: 900, flexShrink: 0 }}>
+                  {vm.progress}/{t.goal}
+                </span>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0, minWidth: 80 }}>
+              {vm.claimed ? (
+                <span style={{ color: '#4ade80', fontSize: 10, fontWeight: 1000 }}>✅ Claimed</span>
+              ) : vm.completed ? (
+                <button
+                  disabled={claiming === t.id}
+                  onClick={() => void onClaim(t.id)}
+                  style={{
+                    padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 1000,
+                    background: 'linear-gradient(135deg,#f59e0b,#d97706)', border: 'none',
+                    color: 'white', cursor: claiming === t.id ? 'wait' : 'pointer',
+                    opacity: claiming === t.id ? 0.6 : 1,
+                  }}
+                >
+                  {claiming === t.id ? '…' : `Claim ${formatReward(t.reward)}`}
+                </button>
+              ) : (
+                <div style={{ padding: '3px 8px', borderRadius: 6, fontSize: 10, fontWeight: 1000,
+                  background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.30)',
+                  color: '#c4b5fd', whiteSpace: 'nowrap' }}>
+                  {formatReward(t.reward)}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Legacy placeholder removed; TasksSection and TasksListForPeriod above are the real implementation.
+function _LegacyTasksSectionNoop_Unused() {
+  return null;
+}
+
+// The following block is unreachable legacy JSX that was part of the removed placeholder component.
+// It is gated behind a constant-false conditional to keep the file diff minimal; tree-shaken in prod.
+function _LegacyTasksJsxRemoved() {
+  const tab = 'daily' as TaskTab;
+  const currentBoard = 0; const currentClass = 0; const gems = 0;
+  const gemsInCurrentClass = 0; const gemsRemaining = 0;
+  const setTab = (_t: TaskTab) => {};
+  const tabs: Array<{ id: TaskTab; icon: string; label: string }> = [];
+  const tasks: Array<{ id: string; label: string; emoji: string; reward: string; rewardEmoji: string; progress: number; goal: number; completed: boolean }> = [];
+  void tab; void currentBoard; void currentClass; void gems; void gemsInCurrentClass; void gemsRemaining; void setTab; void tabs; void tasks;
+  if (true) return null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
@@ -1152,15 +2071,54 @@ function TasksSection({ currentBoard, currentClass, gems }: {
    ══════════════════════════════════════════════════════════ */
 
 function FriendsSection({ currentClass }: { currentClass: number }) {
+  const { user, userData, refreshUserData } = useAuth();
   const [friendTab, setFriendTab] = useState<'leaderboard' | 'gifts' | 'visit'>('leaderboard');
+  type FriendsSnapshot = Awaited<ReturnType<typeof import('@/lib/chronoFriendsService').getChronoFriendsSnapshot>>;
+  const [snapshot, setSnapshot] = useState<FriendsSnapshot | null>(null);
+  const [loadingFriends, setLoadingFriends] = useState(true);
+  const [friendMsg, setFriendMsg] = useState<string | null>(null);
+  const [sendingGift, setSendingGift] = useState<string | null>(null);
 
-  const placeholderFriends = [
-    { name: 'Ali M.', class: 12, emoji: '👨‍🎓', gems: 1150 },
-    { name: 'Nour K.', class: 8, emoji: '👩‍💼', gems: 780 },
-    { name: 'Omar S.', class: 15, emoji: '🧑‍🔬', gems: 1490 },
-    { name: 'Yasmin R.', class: 5, emoji: '👩‍🎨', gems: 420 },
-    { name: 'You', class: currentClass, emoji: '🏰', gems: 0 },
-  ].sort((a, b) => b.class - a.class);
+  const loadFriends = useCallback(async () => {
+    if (!user || !userData) {
+      setSnapshot(null);
+      setLoadingFriends(false);
+      return;
+    }
+    setLoadingFriends(true);
+    try {
+      const { getChronoFriendsSnapshot } = await import('@/lib/chronoFriendsService');
+      const next = await getChronoFriendsSnapshot(user.uid, userData);
+      setSnapshot(next);
+    } catch (e) {
+      setFriendMsg(e instanceof Error ? e.message : 'Failed to load friends.');
+    } finally {
+      setLoadingFriends(false);
+    }
+  }, [user, userData]);
+
+  useEffect(() => { void loadFriends(); }, [loadFriends]);
+
+  async function handleSendGift(friendUid: string) {
+    if (!user) return;
+    setSendingGift(friendUid);
+    setFriendMsg(null);
+    try {
+      const { sendChronoEnergyGift } = await import('@/lib/chronoFriendsService');
+      const res = await sendChronoEnergyGift(user.uid, friendUid);
+      if (res.ok) {
+        setFriendMsg('✅ Sent 1 energy gift.');
+        await Promise.all([loadFriends(), refreshUserData()]);
+      } else {
+        setFriendMsg(`❌ ${res.reason}`);
+      }
+    } catch (e) {
+      setFriendMsg(e instanceof Error ? e.message : 'Failed to send gift.');
+    } finally {
+      setSendingGift(null);
+      setTimeout(() => setFriendMsg(null), 2500);
+    }
+  }
 
   const tabs = [
     { id: 'leaderboard' as const, icon: '🏆', label: 'Leaderboard' },
@@ -1185,16 +2143,25 @@ function FriendsSection({ currentClass }: { currentClass: number }) {
         ))}
       </div>
 
+      {friendMsg && (
+        <div style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(34,211,238,0.12)', border: '1px solid rgba(34,211,238,0.30)', color: '#67e8f9', fontSize: 12, fontWeight: 900 }}>
+          {friendMsg}
+        </div>
+      )}
+
       {friendTab === 'leaderboard' && (
+        loadingFriends ? (
+        <div style={{ color: '#94a3b8', padding: 20, textAlign: 'center' }}>Loading friends…</div>
+        ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 800, marginBottom: 2 }}>
             🏆 Class Level Ranking Among Friends
           </div>
-          {placeholderFriends.map((f, i) => {
-            const isYou = f.name === 'You';
+          {(snapshot?.leaderboard ?? []).map((f, i) => {
+            const isYou = f.isYou;
             const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
             return (
-              <div key={f.name} style={{
+              <div key={f.uid} style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 10,
                 background: isYou ? 'rgba(139,92,246,0.12)' : 'rgba(30,41,59,0.60)',
                 border: isYou ? '1.5px solid rgba(139,92,246,0.40)' : '1px solid #334155',
@@ -1202,22 +2169,26 @@ function FriendsSection({ currentClass }: { currentClass: number }) {
                 <div style={{ fontSize: 16, fontWeight: 1000, width: 28, textAlign: 'center', flexShrink: 0 }}>
                   {medal}
                 </div>
-                <div style={{ fontSize: 22, flexShrink: 0 }}>{f.emoji}</div>
+                <div style={{ fontSize: 22, flexShrink: 0 }}>{isYou ? '🏰' : '👥'}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ color: isYou ? '#c4b5fd' : 'white', fontWeight: 1000, fontSize: 13 }}>
-                    {f.name} {isYou && <span style={{ fontSize: 10, color: '#a78bfa' }}>(you)</span>}
+                    {f.username} {isYou && <span style={{ fontSize: 10, color: '#a78bfa' }}>(you)</span>}
                   </div>
                   <div style={{ color: '#64748b', fontSize: 10, fontWeight: 800 }}>
-                    Class {f.class} · 💎 {f.gems}
+                    Class {f.classLevel} · 💎 {f.gems} · Board {f.currentBoard}
                   </div>
                 </div>
               </div>
             );
           })}
         </div>
+        )
       )}
 
       {friendTab === 'gifts' && (
+        loadingFriends ? (
+        <div style={{ color: '#94a3b8', padding: 20, textAlign: 'center' }}>Loading gifts…</div>
+        ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', padding: '16px 0' }}>
           <div style={{ fontSize: 48 }}>🎁</div>
           <div style={{ color: 'white', fontWeight: 1000, fontSize: 16 }}>Daily Energy Gifts</div>
@@ -1227,24 +2198,32 @@ function FriendsSection({ currentClass }: { currentClass: number }) {
           <div style={{
             display: 'flex', flexDirection: 'column', gap: 6, width: '100%', marginTop: 8,
           }}>
-            {placeholderFriends.filter((f) => f.name !== 'You').map((f) => (
-              <div key={f.name} style={{
+            {(snapshot?.gifts ?? []).map((f) => (
+              <div key={f.uid} style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 10,
                 background: 'rgba(30,41,59,0.60)', border: '1px solid #334155',
               }}>
-                <div style={{ fontSize: 20 }}>{f.emoji}</div>
-                <div style={{ flex: 1, color: 'white', fontWeight: 1000, fontSize: 12 }}>{f.name}</div>
-                <button style={{
+                <div style={{ fontSize: 20 }}>👥</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: 'white', fontWeight: 1000, fontSize: 12 }}>{f.username}</div>
+                  <div style={{ color: '#64748b', fontSize: 10 }}>{f.sentToday ? 'Gift already sent today' : 'Ready to send 1 ⚡ energy'}</div>
+                </div>
+                <button
+                  disabled={!f.canSend || sendingGift === f.uid}
+                  onClick={() => void handleSendGift(f.uid)}
+                  style={{
                   padding: '4px 12px', borderRadius: 6, fontSize: 10, fontWeight: 1000,
-                  background: 'linear-gradient(135deg, #059669, #047857)', border: 'none',
-                  color: 'white', cursor: 'pointer',
+                  background: f.canSend ? 'linear-gradient(135deg, #059669, #047857)' : 'rgba(51,65,85,0.8)', border: 'none',
+                  color: f.canSend ? 'white' : '#64748b', cursor: f.canSend ? 'pointer' : 'not-allowed',
+                  opacity: sendingGift === f.uid ? 0.6 : 1,
                 }}>
-                  ⚡ Send
+                  {sendingGift === f.uid ? '…' : f.canSend ? '⚡ Send' : 'Sent'}
                 </button>
               </div>
             ))}
           </div>
         </div>
+        )
       )}
 
       {friendTab === 'visit' && (
@@ -1257,15 +2236,15 @@ function FriendsSection({ currentClass }: { currentClass: number }) {
           <div style={{
             display: 'flex', flexDirection: 'column', gap: 6, width: '100%', marginTop: 8,
           }}>
-            {placeholderFriends.filter((f) => f.name !== 'You').map((f) => (
-              <div key={f.name} style={{
+            {(snapshot?.leaderboard ?? []).filter((f) => !f.isYou).map((f) => (
+              <div key={f.uid} style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 10,
                 background: 'rgba(30,41,59,0.60)', border: '1px solid #334155',
               }}>
-                <div style={{ fontSize: 20 }}>{f.emoji}</div>
+                <div style={{ fontSize: 20 }}>👥</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ color: 'white', fontWeight: 1000, fontSize: 12 }}>{f.name}</div>
-                  <div style={{ color: '#64748b', fontSize: 10 }}>Class {f.class}</div>
+                  <div style={{ color: 'white', fontWeight: 1000, fontSize: 12 }}>{f.username}</div>
+                  <div style={{ color: '#64748b', fontSize: 10 }}>Class {f.classLevel} · Board {f.currentBoard}</div>
                 </div>
                 <button style={{
                   padding: '4px 12px', borderRadius: 6, fontSize: 10, fontWeight: 1000,
@@ -1279,15 +2258,6 @@ function FriendsSection({ currentClass }: { currentClass: number }) {
           </div>
         </div>
       )}
-
-      {/* Placeholder notice */}
-      <div style={{
-        padding: '10px 14px', borderRadius: 8, marginTop: 4,
-        background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.18)',
-        color: '#fde68a', fontSize: 11, fontWeight: 800, textAlign: 'center',
-      }}>
-        🚧 Friends system integration coming soon
-      </div>
     </div>
   );
 }
@@ -1297,23 +2267,135 @@ function FriendsSection({ currentClass }: { currentClass: number }) {
    ══════════════════════════════════════════════════════════ */
 
 function BattlePassSection() {
+  const { user } = useAuth();
+  type BattlePassVm = Awaited<ReturnType<typeof import('@/lib/chronoBattlePassService').buildChronoBattlePassViewModel>>;
+  const [battlePass, setBattlePass] = useState<BattlePassVm | null>(null);
+  const [loadingPass, setLoadingPass] = useState(true);
+  const [battlePassMsg, setBattlePassMsg] = useState<string | null>(null);
+  const [claimingTier, setClaimingTier] = useState<number | null>(null);
+
+  const loadBattlePass = useCallback(async () => {
+    if (!user) {
+      setBattlePass(null);
+      setLoadingPass(false);
+      return;
+    }
+    setLoadingPass(true);
+    try {
+      const { buildChronoBattlePassViewModel } = await import('@/lib/chronoBattlePassService');
+      const next = await buildChronoBattlePassViewModel(user.uid);
+      setBattlePass(next);
+    } catch (e) {
+      setBattlePassMsg(e instanceof Error ? e.message : 'Failed to load Battle Pass.');
+    } finally {
+      setLoadingPass(false);
+    }
+  }, [user]);
+
+  useEffect(() => { void loadBattlePass(); }, [loadBattlePass]);
+
+  async function handleClaimTier(tier: number) {
+    if (!user) return;
+    setClaimingTier(tier);
+    setBattlePassMsg(null);
+    try {
+      const { claimChronoBattlePassReward } = await import('@/lib/chronoBattlePassService');
+      const res = await claimChronoBattlePassReward(user.uid, tier);
+      if (res.ok) {
+        setBattlePassMsg(`✅ Claimed: ${formatReward(res.reward)}`);
+        await loadBattlePass();
+      } else {
+        setBattlePassMsg(`❌ ${res.reason}`);
+      }
+    } catch (e) {
+      setBattlePassMsg(e instanceof Error ? e.message : 'Failed to claim tier reward.');
+    } finally {
+      setClaimingTier(null);
+      setTimeout(() => setBattlePassMsg(null), 2500);
+    }
+  }
+
+  const visibleTiers = battlePass?.tiers.slice(0, 10) ?? [];
+
   return (
-    <div style={{
-      padding: 30, borderRadius: 16, border: '1px solid #334155', background: 'rgba(15,23,42,0.55)',
-      textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, marginTop: 8,
-    }}>
-      <div style={{ fontSize: 56 }}>🎟️</div>
-      <div style={{ color: 'white', fontWeight: 1000, fontSize: 20 }}>Battle Pass</div>
-      <div style={{ color: '#94a3b8', fontSize: 13, maxWidth: 320, lineHeight: 1.5 }}>
-        Exclusive seasonal rewards, premium card skins, and bonus gems.
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
       <div style={{
-        marginTop: 8, padding: '10px 28px', borderRadius: 12,
-        background: 'linear-gradient(135deg, rgba(234,179,8,0.15), rgba(217,119,6,0.08))',
-        border: '1.5px solid rgba(234,179,8,0.35)',
-        color: '#fde68a', fontWeight: 1000, fontSize: 14,
+        padding: 18, borderRadius: 16, border: '1px solid rgba(234,179,8,0.28)', background: 'linear-gradient(135deg, rgba(30,41,59,0.92), rgba(15,23,42,0.98))',
+        display: 'flex', flexDirection: 'column', gap: 10,
       }}>
-        🔜 Coming Soon
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ color: 'white', fontWeight: 1000, fontSize: 20 }}>🎟️ Chrono Battle Pass</div>
+            <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>Earn pass XP from your real Chrono progress across tasks, sets, discoveries, milestones, and gifts.</div>
+          </div>
+          <div style={{ color: '#fde68a', fontWeight: 1000, fontSize: 14 }}>
+            {battlePass ? `Level ${battlePass.level}` : 'Loading…'}
+          </div>
+        </div>
+
+        {battlePassMsg && (
+          <div style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(34,211,238,0.12)', border: '1px solid rgba(34,211,238,0.30)', color: '#67e8f9', fontSize: 12, fontWeight: 900 }}>
+            {battlePassMsg}
+          </div>
+        )}
+
+        {loadingPass || !battlePass ? (
+          <div style={{ color: '#94a3b8', padding: 12, textAlign: 'center' }}>Loading Battle Pass…</div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 900 }}>{battlePass.xp} XP total</span>
+              <span style={{ color: '#64748b', fontSize: 11, fontWeight: 800 }}>{battlePass.xpIntoLevel} / {battlePass.xpForNextLevel} to next level</span>
+            </div>
+            <div style={{ width: '100%', height: 10, background: '#1e293b', borderRadius: 999, overflow: 'hidden', border: '1px solid #334155' }}>
+              <div style={{ width: `${Math.min(100, (battlePass.xpIntoLevel / battlePass.xpForNextLevel) * 100)}%`, height: '100%', background: 'linear-gradient(90deg, #f59e0b, #facc15)', transition: 'width 0.3s' }} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8, marginTop: 4 }}>
+              {visibleTiers.map((tier) => (
+                <div key={tier.def.tier} style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  background: tier.claimed ? 'rgba(16,185,129,0.08)' : tier.unlocked ? 'rgba(251,191,36,0.08)' : 'rgba(30,41,59,0.70)',
+                  border: `1px solid ${tier.claimed ? 'rgba(16,185,129,0.30)' : tier.unlocked ? 'rgba(251,191,36,0.35)' : '#334155'}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ color: 'white', fontWeight: 1000, fontSize: 12 }}>Tier {tier.def.tier}</div>
+                    <div style={{ color: tier.claimed ? '#4ade80' : tier.unlocked ? '#fde68a' : '#64748b', fontSize: 10, fontWeight: 1000 }}>
+                      {tier.claimed ? 'Claimed' : tier.unlocked ? 'Unlocked' : `${tier.def.xpRequired} XP`}
+                    </div>
+                  </div>
+                  <div style={{ color: '#cbd5e1', fontSize: 11, fontWeight: 800, marginTop: 8 }}>
+                    {formatReward(tier.def.reward)}
+                  </div>
+                  {tier.claimed ? (
+                    <div style={{ marginTop: 10, color: '#4ade80', fontSize: 10, fontWeight: 1000 }}>✅ Reward claimed</div>
+                  ) : (
+                    <button
+                      disabled={!tier.unlocked || claimingTier === tier.def.tier}
+                      onClick={() => void handleClaimTier(tier.def.tier)}
+                      style={{
+                        marginTop: 10,
+                        width: '100%',
+                        padding: '7px 0',
+                        borderRadius: 8,
+                        fontSize: 10,
+                        fontWeight: 1000,
+                        background: tier.unlocked ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'rgba(51,65,85,0.8)',
+                        border: 'none',
+                        color: tier.unlocked ? 'white' : '#64748b',
+                        cursor: tier.unlocked ? 'pointer' : 'not-allowed',
+                        opacity: claimingTier === tier.def.tier ? 0.6 : 1,
+                      }}
+                    >
+                      {claimingTier === tier.def.tier ? '…' : tier.unlocked ? 'Claim Reward' : 'Locked'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

@@ -34,7 +34,7 @@ export interface UserData {
   email: string;
   role: UserRole;
   classId?: string;
-  economy: { gold: number; global_xp: number; streak: number; energy?: number; rankedEnergyStreak?: number };
+  economy: { gold: number; global_xp: number; streak: number; energy?: number; rankedEnergyStreak?: number; gems?: number };
   curriculums: Record<string, { trophies: number }>;
   curriculumProfile?: CurriculumProfile;
   onboardingComplete?: boolean;
@@ -355,12 +355,14 @@ export interface EconomyDeltas {
   xp?: number;
   energy?: number;
   streak?: number;
+  gems?: number;
 }
 
 export async function updateEconomy(uid: string, deltas: EconomyDeltas): Promise<void> {
   const current = await getUserData(uid);
   if (!current) return;
   const econ = current.economy ?? {};
+  const prevGems = typeof (econ as any).gems === 'number' ? (econ as any).gems as number : 0;
   await updateUserData(uid, {
     economy: {
       ...econ,
@@ -368,6 +370,7 @@ export async function updateEconomy(uid: string, deltas: EconomyDeltas): Promise
       global_xp: Math.max(0, (econ.global_xp || 0) + (deltas.xp || 0)),
       energy: Math.max(0, (econ.energy || 0) + (deltas.energy || 0)),
       streak: Math.max(0, (econ.streak || 0) + (deltas.streak || 0)),
+      gems: Math.max(0, prevGems + (deltas.gems || 0)),
     },
     last_active: new Date().toISOString().split('T')[0],
   });
@@ -426,6 +429,20 @@ export async function applyRankedEnergyProgress(uid: string, correct: boolean): 
     },
     last_active: new Date().toISOString().split('T')[0],
   });
+  if (correct) {
+    try {
+      const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
+      await incrementTaskProgress(uid, 'study_correct', 1);
+    } catch {
+      // Best-effort: never fail energy progress due to task tracking.
+    }
+    try {
+      const { recordIdleVaultStudyCorrect } = await import('@/lib/chronoIdleVaultService');
+      await recordIdleVaultStudyCorrect(uid);
+    } catch {
+      // Best-effort: never fail energy progress due to task tracking.
+    }
+  }
   return { energy: nextEnergy, rankedEnergyStreak: nextStreak };
 }
 
