@@ -29,6 +29,7 @@ import {
 import { getClassLeaderboard, type ClassLeaderboardEntry } from '@/lib/statsService';
 import { adminUpdateEconomy, adminGetStudentEconomy, createUserDataAdmin, isUsernameTaken, type EconomyDeltas } from '@/lib/userService';
 import { listFreeformReviewsForUsers, type FreeformReviewRow } from '@/lib/freeformReviewService';
+import SettingsLauncher from '@/components/settings/SettingsLauncher';
 
 type Tab = 'users' | 'classes';
 
@@ -382,7 +383,11 @@ export default function AdminPage() {
   if (loading || loadingData) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
-        <div style={{ textAlign: 'center', color: '#94a3b8' }}><div style={{ fontSize: 40, marginBottom: 12 }}>🛡️</div><div>Loading admin panel...</div></div>
+        <SettingsLauncher compact />
+        <div style={{ textAlign: 'center', color: '#94a3b8' }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🛡️</div>
+          <div>Loading admin panel...</div>
+        </div>
       </div>
     );
   }
@@ -390,6 +395,7 @@ export default function AdminPage() {
   if (teachers.length === 0) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
+        <SettingsLauncher compact />
         <div style={{ textAlign: 'center', color: '#64748b', maxWidth: 400, padding: 20 }}>
           {loadError && <div style={{ padding: '10px 14px', marginBottom: 16, borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', fontSize: 12, textAlign: 'left' }}>{loadError}</div>}
           <div style={{ fontSize: 48, marginBottom: 12 }}>🛡️</div>
@@ -406,9 +412,9 @@ export default function AdminPage() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0f172a', overflow: 'hidden' }}>
-      {/* Header */}
-      <div style={{ padding: '13px 18px', background: '#1e293b', borderBottom: `2px solid ${COLOR_DIM}`, flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+      <SettingsLauncher compact />
+      <div style={{ padding: '16px 20px', background: '#1e293b', borderBottom: `2px solid ${COLOR}`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <h2 style={{ margin: 0, color: 'white', fontSize: 19, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ color: COLOR }}>🛡️</span> Admin

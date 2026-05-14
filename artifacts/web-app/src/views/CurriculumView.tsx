@@ -132,14 +132,14 @@ function ChapterMapView({ curriculum, progress, onSelectChapter, onBack }: {
     sum + ch.objectives.reduce((s, o) => s + (isObjectiveDone(progress, curriculum.id, ch.id, o.id) ? o.xp : 0), 0), 0);
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', padding: '16px 16px 28px' }}>
+    <div style={{ height: '100%', overflowY: 'auto', padding: '16px 16px 28px', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}>
       <button onClick={onBack} className="ll-btn" style={{ marginBottom: 14, fontSize: 13 }}>← Back</button>
-      <h2 style={{ color: 'white', margin: '0 0 3px', fontSize: 20 }}>{curriculum.label}</h2>
+      <h2 style={{ color: 'var(--ll-text)', margin: '0 0 3px', fontSize: 20 }}>{curriculum.label}</h2>
 
       {/* Summary bar */}
       <div style={{
-        background: '#1e293b', borderRadius: 12, padding: '14px 18px', margin: '14px 0',
-        border: '1px solid #334155', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10
+        background: 'var(--ll-surface-1)', borderRadius: 12, padding: '14px 18px', margin: '14px 0',
+        border: '1px solid var(--ll-border)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10
       }}>
         {[
           { label: 'Completed', value: `${totalDone}/${total}`, color: '#10b981' },
@@ -148,7 +148,7 @@ function ChapterMapView({ curriculum, progress, onSelectChapter, onBack }: {
         ].map(s => (
           <div key={s.label} style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 20, fontWeight: 'bold', color: s.color }}>{s.value}</div>
-            <div style={{ color: '#64748b', fontSize: 11 }}>{s.label}</div>
+            <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>{s.label}</div>
           </div>
         ))}
       </div>
@@ -172,9 +172,9 @@ function ChapterMapView({ curriculum, progress, onSelectChapter, onBack }: {
               key={ch.id}
               onClick={() => !isLocked && onSelectChapter(ch.id)}
               style={{
-                background: ch.boss ? 'rgba(127,29,29,0.25)' : isLocked ? 'rgba(30,41,59,0.4)' : '#1e293b',
+                background: ch.boss ? 'rgba(127,29,29,0.25)' : isLocked ? 'var(--ll-surface-2)' : 'var(--ll-surface-1)',
                 borderRadius: 14, padding: '16px 12px', textAlign: 'center',
-                border: `2px solid ${isDone ? '#fbbf24' : isLocked ? '#334155' : ch.boss ? '#ef4444' : ch.color + '55'}`,
+                border: `2px solid ${isDone ? '#fbbf24' : isLocked ? 'var(--ll-border)' : ch.boss ? '#ef4444' : ch.color + '55'}`,
                 cursor: isLocked ? 'not-allowed' : 'pointer', opacity: isLocked ? 0.55 : 1,
                 transition: '0.2s', position: 'relative', overflow: 'hidden',
                 boxShadow: isDone ? `0 0 15px rgba(251,191,36,0.2)` : ch.boss && !isLocked ? '0 0 15px rgba(239,68,68,0.15)' : 'none'
@@ -196,23 +196,23 @@ function ChapterMapView({ curriculum, progress, onSelectChapter, onBack }: {
               <div style={{ fontSize: 30, marginBottom: 8 }}>
                 {isLocked ? '🔒' : ch.icon}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 'bold', color: isLocked ? '#64748b' : 'white', lineHeight: 1.3, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 'bold', color: isLocked ? 'var(--ll-text-muted)' : 'var(--ll-text)', lineHeight: 1.3, marginBottom: 8 }}>
                 {ch.name}
               </div>
               {!isLocked && (
                 <>
-                  <div style={{ height: 4, background: '#0f172a', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
+                  <div style={{ height: 4, background: 'var(--ll-surface-0)', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
                     <div style={{
                       width: `${chPct}%`, height: '100%',
                       background: isDone ? '#fbbf24' : ch.boss ? '#ef4444' : ch.color,
                       transition: '0.5s'
                     }} />
                   </div>
-                  <div style={{ color: '#64748b', fontSize: 11 }}>{completed}/{chTotal}</div>
+                  <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>{completed}/{chTotal}</div>
                 </>
               )}
               {isLocked && prevCh && (
-                <div style={{ color: '#475569', fontSize: 10 }}>
+                <div style={{ color: 'var(--ll-text-muted)', fontSize: 10 }}>
                   Complete {requiredPct}% of<br />"{prevCh.name}"
                 </div>
               )}
@@ -251,20 +251,20 @@ function SkillTreeView({ curriculum, chapter, progress, onComplete, onBack }: {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{ padding: '12px 16px', background: '#1e293b', borderBottom: '1px solid #334155', flexShrink: 0 }}>
+      <div style={{ padding: '12px 16px', background: 'var(--ll-surface-1)', borderBottom: '1px solid var(--ll-border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <button onClick={onBack} className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }}>← Back</button>
           <span style={{ fontSize: 16 }}>{chapter.icon}</span>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 'bold', color: 'white', fontSize: 15 }}>{chapter.name}</div>
-            <div style={{ color: '#64748b', fontSize: 11 }}>{curriculum.shortLabel}</div>
+            <div style={{ fontWeight: 'bold', color: 'var(--ll-text)', fontSize: 15 }}>{chapter.name}</div>
+            <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>{curriculum.shortLabel}</div>
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: 14 }}>{chapterXP}/{totalChXP} XP</div>
-            <div style={{ color: '#64748b', fontSize: 11 }}>{completed}/{chTotal} done</div>
+            <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>{completed}/{chTotal} done</div>
           </div>
         </div>
-        <div style={{ height: 5, background: '#0f172a', borderRadius: 3, overflow: 'hidden' }}>
+        <div style={{ height: 5, background: 'var(--ll-surface-0)', borderRadius: 3, overflow: 'hidden' }}>
           <div style={{
             width: `${chTotal > 0 ? (completed / chTotal) * 100 : 0}%`, height: '100%',
             background: chapter.boss ? '#ef4444' : `linear-gradient(90deg, ${chapter.color}, ${chapter.color}cc)`,
@@ -302,13 +302,13 @@ function SkillTreeView({ curriculum, chapter, progress, onComplete, onBack }: {
                   background: isDone
                     ? `${chapter.color}18`
                     : isCurrent
-                    ? '#1e293b'
-                    : 'rgba(30,41,59,0.4)',
+                    ? 'var(--ll-surface-1)'
+                    : 'var(--ll-surface-2)',
                   border: `2px solid ${
                     wasJustCompleted ? '#fbbf24'
                     : isDone ? chapter.color
                     : isCurrent ? chapter.color + '88'
-                    : '#334155'
+                    : 'var(--ll-border)'
                   }`,
                   opacity: isUnlocked ? 1 : 0.45,
                   cursor: isUnlocked && !isDone ? 'pointer' : 'default',
@@ -327,28 +327,28 @@ function SkillTreeView({ curriculum, chapter, progress, onComplete, onBack }: {
                 <div style={{
                   width: 46, height: 46, borderRadius: '50%', flexShrink: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
-                  background: isDone ? chapter.color : isCurrent ? chapter.color + '22' : '#0f172a',
-                  border: `2px solid ${isDone ? chapter.color : isCurrent ? chapter.color : '#334155'}`,
+                  background: isDone ? chapter.color : isCurrent ? chapter.color + '22' : 'var(--ll-surface-0)',
+                  border: `2px solid ${isDone ? chapter.color : isCurrent ? chapter.color : 'var(--ll-border)'}`,
                   boxShadow: isCurrent ? `0 0 10px ${chapter.color}44` : 'none',
-                  color: isDone ? 'white' : isCurrent ? chapter.color : '#475569'
+                  color: isDone ? 'white' : isCurrent ? chapter.color : 'var(--ll-text-muted)'
                 }}>
                   {isDone ? '✓' : !isUnlocked ? '🔒' : isCurrent ? `${i + 1}` : `${i + 1}`}
                 </div>
 
                 {/* Content */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 'bold', fontSize: 14, color: isUnlocked ? 'white' : '#64748b', marginBottom: 3 }}>
+                  <div style={{ fontWeight: 'bold', fontSize: 14, color: isUnlocked ? 'var(--ll-text)' : 'var(--ll-text-muted)', marginBottom: 3 }}>
                     {obj.title}
                   </div>
-                  <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.4 }}>{obj.desc}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ll-text-muted)', lineHeight: 1.4 }}>{obj.desc}</div>
                 </div>
 
                 {/* XP badge */}
                 <div style={{
                   flexShrink: 0, padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 'bold',
                   background: isDone ? `${chapter.color}22` : 'rgba(0,0,0,0.3)',
-                  border: `1px solid ${isDone ? chapter.color + '44' : '#334155'}`,
-                  color: isDone ? chapter.color : '#64748b'
+                  border: `1px solid ${isDone ? chapter.color + '44' : 'var(--ll-border)'}`,
+                  color: isDone ? chapter.color : 'var(--ll-text-muted)'
                 }}>
                   {obj.xp} XP
                 </div>
@@ -367,7 +367,7 @@ function SkillTreeView({ curriculum, chapter, progress, onComplete, onBack }: {
           />
           <div style={{
             position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 201,
-            background: '#1e293b', borderRadius: '20px 20px 0 0', padding: '24px 24px 32px',
+            background: 'var(--ll-surface-1)', borderRadius: '20px 20px 0 0', padding: '24px 24px 32px',
             border: `2px solid ${chapter.color}`,
             boxShadow: `0 -10px 40px rgba(0,0,0,0.6)`,
             animation: 'slideUp 0.25s ease'
@@ -377,17 +377,17 @@ function SkillTreeView({ curriculum, chapter, progress, onComplete, onBack }: {
                 <div style={{ color: chapter.color, fontSize: 11, fontWeight: 'bold', marginBottom: 5, textTransform: 'uppercase', letterSpacing: 1 }}>
                   {chapter.name}
                 </div>
-                <h3 style={{ margin: 0, color: 'white', fontSize: 20 }}>{selectedObj.title}</h3>
+                <h3 style={{ margin: 0, color: 'var(--ll-text)', fontSize: 20 }}>{selectedObj.title}</h3>
               </div>
-              <button onClick={() => setSelectedObj(null)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer', padding: '0 0 0 10px' }}>×</button>
+              <button onClick={() => setSelectedObj(null)} style={{ background: 'none', border: 'none', color: 'var(--ll-text-muted)', fontSize: 22, cursor: 'pointer', padding: '0 0 0 10px' }}>×</button>
             </div>
 
-            <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.6, margin: '0 0 20px' }}>{selectedObj.desc}</p>
+            <p style={{ color: 'var(--ll-text-soft)', fontSize: 14, lineHeight: 1.6, margin: '0 0 20px' }}>{selectedObj.desc}</p>
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{
                 display: 'flex', gap: 12, fontSize: 14,
-                background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderRadius: 10, border: '1px solid #334155'
+                background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderRadius: 10, border: '1px solid var(--ll-border)'
               }}>
                 <span style={{ color: '#10b981', fontWeight: 'bold' }}>+{selectedObj.xp} XP</span>
                 <span style={{ color: '#fbbf24' }}>+{Math.floor(selectedObj.xp / 5)} 🪙</span>

@@ -190,8 +190,8 @@ export default function ChronoEmpiresView() {
       {/* ── Header ─────────────────────────────────── */}
       <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div>
-          <div style={{ color: 'white', fontWeight: 1000, fontSize: 16 }}>🏰 Chrono Empires</div>
-          <div style={{ color: '#64748b', fontSize: 11, fontWeight: 800 }}>Build your empire one board at a time.</div>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 16 }}>🏰 Chrono Empires</div>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 11, fontWeight: 800 }}>Build your empire one board at a time.</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ background: 'rgba(16,185,129,0.10)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 900, color: '#6ee7b7' }}>
@@ -201,8 +201,8 @@ export default function ChronoEmpiresView() {
             💎 {gems}
           </span>
           <button onClick={() => void load()} style={{
-            background: 'rgba(51,65,85,0.45)', border: '1px solid #334155', borderRadius: 8,
-            color: '#94a3b8', padding: '5px 10px', fontSize: 11, fontWeight: 900, cursor: 'pointer',
+            background: 'var(--ll-surface-2)', border: '1px solid var(--ll-border)', borderRadius: 8,
+            color: 'var(--ll-text-soft)', padding: '5px 10px', fontSize: 11, fontWeight: 900, cursor: 'pointer',
           }}>↺</button>
         </div>
       </div>
@@ -217,9 +217,9 @@ export default function ChronoEmpiresView() {
               onClick={() => setSection(s.id)}
               style={{
                 padding: '6px 12px', fontSize: 11, borderRadius: 999, whiteSpace: 'nowrap',
-                background: active ? 'rgba(139,92,246,0.18)' : 'rgba(15,23,42,0.55)',
-                border: active ? '1px solid rgba(139,92,246,0.50)' : '1px solid #334155',
-                color: active ? '#ddd6fe' : '#94a3b8', fontWeight: 1000, cursor: 'pointer',
+                background: active ? 'rgba(139,92,246,0.18)' : 'var(--ll-surface-2)',
+                border: active ? '1px solid rgba(139,92,246,0.50)' : '1px solid var(--ll-border)',
+                color: active ? '#ddd6fe' : 'var(--ll-text-soft)', fontWeight: 1000, cursor: 'pointer',
                 transition: 'all 0.15s',
               }}
             >
@@ -266,7 +266,7 @@ export default function ChronoEmpiresView() {
       {/* ── Content area ───────────────────────────── */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '0 12px 12px' }}>
         {loading ? (
-          <div style={{ color: '#94a3b8', padding: 20, textAlign: 'center' }}>Loading…</div>
+          <div style={{ color: 'var(--ll-text-soft)', padding: 20, textAlign: 'center' }}>Loading…</div>
         ) : section === 'road' ? (
           <RoadSection
             currentBoard={currentBoard}
@@ -322,7 +322,7 @@ function IdleVaultCard({
 
   return (
     <div style={{
-      background: 'linear-gradient(135deg, rgba(30,41,59,0.92), rgba(15,23,42,0.98))',
+      background: 'linear-gradient(135deg, color-mix(in srgb, var(--ll-surface-1) 94%, transparent 6%), color-mix(in srgb, var(--ll-surface-0) 96%, transparent 4%))',
       border: '1px solid rgba(250,204,21,0.24)',
       borderRadius: 14,
       padding: 14,
@@ -332,31 +332,31 @@ function IdleVaultCard({
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ color: 'white', fontWeight: 1000, fontSize: 15 }}>🏦 Idle Vault</div>
-          <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 15 }}>🏦 Idle Vault</div>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, marginTop: 4 }}>
             Your owned booths generate offline rent while you are away. Answer 3 study questions correctly to unlock the vault.
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ color: '#facc15', fontWeight: 1000, fontSize: 20 }}>🪙 {accruedCoins.toLocaleString()}</div>
-          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 800 }}>Stored cap: {maxStoredCoins.toLocaleString()}</div>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, fontWeight: 800 }}>Stored cap: {maxStoredCoins.toLocaleString()}</div>
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
-        <div style={{ background: 'rgba(15,23,42,0.65)', border: '1px solid #334155', borderRadius: 10, padding: '8px 10px' }}>
-          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 900 }}>Offline income / hour</div>
-          <div style={{ color: 'white', fontWeight: 1000, marginTop: 4 }}>{hourlyIncome.toLocaleString()} coins</div>
+        <div style={{ background: 'var(--ll-surface-0)', border: '1px solid var(--ll-border)', borderRadius: 10, padding: '8px 10px' }}>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, fontWeight: 900 }}>Offline income / hour</div>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 1000, marginTop: 4 }}>{hourlyIncome.toLocaleString()} coins</div>
         </div>
-        <div style={{ background: 'rgba(15,23,42,0.65)', border: '1px solid #334155', borderRadius: 10, padding: '8px 10px' }}>
-          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 900 }}>Morning warmup</div>
+        <div style={{ background: 'var(--ll-surface-0)', border: '1px solid var(--ll-border)', borderRadius: 10, padding: '8px 10px' }}>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, fontWeight: 900 }}>Morning warmup</div>
           <div style={{ color: claimReady ? '#6ee7b7' : '#fde68a', fontWeight: 1000, marginTop: 4 }}>
             {warmupProgress}/{warmupGoal} correct answers
           </div>
         </div>
       </div>
 
-      <div style={{ height: 10, borderRadius: 999, overflow: 'hidden', background: 'rgba(51,65,85,0.75)', border: '1px solid #334155' }}>
+      <div style={{ height: 10, borderRadius: 999, overflow: 'hidden', background: 'var(--ll-surface-2)', border: '1px solid var(--ll-border)' }}>
         <div style={{
           width: `${Math.max(0, Math.min(100, (warmupProgress / warmupGoal) * 100))}%`,
           height: '100%',
@@ -366,7 +366,7 @@ function IdleVaultCard({
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ color: message ? '#e2e8f0' : '#94a3b8', fontSize: 12, fontWeight: 800 }}>
+        <div style={{ color: message ? 'var(--ll-text)' : 'var(--ll-text-soft)', fontSize: 12, fontWeight: 800 }}>
           {message ?? (claimReady ? 'Vault unlocked. Claim your offline coins now.' : 'Study progress updates this warmup automatically when you answer correctly.')}
         </div>
         <button
@@ -375,9 +375,9 @@ function IdleVaultCard({
           style={{
             padding: '10px 14px',
             borderRadius: 10,
-            border: claimReady ? '1px solid rgba(250,204,21,0.45)' : '1px solid #334155',
-            background: claimReady ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(30,41,59,0.8)',
-            color: claimReady ? 'white' : '#64748b',
+            border: claimReady ? '1px solid rgba(250,204,21,0.45)' : '1px solid var(--ll-border)',
+            background: claimReady ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'var(--ll-surface-1)',
+            color: claimReady ? 'white' : 'var(--ll-text-muted)',
             fontSize: 12,
             fontWeight: 1000,
             cursor: busy || !claimReady || accruedCoins <= 0 ? 'not-allowed' : 'pointer',
@@ -448,11 +448,11 @@ function DiscoveryWorkshopSection({ uid, currentBoard, onRefresh }: {
       <div style={{
         padding: 14,
         borderRadius: 14,
-        background: 'linear-gradient(135deg, rgba(30,41,59,0.92), rgba(15,23,42,0.98))',
+        background: 'linear-gradient(135deg, color-mix(in srgb, var(--ll-surface-1) 94%, transparent 6%), color-mix(in srgb, var(--ll-surface-0) 96%, transparent 4%))',
         border: '1px solid rgba(34,211,238,0.20)',
       }}>
-        <div style={{ color: 'white', fontWeight: 1000, fontSize: 15 }}>🧪 Discovery Workshop</div>
-        <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+        <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 15 }}>🧪 Discovery Workshop</div>
+        <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, marginTop: 4 }}>
           Combine cultural elements to discover real Chrono cards. First-time discoveries grant a card copy to your inventory.
         </div>
       </div>
@@ -464,21 +464,21 @@ function DiscoveryWorkshopSection({ uid, currentBoard, onRefresh }: {
       )}
 
       {loadingWorkshop ? (
-        <div style={{ color: '#94a3b8', padding: 20, textAlign: 'center' }}>Loading workshop…</div>
+        <div style={{ color: 'var(--ll-text-soft)', padding: 20, textAlign: 'center' }}>Loading workshop…</div>
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-            <div style={{ padding: 12, borderRadius: 12, background: 'rgba(30,41,59,0.8)', border: '1px solid #334155' }}>
-              <div style={{ color: '#e2e8f0', fontWeight: 1000, fontSize: 12, marginBottom: 8 }}>Element A</div>
-              <select value={left} onChange={(e) => setLeft(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, background: '#0f172a', color: 'white', border: '1px solid #334155' }}>
+            <div style={{ padding: 12, borderRadius: 12, background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)' }}>
+              <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 12, marginBottom: 8 }}>Element A</div>
+              <select value={left} onChange={(e) => setLeft(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, background: 'var(--ll-surface-0)', color: 'var(--ll-text)', border: '1px solid var(--ll-border)' }}>
                 {elements.map((element) => (
                   <option key={element.id} value={element.id}>{element.emoji} {element.label}</option>
                 ))}
               </select>
             </div>
-            <div style={{ padding: 12, borderRadius: 12, background: 'rgba(30,41,59,0.8)', border: '1px solid #334155' }}>
-              <div style={{ color: '#e2e8f0', fontWeight: 1000, fontSize: 12, marginBottom: 8 }}>Element B</div>
-              <select value={right} onChange={(e) => setRight(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, background: '#0f172a', color: 'white', border: '1px solid #334155' }}>
+            <div style={{ padding: 12, borderRadius: 12, background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)' }}>
+              <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 12, marginBottom: 8 }}>Element B</div>
+              <select value={right} onChange={(e) => setRight(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, background: 'var(--ll-surface-0)', color: 'var(--ll-text)', border: '1px solid var(--ll-border)' }}>
                 {elements.map((element) => (
                   <option key={element.id} value={element.id}>{element.emoji} {element.label}</option>
                 ))}
@@ -505,35 +505,35 @@ function DiscoveryWorkshopSection({ uid, currentBoard, onRefresh }: {
           </button>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-            <div style={{ padding: 12, borderRadius: 12, background: 'rgba(15,23,42,0.75)', border: '1px solid #334155' }}>
-              <div style={{ color: '#64748b', fontSize: 10, fontWeight: 900 }}>Unlocked elements</div>
-              <div style={{ color: 'white', fontWeight: 1000, marginTop: 4 }}>{elements.length}</div>
+            <div style={{ padding: 12, borderRadius: 12, background: 'var(--ll-surface-0)', border: '1px solid var(--ll-border)' }}>
+              <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, fontWeight: 900 }}>Unlocked elements</div>
+              <div style={{ color: 'var(--ll-text)', fontWeight: 1000, marginTop: 4 }}>{elements.length}</div>
             </div>
-            <div style={{ padding: 12, borderRadius: 12, background: 'rgba(15,23,42,0.75)', border: '1px solid #334155' }}>
-              <div style={{ color: '#64748b', fontSize: 10, fontWeight: 900 }}>Recipes discovered</div>
-              <div style={{ color: 'white', fontWeight: 1000, marginTop: 4 }}>{workshop?.totalRecipesUnlocked ?? 0} / {workshop?.totalRecipesAvailable ?? 0}</div>
+            <div style={{ padding: 12, borderRadius: 12, background: 'var(--ll-surface-0)', border: '1px solid var(--ll-border)' }}>
+              <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, fontWeight: 900 }}>Recipes discovered</div>
+              <div style={{ color: 'var(--ll-text)', fontWeight: 1000, marginTop: 4 }}>{workshop?.totalRecipesUnlocked ?? 0} / {workshop?.totalRecipesAvailable ?? 0}</div>
             </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ color: 'white', fontWeight: 1000, fontSize: 14 }}>📓 Discovery Journal</div>
+            <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 14 }}>📓 Discovery Journal</div>
             {workshop && workshop.discovered.length > 0 ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
                 {workshop.discovered.map((entry) => (
                   <div key={entry.recipeId} style={{
                     padding: 12,
                     borderRadius: 12,
-                    background: 'rgba(30,41,59,0.80)',
+                    background: 'var(--ll-surface-1)',
                     border: '1px solid rgba(16,185,129,0.25)',
                   }}>
                     <div style={{ fontSize: 24 }}>{entry.cardEmoji}</div>
-                    <div style={{ color: 'white', fontWeight: 1000, fontSize: 12, marginTop: 6 }}>{entry.cardName}</div>
-                    <div style={{ color: '#64748b', fontSize: 10, marginTop: 3 }}>Board {entry.boardId}</div>
+                    <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 12, marginTop: 6 }}>{entry.cardName}</div>
+                    <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, marginTop: 3 }}>Board {entry.boardId}</div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div style={{ color: '#64748b', fontSize: 12, padding: 16, textAlign: 'center', borderRadius: 12, background: 'rgba(15,23,42,0.55)', border: '1px solid #334155' }}>
+              <div style={{ color: 'var(--ll-text-muted)', fontSize: 12, padding: 16, textAlign: 'center', borderRadius: 12, background: 'var(--ll-surface-0)', border: '1px solid var(--ll-border)' }}>
                 No discoveries yet. Start experimenting with combinations.
               </div>
             )}
@@ -561,7 +561,7 @@ function RewardChestCard({
 
   return (
     <div style={{
-      background: 'linear-gradient(135deg, rgba(30,41,59,0.92), rgba(15,23,42,0.98))',
+      background: 'linear-gradient(135deg, color-mix(in srgb, var(--ll-surface-1) 94%, transparent 6%), color-mix(in srgb, var(--ll-surface-0) 96%, transparent 4%))',
       border: '1px solid rgba(251,191,36,0.22)',
       borderRadius: 14,
       padding: 14,
@@ -571,25 +571,25 @@ function RewardChestCard({
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ color: 'white', fontWeight: 1000, fontSize: 15 }}>🎁 Daily Reward Chest</div>
-          <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 15 }}>🎁 Daily Reward Chest</div>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, marginTop: 4 }}>
             Open one chest per day after making study progress. Rewards scale with your current board.
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ color: ready ? '#fde68a' : '#94a3b8', fontWeight: 1000, fontSize: 16 }}>{ready ? 'Ready now' : `${status?.hoursRemaining ?? 0}h left`}</div>
-          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 800 }}>Next: {preview.coins.toLocaleString()} coins · 💎 {preview.gems} · ⚡ {preview.energy}</div>
+          <div style={{ color: ready ? '#fde68a' : 'var(--ll-text-soft)', fontWeight: 1000, fontSize: 16 }}>{ready ? 'Ready now' : `${status?.hoursRemaining ?? 0}h left`}</div>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, fontWeight: 800 }}>Next: {preview.coins.toLocaleString()} coins · 💎 {preview.gems} · ⚡ {preview.energy}</div>
         </div>
       </div>
 
       {lastReward && (
-        <div style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(15,23,42,0.65)', border: '1px solid #334155', color: '#cbd5e1', fontSize: 11, fontWeight: 800 }}>
+        <div style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--ll-surface-0)', border: '1px solid var(--ll-border)', color: 'var(--ll-text-soft)', fontSize: 11, fontWeight: 800 }}>
           Last chest: {lastReward.coins.toLocaleString()} coins · 💎 {lastReward.gems} · ⚡ {lastReward.energy}{lastReward.cardName ? ` · ${lastReward.cardEmoji ?? '🎴'} ${lastReward.cardName}` : ''}
         </div>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ color: message ? '#e2e8f0' : '#94a3b8', fontSize: 12, fontWeight: 800 }}>
+        <div style={{ color: message ? 'var(--ll-text)' : 'var(--ll-text-soft)', fontSize: 12, fontWeight: 800 }}>
           {message ?? (ready ? 'Your chest is ready to open.' : 'Complete at least 5 study-question task progress and wait for the daily reset.')}
         </div>
         <button
@@ -598,9 +598,9 @@ function RewardChestCard({
           style={{
             padding: '10px 14px',
             borderRadius: 10,
-            border: ready ? '1px solid rgba(251,191,36,0.40)' : '1px solid #334155',
-            background: ready ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(30,41,59,0.8)',
-            color: ready ? 'white' : '#64748b',
+            border: ready ? '1px solid rgba(251,191,36,0.40)' : '1px solid var(--ll-border)',
+            background: ready ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'var(--ll-surface-1)',
+            color: ready ? 'white' : 'var(--ll-text-muted)',
             fontSize: 12,
             fontWeight: 1000,
             cursor: busy || !ready ? 'not-allowed' : 'pointer',
@@ -641,7 +641,7 @@ function PrestigeCard({
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ color: 'white', fontWeight: 1000, fontSize: 15 }}>🌌 Season Prestige</div>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 15 }}>🌌 Season Prestige</div>
           <div style={{ color: '#c4b5fd', fontSize: 12, marginTop: 4 }}>
             Reset your current run to Board 100, start a new season, and bank permanent Chrono Sigils.
           </div>
@@ -653,12 +653,12 @@ function PrestigeCard({
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
-        <div style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(99,102,241,0.30)' }}>
-          <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 800 }}>Current Board</div>
-          <div style={{ color: 'white', fontSize: 14, fontWeight: 1000, marginTop: 2 }}>{currentBoard}</div>
+        <div style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--ll-surface-0)', border: '1px solid rgba(99,102,241,0.30)' }}>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 10, fontWeight: 800 }}>Current Board</div>
+          <div style={{ color: 'var(--ll-text)', fontSize: 14, fontWeight: 1000, marginTop: 2 }}>{currentBoard}</div>
         </div>
-        <div style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(99,102,241,0.30)' }}>
-          <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 800 }}>Next Reward</div>
+        <div style={{ padding: '8px 10px', borderRadius: 10, background: 'var(--ll-surface-0)', border: '1px solid rgba(99,102,241,0.30)' }}>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 10, fontWeight: 800 }}>Next Reward</div>
           <div style={{ color: '#fde68a', fontSize: 14, fontWeight: 1000, marginTop: 2 }}>{prestige?.nextPrestigeRewardSigils ?? 1} Sigil{(prestige?.nextPrestigeRewardSigils ?? 1) === 1 ? '' : 's'}</div>
         </div>
       </div>
@@ -670,7 +670,7 @@ function PrestigeCard({
       {!eligible && blockers.length > 1 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {blockers.slice(0, 3).map((reason) => (
-            <div key={reason} style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700 }}>
+            <div key={reason} style={{ color: 'var(--ll-text-soft)', fontSize: 11, fontWeight: 700 }}>
               {reason}
             </div>
           ))}
@@ -684,9 +684,9 @@ function PrestigeCard({
           style={{
             padding: '10px 14px',
             borderRadius: 10,
-            border: eligible ? '1px solid rgba(167,139,250,0.45)' : '1px solid #334155',
-            background: eligible ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'rgba(30,41,59,0.8)',
-            color: eligible ? 'white' : '#64748b',
+            border: eligible ? '1px solid rgba(167,139,250,0.45)' : '1px solid var(--ll-border)',
+            background: eligible ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'var(--ll-surface-1)',
+            color: eligible ? 'white' : 'var(--ll-text-muted)',
             fontSize: 12,
             fontWeight: 1000,
             cursor: busy || !eligible ? 'not-allowed' : 'pointer',
@@ -714,28 +714,28 @@ function RoadSection({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{
-        background: 'linear-gradient(135deg, rgba(30,41,59,0.90), rgba(15,23,42,0.95))',
-        border: '1px solid #334155', borderRadius: 14, padding: 14,
+        background: 'linear-gradient(135deg, color-mix(in srgb, var(--ll-surface-1) 94%, transparent 6%), color-mix(in srgb, var(--ll-surface-0) 96%, transparent 4%))',
+        border: '1px solid var(--ll-border)', borderRadius: 14, padding: 14,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div>
-            <div style={{ color: 'white', fontWeight: 1000, fontSize: 15 }}>🛣️ The Road</div>
-            <div style={{ marginTop: 4, color: '#94a3b8', fontSize: 12 }}>
-              Board <span style={{ color: 'white', fontWeight: 1000 }}>{currentBoard}</span> · Class <span style={{ color: 'white', fontWeight: 1000 }}>{currentClass}</span> · {tier.emoji} {tier.label}
+            <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 15 }}>🛣️ The Road</div>
+            <div style={{ marginTop: 4, color: 'var(--ll-text-soft)', fontSize: 12 }}>
+              Board <span style={{ color: 'var(--ll-text)', fontWeight: 1000 }}>{currentBoard}</span> · Class <span style={{ color: 'var(--ll-text)', fontWeight: 1000 }}>{currentClass}</span> · {tier.emoji} {tier.label}
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ color: '#c4b5fd', fontWeight: 1000, fontSize: 18 }}>💎 {gems}</div>
-            <div style={{ color: '#64748b', fontSize: 10, fontWeight: 800 }}>Gem Class: {gemClass}</div>
+            <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 18 }}>💎 {gems}</div>
+            <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, fontWeight: 800 }}>Gem Class: {gemClass}</div>
           </div>
         </div>
         <button
           onClick={() => onOpenBoard(currentBoard)}
           style={{
             marginTop: 12, width: '100%', padding: '10px 0', borderRadius: 10,
-            background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', border: 'none',
-            color: 'white', fontSize: 14, fontWeight: 1000, cursor: 'pointer',
-            boxShadow: '0 4px 16px rgba(124,58,237,0.35)', transition: 'all 0.2s',
+            background: 'linear-gradient(135deg, var(--ll-surface-1), var(--ll-surface-0))', border: 'none',
+            color: 'var(--ll-text)', fontSize: 14, fontWeight: 1000, cursor: 'pointer',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.30)', transition: 'all 0.2s',
           }}
         >
           🎮 Open Current Board
@@ -746,7 +746,7 @@ function RoadSection({
         ref={roadRef}
         style={{
           display: 'flex', gap: 0, height: 'min(520px, 62vh)', overflow: 'hidden', borderRadius: 12,
-          border: '1px solid #334155', background: 'rgba(15,23,42,0.55)',
+          border: '1px solid var(--ll-border)', background: 'var(--ll-surface-0)',
         }}
       >
         <div style={{ width: 36, flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
@@ -772,9 +772,9 @@ function RoadSection({
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
                   width: '100%', padding: '10px 12px', borderRadius: 12,
-                  background: active ? 'rgba(139,92,246,0.16)' : 'rgba(30,41,59,0.75)',
-                  border: active ? '1px solid rgba(139,92,246,0.50)' : `1px solid ${unlocked ? '#334155' : 'rgba(51,65,85,0.45)'}`,
-                  color: unlocked ? 'white' : '#64748b',
+                  background: active ? 'rgba(139,92,246,0.16)' : 'var(--ll-surface-1)',
+                  border: active ? '1px solid rgba(139,92,246,0.50)' : `1px solid ${unlocked ? 'var(--ll-border)' : 'rgba(51,65,85,0.45)'}`,
+                  color: unlocked ? 'var(--ll-text)' : 'var(--ll-text-muted)',
                   cursor: 'pointer', textAlign: 'left',
                   opacity: unlocked ? 1 : 0.6,
                 }}
@@ -788,14 +788,14 @@ function RoadSection({
                   }} />
                   <div>
                     <div style={{ fontWeight: 1000, fontSize: 12 }}>Board {boardId}</div>
-                    <div style={{ color: active ? '#c4b5fd' : '#94a3b8', fontSize: 10 }}>Class {cls}</div>
+                    <div style={{ color: active ? 'var(--ll-text)' : 'var(--ll-text-soft)', fontSize: 10 }}>Class {cls}</div>
                   </div>
                 </div>
                 <div style={{
                   padding: '4px 8px', borderRadius: 999,
                   background: active ? 'rgba(139,92,246,0.18)' : unlocked ? 'rgba(16,185,129,0.10)' : 'rgba(51,65,85,0.45)',
-                  border: active ? '1px solid rgba(139,92,246,0.35)' : unlocked ? '1px solid rgba(16,185,129,0.25)' : '1px solid #334155',
-                  color: active ? '#ddd6fe' : unlocked ? '#86efac' : '#64748b',
+                  border: active ? '1px solid rgba(139,92,246,0.35)' : unlocked ? '1px solid rgba(16,185,129,0.25)' : '1px solid var(--ll-border)',
+                  color: active ? '#ddd6fe' : unlocked ? '#86efac' : 'var(--ll-text-muted)',
                   fontSize: 10, fontWeight: 1000,
                 }}>
                   {active ? 'Current' : unlocked ? 'Open' : 'Locked'}
@@ -813,8 +813,8 @@ function RoadSection({
    🎡 Wheel Section
    ══════════════════════════════════════════════════════════ */
 const SEGMENT_COLORS = [
-  '#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626',
-  '#0891b2', '#7c3aed', '#2563eb', '#dc2626', '#059669',
+  'var(--ll-surface-1)', 'var(--ll-surface-0)', 'var(--ll-surface-1)', 'var(--ll-surface-0)', 'var(--ll-surface-1)',
+  'var(--ll-surface-0)', 'var(--ll-surface-1)', 'var(--ll-surface-0)', 'var(--ll-surface-1)', 'var(--ll-surface-0)',
 ];
 
 function WheelSection({ uid, energy, inventory, onRefresh, onReload }: {
@@ -898,7 +898,7 @@ function WheelSection({ uid, energy, inventory, onRefresh, onReload }: {
         <div style={{
           position: 'absolute', top: -10, left: '50%', transform: 'translateX(-50%)',
           width: 0, height: 0, borderLeft: '10px solid transparent', borderRight: '10px solid transparent',
-          borderTop: '18px solid #f59e0b', zIndex: 10, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.30))',
+          borderTop: '18px solid var(--ll-text)', zIndex: 10, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.30))',
         }} />
 
         {/* Spinning disc */}
@@ -909,7 +909,7 @@ function WheelSection({ uid, energy, inventory, onRefresh, onReload }: {
             const end = ((i + 1) / WHEEL_SEGMENTS.length) * 100;
             return `${SEGMENT_COLORS[i % SEGMENT_COLORS.length]} ${start}% ${end}%`;
           }).join(', ')})`,
-          border: '4px solid #1e293b', boxShadow: '0 0 30px rgba(0,0,0,0.40), inset 0 0 20px rgba(0,0,0,0.15)',
+          border: '4px solid var(--ll-surface-1)', boxShadow: '0 0 30px rgba(0,0,0,0.40), inset 0 0 20px rgba(0,0,0,0.15)',
           transition: spinning ? 'transform 3.5s cubic-bezier(0.17, 0.67, 0.12, 0.99)' : 'none',
           transform: `rotate(${angle}deg)`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -930,8 +930,8 @@ function WheelSection({ uid, energy, inventory, onRefresh, onReload }: {
           })}
           {/* Center circle */}
           <div style={{
-            width: 50, height: 50, borderRadius: '50%', background: '#0f172a',
-            border: '3px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 50, height: 50, borderRadius: '50%', background: 'var(--ll-surface-0)',
+            border: '3px solid var(--ll-border)', display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 20, zIndex: 2,
           }}>
             🎡
@@ -1026,7 +1026,7 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
   const [setsLoading, setSetsLoading] = useState(true);
   const [claimingSet, setClaimingSet] = useState<string | null>(null);
 
-  if (!inventory) return <div style={{ color: '#94a3b8', padding: 20 }}>Loading inventory…</div>;
+  if (!inventory) return <div style={{ color: 'var(--ll-text-soft)', padding: 20 }}>Loading inventory…</div>;
 
   const loadSets = useCallback(async () => {
     setSetsLoading(true);
@@ -1113,9 +1113,9 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             padding: '5px 10px', fontSize: 11, borderRadius: 8, cursor: 'pointer',
-            background: tab === t.id ? 'rgba(139,92,246,0.18)' : 'rgba(15,23,42,0.55)',
-            border: tab === t.id ? '1px solid rgba(139,92,246,0.50)' : '1px solid #334155',
-            color: tab === t.id ? '#ddd6fe' : '#94a3b8', fontWeight: 1000,
+            background: tab === t.id ? 'rgba(139,92,246,0.18)' : 'var(--ll-surface-2)',
+            border: tab === t.id ? '1px solid rgba(139,92,246,0.50)' : '1px solid var(--ll-border)',
+            color: tab === t.id ? '#ddd6fe' : 'var(--ll-text-soft)', fontWeight: 1000,
           }}>
             {t.icon} {t.label}
           </button>
@@ -1135,14 +1135,14 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
             <button onClick={() => setFilterCat('all')} style={{
               padding: '4px 10px', fontSize: 10, borderRadius: 6, cursor: 'pointer',
               background: filterCat === 'all' ? 'rgba(255,255,255,0.10)' : 'transparent',
-              border: '1px solid #334155', color: '#94a3b8', fontWeight: 900,
+              border: '1px solid var(--ll-border)', color: 'var(--ll-text-soft)', fontWeight: 900,
             }}>All</button>
             {(Object.keys(CAT_LABELS) as CardCategory[]).map((c) => (
               <button key={c} onClick={() => setFilterCat(c)} style={{
                 padding: '4px 10px', fontSize: 10, borderRadius: 6, cursor: 'pointer',
                 background: filterCat === c ? `${CAT_LABELS[c].color}22` : 'transparent',
-                border: `1px solid ${filterCat === c ? CAT_LABELS[c].color : '#334155'}`,
-                color: filterCat === c ? CAT_LABELS[c].color : '#94a3b8', fontWeight: 900,
+                border: `1px solid ${filterCat === c ? CAT_LABELS[c].color : 'var(--ll-border)'}`,
+                color: filterCat === c ? CAT_LABELS[c].color : 'var(--ll-text-soft)', fontWeight: 900,
               }}>
                 {CAT_LABELS[c].emoji} {CAT_LABELS[c].label}
               </button>
@@ -1163,16 +1163,16 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
               return (
                 <div key={card.id} style={{
                   borderRadius: 10, padding: 10,
-                  background: isOwned ? 'rgba(30,41,59,0.80)' : 'rgba(15,23,42,0.55)',
-                  border: `2px solid ${isOwned && lvlDef ? lvlDef.borderColor : '#1e293b'}`,
+                  background: isOwned ? 'var(--ll-surface-1)' : 'var(--ll-surface-0)',
+                  border: `2px solid ${isOwned && lvlDef ? lvlDef.borderColor : 'var(--ll-surface-1)'}`,
                   opacity: isOwned ? 1 : 0.45,
                   transition: 'all 0.15s',
                 }}>
                   <div style={{ fontSize: 22, textAlign: 'center' }}>{card.emoji}</div>
-                  <div style={{ color: 'white', fontWeight: 1000, fontSize: 11, textAlign: 'center', marginTop: 4, lineHeight: 1.2 }}>
+                  <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 11, textAlign: 'center', marginTop: 4, lineHeight: 1.2 }}>
                     {card.name}
                   </div>
-                  <div style={{ color: '#64748b', fontSize: 9, textAlign: 'center', marginTop: 2 }}>
+                  <div style={{ color: 'var(--ll-text-muted)', fontSize: 9, textAlign: 'center', marginTop: 2 }}>
                     Board {card.boardId} · {CAT_LABELS[card.category].emoji}
                   </div>
 
@@ -1182,14 +1182,14 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
                         <span style={{ color: lvlDef?.borderColor ?? '#94a3b8', fontWeight: 1000 }}>
                           Lv.{lvl}
                         </span>
-                        <span style={{ color: '#94a3b8', fontWeight: 800 }}>
+                        <span style={{ color: 'var(--ll-text-soft)', fontWeight: 800 }}>
                           x{copies}
                         </span>
                       </div>
 
                       {/* Upgrade progress bar */}
                       {nextLvl && (
-                        <div style={{ width: '100%', height: 4, background: '#1e293b', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ width: '100%', height: 4, background: 'var(--ll-surface-2)', borderRadius: 2, overflow: 'hidden' }}>
                           <div style={{
                             width: `${Math.min(100, (copies / nextLvl.copiesNeeded) * 100)}%`,
                             height: '100%', background: nextLvl.borderColor, transition: '0.3s',
@@ -1237,39 +1237,39 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
           <div style={{
             padding: 12,
             borderRadius: 12,
-            background: 'linear-gradient(135deg, rgba(30,41,59,0.88), rgba(15,23,42,0.95))',
-            border: '1px solid #334155',
+            background: 'linear-gradient(135deg, color-mix(in srgb, var(--ll-surface-1) 94%, transparent 6%), color-mix(in srgb, var(--ll-surface-0) 96%, transparent 4%))',
+            border: '1px solid var(--ll-border)',
           }}>
-            <div style={{ color: 'white', fontWeight: 1000, fontSize: 14 }}>🧩 Collection Sets</div>
-            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+            <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 14 }}>🧩 Collection Sets</div>
+            <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, marginTop: 4 }}>
               Complete all 3 cards from a board-category album to claim a set reward.
             </div>
           </div>
 
           {setsLoading ? (
-            <div style={{ color: '#94a3b8', fontSize: 12, padding: 16 }}>Loading sets…</div>
+            <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, padding: 16 }}>Loading sets…</div>
           ) : sets.length === 0 ? (
-            <div style={{ color: '#475569', fontSize: 12, padding: 16, textAlign: 'center' }}>No sets unlocked yet.</div>
+            <div style={{ color: 'var(--ll-text-muted)', fontSize: 12, padding: 16, textAlign: 'center' }}>No sets unlocked yet.</div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
               {sets.map((set) => (
                 <div key={set.def.id} style={{
                   padding: 12,
                   borderRadius: 12,
-                  background: set.completed ? 'rgba(30,41,59,0.88)' : 'rgba(15,23,42,0.6)',
-                  border: `1px solid ${set.claimed ? 'rgba(16,185,129,0.35)' : set.completed ? 'rgba(250,204,21,0.35)' : '#334155'}`,
+                  background: set.completed ? 'var(--ll-surface-1)' : 'var(--ll-surface-0)',
+                  border: `1px solid ${set.claimed ? 'rgba(16,185,129,0.35)' : set.completed ? 'rgba(250,204,21,0.35)' : 'var(--ll-border)'}`,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                     <div>
-                      <div style={{ color: 'white', fontWeight: 1000, fontSize: 12 }}>{set.def.emoji} {set.def.label}</div>
-                      <div style={{ color: '#64748b', fontSize: 10, marginTop: 2 }}>Board {set.def.boardId} · {set.ownedCount}/{set.totalCount} cards</div>
+                      <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 12 }}>{set.def.emoji} {set.def.label}</div>
+                      <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, marginTop: 2 }}>Board {set.def.boardId} · {set.ownedCount}/{set.totalCount} cards</div>
                     </div>
                     <div style={{
                       padding: '4px 8px',
                       borderRadius: 999,
-                      background: set.claimed ? 'rgba(16,185,129,0.12)' : set.completed ? 'rgba(250,204,21,0.12)' : 'rgba(51,65,85,0.55)',
-                      border: `1px solid ${set.claimed ? 'rgba(16,185,129,0.35)' : set.completed ? 'rgba(250,204,21,0.35)' : '#334155'}`,
-                      color: set.claimed ? '#6ee7b7' : set.completed ? '#fde68a' : '#94a3b8',
+                      background: set.claimed ? 'rgba(16,185,129,0.12)' : set.completed ? 'rgba(250,204,21,0.12)' : 'var(--ll-surface-2)',
+                      border: `1px solid ${set.claimed ? 'rgba(16,185,129,0.35)' : set.completed ? 'rgba(250,204,21,0.35)' : 'var(--ll-border)'}`,
+                      color: set.claimed ? '#6ee7b7' : set.completed ? '#fde68a' : 'var(--ll-text-soft)',
                       fontSize: 10,
                       fontWeight: 1000,
                     }}>
@@ -1277,7 +1277,7 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
                     </div>
                   </div>
 
-                  <div style={{ marginTop: 10, height: 8, borderRadius: 999, overflow: 'hidden', background: 'rgba(51,65,85,0.75)', border: '1px solid #334155' }}>
+                  <div style={{ marginTop: 10, height: 8, borderRadius: 999, overflow: 'hidden', background: 'var(--ll-surface-2)', border: '1px solid var(--ll-border)' }}>
                     <div style={{
                       width: `${Math.max(0, Math.min(100, (set.ownedCount / set.totalCount) * 100))}%`,
                       height: '100%',
@@ -1285,7 +1285,7 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
                     }} />
                   </div>
 
-                  <div style={{ marginTop: 10, color: '#cbd5e1', fontSize: 11, fontWeight: 800 }}>
+                  <div style={{ marginTop: 10, color: 'var(--ll-text-soft)', fontSize: 11, fontWeight: 800 }}>
                     Reward: {set.def.reward.coins ? `${set.def.reward.coins.toLocaleString()} coins` : ''}{set.def.reward.coins && set.def.reward.gems ? ' + ' : ''}{set.def.reward.gems ? `${set.def.reward.gems} gems` : ''}
                   </div>
 
@@ -1300,9 +1300,9 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
                           padding: '6px 4px',
                           borderRadius: 8,
                           textAlign: 'center',
-                          background: owned && owned.level > 0 ? 'rgba(16,185,129,0.10)' : 'rgba(30,41,59,0.65)',
-                          border: `1px solid ${owned && owned.level > 0 ? 'rgba(16,185,129,0.30)' : '#334155'}`,
-                          color: owned && owned.level > 0 ? '#d1fae5' : '#64748b',
+                          background: owned && owned.level > 0 ? 'rgba(16,185,129,0.10)' : 'var(--ll-surface-2)',
+                          border: `1px solid ${owned && owned.level > 0 ? 'rgba(16,185,129,0.30)' : 'var(--ll-border)'}`,
+                          color: owned && owned.level > 0 ? '#d1fae5' : 'var(--ll-text-muted)',
                         }}>
                           <div style={{ fontSize: 18 }}>{card?.emoji ?? '🎴'}</div>
                           <div style={{ fontSize: 9, fontWeight: 900, lineHeight: 1.2 }}>{card?.name ?? cardId}</div>
@@ -1323,9 +1323,9 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
                         fontSize: 11,
                         fontWeight: 1000,
                         cursor: !set.completed || claimingSet === set.def.id ? 'not-allowed' : 'pointer',
-                        background: set.completed ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(30,41,59,0.7)',
-                        border: set.completed ? '1px solid rgba(250,204,21,0.35)' : '1px solid #334155',
-                        color: set.completed ? 'white' : '#64748b',
+                        background: set.completed ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'var(--ll-surface-1)',
+                        border: set.completed ? '1px solid rgba(250,204,21,0.35)' : '1px solid var(--ll-border)',
+                        color: set.completed ? 'white' : 'var(--ll-text-muted)',
                       }}
                     >
                       {claimingSet === set.def.id ? 'Claiming…' : set.completed ? 'Claim Set Reward' : 'Collect Missing Cards'}
@@ -1340,11 +1340,11 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
 
       {tab === 'deck' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 900 }}>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900 }}>
             🃏 Active Deck ({inventory.deck.length}/12)
           </div>
           {inventory.deck.length === 0 ? (
-            <div style={{ color: '#475569', fontSize: 12, padding: 16, textAlign: 'center' }}>
+            <div style={{ color: 'var(--ll-text-muted)', fontSize: 12, padding: 16, textAlign: 'center' }}>
               No cards in deck. Go to Cards tab to add some.
             </div>
           ) : (
@@ -1357,12 +1357,12 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
                 return (
                   <div key={cardId} style={{
                     borderRadius: 10, padding: 10,
-                    background: 'rgba(30,41,59,0.80)',
-                    border: `2px solid ${lvlDef?.borderColor ?? '#334155'}`,
+                    background: 'var(--ll-surface-1)',
+                    border: `2px solid ${lvlDef?.borderColor ?? 'var(--ll-border)'}`,
                   }}>
                     <div style={{ fontSize: 22, textAlign: 'center' }}>{card.emoji}</div>
-                    <div style={{ color: 'white', fontWeight: 1000, fontSize: 11, textAlign: 'center', marginTop: 4 }}>{card.name}</div>
-                    <div style={{ color: '#64748b', fontSize: 9, textAlign: 'center', marginTop: 2 }}>
+                    <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 11, textAlign: 'center', marginTop: 4 }}>{card.name}</div>
+                    <div style={{ color: 'var(--ll-text-muted)', fontSize: 9, textAlign: 'center', marginTop: 2 }}>
                       Lv.{owned?.level ?? 1} · x{owned?.copies ?? 0}
                     </div>
                     <button
@@ -1413,13 +1413,13 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
             return (
               <div key={tc.id} style={{
                 borderRadius: 10, padding: 12, textAlign: 'center',
-                background: unlocked ? 'rgba(30,41,59,0.80)' : 'rgba(15,23,42,0.55)',
-                border: `1px solid ${count > 0 ? 'rgba(16,185,129,0.30)' : '#334155'}`,
+                background: unlocked ? 'var(--ll-surface-1)' : 'var(--ll-surface-0)',
+                border: `1px solid ${count > 0 ? 'rgba(16,185,129,0.30)' : 'var(--ll-border)'}`,
                 opacity: unlocked ? 1 : 0.4,
               }}>
                 <div style={{ fontSize: 28 }}>{tc.emoji}</div>
-                <div style={{ color: 'white', fontWeight: 1000, fontSize: 11, marginTop: 4 }}>{tc.name}</div>
-                <div style={{ color: '#64748b', fontSize: 9, marginTop: 2 }}>
+                <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 11, marginTop: 4 }}>{tc.name}</div>
+                <div style={{ color: 'var(--ll-text-muted)', fontSize: 9, marginTop: 2 }}>
                   {tc.tier === 'low' ? '🌿 Low' : tc.tier === 'mid' ? '📻 Mid' : '💎 High'} · {!unlocked ? `🔒 Board ${tc.unlockBoard}+` : `x${count}`}
                 </div>
               </div>
@@ -1430,22 +1430,22 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
 
       {tab === 'tokens' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 900 }}>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900 }}>
             🎯 Active Token: <span style={{ color: '#c4b5fd' }}>{inventory.activeToken}</span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {inventory.ownedTokens.map((tk) => (
               <div key={tk} style={{
                 padding: '10px 16px', borderRadius: 10,
-                background: tk === inventory.activeToken ? 'rgba(139,92,246,0.18)' : 'rgba(30,41,59,0.60)',
-                border: tk === inventory.activeToken ? '2px solid rgba(139,92,246,0.50)' : '1px solid #334155',
-                color: 'white', fontWeight: 1000, fontSize: 12,
+                background: tk === inventory.activeToken ? 'rgba(139,92,246,0.18)' : 'var(--ll-surface-2)',
+                border: tk === inventory.activeToken ? '2px solid rgba(139,92,246,0.50)' : '1px solid var(--ll-border)',
+                color: 'var(--ll-text)', fontWeight: 1000, fontSize: 12,
               }}>
                 {tk === 'default' ? '⚪' : '🔵'} {tk}
               </div>
             ))}
           </div>
-          <div style={{ color: '#475569', fontSize: 11, marginTop: 4 }}>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 11, marginTop: 4 }}>
             Buy more tokens from the Shop tab.
           </div>
         </div>
@@ -1517,16 +1517,16 @@ function ShopSection({ uid, currentBoard, inventory, onRefresh }: {
 
       {/* Card packs */}
       <div>
-        <div style={{ color: 'white', fontWeight: 1000, fontSize: 14, marginBottom: 8 }}>🎴 Card Packs</div>
+        <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 14, marginBottom: 8 }}>🎴 Card Packs</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
           {SHOP_CARD_PACKS.map((pack) => (
             <div key={pack.id} style={{
               borderRadius: 12, padding: 14,
-              background: 'rgba(30,41,59,0.80)', border: '1px solid #334155',
+              background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)',
               display: 'flex', flexDirection: 'column', gap: 6,
             }}>
-              <div style={{ color: 'white', fontWeight: 1000, fontSize: 14 }}>{pack.name}</div>
-              <div style={{ color: '#94a3b8', fontSize: 11 }}>{pack.desc}</div>
+              <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 14 }}>{pack.name}</div>
+              <div style={{ color: 'var(--ll-text-soft)', fontSize: 11 }}>{pack.desc}</div>
               <button
                 disabled={buying === pack.id}
                 onClick={() => void buyPack(pack)}
@@ -1546,18 +1546,18 @@ function ShopSection({ uid, currentBoard, inventory, onRefresh }: {
 
       {/* Token skins */}
       <div>
-        <div style={{ color: 'white', fontWeight: 1000, fontSize: 14, marginBottom: 8 }}>🎯 Token Skins</div>
+        <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 14, marginBottom: 8 }}>🎯 Token Skins</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
           {SHOP_TOKENS.map((tk) => {
             const owned = inventory?.ownedTokens.includes(tk.id);
             return (
               <div key={tk.id} style={{
                 borderRadius: 10, padding: 12, textAlign: 'center',
-                background: owned ? 'rgba(16,185,129,0.08)' : 'rgba(30,41,59,0.80)',
-                border: `1px solid ${owned ? 'rgba(16,185,129,0.30)' : '#334155'}`,
+                background: owned ? 'rgba(16,185,129,0.08)' : 'var(--ll-surface-1)',
+                border: `1px solid ${owned ? 'rgba(16,185,129,0.30)' : 'var(--ll-border)'}`,
               }}>
                 <div style={{ fontSize: 28 }}>{tk.name.split(' ')[0]}</div>
-                <div style={{ color: 'white', fontWeight: 1000, fontSize: 12, marginTop: 4 }}>{tk.name.split(' ').slice(1).join(' ')}</div>
+                <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 12, marginTop: 4 }}>{tk.name.split(' ').slice(1).join(' ')}</div>
                 {owned ? (
                   <div style={{ color: '#4ade80', fontSize: 10, fontWeight: 900, marginTop: 6 }}>✅ Owned</div>
                 ) : (
@@ -1723,9 +1723,9 @@ function TasksSectionBody(_props: {
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             padding: '5px 10px', fontSize: 11, borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
-            background: tab === t.id ? 'rgba(139,92,246,0.18)' : 'rgba(15,23,42,0.55)',
-            border: tab === t.id ? '1px solid rgba(139,92,246,0.50)' : '1px solid #334155',
-            color: tab === t.id ? '#ddd6fe' : '#94a3b8', fontWeight: 1000,
+            background: tab === t.id ? 'rgba(139,92,246,0.18)' : 'var(--ll-surface-2)',
+            border: tab === t.id ? '1px solid rgba(139,92,246,0.50)' : '1px solid var(--ll-border)',
+            color: tab === t.id ? '#ddd6fe' : 'var(--ll-text-soft)', fontWeight: 1000,
           }}>
             {t.icon} {t.label}
           </button>
@@ -1749,11 +1749,11 @@ function TasksSectionBody(_props: {
             <span style={{ color: '#c4b5fd', fontWeight: 1000, fontSize: 12 }}>
               💎 Board {currentBoard} · Class {currentClass}
             </span>
-            <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 900 }}>
+            <span style={{ color: 'var(--ll-text-soft)', fontSize: 11, fontWeight: 900 }}>
               {gems} / {currentClass * 100} gems
             </span>
           </div>
-          <div style={{ width: '100%', height: 8, background: '#1e293b', borderRadius: 4, overflow: 'hidden' }}>
+          <div style={{ width: '100%', height: 8, background: 'var(--ll-surface-1)', borderRadius: 4, overflow: 'hidden' }}>
             <div style={{
               width: `${Math.min(100, (gemsInCurrentClass / 100) * 100)}%`,
               height: '100%', borderRadius: 4,
@@ -1761,7 +1761,7 @@ function TasksSectionBody(_props: {
               transition: 'width 0.3s',
             }} />
           </div>
-          <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, marginTop: 4 }}>
             {gemsRemaining > 0
               ? `${gemsRemaining} more gems to unlock Class ${currentClass + 1}`
               : '✅ Ready for next class!'
@@ -1775,7 +1775,7 @@ function TasksSectionBody(_props: {
         <div style={{
           padding: '8px 12px', borderRadius: 8,
           background: 'rgba(34,211,238,0.06)', border: '1px solid rgba(34,211,238,0.18)',
-          color: '#94a3b8', fontSize: 11, fontWeight: 800,
+          color: 'var(--ll-text-soft)', fontSize: 11, fontWeight: 800,
         }}>
           {tab === 'daily' && '📅 Resets daily (UTC). Answer study questions in your program to progress the 📚 tasks — each correct ranked answer counts.'}
           {tab === 'weekly' && '📆 Resets weekly (UTC Monday). Bigger challenges, bigger rewards.'}
@@ -1786,7 +1786,7 @@ function TasksSectionBody(_props: {
       {/* Task list */}
       {tab === 'gems' ? (
         loadingGemMilestones ? (
-          <div style={{ color: '#94a3b8', padding: 20, textAlign: 'center' }}>Loading gem milestones…</div>
+          <div style={{ color: 'var(--ll-text-soft)', padding: 20, textAlign: 'center' }}>Loading gem milestones…</div>
         ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {milestones.map((milestone) => {
@@ -1795,18 +1795,18 @@ function TasksSectionBody(_props: {
             return (
             <div key={task.id} style={{
               padding: '10px 12px', borderRadius: 10,
-              background: milestone.claimed ? 'rgba(16,185,129,0.08)' : milestone.completed ? 'rgba(251,191,36,0.08)' : 'rgba(30,41,59,0.60)',
-              border: `1px solid ${milestone.claimed ? 'rgba(16,185,129,0.30)' : milestone.completed ? 'rgba(251,191,36,0.35)' : '#334155'}`,
+              background: milestone.claimed ? 'rgba(16,185,129,0.08)' : milestone.completed ? 'rgba(251,191,36,0.08)' : 'var(--ll-surface-2)',
+              border: `1px solid ${milestone.claimed ? 'rgba(16,185,129,0.30)' : milestone.completed ? 'rgba(251,191,36,0.35)' : 'var(--ll-border)'}`,
               display: 'flex', alignItems: 'center', gap: 10,
             }}>
               <div style={{ fontSize: 22, flexShrink: 0 }}>{task.emoji}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: 'white', fontWeight: 1000, fontSize: 12 }}>{task.label}</div>
+                <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 12 }}>{task.label}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                  <div style={{ flex: 1, height: 5, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ flex: 1, height: 5, background: 'var(--ll-surface-1)', borderRadius: 3, overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: milestone.claimed ? '#4ade80' : milestone.completed ? '#fbbf24' : '#7c3aed', transition: 'width 0.3s' }} />
                   </div>
-                  <span style={{ color: '#64748b', fontSize: 9, fontWeight: 900, flexShrink: 0 }}>
+                  <span style={{ color: 'var(--ll-text-muted)', fontSize: 9, fontWeight: 900, flexShrink: 0 }}>
                     {milestone.progress}/{task.goal}
                   </span>
                 </div>
@@ -1838,7 +1838,7 @@ function TasksSectionBody(_props: {
         </div>
         )
       ) : loadingTasks || !state ? (
-        <div style={{ color: '#94a3b8', padding: 20, textAlign: 'center' }}>Loading tasks…</div>
+        <div style={{ color: 'var(--ll-text-soft)', padding: 20, textAlign: 'center' }}>Loading tasks…</div>
       ) : (
         (() => {
           // Lazy import type-only; catalog loaded synchronously via module-level require substitute
@@ -1869,7 +1869,7 @@ function TasksListForPeriod({ period, state, claiming, onClaim }: {
   }, [period, state]);
 
   if (vms.length === 0) return (
-    <div style={{ color: '#64748b', padding: 12, textAlign: 'center', fontSize: 12 }}>No tasks in this tab yet.</div>
+    <div style={{ color: 'var(--ll-text-muted)', padding: 12, textAlign: 'center', fontSize: 12 }}>No tasks in this tab yet.</div>
   );
 
   return (
@@ -1881,19 +1881,19 @@ function TasksListForPeriod({ period, state, claiming, onClaim }: {
         return (
           <div key={t.id} style={{
             padding: '10px 12px', borderRadius: 10,
-            background: vm.claimed ? 'rgba(16,185,129,0.08)' : vm.completed ? 'rgba(251,191,36,0.08)' : 'rgba(30,41,59,0.60)',
-            border: `1px solid ${vm.claimed ? 'rgba(16,185,129,0.30)' : vm.completed ? 'rgba(251,191,36,0.35)' : '#334155'}`,
+            background: vm.claimed ? 'rgba(16,185,129,0.08)' : vm.completed ? 'rgba(251,191,36,0.08)' : 'var(--ll-surface-2)',
+            border: `1px solid ${vm.claimed ? 'rgba(16,185,129,0.30)' : vm.completed ? 'rgba(251,191,36,0.35)' : 'var(--ll-border)'}`,
             display: 'flex', alignItems: 'center', gap: 10,
             opacity: vm.claimed ? 0.75 : 1,
           }}>
             <div style={{ fontSize: 22, flexShrink: 0 }}>{t.emoji}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ color: 'white', fontWeight: 1000, fontSize: 12 }}>{t.label}</div>
+              <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 12 }}>{t.label}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                <div style={{ flex: 1, height: 5, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ flex: 1, height: 5, background: 'var(--ll-surface-1)', borderRadius: 3, overflow: 'hidden' }}>
                   <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: stateColor, transition: 'width 0.3s' }} />
                 </div>
-                <span style={{ color: '#64748b', fontSize: 9, fontWeight: 900, flexShrink: 0 }}>
+                <span style={{ color: 'var(--ll-text-muted)', fontSize: 9, fontWeight: 900, flexShrink: 0 }}>
                   {vm.progress}/{t.goal}
                 </span>
               </div>

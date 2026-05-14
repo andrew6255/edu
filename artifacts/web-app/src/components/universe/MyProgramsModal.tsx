@@ -130,9 +130,9 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
     width: 'min(920px, 94vw)',
     maxHeight: '86vh',
     overflow: 'hidden',
-    background: '#0f172a',
+    background: 'var(--ll-surface-0)',
     borderRadius: 18,
-    border: '2px solid #334155',
+    border: '2px solid var(--ll-border)',
     boxShadow: '0 30px 80px rgba(0,0,0,0.65)',
     display: 'flex',
     flexDirection: 'column',
@@ -141,9 +141,9 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
   const headerBtn = (active: boolean): React.CSSProperties => ({
     padding: '8px 12px',
     borderRadius: 10,
-    border: `1px solid ${active ? 'rgba(59,130,246,0.6)' : '#334155'}`,
-    background: active ? 'rgba(59,130,246,0.18)' : 'transparent',
-    color: active ? '#bfdbfe' : '#94a3b8',
+    border: `1px solid ${active ? 'var(--ll-border-strong)' : 'var(--ll-border)'}`,
+    background: active ? 'color-mix(in srgb, var(--ll-accent) 14%, transparent)' : 'transparent',
+    color: active ? 'var(--ll-text)' : 'var(--ll-text-soft)',
     fontSize: 12,
     fontWeight: 'bold',
     cursor: 'pointer',
@@ -151,8 +151,8 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
   });
 
   const rowStyle: React.CSSProperties = {
-    background: '#111c33',
-    border: '1px solid #334155',
+    background: 'var(--ll-surface-1)',
+    border: '1px solid var(--ll-border)',
     borderRadius: 12,
     padding: '12px 12px',
     display: 'flex',
@@ -171,10 +171,10 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
       <div style={rowStyle}>
         <div style={{ width: 32, textAlign: 'center', fontSize: 18 }}>{p.coverEmoji || '📘'}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: 'white', fontWeight: 800, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 800, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {p.title}
           </div>
-          <div style={{ color: '#64748b', fontSize: 11 }}>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>
             {status}{p.grade_band ? ` • ${p.grade_band}` : ''}
           </div>
         </div>
@@ -228,27 +228,27 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
       }}
     >
       <div style={panelStyle} onClick={stop}>
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid #1f2a44', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--ll-border)', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--ll-overlay)' }}>
           <div style={{ fontSize: 18 }}>📚</div>
-          <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>My Programs</div>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 900, fontSize: 14, flex: 1 }}>My Programs</div>
           <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={onClose}>✕</button>
         </div>
 
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #1f2a44', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--ll-border)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', background: 'color-mix(in srgb, var(--ll-surface-0) 86%, transparent)' }}>
           <button style={headerBtn(tab === 'current')} onClick={() => setTab('current')}>Current</button>
           <button style={headerBtn(tab === 'finished')} onClick={() => setTab('finished')}>Finished</button>
           <button style={headerBtn(tab === 'search')} onClick={() => setTab('search')}>Search</button>
-          <div style={{ marginLeft: 'auto', color: '#64748b', fontSize: 12 }}>{loading ? 'Loading...' : `${programs.length} public programs`}</div>
+          <div style={{ marginLeft: 'auto', color: 'var(--ll-text-muted)', fontSize: 12 }}>{loading ? 'Loading...' : `${programs.length} public programs`}</div>
         </div>
 
         <div style={{ padding: 16, overflowY: 'auto' }}>
           {tab === 'current' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 2 }}>
+              <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, marginBottom: 2 }}>
                 Your assigned public programs. Status can be Active, Deactivated, or Completed.
               </div>
               {myCurrent.length === 0 ? (
-                <div style={{ color: '#94a3b8' }}>
+                <div style={{ color: 'var(--ll-text-soft)' }}>
                   No programs yet. Go to Search and assign one.
                 </div>
               ) : (
@@ -260,7 +260,7 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
           {tab === 'finished' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {myFinished.length === 0 ? (
-                <div style={{ color: '#94a3b8' }}>
+                <div style={{ color: 'var(--ll-text-soft)' }}>
                   No finished programs yet.
                 </div>
               ) : (
@@ -286,9 +286,9 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
                     width: '100%',
                     padding: '12px 12px',
                     borderRadius: 12,
-                    border: '1px solid #334155',
-                    background: '#0b1220',
-                    color: 'white',
+                    border: '1px solid var(--ll-border)',
+                    background: 'var(--ll-surface-1)',
+                    color: 'var(--ll-text)',
                     fontFamily: 'inherit',
                     outline: 'none',
                   }}
@@ -304,7 +304,7 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
               </div>
 
               {searchResults.length === 0 && !loading && (
-                <div style={{ color: '#94a3b8' }}>
+                <div style={{ color: 'var(--ll-text-soft)' }}>
                   No matches.
                 </div>
               )}

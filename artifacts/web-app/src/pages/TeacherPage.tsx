@@ -17,6 +17,7 @@ import {
 } from '@/lib/teacherService';
 import { getClassLeaderboard, type ClassLeaderboardEntry } from '@/lib/statsService';
 import ChatWidget from '@/components/ChatWidget';
+import SettingsLauncher from '@/components/settings/SettingsLauncher';
 import { requireSupabase } from '@/lib/supabase';
 import { listFreeformReviewsForUsers, type FreeformReviewRow } from '@/lib/freeformReviewService';
 
@@ -152,6 +153,7 @@ export default function TeacherPage() {
   if (loading || loadingData) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
+        <SettingsLauncher compact />
         <div style={{ textAlign: 'center', color: '#94a3b8' }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>📖</div>
           <div>Loading teacher panel...</div>
@@ -168,6 +170,7 @@ export default function TeacherPage() {
 
     return (
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0f172a', overflow: 'hidden' }}>
+        <SettingsLauncher compact />
         {/* Header */}
         <div style={{ padding: '14px 20px', background: '#1e293b', borderBottom: `2px solid ${COLOR}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -398,9 +401,10 @@ export default function TeacherPage() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0f172a', overflow: 'hidden' }}>
+      <SettingsLauncher compact />
       {/* Header */}
-      <div style={{ padding: '14px 20px', background: '#1e293b', borderBottom: `2px solid ${COLOR}`, flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+      <div style={{ padding: '16px 20px', background: '#1e293b', borderBottom: `2px solid ${COLOR}`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <div>
             <h2 style={{ margin: 0, color: 'white', fontSize: 19, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ color: COLOR }}>📖</span> Teacher

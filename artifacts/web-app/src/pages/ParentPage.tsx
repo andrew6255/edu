@@ -17,6 +17,7 @@ import {
 } from '@/lib/parentService';
 import { redeemLinkingCode, unlinkStudent } from '@/lib/linkingService';
 import ChatWidget from '@/components/ChatWidget';
+import SettingsLauncher from '@/components/settings/SettingsLauncher';
 import { requireSupabase } from '@/lib/supabase';
 
 const COLOR = '#ec4899';
@@ -154,6 +155,7 @@ export default function ParentPage() {
   if (loading || loadingData) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
+        <SettingsLauncher compact />
         <div style={{ textAlign: 'center', color: '#94a3b8' }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>👨‍👩‍👧</div>
           <div>Loading parent panel...</div>
@@ -165,6 +167,7 @@ export default function ParentPage() {
   if (students.length === 0 && !loadingData) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
+        <SettingsLauncher compact />
         <div style={{ textAlign: 'center', color: '#94a3b8', maxWidth: 400, padding: 20 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🔗</div>
           <h2 style={{ color: 'white', margin: '0 0 10px' }}>Link a Student Account</h2>
@@ -217,6 +220,7 @@ export default function ParentPage() {
   if (selectedClass && student) {
     return (
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0f172a', overflow: 'hidden' }}>
+        <SettingsLauncher compact />
         {/* Header */}
         <div style={{ padding: '14px 20px', background: '#1e293b', borderBottom: `2px solid ${COLOR}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -302,8 +306,9 @@ export default function ParentPage() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0f172a', overflow: 'hidden' }}>
+      <SettingsLauncher compact />
       {/* Header */}
-      <div style={{ padding: '14px 20px', background: '#1e293b', borderBottom: `2px solid ${COLOR}`, flexShrink: 0 }}>
+      <div style={{ padding: '16px 20px', background: '#1e293b', borderBottom: `2px solid ${COLOR}`, flexShrink: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 'bold', color: COLOR, marginBottom: 2 }}>👨‍👩‍👧 PARENT PANEL</div>

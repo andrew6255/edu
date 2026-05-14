@@ -369,13 +369,13 @@ export default function LogicGamesView() {
               const html = katex.renderToString(b.latex, { throwOnError: false, displayMode: true });
               return <div key={idx} dangerouslySetInnerHTML={{ __html: html }} />;
             } catch {
-              return <div key={idx} style={{ color: '#94a3b8', fontSize: 12, whiteSpace: 'pre-wrap' }}>{b.latex}</div>;
+              return <div key={idx} style={{ color: 'var(--ll-text-soft)', fontSize: 12, whiteSpace: 'pre-wrap' }}>{b.latex}</div>;
             }
           }
           if (b.type === 'image') {
             return (
               <div key={idx} style={{ display: 'flex', justifyContent: 'center' }}>
-                <img src={b.url} alt={b.alt ?? ''} style={{ maxWidth: '100%', borderRadius: 12, border: '1px solid #1f2a44' }} />
+                <img src={b.url} alt={b.alt ?? ''} style={{ maxWidth: '100%', borderRadius: 12, border: '1px solid var(--ll-border)' }} />
               </div>
             );
           }
@@ -383,7 +383,7 @@ export default function LogicGamesView() {
             const headerRows = typeof b.headerRows === 'number' ? b.headerRows : 1;
             return (
               <div key={idx} style={{ overflowX: 'auto' }}>
-                <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%', border: '1px solid #1f2a44', borderRadius: 12 }}>
+                <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%', border: '1px solid var(--ll-border)', borderRadius: 12 }}>
                   <tbody>
                     {b.rows.map((r, ri) => (
                       <tr key={ri}>
@@ -394,11 +394,12 @@ export default function LogicGamesView() {
                             <Cell
                               key={ci}
                               style={{
-                                borderBottom: '1px solid #1f2a44',
-                                borderRight: '1px solid #1f2a44',
+                                background: isHeader ? 'var(--ll-surface-1)' : 'var(--ll-surface-2)',
+                                borderBottom: '1px solid var(--ll-border)',
+                                borderRight: '1px solid var(--ll-border)',
                                 padding: '8px 10px',
                                 fontSize: 12,
-                                color: 'white',
+                                color: 'var(--ll-text)',
                                 fontWeight: isHeader ? 900 : 600,
                                 textAlign: 'left',
                                 whiteSpace: 'pre-wrap',
@@ -415,7 +416,7 @@ export default function LogicGamesView() {
               </div>
             );
           }
-          return <div key={idx} style={{ color: '#94a3b8', fontSize: 12 }}>[unsupported block]</div>;
+          return <div key={idx} style={{ color: 'var(--ll-text-soft)', fontSize: 12 }}>[unsupported block]</div>;
         })}
       </div>
     );
@@ -626,11 +627,11 @@ export default function LogicGamesView() {
     }, [props.nodeId, props.questionId]);
 
     if (qErr) return <div style={{ color: '#fca5a5', fontSize: 12 }}>{qErr}</div>;
-    if (!q) return <div style={{ color: '#94a3b8', fontSize: 12 }}>Loading question…</div>;
+    if (!q) return <div style={{ color: 'var(--ll-text-soft)', fontSize: 12 }}>Loading question…</div>;
 
     return (
       <div>
-        <div style={{ color: 'white', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+        <div style={{ color: 'var(--ll-text)', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
           {props.renderPromptBlocks(q.promptBlocks, q.promptRawText ?? q.promptLatex ?? '—')}
         </div>
 
@@ -651,9 +652,9 @@ export default function LogicGamesView() {
                     textAlign: 'left',
                     padding: '10px 10px',
                     borderRadius: 12,
-                    border: chosen ? '1px solid rgba(59,130,246,0.55)' : '1px solid #1f2a44',
-                    background: chosen ? 'rgba(59,130,246,0.10)' : 'rgba(15,23,42,0.55)',
-                    color: 'white',
+                    border: chosen ? '1px solid rgba(59,130,246,0.55)' : '1px solid var(--ll-border)',
+                    background: chosen ? 'rgba(59,130,246,0.10)' : 'var(--ll-surface-2)',
+                    color: 'var(--ll-text)',
                     opacity: props.disabled && !chosen ? 0.75 : 1,
                   }}
                 >
@@ -681,9 +682,9 @@ export default function LogicGamesView() {
                 width: '100%',
                 padding: '12px 12px',
                 borderRadius: 12,
-                border: '1px solid #1f2a44',
-                background: 'rgba(15,23,42,0.6)',
-                color: 'white',
+                border: '1px solid var(--ll-border)',
+                background: 'var(--ll-surface-2)',
+                color: 'var(--ll-text)',
                 outline: 'none',
                 fontSize: 14,
                 fontWeight: 900,
@@ -709,9 +710,9 @@ export default function LogicGamesView() {
                 width: '100%',
                 padding: '12px 12px',
                 borderRadius: 12,
-                border: '1px solid #1f2a44',
-                background: 'rgba(15,23,42,0.6)',
-                color: 'white',
+                border: '1px solid var(--ll-border)',
+                background: 'var(--ll-surface-2)',
+                color: 'var(--ll-text)',
                 outline: 'none',
                 fontSize: 14,
                 fontWeight: 900,
@@ -735,14 +736,14 @@ export default function LogicGamesView() {
   }
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0b1220' }}>
-      <div style={{ padding: 16, borderBottom: '1px solid #1f2a44', background: 'rgba(0,0,0,0.35)' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}>
+      <div style={{ padding: 16, borderBottom: '1px solid var(--ll-border)', background: 'var(--ll-overlay)' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ color: 'white', fontWeight: 1000, fontSize: 16 }}>🧩 Logic Games</div>
-          <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 900 }}>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 16 }}>🧩 Logic Games</div>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900 }}>
             IQ: <span style={{ color: '#fbbf24' }}>{currentIq.toFixed(2).replace(/\.00$/, '')}</span>
-            <span style={{ color: '#64748b' }}> · Floor: </span>
-            <span style={{ color: '#e2e8f0' }}>{floorIq}</span>
+            <span style={{ color: 'var(--ll-text-muted)' }}> · Floor: </span>
+            <span style={{ color: 'var(--ll-text)' }}>{floorIq}</span>
           </div>
         </div>
         {err && <div style={{ marginTop: 10, color: '#fca5a5', fontSize: 12 }}>{err}</div>}
@@ -751,7 +752,7 @@ export default function LogicGamesView() {
       {screen === 'ranked' ? (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
-            <div style={{ color: 'white', fontWeight: 1000, fontSize: 13 }}>
+            <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 13 }}>
               Ranked · {activeNode?.label ?? '—'}
             </div>
             <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={exitRanked}>
@@ -764,22 +765,22 @@ export default function LogicGamesView() {
           )}
 
           {rankedLoading ? (
-            <div style={{ color: '#94a3b8' }}>Loading questions…</div>
+            <div style={{ color: 'var(--ll-text-soft)' }}>Loading questions…</div>
           ) : !rankedCurrent ? (
-            <div style={{ color: '#94a3b8' }}>No question available.</div>
+            <div style={{ color: 'var(--ll-text-soft)' }}>No question available.</div>
           ) : (
-            <div style={{ border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.35)', borderRadius: 14, padding: 12 }}>
+            <div style={{ border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)', borderRadius: 14, padding: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 900 }}>
-                  Time: <span style={{ color: rankedSecondsLeft <= 5 ? '#fca5a5' : '#e2e8f0' }}>{rankedSecondsLeft}s</span>
+                <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900 }}>
+                  Time: <span style={{ color: rankedSecondsLeft <= 5 ? '#fca5a5' : 'var(--ll-text)' }}>{rankedSecondsLeft}s</span>
                 </div>
-                <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 900 }}>
+                <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900 }}>
                   IQ Δ: <span style={{ color: '#34d399' }}>+{rankedCurrent.iqDeltaCorrect}</span>{' '}
                   <span style={{ color: '#fca5a5' }}>{rankedCurrent.iqDeltaWrong}</span>
                 </div>
               </div>
 
-              <div style={{ color: 'white', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+              <div style={{ color: 'var(--ll-text)', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
                 {renderPromptBlocks(rankedCurrent.promptBlocks, rankedCurrent.promptRawText ?? rankedCurrent.promptLatex ?? '—')}
               </div>
 
@@ -801,9 +802,9 @@ export default function LogicGamesView() {
                           textAlign: 'left',
                           padding: '10px 10px',
                           borderRadius: 12,
-                          border: chosen ? '1px solid rgba(59,130,246,0.55)' : '1px solid #1f2a44',
-                          background: chosen ? 'rgba(59,130,246,0.10)' : 'rgba(15,23,42,0.55)',
-                          color: 'white',
+                          border: chosen ? '1px solid rgba(59,130,246,0.55)' : '1px solid var(--ll-border)',
+                          background: chosen ? 'rgba(59,130,246,0.10)' : 'var(--ll-surface-2)',
+                          color: 'var(--ll-text)',
                           opacity: disabled && !chosen ? 0.75 : 1,
                         }}
                       >
@@ -831,9 +832,9 @@ export default function LogicGamesView() {
                       width: '100%',
                       padding: '12px 12px',
                       borderRadius: 12,
-                      border: '1px solid #1f2a44',
-                      background: 'rgba(15,23,42,0.6)',
-                      color: 'white',
+                      border: '1px solid var(--ll-border)',
+                      background: 'var(--ll-surface-2)',
+                      color: 'var(--ll-text)',
                       outline: 'none',
                       fontSize: 14,
                       fontWeight: 900,
@@ -859,9 +860,9 @@ export default function LogicGamesView() {
                       width: '100%',
                       padding: '12px 12px',
                       borderRadius: 12,
-                      border: '1px solid #1f2a44',
-                      background: 'rgba(15,23,42,0.6)',
-                      color: 'white',
+                      border: '1px solid var(--ll-border)',
+                      background: 'var(--ll-surface-2)',
+                      color: 'var(--ll-text)',
                       outline: 'none',
                       fontSize: 14,
                       fontWeight: 900,
@@ -901,7 +902,7 @@ export default function LogicGamesView() {
       ) : screen === 'friend_waiting' ? (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
-            <div style={{ color: 'white', fontWeight: 1000, fontSize: 13 }}>
+            <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 13 }}>
               Play a Friend · {activeNode?.label ?? '—'}
             </div>
             <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => { cleanupFriendListeners(); setScreen('map'); }}>
@@ -911,11 +912,11 @@ export default function LogicGamesView() {
 
           {friendErr && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10 }}>{friendErr}</div>}
 
-          <div style={{ border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.35)', borderRadius: 14, padding: 12 }}>
-            <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 900, marginBottom: 10 }}>Choose a friend</div>
+          <div style={{ border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)', borderRadius: 14, padding: 12 }}>
+            <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900, marginBottom: 10 }}>Choose a friend</div>
 
             {friends.length === 0 ? (
-              <div style={{ color: '#64748b', fontSize: 12 }}>
+              <div style={{ color: 'var(--ll-text-muted)', fontSize: 12 }}>
                 No friends yet. Add friends from the Friends tab.
               </div>
             ) : (
@@ -931,20 +932,20 @@ export default function LogicGamesView() {
                         textAlign: 'left',
                         padding: '10px 10px',
                         borderRadius: 12,
-                        border: active ? '1px solid rgba(59,130,246,0.55)' : '1px solid #1f2a44',
-                        background: active ? 'rgba(59,130,246,0.10)' : 'rgba(15,23,42,0.55)',
-                        color: 'white',
+                        border: active ? '1px solid rgba(59,130,246,0.55)' : '1px solid var(--ll-border)',
+                        background: active ? 'rgba(59,130,246,0.10)' : 'var(--ll-surface-2)',
+                        color: 'var(--ll-text)',
                         display: 'flex',
                         alignItems: 'center',
                         gap: 10,
                       }}
                     >
-                      <div style={{ width: 30, height: 30, borderRadius: 999, background: '#334155', border: '1px solid #475569', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 1000 }}>
+                      <div style={{ width: 30, height: 30, borderRadius: 999, background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 1000 }}>
                         {(String(f.username || 'F').slice(0, 1) || '?').toUpperCase()}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 1000, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(f.username || 'Unknown')}</div>
-                        <div style={{ color: '#64748b', fontSize: 11 }}>Tap to select</div>
+                        <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>Tap to select</div>
                       </div>
                     </button>
                   );
@@ -965,7 +966,7 @@ export default function LogicGamesView() {
       ) : screen === 'friend_match' ? (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
-            <div style={{ color: 'white', fontWeight: 1000, fontSize: 13 }}>
+            <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 13 }}>
               Match · {activeNode?.label ?? '—'}
             </div>
             <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => { cleanupFriendListeners(); setFriendMatch(null); setFriendMatchId(null); setScreen('map'); }}>
@@ -974,22 +975,22 @@ export default function LogicGamesView() {
           </div>
 
           {!friendMatch ? (
-            <div style={{ color: '#94a3b8' }}>Loading match…</div>
+            <div style={{ color: 'var(--ll-text-soft)' }}>Loading match…</div>
           ) : (
-            <div style={{ border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.35)', borderRadius: 14, padding: 12 }}>
+            <div style={{ border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)', borderRadius: 14, padding: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ color: '#e2e8f0', fontSize: 12, fontWeight: 1000 }}>
+                <div style={{ color: 'var(--ll-text)', fontSize: 12, fontWeight: 1000 }}>
                   {friendMatch.hostUsername}: <span style={{ color: '#fbbf24' }}>{friendMatch.hostWins}</span>
-                  <span style={{ color: '#64748b' }}> vs </span>
+                  <span style={{ color: 'var(--ll-text-muted)' }}> vs </span>
                   <span style={{ color: '#fbbf24' }}>{friendMatch.guestWins}</span> :{friendMatch.guestUsername}
                 </div>
-                <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 900 }}>
-                  Time: <span style={{ color: friendSecondsLeft <= 5 ? '#fca5a5' : '#e2e8f0' }}>{friendSecondsLeft}s</span>
+                <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900 }}>
+                  Time: <span style={{ color: friendSecondsLeft <= 5 ? '#fca5a5' : 'var(--ll-text)' }}>{friendSecondsLeft}s</span>
                 </div>
               </div>
 
               {friendMatch.state === 'complete' ? (
-                <div style={{ color: 'white' }}>
+                <div style={{ color: 'var(--ll-text)' }}>
                   <div style={{ fontWeight: 1000, marginBottom: 10 }}>Match complete</div>
                   <button className="ll-btn ll-btn-primary" onClick={() => { cleanupFriendListeners(); setFriendMatch(null); setFriendMatchId(null); setScreen('map'); }} style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}>
                     Back
@@ -997,7 +998,7 @@ export default function LogicGamesView() {
                 </div>
               ) : (
                 <div>
-                  <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 900, marginBottom: 8 }}>
+                  <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900, marginBottom: 8 }}>
                     Round {Math.max(1, (friendMatch.currentRound.roundIndex ?? 0) + 1)} · First to 3
                   </div>
 
@@ -1015,7 +1016,7 @@ export default function LogicGamesView() {
                     onSubmitFreeform={(k) => void submitFriendAnswer(k)}
                   />
 
-                  <div style={{ marginTop: 10, color: '#94a3b8', fontSize: 12 }}>
+                  <div style={{ marginTop: 10, color: 'var(--ll-text-soft)', fontSize: 12 }}>
                     {(() => {
                       const a = friendMatch.currentRound.attempts ?? {};
                       const host = a[friendMatch.hostUid];
@@ -1032,9 +1033,9 @@ export default function LogicGamesView() {
       ) : (
         <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14, position: 'relative' }}>
           {loading ? (
-            <div style={{ color: '#94a3b8', padding: 10 }}>Loading…</div>
+            <div style={{ color: 'var(--ll-text-soft)', padding: 10 }}>Loading…</div>
           ) : sorted.length === 0 ? (
-            <div style={{ color: '#94a3b8', padding: 10 }}>No nodes published yet.</div>
+            <div style={{ color: 'var(--ll-text-soft)', padding: 10 }}>No nodes published yet.</div>
           ) : (
             <div style={{ position: 'relative', padding: '10px 0 30px' }}>
             <div
@@ -1056,8 +1057,8 @@ export default function LogicGamesView() {
                 const unlocked = canOpen(n);
                 const isCurrent = i === currentUnlockedIdx;
                 const sideLeft = i % 2 === 0;
-                const baseBg = unlocked ? 'rgba(59,130,246,0.10)' : 'rgba(30,41,59,0.35)';
-                const border = unlocked ? '1px solid rgba(59,130,246,0.45)' : '1px solid rgba(71,85,105,0.45)';
+                const baseBg = unlocked ? 'rgba(59,130,246,0.10)' : 'var(--ll-surface-2)';
+                const border = unlocked ? '1px solid rgba(59,130,246,0.45)' : '1px solid var(--ll-border)';
                 const glow = isCurrent ? '0 0 0 4px rgba(251,191,36,0.08), 0 14px 40px rgba(0,0,0,0.45)' : '0 12px 34px rgba(0,0,0,0.35)';
 
                 return (
@@ -1077,7 +1078,7 @@ export default function LogicGamesView() {
                         borderRadius: 14,
                         border,
                         background: baseBg,
-                        color: unlocked ? 'white' : '#94a3b8',
+                        color: unlocked ? 'var(--ll-text)' : 'var(--ll-text-soft)',
                         fontWeight: 1000,
                         letterSpacing: 0.4,
                         boxShadow: glow,
@@ -1092,7 +1093,7 @@ export default function LogicGamesView() {
                         </div>
                       )}
                       {!unlocked && (
-                        <div style={{ marginTop: 8, color: '#64748b', fontSize: 11, fontWeight: 900 }}>Locked</div>
+                        <div style={{ marginTop: 8, color: 'var(--ll-text-muted)', fontSize: 11, fontWeight: 900 }}>Locked</div>
                       )}
                     </button>
                   </div>
@@ -1117,22 +1118,22 @@ export default function LogicGamesView() {
               top: '50%',
               transform: 'translate(-50%, -50%)',
               width: 'min(520px, 94vw)',
-              background: '#0f172a',
-              border: '1px solid #334155',
+              background: 'var(--ll-surface-0)',
+              border: '1px solid var(--ll-border)',
               borderRadius: 16,
               zIndex: 2201,
               boxShadow: '0 30px 80px rgba(0,0,0,0.6)',
               overflow: 'hidden',
             }}
           >
-            <div style={{ padding: 14, borderBottom: '1px solid #1f2a44', display: 'flex', alignItems: 'center', gap: 10, background: '#111c33' }}>
-              <div style={{ color: 'white', fontWeight: 1000, fontSize: 14, flex: 1 }}>{openNode.label}</div>
+            <div style={{ padding: 14, borderBottom: '1px solid var(--ll-border)', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--ll-surface-1)' }}>
+              <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 14, flex: 1 }}>{openNode.label}</div>
               <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setOpenNode(null)}>
                 Close
               </button>
             </div>
             <div style={{ padding: 14 }}>
-              <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 900, marginBottom: 10 }}>Choose a mode</div>
+              <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900, marginBottom: 10 }}>Choose a mode</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
                 {([
                   { id: 'solo' as const, label: 'Solo' },

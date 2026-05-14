@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { requireSupabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import SettingsModal from '@/components/settings/SettingsModal';
 import { computeLevel } from '@/lib/userService';
 import NotificationsView from '@/views/NotificationsView';
 import FriendsView from '@/views/FriendsView';
@@ -90,6 +91,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [notifBadgeCount, setNotifBadgeCount] = useState(0);
 
   const abandonTimerRef = useRef<number | null>(null);
@@ -213,12 +215,12 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   ] as const;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0f172a', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--ll-surface-0)', color: 'var(--ll-text)', overflow: 'hidden' }}>
       {/* Top HUD */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '10px 16px', background: 'rgba(0,0,0,0.85)',
-        borderBottom: '1px solid #334155', zIndex: 10, flexShrink: 0,
+        padding: '10px 16px', background: 'var(--ll-overlay)',
+        borderBottom: '1px solid var(--ll-border)', zIndex: 10, flexShrink: 0,
         backdropFilter: 'blur(10px)', gap: 10
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -243,9 +245,9 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
           onClick={() => setMenuOpen(!menuOpen)}
           style={{
             width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-            background: '#1e293b',
-            border: '2px solid #475569',
-            color: 'white', cursor: 'pointer', fontSize: 16,
+            background: 'var(--ll-surface-1)',
+            border: '2px solid var(--ll-border)',
+            color: 'var(--ll-text)', cursor: 'pointer', fontSize: 16,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             position: 'relative'
           }}
@@ -275,7 +277,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
       {/* Bottom nav */}
       <div style={{
         display: 'flex', justifyContent: 'space-around', alignItems: 'center',
-        background: 'rgba(15,23,42,0.98)', borderTop: '1px solid #334155',
+        background: 'var(--ll-overlay)', borderTop: '1px solid var(--ll-border)',
         paddingTop: 8, paddingBottom: 'max(8px, env(safe-area-inset-bottom, 8px))',
         zIndex: 10, flexShrink: 0
       }}>
@@ -285,7 +287,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
             onClick={() => setView(tab.id)}
             style={{
               flex: 1, background: 'none', border: 'none',
-              color: view === tab.id ? '#3b82f6' : '#64748b',
+              color: view === tab.id ? 'var(--ll-accent)' : 'var(--ll-text-muted)',
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
               cursor: 'pointer', transition: '0.2s', fontFamily: 'inherit', padding: '4px 0',
               outline: 'none'
@@ -309,13 +311,13 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
           <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1001 }} />
           <div style={{
             position: 'fixed', top: 0, right: 0, width: 280, height: '100vh',
-            background: '#1e293b', borderLeft: '2px solid #334155',
+            background: 'var(--ll-surface-1)', borderLeft: '2px solid var(--ll-border)',
             zIndex: 1002, padding: 20, display: 'flex', flexDirection: 'column',
             boxShadow: '-10px 0 30px rgba(0,0,0,0.8)', animation: 'slideUp 0.2s ease',
             overflowY: 'auto'
           }}>
             {/* Profile header */}
-            <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: '1px solid #334155' }}>
+            <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: '1px solid var(--ll-border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
                 <div style={{
                   width: 48, height: 48, borderRadius: '50%',
@@ -327,15 +329,15 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                   {username[0]?.toUpperCase() || '?'}
                 </div>
                 <div>
-                  <div style={{ fontSize: 18, fontWeight: 'bold', color: 'white' }}>{username}</div>
-                  <div style={{ color: '#94a3b8', fontSize: 12 }}>Level {level} • {title}</div>
+                  <div style={{ fontSize: 18, fontWeight: 'bold', color: 'var(--ll-text)' }}>{username}</div>
+                  <div style={{ color: 'var(--ll-text-soft)', fontSize: 12 }}>Level {level} • {title}</div>
                 </div>
               </div>
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 140, height: 8, background: '#0b1220', borderRadius: 999, overflow: 'hidden', border: '1px solid #334155', flexShrink: 0 }}>
+                <div style={{ width: 140, height: 8, background: 'var(--ll-surface-3)', borderRadius: 999, overflow: 'hidden', border: '1px solid var(--ll-border)', flexShrink: 0 }}>
                   <div style={{ width: `${xpPct}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #10b981)', transition: '0.5s' }} />
                 </div>
-                <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>
+                <div style={{ color: 'var(--ll-text-soft)', fontSize: 11, fontWeight: 'bold' }}>
                   {Math.max(0, Math.floor(xp)).toLocaleString()} XP
                 </div>
               </div>
@@ -359,6 +361,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                 icon: '🔔', label: 'Notifications', target: 'notifications' as View },
                 { icon: '👥', label: 'Friends List', target: 'friends' as View },
                 { icon: '👤', label: 'My Profile', target: 'profile' as View },
+                { icon: '⚙️', label: 'Settings', target: 'profile' as View },
               ].map(item => (
                 <button
                   key={item.label}
@@ -373,6 +376,11 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                       setMenuOpen(false);
                       return;
                     }
+                    if (item.label === 'Settings') {
+                      setSettingsOpen(true);
+                      setMenuOpen(false);
+                      return;
+                    }
                     setView(item.target);
                     setMenuOpen(false);
                   }}
@@ -380,7 +388,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                     textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
                     background: view === item.target ? 'rgba(59,130,246,0.15)' : 'transparent',
                     border: `1px solid ${view === item.target ? 'rgba(59,130,246,0.4)' : 'transparent'}`,
-                    borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+                    borderRadius: 10, color: 'var(--ll-text)', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
                   }}
                 >
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -409,7 +417,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                   textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
                   background: 'rgba(16,185,129,0.08)',
                   border: '1px solid rgba(16,185,129,0.25)',
-                  borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+                  borderRadius: 10, color: 'var(--ll-text)', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
                 }}
               >
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -594,6 +602,16 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
             </div>
           </div>
         </>
+      )}
+
+      {user && userData && (
+        <SettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          uid={user.uid}
+          userData={userData}
+          onSaved={refreshUserData}
+        />
       )}
     </div>
   );

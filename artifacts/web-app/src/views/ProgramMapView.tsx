@@ -370,7 +370,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                 dangerouslySetInnerHTML={{ __html: html }}
               />
             ) : (
-              <div key={idx} style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{latex}</div>
+              <div key={idx} style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', color: 'var(--ll-text-soft)' }}>{latex}</div>
             );
           }
           if (b.type === 'image') {
@@ -382,13 +382,13 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                   <img
                     src={url}
                     alt={alt}
-                    style={{ width: '100%', maxHeight: 320, objectFit: 'contain', borderRadius: 12, border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.35)' }}
+                    style={{ width: '100%', maxHeight: 320, objectFit: 'contain', borderRadius: 12, border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)' }}
                   />
                 ) : (
-                  <div style={{ color: '#94a3b8', fontSize: 12 }}>[missing image url]</div>
+                  <div style={{ color: 'var(--ll-text-soft)', fontSize: 12 }}>[missing image url]</div>
                 )}
                 {(b.caption || b.alt) && (
-                  <div style={{ color: '#94a3b8', fontSize: 12 }}>{String(b.caption ?? b.alt ?? '')}</div>
+                  <div style={{ color: 'var(--ll-text-soft)', fontSize: 12 }}>{String(b.caption ?? b.alt ?? '')}</div>
                 )}
               </div>
             );
@@ -397,8 +397,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
             const rows: string[][] = Array.isArray(b.rows) ? b.rows.map((r: any) => (Array.isArray(r) ? r.map((c: any) => String(c ?? '')) : [])) : [];
             const headerRows = typeof b.headerRows === 'number' ? Math.max(0, Math.min(3, b.headerRows)) : 0;
             return (
-              <div key={idx} style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #1f2a44' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 420, background: 'rgba(2,6,23,0.35)' }}>
+              <div key={idx} style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid var(--ll-border)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 420, background: 'var(--ll-surface-1)' }}>
                   <tbody>
                     {rows.map((r, ri) => (
                       <tr key={ri}>
@@ -409,12 +409,12 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                             <Tag
                               key={ci}
                               style={{
-                                borderBottom: '1px solid #1f2a44',
-                                borderRight: '1px solid #1f2a44',
+                                borderBottom: '1px solid var(--ll-border)',
+                                borderRight: '1px solid var(--ll-border)',
                                 padding: '8px 10px',
                                 textAlign: 'left',
-                                color: 'white',
-                                background: isHeader ? 'rgba(30,41,59,0.85)' : 'transparent',
+                                color: 'var(--ll-text)',
+                                background: isHeader ? 'var(--ll-surface-2)' : 'transparent',
                               }}
                             >
                               {c}
@@ -440,17 +440,17 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     const current = scenes[Math.max(0, Math.min(sceneIndex, scenes.length - 1))] ?? null;
     if (!current) return null;
     return (
-      <div style={{ marginTop: 12, border: '1px solid #1f2a44', borderRadius: 14, padding: 12, background: 'rgba(15,23,42,0.45)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ marginTop: 12, border: '1px solid var(--ll-border)', borderRadius: 14, padding: 12, background: 'var(--ll-surface-1)', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <div style={{ color: '#93c5fd', fontWeight: 900, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>Explanation</div>
-          <div style={{ color: '#94a3b8', fontSize: 12 }}>{sceneIndex + 1} / {scenes.length}</div>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 12 }}>{sceneIndex + 1} / {scenes.length}</div>
         </div>
-        <div style={{ color: 'white', fontWeight: 900 }}>{current.title}</div>
+        <div style={{ color: 'var(--ll-text)', fontWeight: 900 }}>{current.title}</div>
         {current.beforeText && (
-          <div style={{ color: '#cbd5e1', fontSize: 13, whiteSpace: 'pre-wrap' }}>{current.beforeText}</div>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 13, whiteSpace: 'pre-wrap' }}>{current.beforeText}</div>
         )}
         {(current.narration || current.afterText) && (
-          <div style={{ color: '#e2e8f0', fontSize: 13, lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>{current.narration ?? current.afterText}</div>
+          <div style={{ color: 'var(--ll-text)', fontSize: 13, lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>{current.narration ?? current.afterText}</div>
         )}
         {current.afterText && current.afterText !== current.narration && (
           <div style={{ color: '#34d399', fontWeight: 800, fontSize: 13, whiteSpace: 'pre-wrap' }}>{current.afterText}</div>
@@ -481,23 +481,23 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
       const rows = Array.from({ length: desiredRows }, (_, idx) => parsePointListDraft(value)[idx] ?? { x: '', y: '' });
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ color: '#94a3b8', fontSize: 12 }}>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 12 }}>
             Enter {interaction.minPoints ?? (interaction.type === 'point_list' ? interaction.points.length : 1)} point{(interaction.minPoints ?? (interaction.type === 'point_list' ? interaction.points.length : 1)) === 1 ? '' : 's'} as coordinate pairs.
           </div>
-          <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #1f2a44' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 280, background: 'rgba(15,23,42,0.45)' }}>
+          <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid var(--ll-border)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 280, background: 'var(--ll-surface-1)' }}>
               <thead>
                 <tr>
-                  <th style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44', color: '#cbd5e1', textAlign: 'left' }}>#</th>
-                  <th style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44', color: '#cbd5e1', textAlign: 'left' }}>x</th>
-                  <th style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44', color: '#cbd5e1', textAlign: 'left' }}>y</th>
+                  <th style={{ padding: '8px 10px', borderBottom: '1px solid var(--ll-border)', color: 'var(--ll-text-soft)', textAlign: 'left' }}>#</th>
+                  <th style={{ padding: '8px 10px', borderBottom: '1px solid var(--ll-border)', color: 'var(--ll-text-soft)', textAlign: 'left' }}>x</th>
+                  <th style={{ padding: '8px 10px', borderBottom: '1px solid var(--ll-border)', color: 'var(--ll-text-soft)', textAlign: 'left' }}>y</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row, idx) => (
                   <tr key={idx}>
-                    <td style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44', color: '#94a3b8' }}>{idx + 1}</td>
-                    <td style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44' }}>
+                    <td style={{ padding: '8px 10px', borderBottom: '1px solid var(--ll-border)', color: 'var(--ll-text-soft)' }}>{idx + 1}</td>
+                    <td style={{ padding: '8px 10px', borderBottom: '1px solid var(--ll-border)' }}>
                       <input
                         value={row.x}
                         disabled={disabled}
@@ -507,10 +507,10 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                           setValue(serializePointListDraft(next));
                         }}
                         placeholder="x"
-                        style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.55)', color: 'white', outline: 'none' }}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--ll-border)', background: 'var(--ll-surface-2)', color: 'var(--ll-text)', outline: 'none' }}
                       />
                     </td>
-                    <td style={{ padding: '8px 10px', borderBottom: '1px solid #1f2a44' }}>
+                    <td style={{ padding: '8px 10px', borderBottom: '1px solid var(--ll-border)' }}>
                       <input
                         value={row.y}
                         disabled={disabled}
@@ -520,7 +520,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                           setValue(serializePointListDraft(next));
                         }}
                         placeholder="y"
-                        style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #1f2a44', background: 'rgba(2,6,23,0.55)', color: 'white', outline: 'none' }}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--ll-border)', background: 'var(--ll-surface-2)', color: 'var(--ll-text)', outline: 'none' }}
                       />
                     </td>
                   </tr>
@@ -546,7 +546,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {interaction.type === 'line_equation' && (
-          <div style={{ color: '#94a3b8', fontSize: 12 }}>
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 12 }}>
             Equivalent equation forms are accepted when provided by the imported answer key.
           </div>
         )}
@@ -559,9 +559,9 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
             width: '100%',
             padding: '12px 12px',
             borderRadius: 12,
-            border: '1px solid #1f2a44',
-            background: 'rgba(15,23,42,0.6)',
-            color: 'white',
+            border: '1px solid var(--ll-border)',
+            background: 'var(--ll-surface-2)',
+            color: 'var(--ll-text)',
             outline: 'none',
             fontSize: 14,
             fontWeight: 900,
@@ -612,16 +612,16 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
             <div
               key={step.id}
               style={{
-                border: '1px solid #1f2a44',
+                border: '1px solid var(--ll-border)',
                 borderRadius: 12,
                 padding: 10,
-                background: 'rgba(15,23,42,0.45)',
+                background: 'var(--ll-surface-1)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
               }}
             >
-              <div style={{ color: 'white', fontWeight: 900, fontSize: 13 }}>{step.title || `Step ${idx + 1}`}</div>
+              <div style={{ color: 'var(--ll-text)', fontWeight: 900, fontSize: 13 }}>{step.title || `Step ${idx + 1}`}</div>
               {renderBlocks(step.prompt, null)}
               <input
                 value={value}
@@ -632,15 +632,15 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                   width: '100%',
                   padding: '10px 10px',
                   borderRadius: 10,
-                  border: '1px solid #1f2a44',
-                  background: 'rgba(2,6,23,0.5)',
-                  color: 'white',
+                  border: '1px solid var(--ll-border)',
+                  background: 'var(--ll-surface-2)',
+                  color: 'var(--ll-text)',
                   outline: 'none',
                   fontSize: 13,
                 }}
               />
               {step.explanation && (
-                <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.35 }}>{step.explanation}</div>
+                <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, lineHeight: 1.35 }}>{step.explanation}</div>
               )}
             </div>
           );

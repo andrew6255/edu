@@ -74,6 +74,7 @@ import {
   savePublishedProgramAdmin,
   softDeletePublishedProgramAdmin,
 } from '@/lib/programAdminService';
+import { parseAIProgramImport } from '@/lib/aiProgramImport';
 
 type Tab = 'overview' | 'users' | 'programs' | 'logicGames';
 
@@ -1439,6 +1440,9 @@ function ProgramsAdmin() {
   const [digitalizeStatus, setDigitalizeStatus] = useState('');
   const [digitalizeError, setDigitalizeError] = useState('');
   const [digitalizePastedText, setDigitalizePastedText] = useState('');
+  const [aiImportJson, setAiImportJson] = useState('');
+  const [aiImportStatus, setAiImportStatus] = useState('');
+  const [aiImportError, setAiImportError] = useState('');
 
   const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -2131,6 +2135,20 @@ function ProgramsAdmin() {
     }
   }
 
+  function handleImportAiJson() {
+    setAiImportError('');
+    setAiImportStatus('');
+    try {
+      const imported = parseAIProgramImport(aiImportJson);
+      setBuilder(imported);
+      setBuilderPathIds(['root']);
+      setBuilderSelectedQuestionTypeId(null);
+      setAiImportStatus('✅ AI JSON imported into the builder. Preview and save/publish when ready.');
+    } catch (error) {
+      setAiImportError(formatBuilderError(error));
+    }
+  }
+
   async function saveBuilderDraft() {
     const { id: programId, title } = computeProgramIdAndTitle();
     if (!programId) {
@@ -2433,6 +2451,57 @@ function ProgramsAdmin() {
             >
               {saving ? 'Publishing...' : 'Publish'}
             </button>
+          </div>
+
+          <div style={{ border: '1px solid #334155', borderRadius: 12, background: '#0f172a', padding: 12, marginBottom: 12 }}>
+            <label style={{ color: '#94a3b8', fontSize: 12, display: 'block', marginBottom: 8, fontWeight: 900 }}>🤖 Paste AI JSON Import</label>
+            <div style={{ color: '#64748b', fontSize: 11, marginBottom: 8 }}>
+              Paste output from your external AI using the fixed `ai_program_import_v1` template. This replaces the current builder content with validated chapters, question types, and questions.
+            </div>
+            <textarea
+              value={aiImportJson}
+              onChange={(e) => setAiImportJson(e.target.value)}
+              placeholder="Paste AI JSON here..."
+              style={{
+                width: '100%',
+                minHeight: 180,
+                resize: 'vertical',
+                padding: '10px 12px',
+                borderRadius: 10,
+                border: '1px solid #334155',
+                background: '#0b1220',
+                color: 'white',
+                outline: 'none',
+                boxSizing: 'border-box',
+                marginBottom: 8,
+                fontFamily: 'monospace',
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                onClick={handleImportAiJson}
+                className="ll-btn ll-btn-primary"
+                disabled={aiImportJson.trim().length === 0}
+                style={{ padding: '7px 14px', fontSize: 12, background: '#2563eb', borderColor: '#1d4ed8', color: 'white' }}
+              >
+                Import AI JSON
+              </button>
+              <button
+                onClick={() => {
+                  setAiImportJson('');
+                  setAiImportStatus('');
+                  setAiImportError('');
+                }}
+                className="ll-btn"
+                style={{ padding: '7px 14px', fontSize: 12 }}
+              >
+                Clear
+              </button>
+            </div>
+            {aiImportStatus && <div style={{ color: '#93c5fd', fontSize: 11, marginTop: 8 }}>{aiImportStatus}</div>}
+            {aiImportError && <div style={{ color: '#fca5a5', fontSize: 11, marginTop: 8, whiteSpace: 'pre-wrap' }}>{aiImportError}</div>}
           </div>
 
           {/* ── AI DIGITALIZE SECTION ── */}

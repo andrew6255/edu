@@ -59,6 +59,16 @@
   --ll-red: #ef4444;
   --ll-grey: #475569;
   --ll-glow: rgba(59, 130, 246, 0.5);
+  --ll-surface-0: var(--ll-bg-dark);
+  --ll-surface-1: var(--ll-bg-card);
+  --ll-surface-2: color-mix(in srgb, var(--ll-bg-card) 78%, black 22%);
+  --ll-surface-3: color-mix(in srgb, var(--ll-bg-dark) 84%, white 16%);
+  --ll-border: color-mix(in srgb, var(--ll-grey) 72%, white 28%);
+  --ll-border-strong: color-mix(in srgb, var(--ll-accent) 38%, var(--ll-grey) 62%);
+  --ll-text: hsl(var(--foreground));
+  --ll-text-muted: hsl(var(--muted-foreground));
+  --ll-text-soft: color-mix(in srgb, hsl(var(--muted-foreground)) 78%, white 22%);
+  --ll-overlay: color-mix(in srgb, var(--ll-bg-dark) 72%, transparent 28%);
 }
 
 @layer base {
@@ -66,7 +76,7 @@
   body {
     @apply font-sans antialiased;
     background-color: var(--ll-bg-dark);
-    color: #f8fafc;
+    color: var(--ll-text);
     margin: 0;
     padding: 0;
     overflow: hidden;
@@ -116,11 +126,11 @@
 .ll-btn {
   background: transparent;
   border: 2px solid var(--ll-grey);
-  color: #f8fafc;
+  color: var(--ll-text);
   padding: 10px 20px;
-  font-size: 14px;
-  border-radius: 8px;
-  cursor: pointer;
+  border-radius: 12px;
+  font-weight: 900;
+  transition: all 0.2s;
   font-weight: bold;
   transition: all 0.2s;
   text-transform: uppercase;
@@ -128,7 +138,7 @@
   font-family: inherit;
 }
 .ll-btn:hover {
-  background: rgba(255,255,255,0.1);
+  background: color-mix(in srgb, var(--ll-accent) 12%, transparent);
   border-color: var(--ll-accent);
   transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(0,0,0,0.3);
@@ -136,10 +146,10 @@
 .ll-btn-primary {
   background: var(--ll-accent);
   border-color: var(--ll-accent);
-  color: white;
+  color: hsl(var(--primary-foreground));
 }
 .ll-btn-primary:hover {
-  background: #2563eb;
+  background: color-mix(in srgb, var(--ll-accent) 88%, black 12%);
   box-shadow: 0 0 20px var(--ll-glow);
   transform: translateY(-2px);
 }

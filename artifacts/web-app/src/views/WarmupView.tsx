@@ -182,17 +182,17 @@ export default function WarmupView() {
   if (phase === 'solo_result' && selectedGame) {
     const best = effectiveGameId ? (highScores[effectiveGameId] ?? 0) : 0;
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 24 }}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 24, background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}>
         <div style={{ fontSize: 56 }}>{isNewBest ? '🏆' : selectedGame.icon}</div>
         <div style={{ textAlign: 'center' }}>
           {isNewBest && <div style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: 13, marginBottom: 4, letterSpacing: 1 }}>NEW BEST!</div>}
-          <div style={{ fontSize: 48, fontWeight: 'bold', color: 'white' }}>{soloScore}</div>
-          <div style={{ color: '#64748b', fontSize: 14 }}>{selectedGame.label}</div>
+          <div style={{ fontSize: 48, fontWeight: 'bold', color: 'var(--ll-text)' }}>{soloScore}</div>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 14 }}>{selectedGame.label}</div>
         </div>
 
         {/* Top 5 leaderboard */}
-        <div style={{ background: '#1e293b', borderRadius: 16, padding: '16px 20px', width: '100%', maxWidth: 340, border: '1px solid #334155' }}>
-          <div style={{ color: '#64748b', fontSize: 12, fontWeight: 'bold', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
+        <div style={{ background: 'var(--ll-surface-1)', borderRadius: 16, padding: '16px 20px', width: '100%', maxWidth: 340, border: '1px solid var(--ll-border)' }}>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 12, fontWeight: 'bold', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
             🏆 Top 5 — {selectedGame.label}
           </div>
           {leaderboard.length === 0 ? (
@@ -203,23 +203,23 @@ export default function WarmupView() {
               return (
                 <div key={entry.uid} style={{
                   display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0',
-                  borderBottom: i < leaderboard.length - 1 ? '1px solid #334155' : 'none',
+                  borderBottom: i < leaderboard.length - 1 ? '1px solid var(--ll-border)' : 'none',
                   background: isMe ? 'rgba(59,130,246,0.08)' : 'transparent',
                   borderRadius: isMe ? 8 : 0, paddingLeft: isMe ? 8 : 0
                 }}>
                   <div style={{
                     width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 'bold',
-                    background: i === 0 ? 'rgba(251,191,36,0.2)' : i === 1 ? 'rgba(148,163,184,0.2)' : i === 2 ? 'rgba(180,83,9,0.2)' : '#1e293b',
-                    color: i === 0 ? '#fbbf24' : i === 1 ? '#94a3b8' : i === 2 ? '#b45309' : '#64748b',
-                    border: `1px solid ${i === 0 ? '#fbbf24' : i === 1 ? '#94a3b8' : i === 2 ? '#b45309' : '#334155'}`
+                    background: i === 0 ? 'rgba(251,191,36,0.2)' : i === 1 ? 'rgba(148,163,184,0.2)' : i === 2 ? 'rgba(180,83,9,0.2)' : 'var(--ll-surface-2)',
+                    color: i === 0 ? '#fbbf24' : i === 1 ? '#94a3b8' : i === 2 ? '#b45309' : 'var(--ll-text-muted)',
+                    border: `1px solid ${i === 0 ? '#fbbf24' : i === 1 ? '#94a3b8' : i === 2 ? '#b45309' : 'var(--ll-border)'}`
                   }}>
                     {i + 1}
                   </div>
-                  <div style={{ flex: 1, fontSize: 13, color: isMe ? 'white' : '#94a3b8', fontWeight: isMe ? 'bold' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ flex: 1, fontSize: 13, color: isMe ? 'var(--ll-text)' : 'var(--ll-text-soft)', fontWeight: isMe ? 'bold' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {entry.username} {isMe && '(you)'}
                   </div>
-                  <div style={{ fontWeight: 'bold', color: isMe ? '#fbbf24' : '#64748b', fontSize: 14, flexShrink: 0 }}>
+                  <div style={{ fontWeight: 'bold', color: isMe ? '#fbbf24' : 'var(--ll-text-muted)', fontSize: 14, flexShrink: 0 }}>
                     {entry.score}
                   </div>
                 </div>
@@ -294,12 +294,12 @@ export default function WarmupView() {
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <div style={{
-          padding: '10px 16px', background: 'rgba(0,0,0,0.5)',
-          borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0
+          padding: '10px 16px', background: 'var(--ll-overlay)',
+          borderBottom: '1px solid var(--ll-border)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0
         }}>
           <button onClick={backToHub} className="ll-btn" style={{ padding: '7px 14px', fontSize: 12 }}>Leave Game</button>
-          <span style={{ fontWeight: 'bold', fontSize: 14, color: 'white' }}>{selectedGame.icon} {selectedGame.label}</span>
-          <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: 11, background: '#1e293b', padding: '3px 8px', borderRadius: 6, border: '1px solid #334155' }}>
+          <span style={{ fontWeight: 'bold', fontSize: 14, color: 'var(--ll-text)' }}>{selectedGame.icon} {selectedGame.label}</span>
+          <span style={{ marginLeft: 'auto', color: 'var(--ll-text-muted)', fontSize: 11, background: 'var(--ll-surface-1)', padding: '3px 8px', borderRadius: 6, border: '1px solid var(--ll-border)' }}>
             🎯 Solo Practice
           </span>
           {(highScores[effectiveGameId] ?? 0) > 0 && (
@@ -315,10 +315,10 @@ export default function WarmupView() {
 
   // ── Hub ──────────────────────────────────────────────────────────────────
   return (
-    <div style={{ height: '100%', overflowY: 'auto', padding: '16px 16px 28px' }}>
+    <div style={{ height: '100%', overflowY: 'auto', padding: '16px 16px 28px', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}>
       <div style={{ marginBottom: 14 }}>
-        <h2 style={{ color: 'white', margin: '0 0 3px', fontSize: 20 }}>⚡ Warmup Games</h2>
-        <p style={{ color: '#64748b', margin: 0, fontSize: 12 }}>{GAMES.length} games · Solo, Ranked, or Play a Friend</p>
+        <h2 style={{ color: 'var(--ll-text)', margin: '0 0 3px', fontSize: 20 }}>⚡ Warmup Games</h2>
+        <p style={{ color: 'var(--ll-text-muted)', margin: 0, fontSize: 12 }}>{GAMES.length} games · Solo, Ranked, or Play a Friend</p>
       </div>
 
       {/* Ongoing session banner */}
@@ -351,9 +351,9 @@ export default function WarmupView() {
             onClick={() => setCategory(cat.id)}
             style={{
               padding: '5px 12px', borderRadius: 20, fontSize: 12, fontFamily: 'inherit',
-              border: `2px solid ${category === cat.id ? '#3b82f6' : '#334155'}`,
+              border: `2px solid ${category === cat.id ? 'var(--ll-accent)' : 'var(--ll-border)'}`,
               background: category === cat.id ? 'rgba(59,130,246,0.15)' : 'transparent',
-              color: category === cat.id ? '#93c5fd' : '#64748b',
+              color: category === cat.id ? '#93c5fd' : 'var(--ll-text-muted)',
               cursor: 'pointer', fontWeight: 'bold', transition: '0.2s'
             }}
           >
@@ -372,8 +372,8 @@ export default function WarmupView() {
               key={game.id}
               onClick={() => selectGame(game)}
               style={{
-                background: '#1e293b', borderRadius: 14, padding: '15px 12px 12px',
-                border: '1px solid #334155', cursor: 'pointer', textAlign: 'center',
+                background: 'var(--ll-surface-1)', borderRadius: 14, padding: '15px 12px 12px',
+                border: '1px solid var(--ll-border)', cursor: 'pointer', textAlign: 'center',
                 transition: 'all 0.2s', position: 'relative', overflow: 'hidden'
               }}
               onMouseEnter={e => {
@@ -385,20 +385,20 @@ export default function WarmupView() {
               onMouseLeave={e => {
                 const el = e.currentTarget as HTMLDivElement;
                 el.style.transform = '';
-                el.style.borderColor = '#334155';
+                el.style.borderColor = 'var(--ll-border)';
                 el.style.boxShadow = '';
               }}
             >
               <div style={{
                 position: 'absolute', top: 7, right: 7,
-                background: 'rgba(30,41,59,0.8)', borderRadius: 4, padding: '2px 6px',
-                fontSize: 9, color: '#475569', fontWeight: 'bold', textTransform: 'capitalize'
+                background: 'var(--ll-surface-2)', borderRadius: 4, padding: '2px 6px',
+                fontSize: 9, color: 'var(--ll-text-muted)', fontWeight: 'bold', textTransform: 'capitalize'
               }}>
                 {game.category}
               </div>
               <div style={{ fontSize: 32, marginBottom: 7, marginTop: 4 }}>{game.icon}</div>
-              <div style={{ fontSize: 12, fontWeight: 'bold', color: 'white', marginBottom: 4, lineHeight: 1.3 }}>{game.label}</div>
-              <div style={{ fontSize: 10, color: '#64748b', lineHeight: 1.4, marginBottom: best > 0 ? 7 : 0 }}>{game.description}</div>
+              <div style={{ fontSize: 12, fontWeight: 'bold', color: 'var(--ll-text)', marginBottom: 4, lineHeight: 1.3 }}>{game.label}</div>
+              <div style={{ fontSize: 10, color: 'var(--ll-text-muted)', lineHeight: 1.4, marginBottom: best > 0 ? 7 : 0 }}>{game.description}</div>
               {best > 0 && (
                 <div style={{ fontSize: 11, color: '#fbbf24', fontWeight: 'bold' }}>🏆 {best}</div>
               )}

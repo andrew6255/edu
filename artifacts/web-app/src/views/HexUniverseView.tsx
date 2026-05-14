@@ -145,7 +145,8 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
   return (
     <div style={{
       height: '100%', overflow: 'auto',
-      background: 'radial-gradient(ellipse at center, #1e293b 0%, #020617 100%)',
+      background: 'radial-gradient(ellipse at center, var(--ll-surface-1) 0%, var(--ll-surface-0) 100%)',
+      color: 'var(--ll-text)',
       display: 'flex', flexDirection: 'column', alignItems: 'center',
       position: 'relative', padding: '40px 20px'
     }}>
@@ -166,11 +167,11 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
           </button>
         </div>
         {isNoSystem ? (
-          <p style={{ color: '#64748b', fontSize: 15, margin: 0, maxWidth: 400 }}>
+          <p style={{ color: 'var(--ll-text-muted)', fontSize: 15, margin: 0, maxWidth: 400 }}>
             You haven't assigned an education system yet. Set up your curriculum from the Profile tab to unlock portals!
           </p>
         ) : (
-          <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
+          <p style={{ color: 'var(--ll-text-muted)', fontSize: 14, margin: 0 }}>
             Enter a portal to continue your mastery
           </p>
         )}
@@ -221,16 +222,16 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
                 <div style={{ fontSize: 48, marginBottom: 12, color: subj.color, textShadow: `0 0 20px ${subj.color}88` }}>
                   {subj.icon}
                 </div>
-                <div style={{ fontWeight: 'bold', fontSize: 20, color: 'white', marginBottom: 6 }}>
+                <div style={{ fontWeight: 'bold', fontSize: 20, color: 'var(--ll-text)', marginBottom: 6 }}>
                   {subj.label}
                 </div>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: hasContent ? 16 : 0 }}>
+                <div style={{ fontSize: 13, color: 'var(--ll-text-soft)', marginBottom: hasContent ? 16 : 0 }}>
                   {subj.desc}
                 </div>
 
                 {hasContent && loaded && (
                   <div style={{ width: '100%', marginTop: 'auto' }}>
-                    <div style={{ height: 4, background: '#0f172a', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
+                    <div style={{ height: 4, background: 'var(--ll-surface-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
                       <div style={{
                         width: `${pct}%`, height: '100%',
                         background: isDone ? '#fbbf24' : subj.color, transition: '0.5s'
@@ -296,14 +297,14 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
               <div style={{ fontSize: 48, marginBottom: 12, color: '#60a5fa', textShadow: '0 0 20px rgba(96,165,250,0.55)' }}>
                 {p.coverEmoji || '📘'}
               </div>
-              <div style={{ fontWeight: 'bold', fontSize: 20, color: 'white', marginBottom: 6 }}>
+              <div style={{ fontWeight: 'bold', fontSize: 20, color: 'var(--ll-text)', marginBottom: 6 }}>
                 {p.title}
               </div>
-              <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: 'var(--ll-text-soft)', marginBottom: 16 }}>
                 Program Map
               </div>
               <div style={{ width: '100%', marginTop: 'auto' }}>
-                <div style={{ height: 4, background: '#0f172a', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
+                <div style={{ height: 4, background: 'var(--ll-surface-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
                   <div style={{ width: `${programPctById[p.id] ?? 0}%`, height: '100%', background: (programPctById[p.id] ?? 0) >= 100 ? '#fbbf24' : '#60a5fa', transition: '0.5s' }} />
                 </div>
                 <div style={{ fontSize: 12, color: (programPctById[p.id] ?? 0) >= 100 ? '#fbbf24' : '#60a5fa', fontWeight: 'bold' }}>
@@ -324,7 +325,7 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
             {/* Class filter */}
             <select value={classFilter} onChange={e => setClassFilter(e.target.value)} style={{
               padding: '6px 12px', borderRadius: 8, fontSize: 12, fontFamily: 'inherit',
-              background: '#1e293b', border: '1px solid #475569', color: 'white', cursor: 'pointer', outline: 'none',
+              background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)', color: 'var(--ll-text)', cursor: 'pointer', outline: 'none',
             }}>
               <option value="all">All Classes</option>
               {[...new Set(classContent.map(c => c.class_name))].map(cn => (
@@ -338,8 +339,8 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
                 <button key={t} onClick={() => setTypeFilter(t)} style={{
                   padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit',
                   background: typeFilter === t ? 'rgba(139,92,246,0.2)' : 'transparent',
-                  border: `1px solid ${typeFilter === t ? 'rgba(139,92,246,0.5)' : '#33415555'}`,
-                  color: typeFilter === t ? '#c4b5fd' : '#64748b', cursor: 'pointer',
+                  border: `1px solid ${typeFilter === t ? 'rgba(139,92,246,0.5)' : 'var(--ll-border)'}`,
+                  color: typeFilter === t ? '#c4b5fd' : 'var(--ll-text-muted)', cursor: 'pointer',
                 }}>{label}</button>
               );
             })}
@@ -367,8 +368,8 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
                       <span style={{ fontSize: 22 }}>{item.cover_emoji || typeIcon}</span>
                       <span style={{ fontSize: 9, fontWeight: 'bold', padding: '2px 7px', borderRadius: 4, background: `${typeColor}22`, border: `1px solid ${typeColor}55`, color: typeColor }}>{typeLabel}</span>
                     </div>
-                    <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>{item.title}</div>
-                    <div style={{ color: '#64748b', fontSize: 11 }}>
+                    <div style={{ color: 'var(--ll-text)', fontWeight: 'bold', fontSize: 14 }}>{item.title}</div>
+                    <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>
                       {item.class_name}{item.subject ? ` · ${item.subject}` : ''}
                     </div>
                   </div>
@@ -378,12 +379,12 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
           {classContent
             .filter(c => classFilter === 'all' || c.class_name === classFilter)
             .filter(c => typeFilter === 'all' || c.content_type === typeFilter).length === 0 && (
-            <div style={{ textAlign: 'center', color: '#64748b', marginTop: 20, fontSize: 13 }}>No content matches the selected filters.</div>
+            <div style={{ textAlign: 'center', color: 'var(--ll-text-muted)', marginTop: 20, fontSize: 13 }}>No content matches the selected filters.</div>
           )}
         </div>
       )}
       {loadingClassContent && classContent.length === 0 && (
-        <div style={{ color: '#64748b', fontSize: 13, zIndex: 2, marginBottom: 30 }}>Loading class content...</div>
+        <div style={{ color: 'var(--ll-text-muted)', fontSize: 13, zIndex: 2, marginBottom: 30 }}>Loading class content...</div>
       )}
 
       {/* Decorative orbs */}

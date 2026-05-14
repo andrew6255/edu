@@ -160,10 +160,10 @@ export default function ProfileView() {
   const initial = (userData.username?.[0] || userData.firstName?.[0] || '?').toUpperCase();
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', background: '#0f172a' }}>
+    <div style={{ height: '100%', overflowY: 'auto', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}>
       {/* ── Hero ── */}
       <div style={{
-        background: `linear-gradient(160deg, ${lvColor}22 0%, #0f172a 60%)`,
+        background: `linear-gradient(160deg, ${lvColor}22 0%, var(--ll-surface-0) 60%)`,
         padding: '28px 20px 20px',
         borderBottom: `1px solid ${lvColor}44`,
         animation: 'fadeIn 0.4s ease'
@@ -181,7 +181,7 @@ export default function ProfileView() {
           }}>
             {initial}
           </div>
-          <div style={{ fontSize: 22, fontWeight: 'bold', color: 'white' }}>{userData.username}</div>
+          <div style={{ fontSize: 22, fontWeight: 'bold', color: 'var(--ll-text)' }}>{userData.username}</div>
           {inv?.equipped?.title && (
             <div style={{
               marginTop: 6,
@@ -197,7 +197,7 @@ export default function ProfileView() {
             </div>
           )}
           {(userData.firstName || userData.lastName) && (
-            <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 2 }}>
+            <div style={{ color: 'var(--ll-text-soft)', fontSize: 13, marginTop: 2 }}>
               {userData.firstName} {userData.lastName}
             </div>
           )}
@@ -219,26 +219,26 @@ export default function ProfileView() {
             { label: 'Mastered',value: mastered,                color: '#a78bfa', icon: '🎯' },
           ].map(s => (
             <div key={s.label} style={{
-              background: 'rgba(30,41,59,0.8)', borderRadius: 10, padding: '10px 6px',
+              background: 'var(--ll-surface-1)', borderRadius: 10, padding: '10px 6px',
               textAlign: 'center', border: `1px solid ${s.color}33`
             }}>
               <div style={{ fontSize: 16 }}>{s.icon}</div>
               <div style={{ fontSize: 16, fontWeight: 'bold', color: s.color, marginTop: 2 }}>{s.value}</div>
-              <div style={{ color: '#64748b', fontSize: 10, marginTop: 1 }}>{s.label}</div>
+              <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, marginTop: 1 }}>{s.label}</div>
             </div>
           ))}
         </div>
 
         {/* XP Progress bar */}
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#94a3b8', marginBottom: 5 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ll-text-soft)', marginBottom: 5 }}>
             <span>{prog.current.toLocaleString()} XP into level</span>
             {prog.needed > 0
               ? <span>{prog.needed.toLocaleString()} XP to Level {level + 1}</span>
               : <span style={{ color: '#a855f7' }}>MAX LEVEL</span>
             }
           </div>
-          <div style={{ height: 10, background: '#1e293b', borderRadius: 5, overflow: 'hidden', border: `1px solid ${lvColor}44` }}>
+          <div style={{ height: 10, background: 'var(--ll-surface-1)', borderRadius: 5, overflow: 'hidden', border: `1px solid ${lvColor}44` }}>
             <div style={{
               width: `${prog.pct}%`, height: '100%', borderRadius: 5, transition: 'width 0.8s ease',
               background: `linear-gradient(90deg, ${lvColor}, ${lvColor}cc)`
@@ -250,8 +250,8 @@ export default function ProfileView() {
       <div style={{ padding: '16px 16px 32px' }}>
 
         {/* ── Level Path ── */}
-        <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid #334155' }}>
-          <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, fontWeight: 'bold' }}>
+        <div style={{ background: 'var(--ll-surface-1)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid var(--ll-border)' }}>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, fontWeight: 'bold' }}>
             Level Path
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 0, overflowX: 'auto', paddingBottom: 4 }}>
@@ -264,7 +264,7 @@ export default function ProfileView() {
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                     <div style={{
                       width: isCurrent ? 32 : 24, height: isCurrent ? 32 : 24, borderRadius: '50%',
-                      background: isReached ? lv.color : '#334155',
+                      background: isReached ? lv.color : 'var(--ll-border)',
                       border: isCurrent ? `3px solid white` : `2px solid ${isReached ? lv.color : '#475569'}`,
                       boxShadow: isCurrent ? `0 0 12px ${lv.color}99` : 'none',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -274,14 +274,14 @@ export default function ProfileView() {
                     }}>
                       {lvNum}
                     </div>
-                    <div style={{ fontSize: 8, color: isCurrent ? lv.color : isReached ? '#94a3b8' : '#475569', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                    <div style={{ fontSize: 8, color: isCurrent ? lv.color : isReached ? 'var(--ll-text-soft)' : 'var(--ll-text-muted)', whiteSpace: 'nowrap', textAlign: 'center' }}>
                       {lv.title}
                     </div>
                   </div>
                   {i < LEVELS.length - 1 && (
                     <div style={{
                       width: 22, height: 2, flexShrink: 0, marginBottom: 14,
-                      background: level > lvNum ? LEVELS[i].color : '#334155',
+                      background: level > lvNum ? LEVELS[i].color : 'var(--ll-border)',
                       transition: 'background 0.3s'
                     }} />
                   )}
@@ -295,8 +295,8 @@ export default function ProfileView() {
         <CurriculumEditor />
 
         {/* ── Badges ── */}
-        <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid #334155' }}>
-          <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, fontWeight: 'bold' }}>
+        <div style={{ background: 'var(--ll-surface-1)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid var(--ll-border)' }}>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, fontWeight: 'bold' }}>
             🎖️ Badges ({badges.length})
           </div>
           {badges.length === 0 ? (
@@ -317,21 +317,21 @@ export default function ProfileView() {
                     style={{ position: 'relative', cursor: 'pointer' }}
                   >
                     <div style={{
-                      background: isHovered ? 'rgba(59,130,246,0.2)' : 'rgba(30,41,59,0.8)',
-                      border: `1px solid ${isHovered ? 'rgba(59,130,246,0.6)' : '#334155'}`,
+                      background: isHovered ? 'rgba(59,130,246,0.2)' : 'var(--ll-surface-2)',
+                      border: `1px solid ${isHovered ? 'rgba(59,130,246,0.6)' : 'var(--ll-border)'}`,
                       borderRadius: 10, padding: '8px 12px',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
                       minWidth: 64, transition: 'all 0.15s'
                     }}>
                       <span style={{ fontSize: 24 }}>{meta.emoji}</span>
-                      <span style={{ fontSize: 9, color: isHovered ? '#93c5fd' : '#64748b', textAlign: 'center', lineHeight: 1.2 }}>
+                      <span style={{ fontSize: 9, color: isHovered ? '#93c5fd' : 'var(--ll-text-muted)', textAlign: 'center', lineHeight: 1.2 }}>
                         {meta.name}
                       </span>
                     </div>
                     {isHovered && meta.desc && (
                       <div style={{
                         position: 'absolute', bottom: '110%', left: '50%', transform: 'translateX(-50%)',
-                        background: '#0f172a', border: '1px solid #3b82f6', borderRadius: 8,
+                        background: 'var(--ll-surface-0)', border: '1px solid #3b82f6', borderRadius: 8,
                         padding: '6px 10px', fontSize: 11, color: '#93c5fd', whiteSpace: 'nowrap',
                         zIndex: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.5)', pointerEvents: 'none'
                       }}>
@@ -346,16 +346,16 @@ export default function ProfileView() {
         </div>
 
         {/* ── High Scores ── */}
-        <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', border: '1px solid #334155' }}>
+        <div style={{ background: 'var(--ll-surface-1)', borderRadius: 14, padding: '14px 16px', border: '1px solid var(--ll-border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold' }}>
+            <div style={{ color: 'var(--ll-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold' }}>
               🏆 Personal Best
             </div>
             <button
               onClick={() => setShowAllScores(v => !v)}
               style={{
                 fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-                background: 'transparent', border: '1px solid #334155', color: '#64748b',
+                background: 'transparent', border: '1px solid var(--ll-border)', color: 'var(--ll-text-muted)',
                 fontFamily: 'inherit'
               }}
             >
@@ -372,16 +372,16 @@ export default function ProfileView() {
               {shownScores.map(({ id, label, icon, score, played }) => (
                 <div key={id} style={{
                   display: 'flex', alignItems: 'center', gap: 8,
-                  background: '#0f172a', borderRadius: 9, padding: '8px 10px',
-                  border: played ? '1px solid #334155' : '1px solid #1e293b',
+                  background: 'var(--ll-surface-0)', borderRadius: 9, padding: '8px 10px',
+                  border: played ? '1px solid var(--ll-border)' : '1px solid var(--ll-surface-1)',
                   opacity: played ? 1 : 0.45
                 }}>
                   <span style={{ fontSize: 16, flexShrink: 0 }}>{icon}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 11, color: 'var(--ll-text-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {label}
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 'bold', color: played ? '#fbbf24' : '#334155' }}>
+                    <div style={{ fontSize: 14, fontWeight: 'bold', color: played ? '#fbbf24' : 'var(--ll-border)' }}>
                       {played ? (id === 'numGrid' ? `${score}s` : score.toLocaleString()) : '—'}
                     </div>
                   </div>

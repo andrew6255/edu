@@ -27,6 +27,29 @@ export interface ArenaStats {
   highestStreak: number;
 }
 
+export interface UserAppearanceSettings {
+  appTheme: 'modern-dark' | 'minimal-focus' | 'ocean-breeze' | 'royal-ember';
+}
+
+export interface UserNotificationSettings {
+  email: boolean;
+  inApp: boolean;
+  reminders: boolean;
+}
+
+export interface UserRolePreferenceSettings {
+  dailyGoal?: number;
+  defaultLandingTab?: string;
+  parentDigestFrequency?: 'daily' | 'weekly';
+  enableClassLeaderboard?: boolean;
+}
+
+export interface UserSettings {
+  appearance: UserAppearanceSettings;
+  notifications: UserNotificationSettings;
+  rolePreferences: UserRolePreferenceSettings;
+}
+
 export interface UserData {
   firstName: string;
   lastName: string;
@@ -58,6 +81,7 @@ export interface UserData {
   activeProgramIds?: string[];
   activeProgramId?: string | null;
   completedProgramIds?: string[];
+  settings?: UserSettings;
 }
 
 export interface AppNotification {
@@ -99,6 +123,17 @@ const DEFAULT_USER: Partial<UserData> = {
     fifteenPuzzle: 0, memoOrder: 0, pyramid: 0, memoCells: 0,
     chessMemory: 0, nameSquare_10s: 0, nameSquare_60s: 0, findSquare_10s: 0, findSquare_60s: 0
   },
+  settings: {
+    appearance: {
+      appTheme: 'modern-dark',
+    },
+    notifications: {
+      email: true,
+      inApp: true,
+      reminders: true,
+    },
+    rolePreferences: {},
+  },
   warmup_date: '',
   played_categories: [],
   last_active: new Date().toISOString().split('T')[0]
@@ -109,6 +144,11 @@ function mergeUserData(base: Partial<UserData> | null | undefined, patch: Partia
   const p = patch ?? {};
   const economyBase = (b.economy ?? DEFAULT_USER.economy ?? {}) as UserData['economy'];
   const economyPatch = (p.economy ?? {}) as Partial<UserData['economy']>;
+  const settingsBase = (b.settings ?? DEFAULT_USER.settings ?? {}) as UserSettings;
+  const settingsPatch = (p.settings ?? {}) as Partial<UserSettings>;
+  const appearanceBase = settingsBase.appearance ?? DEFAULT_USER.settings?.appearance ?? { appTheme: 'modern-dark' };
+  const notificationBase = settingsBase.notifications ?? DEFAULT_USER.settings?.notifications ?? { email: true, inApp: true, reminders: true };
+  const rolePreferencesBase = settingsBase.rolePreferences ?? {};
   return {
     ...(DEFAULT_USER as UserData),
     ...b,
@@ -116,6 +156,20 @@ function mergeUserData(base: Partial<UserData> | null | undefined, patch: Partia
     economy: {
       ...economyBase,
       ...economyPatch,
+    },
+    settings: {
+      appearance: {
+        ...appearanceBase,
+        ...(settingsPatch.appearance ?? {}),
+      },
+      notifications: {
+        ...notificationBase,
+        ...(settingsPatch.notifications ?? {}),
+      },
+      rolePreferences: {
+        ...rolePreferencesBase,
+        ...(settingsPatch.rolePreferences ?? {}),
+      },
     },
   } as UserData;
 }
