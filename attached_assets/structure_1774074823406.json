@@ -1,0 +1,332 @@
+{
+  "curriculum_title": "Cambridge IGCSE Year 9",
+  "sectors": [
+    {
+      "sector_title": "1. Number",
+      "chapters": [
+        {
+          "chapter_id": "cam_y9_c1",
+          "chapter_title": "1. Integers, Powers and Roots",
+          "chapter_desc": "Directed numbers, squares, cubes, and index laws.",
+          "is_locked": false,
+          "objectives": [
+            { "id": "1_1", "title": "Add & Subtract Integers", "desc": "Objective: Add & Subtract Integers", "is_boss": false },
+            { "id": "1_2", "title": "Multiply Integers", "desc": "Objective: Multiply Integers", "is_boss": false },
+            { "id": "1_3", "title": "Divide Integers", "desc": "Objective: Divide Integers", "is_boss": false },
+            { "id": "1_4", "title": "Exact Square Roots", "desc": "Objective: Exact Square Roots", "is_boss": false },
+            { "id": "1_5", "title": "Exact Cube Roots", "desc": "Objective: Exact Cube Roots", "is_boss": false },
+            { "id": "1_6", "title": "Estimating Roots", "desc": "Objective: Estimating Roots", "is_boss": false },
+            { "id": "1_7", "title": "Positive Indices", "desc": "Objective: Positive Indices", "is_boss": false },
+            { "id": "1_8", "title": "Zero Index Rule", "desc": "Objective: Zero Index Rule", "is_boss": false },
+            { "id": "1_9", "title": "Negative Indices", "desc": "Objective: Negative Indices", "is_boss": false },
+            { "id": "1_10", "title": "Index Multiplication", "desc": "Objective: Index Multiplication", "is_boss": false },
+            { "id": "1_11", "title": "Index Division", "desc": "Objective: Index Division", "is_boss": false },
+            { "id": "1_12", "title": "Power of a Power", "desc": "Objective: Power of a Power", "is_boss": false },
+            { "id": "1_boss", "title": "Integers & Powers Boss", "desc": "Objective: Integers & Powers Boss", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c3",
+          "chapter_title": "3. Place Value, Ordering & Rounding",
+          "chapter_desc": "Mental decimals, powers of 10, rounding, and BIDMAS.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "3_1", "title": "Mental Decimal Math", "desc": "Objective: Mental Decimal Math", "is_boss": false },
+            { "id": "3_2", "title": "Powers of 10", "desc": "Objective: Powers of 10", "is_boss": false },
+            { "id": "3_3", "title": "Rounding Decimals", "desc": "Objective: Rounding Decimals", "is_boss": false },
+            { "id": "3_4", "title": "Significant Figures", "desc": "Objective: Significant Figures", "is_boss": false },
+            { "id": "3_5", "title": "Estimating Calculations", "desc": "Objective: Estimating Calculations", "is_boss": false },
+            { "id": "3_6", "title": "Order of Operations", "desc": "Objective: Order of Operations", "is_boss": false },
+            { "id": "3_boss", "title": "Place Value & Rounding Boss", "desc": "Objective: Place Value & Rounding Boss", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c7",
+          "chapter_title": "7. Fractions",
+          "chapter_desc": "Simplifying, operations, and mental fraction work.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "7_1", "title": "Common Factors", "desc": "Objective: Identify common factors", "is_boss": false },
+            { "id": "7_2", "title": "Simplify Fully", "desc": "Objective: Simplify fractions fully", "is_boss": false },
+            { "id": "7_3", "title": "Equivalent Fractions", "desc": "Objective: Recognise equivalent fractions", "is_boss": false },
+            { "id": "7_4", "title": "Common Denominator", "desc": "Objective: Find common denominator", "is_boss": false },
+            { "id": "7_5", "title": "Add Same Denominator", "desc": "Objective: Add fractions with same denominator", "is_boss": false },
+            { "id": "7_6", "title": "Add Diff Denominators", "desc": "Objective: Add fractions with different denominators", "is_boss": false },
+            { "id": "7_7", "title": "Subtract Fractions", "desc": "Objective: Subtract fractions correctly", "is_boss": false },
+            { "id": "7_8", "title": "Multiply Fractions", "desc": "Objective: Multiply fractions", "is_boss": false },
+            { "id": "7_9", "title": "Divide Fractions", "desc": "Objective: Divide fractions using reciprocal", "is_boss": false },
+            { "id": "7_10", "title": "Simplify Results", "desc": "Objective: Simplify results after operations", "is_boss": false },
+            { "id": "7_11", "title": "Estimate Fractions", "desc": "Objective: Estimate fraction values", "is_boss": false },
+            { "id": "7_12", "title": "Compare Fractions", "desc": "Objective: Compare fraction sizes mentally", "is_boss": false },
+            { "id": "7_13", "title": "Fraction to Decimal Boss", "desc": "Objective: Convert between fraction and decimal", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c11",
+          "chapter_title": "11. Percentages",
+          "chapter_desc": "Conversions, calculations, and financial percentages.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "11_1", "title": "Fraction to Percent", "desc": "Objective: Convert fraction to percentage", "is_boss": false },
+            { "id": "11_2", "title": "Percent to Decimal", "desc": "Objective: Convert percentage to decimal", "is_boss": false },
+            { "id": "11_3", "title": "Percent of Quantity", "desc": "Objective: Calculate percentage of quantity", "is_boss": false },
+            { "id": "11_4", "title": "Percentage Increase", "desc": "Objective: Find percentage increase", "is_boss": false },
+            { "id": "11_5", "title": "Percentage Decrease", "desc": "Objective: Find percentage decrease", "is_boss": false },
+            { "id": "11_6", "title": "Compare Changes", "desc": "Objective: Compare percentage changes", "is_boss": false },
+            { "id": "11_7", "title": "Financial Percent Boss", "desc": "Objective: Apply percentage to real-life finance", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c14",
+          "chapter_title": "14. Ratio and Proportion",
+          "chapter_desc": "Simplifying ratios and solving direct proportion.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "14_1", "title": "Simplify Ratios", "desc": "Objective: Simplify ratios", "is_boss": false },
+            { "id": "14_2", "title": "Share in Ratio", "desc": "Objective: Share quantities in ratio", "is_boss": false },
+            { "id": "14_3", "title": "Direct Proportion", "desc": "Objective: Solve direct proportion problems", "is_boss": false },
+            { "id": "14_4", "title": "Proportion Boss", "desc": "Objective: Interpret proportional relationships", "is_boss": true }
+          ]
+        }
+      ]
+    },
+    {
+      "sector_title": "2. Algebra",
+      "chapters": [
+        {
+          "chapter_id": "cam_y9_c2",
+          "chapter_title": "2. Sequences and Functions",
+          "chapter_desc": "Arithmetic sequences, the nth term, and inverse functions.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "2_1", "title": "Linear vs Non-linear", "desc": "Objective: Linear vs Non-linear", "is_boss": false },
+            { "id": "2_2", "title": "Term-to-term Rules", "desc": "Objective: Term-to-term Rules", "is_boss": false },
+            { "id": "2_3", "title": "Position-to-term Rules", "desc": "Objective: Position-to-term Rules", "is_boss": false },
+            { "id": "2_4", "title": "Using the nth Term", "desc": "Objective: Using the nth Term", "is_boss": false },
+            { "id": "2_5", "title": "Finding the nth Term", "desc": "Objective: Finding the nth Term", "is_boss": false },
+            { "id": "2_6", "title": "Inverse Equations", "desc": "Objective: Inverse Equations", "is_boss": false },
+            { "id": "2_7", "title": "Inverse Mappings", "desc": "Objective: Inverse Mappings", "is_boss": false },
+            { "id": "2_boss", "title": "Sequences & Functions Boss", "desc": "Objective: Sequences & Functions Boss", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c9",
+          "chapter_title": "9. Expressions and Formulae",
+          "chapter_desc": "Algebraic simplification, substitution, and factorising.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "9_1", "title": "Combine Like Terms", "desc": "Objective: Combine like terms", "is_boss": false },
+            { "id": "9_2", "title": "Simplify Linear", "desc": "Objective: Simplify linear expressions", "is_boss": false },
+            { "id": "9_3", "title": "Simplify Brackets", "desc": "Objective: Simplify expressions with brackets", "is_boss": false },
+            { "id": "9_4", "title": "Words to Algebra", "desc": "Objective: Translate words into algebra", "is_boss": false },
+            { "id": "9_5", "title": "Context Expressions", "desc": "Objective: Form expressions from real contexts", "is_boss": false },
+            { "id": "9_6", "title": "Substitute Numbers", "desc": "Objective: Substitute numbers into expressions", "is_boss": false },
+            { "id": "9_7", "title": "Evaluate Expressions", "desc": "Objective: Evaluate expressions correctly", "is_boss": false },
+            { "id": "9_8", "title": "Rearrange Formulae", "desc": "Objective: Rearrange formulae", "is_boss": false },
+            { "id": "9_9", "title": "Subject of Formula", "desc": "Objective: Make subject of formula", "is_boss": false },
+            { "id": "9_10", "title": "Algebraic Modeling", "desc": "Objective: Use algebra to model situations", "is_boss": false },
+            { "id": "9_11", "title": "Common Factors", "desc": "Objective: Factorise with common factor", "is_boss": false },
+            { "id": "9_12", "title": "Factorise Quadratics", "desc": "Objective: Factorise simple quadratics", "is_boss": false },
+            { "id": "9_13", "title": "Simplify Alg. Fractions", "desc": "Objective: Simplify algebraic fractions", "is_boss": false },
+            { "id": "9_14", "title": "Add Alg. Fractions", "desc": "Objective: Add algebraic fractions with common denominator", "is_boss": false },
+            { "id": "9_15", "title": "Expand Linear Brackets", "desc": "Objective: Expand two linear brackets", "is_boss": false },
+            { "id": "9_16", "title": "Distributive Boss", "desc": "Objective: Expand expressions using distributive law", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c13",
+          "chapter_title": "13. Equations and Inequalities",
+          "chapter_desc": "Solving linear, simultaneous, and inequality equations.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "13_1", "title": "One-step Equations", "desc": "Objective: Solve one-step equations", "is_boss": false },
+            { "id": "13_2", "title": "Multi-step Equations", "desc": "Objective: Solve multi-step linear equations", "is_boss": false },
+            { "id": "13_3", "title": "Word Problem Equations", "desc": "Objective: Form equations from word problems", "is_boss": false },
+            { "id": "13_4", "title": "Graphical Simultaneous", "desc": "Objective: Solve simultaneous equations graphically", "is_boss": false },
+            { "id": "13_5", "title": "Algebraic Simultaneous", "desc": "Objective: Solve simultaneous equations algebraically", "is_boss": false },
+            { "id": "13_6", "title": "Linear Inequalities", "desc": "Objective: Solve linear inequalities", "is_boss": false },
+            { "id": "13_7", "title": "Inequality Lines Boss", "desc": "Objective: Represent inequalities on number line", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c18",
+          "chapter_title": "18. Graphs",
+          "chapter_desc": "Linear graphs, gradients, and practical interpretations.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "18_1", "title": "Gradient as Rate", "desc": "Objective: Understand gradient as rate of change", "is_boss": false },
+            { "id": "18_2", "title": "Plot Linear Graphs", "desc": "Objective: Plot linear graphs", "is_boss": false },
+            { "id": "18_3", "title": "Interpret y=mx+c", "desc": "Objective: Interpret y = mx + c", "is_boss": false },
+            { "id": "18_4", "title": "Draw from Equations", "desc": "Objective: Draw graphs from equations", "is_boss": false },
+            { "id": "18_5", "title": "Simultaneous Graphs", "desc": "Objective: Solve simultaneous equations graphically", "is_boss": false },
+            { "id": "18_6", "title": "Direct Proportion Graphs", "desc": "Objective: Identify direct proportion graphs", "is_boss": false },
+            { "id": "18_7", "title": "Practical Graphs Boss", "desc": "Objective: Interpret practical real-life graphs", "is_boss": true }
+          ]
+        }
+      ]
+    },
+    {
+      "sector_title": "3. Geometry & Measure",
+      "chapters": [
+        {
+          "chapter_id": "cam_y9_c4",
+          "chapter_title": "4. Length, Mass, Capacity and Time",
+          "chapter_desc": "Metric conversions, speed, distance, time, and compound measures.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "4_1", "title": "Measurement Problems", "desc": "Objective: Measurement Problems", "is_boss": false },
+            { "id": "4_2", "title": "Average Speed", "desc": "Objective: Average Speed", "is_boss": false },
+            { "id": "4_3", "title": "Distance and Time", "desc": "Objective: Distance and Time", "is_boss": false },
+            { "id": "4_4", "title": "Speed Conversions", "desc": "Objective: Speed Conversions", "is_boss": false },
+            { "id": "4_5", "title": "Compound Measures", "desc": "Objective: Compound Measures", "is_boss": false },
+            { "id": "4_boss", "title": "Measures & Speed Boss", "desc": "Objective: Measures & Speed Boss", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c5",
+          "chapter_title": "5. Shapes",
+          "chapter_desc": "Polygons, 3D structures, symmetry, and angles.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "5_1", "title": "Regular Polygons", "desc": "Objective: Regular Polygons", "is_boss": false },
+            { "id": "5_2", "title": "Polygon Angle Sums", "desc": "Objective: Polygon Angle Sums", "is_boss": false },
+            { "id": "5_3", "title": "Complex Angle Problems", "desc": "Objective: Complex Angle Problems", "is_boss": false },
+            { "id": "5_4", "title": "Isometric Dimensions", "desc": "Objective: Isometric Dimensions", "is_boss": false },
+            { "id": "5_5", "title": "Plans & Elevations", "desc": "Objective: Plans & Elevations", "is_boss": false },
+            { "id": "5_6", "title": "3D Symmetry", "desc": "Objective: 3D Symmetry", "is_boss": false },
+            { "id": "5_boss", "title": "Geometry & Shapes Boss", "desc": "Objective: Geometry & Shapes Boss", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c8",
+          "chapter_title": "8. Constructions and Pythagoras",
+          "chapter_desc": "Perpendiculars, inscribing circles, and Pythagoras theorem.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "8_1", "title": "Perpendicular Bisector", "desc": "Objective: Construct perpendicular bisector", "is_boss": false },
+            { "id": "8_2", "title": "Point to Line", "desc": "Objective: Construct perpendicular from point to line", "is_boss": false },
+            { "id": "8_3", "title": "Compass Accuracy", "desc": "Objective: Use compass accurately", "is_boss": false },
+            { "id": "8_4", "title": "Inscribed Triangles", "desc": "Objective: Construct triangles inside circles", "is_boss": false },
+            { "id": "8_5", "title": "Radius Properties", "desc": "Objective: Use radius properties for construction", "is_boss": false },
+            { "id": "8_6", "title": "Identify Right Triangles", "desc": "Objective: Identify right-angled triangle", "is_boss": false },
+            { "id": "8_7", "title": "Apply Pythagoras", "desc": "Objective: Apply a² + b² = c²", "is_boss": false },
+            { "id": "8_8", "title": "Calculate Missing Side", "desc": "Objective: Calculate missing side", "is_boss": false },
+            { "id": "8_9", "title": "Pythagoras Context Boss", "desc": "Objective: Interpret Pythagoras in context", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c12",
+          "chapter_title": "12. Transformations and Loci",
+          "chapter_desc": "Tessellations, reflections, rotations, and loci.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "12_1", "title": "Tessellating Shapes", "desc": "Objective: Identify tessellating shapes", "is_boss": false },
+            { "id": "12_2", "title": "Explain Tessellation", "desc": "Objective: Explain why shapes tessellate", "is_boss": false },
+            { "id": "12_3", "title": "Perform Reflection", "desc": "Objective: Perform reflection", "is_boss": false },
+            { "id": "12_4", "title": "Perform Rotation", "desc": "Objective: Perform rotation", "is_boss": false },
+            { "id": "12_5", "title": "Perform Translation", "desc": "Objective: Perform translation", "is_boss": false },
+            { "id": "12_6", "title": "Describe Transformation", "desc": "Objective: Describe transformation fully", "is_boss": false },
+            { "id": "12_7", "title": "Enlarge Scale Factor", "desc": "Objective: Enlarge shapes with scale factor", "is_boss": false },
+            { "id": "12_8", "title": "Fractional Scale", "desc": "Objective: Use fractional scale factors", "is_boss": false },
+            { "id": "12_9", "title": "Negative Scale", "desc": "Objective: Use negative scale factors", "is_boss": false },
+            { "id": "12_10", "title": "Draw Loci", "desc": "Objective: Draw loci given conditions", "is_boss": false },
+            { "id": "12_11", "title": "Interpret Loci Boss", "desc": "Objective: Interpret geometric locus problems", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c15",
+          "chapter_title": "15. Area, Perimeter and Volume",
+          "chapter_desc": "Calculating dimensions for 2D and 3D shapes.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "15_1", "title": "Convert Area Units", "desc": "Objective: Convert area units", "is_boss": false },
+            { "id": "15_2", "title": "Convert Volume Units", "desc": "Objective: Convert volume units", "is_boss": false },
+            { "id": "15_3", "title": "Area of Rectangles", "desc": "Objective: Calculate area of rectangles", "is_boss": false },
+            { "id": "15_4", "title": "Area of Triangles", "desc": "Objective: Calculate area of triangles", "is_boss": false },
+            { "id": "15_5", "title": "Area of Circles", "desc": "Objective: Calculate area of circles", "is_boss": false },
+            { "id": "15_6", "title": "Perimeter Problems", "desc": "Objective: Solve perimeter problems", "is_boss": false },
+            { "id": "15_7", "title": "Volume of Prisms", "desc": "Objective: Calculate volume of prisms", "is_boss": false },
+            { "id": "15_8", "title": "Volume Cylinders Boss", "desc": "Objective: Calculate volume of cylinders", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c17",
+          "chapter_title": "17. Bearings and Scale Drawings",
+          "chapter_desc": "Navigation, protractors, and scaling.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "17_1", "title": "Measure Bearings", "desc": "Objective: Measure bearings using protractor", "is_boss": false },
+            { "id": "17_2", "title": "Three-figure Bearings", "desc": "Objective: Interpret three-figure bearings", "is_boss": false },
+            { "id": "17_3", "title": "Scale Diagrams", "desc": "Objective: Draw scale diagrams", "is_boss": false },
+            { "id": "17_4", "title": "Navigation Boss", "desc": "Objective: Solve navigation problems using bearings", "is_boss": true }
+          ]
+        }
+      ]
+    },
+    {
+      "sector_title": "4. Statistics & Probability",
+      "chapters": [
+        {
+          "chapter_id": "cam_y9_c6",
+          "chapter_title": "6. Planning and Collecting Data",
+          "chapter_desc": "Data types, tallies, and survey methods.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "6_1", "title": "Qualitative vs Quantitative", "desc": "Objective: Distinguish qualitative vs quantitative data", "is_boss": false },
+            { "id": "6_2", "title": "Discrete vs Continuous", "desc": "Objective: Identify discrete vs continuous data", "is_boss": false },
+            { "id": "6_3", "title": "Primary vs Secondary", "desc": "Objective: Recognise primary vs secondary data", "is_boss": false },
+            { "id": "6_4", "title": "Appropriate Data Type", "desc": "Objective: Choose appropriate data type for context", "is_boss": false },
+            { "id": "6_5", "title": "Tally Charts", "desc": "Objective: Design tally charts", "is_boss": false },
+            { "id": "6_6", "title": "Frequency Tables", "desc": "Objective: Create frequency tables", "is_boss": false },
+            { "id": "6_7", "title": "Organise Data", "desc": "Objective: Organise collected data logically", "is_boss": false },
+            { "id": "6_8", "title": "Conduct Surveys", "desc": "Objective: Conduct simple surveys", "is_boss": false },
+            { "id": "6_9", "title": "Record Observations", "desc": "Objective: Record observations accurately", "is_boss": false },
+            { "id": "6_10", "title": "Interpret Datasets Boss", "desc": "Objective: Interpret collected datasets", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c10",
+          "chapter_title": "10. Processing and Presenting Data",
+          "chapter_desc": "Mean, median, mode, range, and dataset comparison.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "10_1", "title": "Calculate Mean", "desc": "Objective: Calculate mean", "is_boss": false },
+            { "id": "10_2", "title": "Calculate Median", "desc": "Objective: Calculate median", "is_boss": false },
+            { "id": "10_3", "title": "Calculate Mode", "desc": "Objective: Calculate mode", "is_boss": false },
+            { "id": "10_4", "title": "Calculate Range", "desc": "Objective: Calculate range", "is_boss": false },
+            { "id": "10_5", "title": "Interpret Statistics", "desc": "Objective: Interpret statistical results", "is_boss": false },
+            { "id": "10_6", "title": "Compare Averages", "desc": "Objective: Compare two data sets using averages", "is_boss": false },
+            { "id": "10_7", "title": "Draw Conclusions Boss", "desc": "Objective: Draw conclusions from data", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c16",
+          "chapter_title": "16. Probability",
+          "chapter_desc": "0–1 scale, relative frequency, and sample spaces.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "16_1", "title": "Probability Scale", "desc": "Objective: Understand probability scale 0–1", "is_boss": false },
+            { "id": "16_2", "title": "Simple Probability", "desc": "Objective: Calculate simple probability", "is_boss": false },
+            { "id": "16_3", "title": "List Sample Space", "desc": "Objective: List sample space", "is_boss": false },
+            { "id": "16_4", "title": "Sample Space Diagrams", "desc": "Objective: Use sample space diagrams", "is_boss": false },
+            { "id": "16_5", "title": "Estimate Probability Boss", "desc": "Objective: Estimate probability using relative frequency", "is_boss": true }
+          ]
+        },
+        {
+          "chapter_id": "cam_y9_c19",
+          "chapter_title": "19. Interpreting and Discussing Results",
+          "chapter_desc": "Frequency diagrams, scatter graphs, and stem-and-leaf.",
+          "is_locked": true,
+          "objectives": [
+            { "id": "19_1", "title": "Frequency Diagrams", "desc": "Objective: Draw frequency diagrams", "is_boss": false },
+            { "id": "19_2", "title": "Line Graphs", "desc": "Objective: Interpret line graphs", "is_boss": false },
+            { "id": "19_3", "title": "Scatter Graphs", "desc": "Objective: Interpret scatter graphs", "is_boss": false },
+            { "id": "19_4", "title": "Stem-and-Leaf", "desc": "Objective: Draw stem-and-leaf diagrams", "is_boss": false },
+            { "id": "19_5", "title": "Compare IQR/Range", "desc": "Objective: Compare distributions using IQR and range", "is_boss": false },
+            { "id": "19_6", "title": "Statistical Conclusions Boss", "desc": "Objective: Make statistical conclusions", "is_boss": true }
+          ]
+        }
+      ]
+    }
+  ]
+}

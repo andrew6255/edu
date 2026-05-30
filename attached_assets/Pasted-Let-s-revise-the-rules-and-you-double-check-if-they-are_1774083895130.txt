@@ -1,0 +1,220 @@
+Let’s revise the rules, and you double check if they are correct or if anything needs to be corrected. This is what I want: (if any details are not mentioned here, you can ask me)
+In Solo practice mode, you only play alone to compete for the top 5 board.
+In Ranked and Play a friend modes, you play against another account AND your scores also get considered for the leaderboard; you also play a best of 5 rounds, this means that the first to reach 3 games wins. The difference between Ranked and Play with a friend is who you play against. In Ranked, you enter a matchmaking to get paired to play against another anonymous account, who is also at the same time in a matchmaking. After 8 seconds, if you don't get paired then you play against a bot. And the bot's score should not increase in an unrealistic way, very fast. We always want the bot to push the player to do better and make suspense, meaning we don’t want to have the bot scoring very fast against a slow/weak player, so don't let the gap between the player and the bot be very big nor very small. Also, every player pays 25 coins and the winner wins the pot(50 coins). The fees don't get deducted unless the game starts, not during the matchmaking. To move to the next round, both players should confirm that they are ready. If during the match, one player clicks on give up this round, then they immediately lose this round, and the round ends for both players, and the other player should get the point anyway despite the score. If the round is a tie then the round is replayed.
+In the Play a Friend, you need to enter your friend’s username to get paired with them. Your friend should receive a notification about this challenge. If they accept it then they get directed to the game session, and if they leave the session they can always get back to it from the ongoing session button in the left side panel. If they choose to decline the challenge then the other player should see that they canceled the request.
+
+In the below games, I’ll just explain the main rules of the game, and if you have any questions ask me.
+WarmUp Games:
+Categories:
+1) Speed Math:
+A) Quick Math:
+i) Solo Practice:
+The game shows random math questions on 4 operators + - x ÷ . you have 4 mcq options, and 10 sec for each question. The score counts the number of correct answers. You lose the game when you get 1 question wrong. You don’t win the game but you try to score the maximum points.
+
+ii) Ranked (25):
+The 2 accounts play against each other, and the winner wins the pot. If you score a wrong answer or your 10 seconds for the round is up, then your round ends or freezes on the score you achieved and you wait for the other player to finish (either by getting a wrong answer or their 10 seconds for the question is up). After both players are done then, the one with the highest score wins this round. 
+
+iii) Play a friend:
+The 2 accounts play against each other just for fun. If you score a wrong answer you get a -1 in your score, a right answer is +1 and you cannot go below 0 score. The rest of the rules are like ranked mode.
+
+B) Time Limit:
+i) Solo Practice:
+The game shows random math questions on 4 operators + - x ÷ . you have 4 mcq options, and a total of 60 seconds, where you have to solve the max questions you can solve in this time. If you score a wrong answer you get a -1 in your score (and the question changes), a right answer is +1 and you cannot go below 0 score.
+
+ii) Ranked (25):
+Each round is 1 minute and the winner of the round is the one with the most score.
+
+iii) Play a friend:
+Same as ranked.
+
+C) Adv. Math:
+i) Solo Practice:
+The questions are a mix of + - x ÷ questions, with 2 operations only of these 4 operations. MCQ questions.
+
+ii) Ranked (25):
+Same rules
+
+iii) Play a friend:
+Same rules
+
+
+D) Compare:
+i) Solo Practice:
+The questions are mcq choosing between ><= and on the left hand side or right hand side, you have calculations that include 2 operations.
+
+ii) Ranked (25):
+Same rules
+
+iii) Play a friend:
+Same rules
+
+
+E) True/False:
+i) Solo Practice:
+It shows an equation or inequality that has only one operation on 1 side and the answer on the other side and you have to choose between true or false.
+
+ii) Ranked (25):
+Same rules
+
+iii) Play a friend:
+Same rules
+
+F) Missing Op.:
+i) Solo Practice:
+It shows an incomplete equation mission an operator such as + -  x ÷ and you need to select the right one.
+
+ii) Ranked (25):
+Same rules
+
+iii) Play a friend:
+Same rules.
+
+
+G) Complete Eq.:
+i) Solo Practice:
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+H) Sequence:
+i) Solo Practice:
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+I) Pyramid:
+i) Solo Practice:
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+
+2) Memory:
+A) Memo Order:
+i) Solo Practice:
+You have a grid of square starting by 3x3 and when you click on start it shows you a sequence of squares in order and you are given a few seconds to memorize their order and then after the memorizing countdown is up, you need to click them in order. And each time it gets harder by increasing the number of memorizing squares or make the main grid bigger.
+
+ii) Ranked (25):
+Same rules.
+
+iii) Play a friend:
+Same rules.
+
+B) Memo Cells:
+i) Solo Practice:
+Same as memo order but there is no order to memorize the squares.
+
+ii) Ranked (25):
+Same rules
+
+iii) Play a friend:
+Same rules
+
+
+3) Logic Puzzle:
+A) Block Puzzle:
+i) Solo Practice:
+Exactly like Block Blast game.
+
+ii) Ranked (25):
+2 accounts play on their own and at the end you compare their scores together. When The first account lose you check if the other account is already higher if so, then the round is up and the higher account wins. If the other account is not higher then we wait until it surpasses the other score or if it loses before surpassing then it loses
+
+iii) Play a friend:
+Same rules
+
+B) Tic Tac Toe:
+i) Solo Practice:
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+C) 15 Puzzle:
+i) Solo Practice:
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+D) neon grid:
+i) Solo Practice:
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+
+E) flip cup:
+i) Solo Practice:
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+F) flip nodes:
+i) Solo Practice:
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+
+4) Chess:
+A) Name Sq:
+i) Solo Practice:
+You get shown a square on a chess board and you need to name it. You get 10 sec for each question.
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+B) Name sq (Speed):
+i) Solo Practice:
+Same as name square but you get total 60 sec and you need to solve as much as possible.
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+C) Find Sq (Survival):
+i) Solo Practice:
+You get shown a name of the square, And you need to click it on the board. You get 10 sec for each question.
+
+ii) Ranked (25):
+
+
+iii) Play a friend:
+
+
+D) Find Sq (Speed):
+i) Solo Practice:
+Same as find square but you get total 60 sec and you need to solve as much as possible. 
+
+ii) Ranked (25):
+
+iii) Play a friend:
+
+
+E) Position Memory:
+i) Solo Practice:
+You get shown a chess position and you need to memorize it and after the time is up you need to put the pieces back on the board.
+
+ii) Ranked (25):
+
+
+iii) Play a friend:
+
+

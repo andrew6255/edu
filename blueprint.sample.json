@@ -1,0 +1,84 @@
+{
+  "blueprint_version": "1.0",
+  "chapter_id": "2-1-generating-sequences",
+  "chapter_title": "2.1 Generating sequences",
+  "domain": "math",
+  "regions": [
+    {
+      "region_id": "CH02_SEC_A",
+      "section_label": "2.1",
+      "section_title": "Generating sequences",
+      "theme_name": "Generating Sequences Concepts",
+      "source_refs": [
+        {
+          "page": 19,
+          "kind": "text",
+          "note": "Covers introductory text, definitions, tables, and 'Worked example 2.1'."
+        }
+      ]
+    },
+    {
+      "region_id": "CH02_SEC_B",
+      "section_label": "Exercise 2.1",
+      "section_title": null,
+      "theme_name": "Generating Sequences Practice",
+      "source_refs": [
+        {
+          "page": 19,
+          "kind": "text",
+          "note": "Contains the start of Exercise 2.1."
+        },
+        {
+          "page": 20,
+          "kind": "text",
+          "note": "Contains the continuation of Exercise 2.1."
+        }
+      ]
+    }
+  ],
+  "node_plan": [
+    {
+      "node_id": "CH02_EX_2_1_1",
+      "node_type": "exercise",
+      "region_id": "CH02_SEC_B",
+      "textbook_ref": "Exercise 2.1",
+      "source_refs": [
+        {
+          "page": 19,
+          "kind": "text",
+          "note": "Content for Exercise 2.1 questions."
+        },
+        {
+          "page": 20,
+          "kind": "text",
+          "note": "Content for Exercise 2.1 questions."
+        }
+      ]
+    }
+  ],
+  "template_assignment": {
+    "region": "RegionTemplate",
+    "exercise": "ExerciseNodeTemplate",
+    "boss": "BossNodeTemplate",
+    "atomic_scroll": "AtomicScrollTemplate"
+  },
+  "extraction_targets": {
+    "questions": {
+      "include_full_text": true,
+      "include_latex": true
+    },
+    "hints": {
+      "include_self_tutor_scrolls": true,
+      "include_example_snippets": true
+    }
+  },
+  "laborer_prompt": "For each identified region and node, extract all questions, their full text, and any associated LaTeX. Additionally, within the defined regions, identify and extract any 'Self Tutor' boxes or 'Worked example' snippets as atomic scrolls for hints, including all their text and LaTeX.",
+  "quality_rules": {
+    "no_hallucination": true,
+    "when_uncertain": "set_null_and_add_note"
+  },
+  "notes": [
+    "The provided images (pages 19-20) clearly correspond to chapter '2.1 Generating sequences' from the TOC, which has an end page implied by the start of the next section '2.2 Finding rules for sequences' on page 21.",
+    "No 'BossNodeTemplate' is assigned for this chapter as there are no 'Review Set' or 'Investigation' sections specifically within '2.1 Generating sequences'. The 'End-of-unit review' found on page 30 is for the entire Unit 2, not just this individual section."
+  ]
+}

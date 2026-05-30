@@ -1,0 +1,4061 @@
+[
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q1a",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: 5 + -3",
+    "steps": [
+      {
+        "step_instruction": "Calculate the result.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "2",
+        "distractors": [],
+        "ai_hint": "Adding a negative number is the same as subtracting a positive number. Try calculating 5 - 3."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q1b",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: 5 + -0.3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "4.7",
+        "distractors": [
+          "5.3",
+          "-4.7",
+          "4.3"
+        ],
+        "ai_hint": "Rewrite this as a subtraction problem: 5 - 0.3."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q1c",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: -5 + -0.3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "-5.3",
+        "distractors": [
+          "-4.7",
+          "5.3",
+          "-5.03"
+        ],
+        "ai_hint": "When adding two negative numbers, combine their values and keep the negative sign."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q1d",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: -0.5 + 0.3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "-0.2",
+        "distractors": [
+          "-0.8",
+          "0.2",
+          "0.8"
+        ],
+        "ai_hint": "You are starting at -0.5 and moving 0.3 in the positive direction. You will still be below zero."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q1e",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: 0.5 + -3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "-2.5",
+        "distractors": [
+          "3.5",
+          "-3.5",
+          "2.5"
+        ],
+        "ai_hint": "This is equivalent to 0.5 - 3. You are taking away more than you have, so the answer will be negative."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q2a",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: 2.8 + -1.3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "1.5",
+        "distractors": [
+          "4.1",
+          "-1.5",
+          "3.1"
+        ],
+        "ai_hint": "Adding a negative is just subtraction. Calculate 2.8 - 1.3."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q2b",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: 0.6 + -4.1",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "-3.5",
+        "distractors": [
+          "4.7",
+          "-4.7",
+          "3.5"
+        ],
+        "ai_hint": "Find the difference between 4.1 and 0.6, then apply the sign of the larger number (negative)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q2c",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: -5.8 + 0.3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "-5.5",
+        "distractors": [
+          "-6.1",
+          "5.5",
+          "6.1"
+        ],
+        "ai_hint": "You are at -5.8 and moving 0.3 spaces to the right towards zero."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q2d",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: -0.7 + 6.2",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "5.5",
+        "distractors": [
+          "6.9",
+          "-5.5",
+          "-6.9"
+        ],
+        "ai_hint": "This is the same as 6.2 - 0.7. Calculate the difference."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q2e",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: -2.25 + -0.12",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "-2.37",
+        "distractors": [
+          "-2.13",
+          "2.37",
+          "-2.26"
+        ],
+        "ai_hint": "Both numbers are negative. Add 2.25 and 0.12 together, then make the result negative."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q3a",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: 7 - -4",
+    "steps": [
+      {
+        "step_instruction": "Calculate the result.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "11",
+        "distractors": [],
+        "ai_hint": "Subtracting a negative number is the same as adding a positive number. Rewrite it as 7 + 4."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q3b",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: -7 - 0.4",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "-7.4",
+        "distractors": [
+          "-6.6",
+          "7.4",
+          "-7.04"
+        ],
+        "ai_hint": "You are starting at -7 and moving further to the left (more negative) by 0.4."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q3c",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: -0.4 - -7",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "6.6",
+        "distractors": [
+          "-7.4",
+          "-6.6",
+          "7.4"
+        ],
+        "ai_hint": "Subtracting a negative is the same as adding. Change the expression to -0.4 + 7."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q3d",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: -0.4 - 0.7",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "-1.1",
+        "distractors": [
+          "0.3",
+          "-0.3",
+          "1.1"
+        ],
+        "ai_hint": "Start at -0.4 and subtract 0.7. You are moving further away from zero into the negatives."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q3e",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Work out the value of: -4 - -0.7",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "-3.3",
+        "distractors": [
+          "-4.7",
+          "3.3",
+          "-4.07"
+        ],
+        "ai_hint": "Rewrite the double negative as a plus: -4 + 0.7. Then solve."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q9a",
+    "atomic_objective": "Multiply Integers",
+    "original_question_text": "Given that 2.3 × 9.6 = 22.08, work out the value of: -2.3 × -9.6",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "22.08",
+        "distractors": [
+          "-22.08",
+          "220.8",
+          "-220.8"
+        ],
+        "ai_hint": "A negative number multiplied by a negative number results in a positive number."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q9b",
+    "atomic_objective": "Divide Integers",
+    "original_question_text": "Given that 2.3 × 9.6 = 22.08, work out the value of: -22.08 ÷ 2.3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "-9.6",
+        "distractors": [
+          "9.6",
+          "-0.96",
+          "0.96"
+        ],
+        "ai_hint": "Use the inverse operation from the fact box. A negative divided by a positive yields a negative."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q9c",
+    "atomic_objective": "Divide Integers",
+    "original_question_text": "Given that 2.3 × 9.6 = 22.08, work out the value of: 22.08 ÷ -9.6",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "-2.3",
+        "distractors": [
+          "2.3",
+          "-0.23",
+          "0.23"
+        ],
+        "ai_hint": "Use the inverse operation. A positive number divided by a negative number yields a negative result."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q9d",
+    "atomic_objective": "Multiply Integers",
+    "original_question_text": "Given that 2.3 × 9.6 = 22.08, work out the value of: -4.6 × -9.6",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "44.16",
+        "distractors": [
+          "-44.16",
+          "22.08",
+          "-22.08"
+        ],
+        "ai_hint": "Notice that -4.6 is exactly double -2.3. Therefore, the answer will be double 22.08."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q9e",
+    "atomic_objective": "Divide Integers",
+    "original_question_text": "Given that 2.3 × 9.6 = 22.08, work out the value of: -11.04 ÷ -2.3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "4.8",
+        "distractors": [
+          "-4.8",
+          "9.6",
+          "-9.6"
+        ],
+        "ai_hint": "Notice that -11.04 is exactly half of -22.08. This means the result will be half of 9.6."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q10a",
+    "atomic_objective": "Multiply Integers",
+    "original_question_text": "Work out the value of: 2.7 × -3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "-8.1",
+        "distractors": [
+          "8.1",
+          "-5.4",
+          "-0.9"
+        ],
+        "ai_hint": "A positive number multiplied by a negative number gives a negative result. Calculate 2.7 × 3 and make it negative."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q10b",
+    "atomic_objective": "Divide Integers",
+    "original_question_text": "Work out the value of: 2.7 ÷ -3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "-0.9",
+        "distractors": [
+          "0.9",
+          "-8.1",
+          "-0.09"
+        ],
+        "ai_hint": "A positive number divided by a negative number results in a negative decimal."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q10c",
+    "atomic_objective": "Multiply Integers",
+    "original_question_text": "Work out the value of: -1.2 × -1.2",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "1.44",
+        "distractors": [
+          "-1.44",
+          "14.4",
+          "-2.4"
+        ],
+        "ai_hint": "Multiplying two negative numbers gives a positive result. Think of 12 × 12, then adjust the decimal places."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q10d",
+    "atomic_objective": "Multiply Integers",
+    "original_question_text": "Work out the value of: -3.25 × -4",
+    "steps": [
+      {
+        "step_instruction": "Type the exact positive integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "13",
+        "distractors": [],
+        "ai_hint": "A negative times a negative is a positive. Multiply 3 by 4, then multiply 0.25 by 4, and add them together."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q10e",
+    "atomic_objective": "Divide Integers",
+    "original_question_text": "Work out the value of: 17.5 ÷ -2.5",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "-7",
+        "distractors": [],
+        "ai_hint": "A positive divided by a negative is negative. How many times does 2.5 go into 17.5? (Hint: double both numbers to 35 ÷ 5)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q12a",
+    "atomic_objective": "Multiply Integers",
+    "original_question_text": "Complete the calculation: -2 × -3",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "6",
+        "distractors": [],
+        "ai_hint": "A negative multiplied by a negative equals a positive."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q12b",
+    "atomic_objective": "Multiply Integers",
+    "original_question_text": "Complete the calculation: (-2 × -3) × -4",
+    "steps": [
+      {
+        "step_instruction": "Calculate the final integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "-24",
+        "distractors": [],
+        "ai_hint": "First, calculate the brackets (-2 × -3 = 6). Then multiply that result by -4."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q12c",
+    "atomic_objective": "Divide Integers",
+    "original_question_text": "Complete the calculation: (-3 × 4) ÷ -8",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "1.5",
+        "distractors": [
+          "-1.5",
+          "15",
+          "-12"
+        ],
+        "ai_hint": "First calculate the brackets to get -12. Then divide -12 by -8. Two negatives make a positive."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q13a",
+    "atomic_objective": "Add & Subtract Integers",
+    "original_question_text": "Given p = -4.5, q = 5.5, and r = -7.5. Work out the value of: p - q",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "-10",
+        "distractors": [],
+        "ai_hint": "Substitute the numbers: -4.5 - 5.5. You are starting negative and subtracting a positive, making it more negative."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q13b",
+    "atomic_objective": "Multiply Integers",
+    "original_question_text": "Given p = -4.5, q = 5.5, and r = -7.5. Work out the value of: (p + q) × r",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Calculate the brackets first.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "1",
+        "distractors": [],
+        "ai_hint": "What is -4.5 + 5.5?"
+      },
+      {
+        "step_instruction": "Step 2: Multiply that result by r (-7.5).",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "-7.5",
+        "distractors": [
+          "7.5",
+          "-10",
+          "-75"
+        ],
+        "ai_hint": "Any number multiplied by 1 stays the same."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q13d",
+    "atomic_objective": "Divide Integers",
+    "original_question_text": "Given p = -4.5, q = 5.5, and r = -7.5. Work out the value of: (r - q) ÷ (q - p)",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Calculate the first bracket (r - q).",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "-13",
+        "distractors": [],
+        "ai_hint": "Substitute the numbers: -7.5 - 5.5."
+      },
+      {
+        "step_instruction": "Step 2: Calculate the second bracket (q - p).",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "10",
+        "distractors": [],
+        "ai_hint": "Substitute the numbers: 5.5 - (-4.5). Remember double negatives become addition!"
+      },
+      {
+        "step_instruction": "Step 3: Divide your first result by your second result.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "-1.3",
+        "distractors": [
+          "1.3",
+          "-13",
+          "-0.13"
+        ],
+        "ai_hint": "Calculate -13 ÷ 10. Move the decimal point one place to the left."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.1_q15",
+    "atomic_objective": "Multiply Integers",
+    "original_question_text": "p and q are numbers. It is given that p + q = 1, and p × q = -20. What are the values of p and q?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct pair of numbers.",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "5 and -4",
+        "distractors": [
+          "-5 and 4",
+          "10 and -2",
+          "-10 and 2"
+        ],
+        "ai_hint": "Think of factors of -20. Since they multiply to a negative, one is positive and one is negative. They must add up to positive 1."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.2_q1a",
+    "atomic_objective": "Exact Square Roots",
+    "original_question_text": "Find the value of the square root: √9",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer answer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "3",
+        "distractors": [],
+        "ai_hint": "What number times itself equals 9?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.2_q1b",
+    "atomic_objective": "Exact Square Roots",
+    "original_question_text": "Find the value of the square root: √36",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer answer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "6",
+        "distractors": [],
+        "ai_hint": "What number times itself equals 36?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.2_q1e",
+    "atomic_objective": "Exact Square Roots",
+    "original_question_text": "Find the value of the square root: √225",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer answer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "15",
+        "distractors": [],
+        "ai_hint": "Because the number ends in 25, the root must end in a 5. Think of numbers between 10 and 20."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.2_q2a",
+    "atomic_objective": "Exact Cube Roots",
+    "original_question_text": "Find the value of the cube root: ∛8",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer answer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "2",
+        "distractors": [],
+        "ai_hint": "What number multiplied by itself three times gives 8?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.2_q2b",
+    "atomic_objective": "Exact Cube Roots",
+    "original_question_text": "Find the value of the cube root: ∛27",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer answer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "3",
+        "distractors": [],
+        "ai_hint": "What number multiplied by itself three times gives 27?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.2_q6a",
+    "atomic_objective": "Estimating Roots",
+    "original_question_text": "Estimate √200 to the nearest whole number.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "14",
+        "distractors": [],
+        "ai_hint": "Find the perfect square closest to 200. 14 × 14 = 196, and 15 × 15 = 225."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.2_q6b",
+    "atomic_objective": "Estimating Roots",
+    "original_question_text": "Estimate ∛200 to the nearest whole number.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "6",
+        "distractors": [],
+        "ai_hint": "Think of perfect cubes. 5 × 5 × 5 = 125. 6 × 6 × 6 = 216. Which is 200 closer to?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.2_q7",
+    "atomic_objective": "Estimating Roots",
+    "original_question_text": "Choose the number that is closest to √250.",
+    "steps": [
+      {
+        "step_instruction": "Select the closest decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "15.8",
+        "distractors": [
+          "14.9",
+          "15.1",
+          "16.2"
+        ],
+        "ai_hint": "15 squared is 225. 16 squared is 256. 250 is much closer to 256, so the decimal should be close to 16."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.2_q8",
+    "atomic_objective": "Estimating Roots",
+    "original_question_text": "Choose the number that is closest to ∛550.",
+    "steps": [
+      {
+        "step_instruction": "Select the closest decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "8.2",
+        "distractors": [
+          "7.6",
+          "7.8",
+          "8.8"
+        ],
+        "ai_hint": "8 cubed is 512. 9 cubed is 729. 550 is slightly more than 512, so it should be slightly more than 8."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.3_q10a",
+    "atomic_objective": "Negative Indices",
+    "original_question_text": "Write this number as a decimal: 2⁻¹",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "0.5",
+        "distractors": [
+          "0.2",
+          "0.1",
+          "-0.2"
+        ],
+        "ai_hint": "A negative index means '1 over the positive power'. So 2⁻¹ is 1/2. What is 1/2 as a decimal?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.3_q10b",
+    "atomic_objective": "Negative Indices",
+    "original_question_text": "Write this number as a decimal: 4⁻¹",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "0.25",
+        "distractors": [
+          "0.4",
+          "0.04",
+          "-0.4"
+        ],
+        "ai_hint": "This is equivalent to the fraction 1/4. Convert 1/4 into a decimal."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.3_q11a",
+    "atomic_objective": "Negative Indices",
+    "original_question_text": "Write this number as a fraction: 3⁻²",
+    "steps": [
+      {
+        "step_instruction": "Select the correct fraction.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "1/9",
+        "distractors": [
+          "1/6",
+          "-1/9",
+          "-1/6"
+        ],
+        "ai_hint": "Square the base number (3 × 3 = 9), then put it under 1 because of the negative index."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.3_q11b",
+    "atomic_objective": "Negative Indices",
+    "original_question_text": "Write this number as a fraction: 2⁻³",
+    "steps": [
+      {
+        "step_instruction": "Select the correct fraction.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "1/8",
+        "distractors": [
+          "1/6",
+          "-1/8",
+          "-1/6"
+        ],
+        "ai_hint": "Calculate 2 to the power of 3 (2 × 2 × 2), and then write the reciprocal."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.3_q11d",
+    "atomic_objective": "Negative Indices",
+    "original_question_text": "Write this number as a fraction: 5⁻²",
+    "steps": [
+      {
+        "step_instruction": "Select the correct fraction.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "1/25",
+        "distractors": [
+          "1/10",
+          "-1/25",
+          "-1/10"
+        ],
+        "ai_hint": "Square the base number (5 × 5 = 25), then put it under 1."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.3_q12a",
+    "atomic_objective": "Zero Index Rule",
+    "original_question_text": "Write this expression as a single number (decimal): 2² + 2⁰ + 2⁻²",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Calculate 2² + 2⁰.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "5",
+        "distractors": [],
+        "ai_hint": "2² is 4. Any number to the power of 0 is 1. Add them together: 4 + 1."
+      },
+      {
+        "step_instruction": "Step 2: Add 2⁻² as a decimal to your previous result.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "5.25",
+        "distractors": [
+          "5.5",
+          "5.02",
+          "4.25"
+        ],
+        "ai_hint": "2⁻² is the fraction 1/4, which is 0.25. Add 0.25 to 5."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.3_q12b",
+    "atomic_objective": "Zero Index Rule",
+    "original_question_text": "Write this expression as a single number (decimal): 10⁻¹ + 10⁰ + 10³",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Calculate 10⁰ + 10³.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "1001",
+        "distractors": [],
+        "ai_hint": "10³ is 1000. 10⁰ is 1. Add them together."
+      },
+      {
+        "step_instruction": "Step 2: Add 10⁻¹ as a decimal to your previous result.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "1001.1",
+        "distractors": [
+          "1001.01",
+          "1010.1",
+          "1100.1"
+        ],
+        "ai_hint": "10⁻¹ is the fraction 1/10, which is 0.1. Add 0.1 to 1001."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.3_q13a",
+    "atomic_objective": "Positive Indices",
+    "original_question_text": "Write 100 as a power of 10.",
+    "steps": [
+      {
+        "step_instruction": "Select the correct expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "10²",
+        "distractors": [
+          "10³",
+          "2¹⁰",
+          "100¹"
+        ],
+        "ai_hint": "How many times do you multiply 10 by itself to get 100?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.3_q13c",
+    "atomic_objective": "Negative Indices",
+    "original_question_text": "Write 0.01 as a power of 10.",
+    "steps": [
+      {
+        "step_instruction": "Select the correct expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "10⁻²",
+        "distractors": [
+          "10⁻³",
+          "10²",
+          "10⁻¹"
+        ],
+        "ai_hint": "0.01 is the fraction 1/100. Since 100 is 10², the fraction 1/100 is written with a negative index."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q1a",
+    "atomic_objective": "Index Multiplication",
+    "original_question_text": "Simplify the expression and write your answer in index form: 5² × 5³",
+    "steps": [
+      {
+        "step_instruction": "Select the correct simplified expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "5⁵",
+        "distractors": [
+          "5⁶",
+          "25⁵",
+          "10⁵"
+        ],
+        "ai_hint": "When multiplying terms with the same base, keep the base the same and add the indices (powers)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q1b",
+    "atomic_objective": "Index Multiplication",
+    "original_question_text": "Simplify the expression and write your answer in index form: 6⁴ × 6³",
+    "steps": [
+      {
+        "step_instruction": "Select the correct simplified expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "6⁷",
+        "distractors": [
+          "6¹²",
+          "36⁷",
+          "12⁷"
+        ],
+        "ai_hint": "Use the multiplication rule of indices: aᵐ × aⁿ = aᵐ⁺ⁿ. Just calculate 4 + 3."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q1d",
+    "atomic_objective": "Index Multiplication",
+    "original_question_text": "Simplify the algebraic expression: a² × a² × a³",
+    "steps": [
+      {
+        "step_instruction": "Select the correct simplified expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "a⁷",
+        "distractors": [
+          "a¹²",
+          "3a⁷",
+          "a³"
+        ],
+        "ai_hint": "The index law works for algebra too! Just add all the indices together: 2 + 2 + 3."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q3a",
+    "atomic_objective": "Index Division",
+    "original_question_text": "Simplify the expression: 3⁵ ÷ 3²",
+    "steps": [
+      {
+        "step_instruction": "Select the correct simplified expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "3³",
+        "distractors": [
+          "3²·⁵",
+          "1³",
+          "3⁷"
+        ],
+        "ai_hint": "When dividing terms with the same base, you subtract the second index from the first: 5 - 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q3c",
+    "atomic_objective": "Index Division",
+    "original_question_text": "Simplify the expression: 10⁶ ÷ 10⁴",
+    "steps": [
+      {
+        "step_instruction": "Select the correct simplified expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "10²",
+        "distractors": [
+          "10¹⁰",
+          "1²",
+          "10²⁴"
+        ],
+        "ai_hint": "Keep the base as 10, and subtract the exponents using the division rule: 6 - 4."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q4b",
+    "atomic_objective": "Index Division",
+    "original_question_text": "Simplify the expression: 2² ÷ 2³",
+    "steps": [
+      {
+        "step_instruction": "Select the correct simplified expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "2⁻¹",
+        "distractors": [
+          "2¹",
+          "1⁻¹",
+          "2⁻⁵"
+        ],
+        "ai_hint": "Subtract the indices exactly as written in order: 2 - 3 = -1."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q6a",
+    "atomic_objective": "Index Multiplication",
+    "original_question_text": "Find the value of N in the equation: 10² × 10ᴺ = 10⁴",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer value of N.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "2",
+        "distractors": [],
+        "ai_hint": "According to the multiplication rule, adding the indices on the left must equal the index on the right: 2 + N = 4."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q6b",
+    "atomic_objective": "Index Division",
+    "original_question_text": "Find the value of N in the equation: 10² ÷ 10ᴺ = 10",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer value of N.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "1",
+        "distractors": [],
+        "ai_hint": "Remember that a number by itself (10) has a hidden index of 1. The division rule tells us that 2 - N = 1."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q11a1",
+    "atomic_objective": "Power of a Power",
+    "original_question_text": "Write the expression as a single power of 2: (2²)²",
+    "steps": [
+      {
+        "step_instruction": "Select the correct single power.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "2⁴",
+        "distractors": [
+          "2²",
+          "4⁴",
+          "2⁰"
+        ],
+        "ai_hint": "When raising a power to another power, the rule is to multiply the indices: 2 × 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q11a2",
+    "atomic_objective": "Power of a Power",
+    "original_question_text": "Write the expression as a single power of 2: (2²)³",
+    "steps": [
+      {
+        "step_instruction": "Select the correct single power.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "2⁶",
+        "distractors": [
+          "2⁵",
+          "4⁶",
+          "2⁸"
+        ],
+        "ai_hint": "Use the power of a power rule: multiply the inside index by the outside index (2 × 3)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_ex1.4_q13c",
+    "atomic_objective": "Index Division",
+    "original_question_text": "Find the value of n in the equation: 2ⁿ ÷ 2 = 8",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Rewrite 8 as a power of 2.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "2³",
+        "distractors": [
+          "2⁴",
+          "4²",
+          "2²"
+        ],
+        "ai_hint": "2 × 2 × 2 = 8."
+      },
+      {
+        "step_instruction": "Step 2: Use the division rule (n - 1 = 3) to solve for n.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "4",
+        "distractors": [],
+        "ai_hint": "Remember that a single '2' has an invisible index of 1. If n - 1 = 3, add 1 to both sides."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_boss_q1",
+    "atomic_objective": "Integers & Powers Boss",
+    "original_question_text": "Simplify the fraction using index laws: (4² × 4⁴) / 4³",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Simplify the numerator by adding the powers.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "4⁶",
+        "distractors": [
+          "4⁸",
+          "16⁶",
+          "8⁶"
+        ],
+        "ai_hint": "2 + 4 = 6. Keep the base the same."
+      },
+      {
+        "step_instruction": "Step 2: Now divide that result by the denominator (subtract the powers).",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "4³",
+        "distractors": [
+          "4²",
+          "4⁹",
+          "1³"
+        ],
+        "ai_hint": "You have 4⁶ on top and 4³ on the bottom. 6 - 3 = ?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_boss_q2",
+    "atomic_objective": "Integers & Powers Boss",
+    "original_question_text": "Find the value of n in the equation: 5ⁿ = 0.2",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer value of n.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "-1",
+        "distractors": [],
+        "ai_hint": "Remember that 0.2 is the same as the fraction 1/5. What index represents 'one over' the base?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_boss_q3",
+    "atomic_objective": "Integers & Powers Boss",
+    "original_question_text": "Calculate the value of: ∛1000",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "10",
+        "distractors": [],
+        "ai_hint": "What number multiplied by itself three times equals 1000? Think of powers of 10."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_boss_q4",
+    "atomic_objective": "Integers & Powers Boss",
+    "original_question_text": "Work out the value of: -15.6 - -4.2",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "-11.4",
+        "distractors": [
+          "11.4",
+          "-19.8",
+          "19.8"
+        ],
+        "ai_hint": "Subtracting a negative is the same as adding a positive. Calculate -15.6 + 4.2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_ch1_boss_q5",
+    "atomic_objective": "Integers & Powers Boss",
+    "original_question_text": "Evaluate the expression: 10⁻² + 10⁰",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal value.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "1.01",
+        "distractors": [
+          "1.1",
+          "1.001",
+          "0.01"
+        ],
+        "ai_hint": "10⁰ is equal to 1. 10⁻² is equal to 1/100, or 0.01. Add them together."
+      }
+    ]
+  },
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  {
+    "question_id": "cam_y9_2_1_q1a",
+    "atomic_objective": "Linear vs Non-linear",
+    "original_question_text": "Look at this sequence: 11, 15, 19, 23, 27, ... Is it linear or non-linear?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct sequence type.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "Linear",
+        "distractors": [
+          "Non-linear",
+          "Arithmetic",
+          "Neither"
+        ],
+        "ai_hint": "Check the difference between the terms. If it adds or subtracts the exact same amount every time, it is linear."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q1c",
+    "atomic_objective": "Linear vs Non-linear",
+    "original_question_text": "Look at this sequence: 4, 5, 7, 10, 14, ... Is it linear or non-linear?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct sequence type.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "Non-linear",
+        "distractors": [
+          "Linear",
+          "Geometric",
+          "Constant"
+        ],
+        "ai_hint": "The sequence goes up by 1, then 2, then 3. Because the difference changes, it cannot be linear."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q1d",
+    "atomic_objective": "Linear vs Non-linear",
+    "original_question_text": "Look at this sequence: 20, 18, 15, 11, 6, ... Is it linear or non-linear?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct sequence type.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "Non-linear",
+        "distractors": [
+          "Linear",
+          "Arithmetic",
+          "Constant"
+        ],
+        "ai_hint": "Look at how much is being subtracted each time: -2, then -3, then -4. The difference is not the same."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q1f",
+    "atomic_objective": "Linear vs Non-linear",
+    "original_question_text": "Look at this sequence: 20, 12, 4, -4, -12, ... Is it linear or non-linear?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct sequence type.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "Linear",
+        "distractors": [
+          "Non-linear",
+          "Geometric",
+          "Neither"
+        ],
+        "ai_hint": "The sequence decreases by exactly 8 every single time. A constant difference means it is linear."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q2a",
+    "atomic_objective": "Term-to-term Rules",
+    "original_question_text": "The first term of a sequence is 8. The term-to-term rule is 'subtract 5'. Work out the 4th term of the sequence.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "-7",
+        "distractors": [],
+        "ai_hint": "Start at 8 and subtract 5 three times to get to the 4th term. (8 → 3 → -2 → ?)"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q2c",
+    "atomic_objective": "Term-to-term Rules",
+    "original_question_text": "The first term of a sequence is 4. The term-to-term rule is 'add 1, add 2, add 3, ...'. Work out the 4th term.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "10",
+        "distractors": [],
+        "ai_hint": "Write them out: 1st is 4. 2nd is 4+1=5. 3rd is 5+2=7. Now find the 4th!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q3",
+    "atomic_objective": "Term-to-term Rules",
+    "original_question_text": "The tenth term of a linear sequence is 18. The term-to-term rule is 'subtract 4'. Work out the fourth term of the sequence.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "42",
+        "distractors": [],
+        "ai_hint": "Work backwards! If you subtract 4 to go forward, you must add 4 to go backward. You need to step back 6 times (from 10th to 4th)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q4",
+    "atomic_objective": "Term-to-term Rules",
+    "original_question_text": "The fifth term of a non-linear sequence is 9. The term-to-term rule is 'divide by 3'. Work out the second term of the sequence.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 40,
+        "correct_answer": "243",
+        "distractors": [],
+        "ai_hint": "You need to work backwards from the 5th term to the 2nd term. The opposite of 'divide by 3' is 'multiply by 3'."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q5a",
+    "atomic_objective": "Position-to-term Rules",
+    "original_question_text": "The position-to-term rule of a sequence is: term = position number + 5. Work out the 4th term.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "9",
+        "distractors": [],
+        "ai_hint": "Substitute the position number (4) into the rule: 4 + 5."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q5c",
+    "atomic_objective": "Position-to-term Rules",
+    "original_question_text": "The position-to-term rule of a sequence is: term = position number² + 4. Work out the 3rd term.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "13",
+        "distractors": [],
+        "ai_hint": "Square the position number first (3 × 3), then add 4."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q6a",
+    "atomic_objective": "Position-to-term Rules",
+    "original_question_text": "The position-to-term rule of a sequence is: term = 4 × position number + 1. Work out the 10th term.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "41",
+        "distractors": [],
+        "ai_hint": "Substitute 10 for the position number. Multiply by 4, then add 1."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q6b",
+    "atomic_objective": "Position-to-term Rules",
+    "original_question_text": "The position-to-term rule of a sequence is: term = position number² - 2. Work out the 5th term.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "23",
+        "distractors": [],
+        "ai_hint": "Square the position number (5 × 5), then subtract 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q7",
+    "atomic_objective": "Position-to-term Rules",
+    "original_question_text": "The third term of a sequence is 25. The fifth term of the sequence is 73. Which of these position-to-term rules is the correct one?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct rule.",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "term = 3 × position number² - 2",
+        "distractors": [
+          "term = position number² + 16",
+          "term = 5 × position number + 10",
+          "term = 9 × position number - 2"
+        ],
+        "ai_hint": "Test position 3 in the options. For the third option: 3 × (3²) - 2 = 3 × 9 - 2 = 25. Now test it with position 5 to be sure!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_1_q8",
+    "atomic_objective": "Position-to-term Rules",
+    "original_question_text": "The position-to-term rule of a sequence is: term = 2 × position number + [?]. The 1st term is 9. Work out the missing number in the rule.",
+    "steps": [
+      {
+        "step_instruction": "Type the missing exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "7",
+        "distractors": [],
+        "ai_hint": "If the position is 1, then 2 × 1 = 2. What do you need to add to 2 to get the first term (9)?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_2_q1",
+    "atomic_objective": "Using the nth Term",
+    "original_question_text": "The nth term of a sequence is 3n. Work out the 10th term of the sequence.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "30",
+        "distractors": [],
+        "ai_hint": "To find the 10th term, substitute n = 10 into the expression. What is 3 × 10?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_2_q2",
+    "atomic_objective": "Using the nth Term",
+    "original_question_text": "The nth term of a sequence is 6 - n. Work out the 20th term of the sequence.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "-14",
+        "distractors": [],
+        "ai_hint": "Substitute n = 20 into the expression: 6 - 20. You are subtracting a larger number from a smaller one."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_2_q3",
+    "atomic_objective": "Using the nth Term",
+    "original_question_text": "The nth term of a sequence is 4n + 7. Work out the 50th term of the sequence.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "207",
+        "distractors": [],
+        "ai_hint": "First, multiply 50 by 4. Then, add 7 to your result."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_2_q4",
+    "atomic_objective": "Using the nth Term",
+    "original_question_text": "The nth term of a sequence is 10n - 8. Work out the 100th term of the sequence.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "992",
+        "distractors": [],
+        "ai_hint": "Substitute 100 for n: calculate 10 × 100, then subtract 8."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_2_q6a",
+    "atomic_objective": "Finding the nth Term",
+    "original_question_text": "Work out an expression for the nth term of this sequence: 3, 5, 7, 9, ...",
+    "steps": [
+      {
+        "step_instruction": "Select the correct nth term expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "2n + 1",
+        "distractors": [
+          "2n - 1",
+          "n + 2",
+          "3n"
+        ],
+        "ai_hint": "The sequence increases by 2 each time, so the rule starts with 2n. For the 1st term, 2(1) = 2. What do you add to 2 to get 3?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_2_q6b",
+    "atomic_objective": "Finding the nth Term",
+    "original_question_text": "Work out an expression for the nth term of this sequence: 5, 8, 11, 14, ...",
+    "steps": [
+      {
+        "step_instruction": "Select the correct nth term expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "3n + 2",
+        "distractors": [
+          "3n - 2",
+          "2n + 3",
+          "n + 4"
+        ],
+        "ai_hint": "The difference between terms is +3, so it starts with 3n. For the 1st term, 3(1) = 3. What do you need to add to get 5?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_2_q6c",
+    "atomic_objective": "Finding the nth Term",
+    "original_question_text": "Work out an expression for the nth term of this sequence: 4, 9, 14, 19, ...",
+    "steps": [
+      {
+        "step_instruction": "Select the correct nth term expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "5n - 1",
+        "distractors": [
+          "5n + 1",
+          "4n + 5",
+          "n + 5"
+        ],
+        "ai_hint": "The sequence increases by 5 each time, so it starts with 5n. Substitute n=1 (which gives 5) and figure out how to adjust it to get the first term (4)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_2_q6e",
+    "atomic_objective": "Finding the nth Term",
+    "original_question_text": "Work out an expression for the nth term of this sequence: 8, 6, 4, 2, ...",
+    "steps": [
+      {
+        "step_instruction": "Select the correct nth term expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "10 - 2n",
+        "distractors": [
+          "8 - 2n",
+          "2n + 6",
+          "-2n - 10"
+        ],
+        "ai_hint": "The sequence decreases by 2 each time, so it starts with -2n. For the 1st term, -2(1) = -2. What must you add to -2 to get 8?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_2_q6f",
+    "atomic_objective": "Finding the nth Term",
+    "original_question_text": "Work out an expression for the nth term of this sequence: 11, 7, 3, -1, ...",
+    "steps": [
+      {
+        "step_instruction": "Select the correct nth term expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "15 - 4n",
+        "distractors": [
+          "11 - 4n",
+          "4n + 7",
+          "-4n - 15"
+        ],
+        "ai_hint": "The sequence goes down by 4 every time, so it includes -4n. If n=1, you have -4. You need to reach 11. -4 + [?] = 11."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_2_q6h",
+    "atomic_objective": "Finding the nth Term",
+    "original_question_text": "Work out an expression for the nth term of this sequence: -3, 6, 15, 24, ...",
+    "steps": [
+      {
+        "step_instruction": "Select the correct nth term expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "9n - 12",
+        "distractors": [
+          "9n - 3",
+          "-3n + 9",
+          "9n + 12"
+        ],
+        "ai_hint": "The sequence goes up by 9 each time, so it starts with 9n. If n=1, you have 9, but the first term is -3. What do you subtract from 9 to get -3?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_3_q1a",
+    "atomic_objective": "Inverse Equations",
+    "original_question_text": "Work out the inverse function for the equation: y = x + 9",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse equation.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "y = x - 9",
+        "distractors": [
+          "y = 9x",
+          "y = x / 9",
+          "y = -x + 9"
+        ],
+        "ai_hint": "To find the inverse, do the opposite operation. The opposite of adding 9 is subtracting 9."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_3_q1c",
+    "atomic_objective": "Inverse Equations",
+    "original_question_text": "Work out the inverse function for the equation: y = 3x",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse equation.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "y = x / 3",
+        "distractors": [
+          "y = x - 3",
+          "y = 3 / x",
+          "y = x + 3"
+        ],
+        "ai_hint": "The original equation multiplies x by 3. The inverse must divide x by 3."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_3_q3a",
+    "atomic_objective": "Inverse Equations",
+    "original_question_text": "Work out the inverse function for the equation: y = 2x + 5",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse equation.",
+        "input_type": "multiple_choice",
+        "time_limit": 35,
+        "correct_answer": "y = (x - 5) / 2",
+        "distractors": [
+          "y = (x + 5) / 2",
+          "y = 2x - 5",
+          "y = x / 2 - 5"
+        ],
+        "ai_hint": "Reverse the operations in reverse order: First, subtract 5. Then, divide the whole thing by 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_3_q3b",
+    "atomic_objective": "Inverse Equations",
+    "original_question_text": "Work out the inverse function for the equation: y = 4x - 7",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse equation.",
+        "input_type": "multiple_choice",
+        "time_limit": 35,
+        "correct_answer": "y = (x + 7) / 4",
+        "distractors": [
+          "y = 4(x + 7)",
+          "y = (x - 7) / 4",
+          "y = x / 4 + 7"
+        ],
+        "ai_hint": "The original function multiplies by 4 then subtracts 7. To reverse it, first add 7, then divide everything by 4."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_3_q3c",
+    "atomic_objective": "Inverse Equations",
+    "original_question_text": "Work out the inverse function for the equation: y = x/2 + 1",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse equation.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "y = 2(x - 1)",
+        "distractors": [
+          "y = 2x - 1",
+          "y = (x - 1) / 2",
+          "y = x/2 - 1"
+        ],
+        "ai_hint": "Reverse the +1 by subtracting 1. Then, reverse the division by multiplying the whole expression by 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_3_q2a",
+    "atomic_objective": "Inverse Mappings",
+    "original_question_text": "Work out the inverse function for the mapping: x → x + 3",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse mapping.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "x → x - 3",
+        "distractors": [
+          "x → 3x",
+          "x → x / 3",
+          "x → -x + 3"
+        ],
+        "ai_hint": "Mappings work just like equations. Do the opposite of adding 3."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_3_q2c",
+    "atomic_objective": "Inverse Mappings",
+    "original_question_text": "Work out the inverse function for the mapping: x → 4x",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse mapping.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "x → x / 4",
+        "distractors": [
+          "x → x - 4",
+          "x → 4 / x",
+          "x → -4x"
+        ],
+        "ai_hint": "The opposite of multiplying by 4 is dividing by 4."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_3_q4a",
+    "atomic_objective": "Inverse Mappings",
+    "original_question_text": "Work out the inverse function for the mapping: x → 5x + 1",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse mapping.",
+        "input_type": "multiple_choice",
+        "time_limit": 35,
+        "correct_answer": "x → (x - 1) / 5",
+        "distractors": [
+          "x → (x + 1) / 5",
+          "x → 5x - 1",
+          "x → x / 5 - 1"
+        ],
+        "ai_hint": "First undo the '+ 1' by subtracting 1, then undo the '× 5' by dividing everything by 5."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_3_q4c",
+    "atomic_objective": "Inverse Mappings",
+    "original_question_text": "Work out the inverse function for the mapping: x → x/5 - 10",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse mapping.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "x → 5(x + 10)",
+        "distractors": [
+          "x → 5x + 10",
+          "x → (x + 10) / 5",
+          "x → x/5 + 10"
+        ],
+        "ai_hint": "Work backwards. Add 10 first, then multiply the entire expression by 5."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_3_q6",
+    "atomic_objective": "Inverse Mappings",
+    "original_question_text": "Harsha thought of a number. She added 13 to the number then multiplied the result by 4. Her answer was 6.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Write the mapping for Harsha's operations.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "x → 4(x + 13)",
+        "distractors": [
+          "x → 4x + 13",
+          "x → x + 13 × 4",
+          "x → (x + 13) / 4"
+        ],
+        "ai_hint": "She added 13 first (x + 13), and then multiplied that entire result by 4."
+      },
+      {
+        "step_instruction": "Step 2: Use the inverse function to find her original number.",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "-11.5",
+        "distractors": [
+          "-1.75",
+          "11.5",
+          "-12.5"
+        ],
+        "ai_hint": "The inverse is x → x/4 - 13. Substitute 6 into this inverse mapping: (6 / 4) - 13."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_boss_q1",
+    "atomic_objective": "Sequences & Functions Boss",
+    "original_question_text": "Is the sequence 15, 14, 12, 9, ... linear or non-linear?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct sequence type.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "Non-linear",
+        "distractors": [
+          "Linear",
+          "Constant",
+          "Arithmetic"
+        ],
+        "ai_hint": "Check the difference between each term: -1, then -2, then -3. Because the difference changes, it is not linear."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_boss_q2",
+    "atomic_objective": "Sequences & Functions Boss",
+    "original_question_text": "The eighth term of a linear sequence is 26. The term-to-term rule is 'add 3'. Work out the fourth term of the sequence.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "14",
+        "distractors": [],
+        "ai_hint": "Work backwards from the 8th term. You need to step back 4 times. Subtract 3 four times from 26."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_boss_q3",
+    "atomic_objective": "Sequences & Functions Boss",
+    "original_question_text": "A sequence follows the position-to-term rule: term = 2 × position number - 2. Work out the 10th term.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "18",
+        "distractors": [],
+        "ai_hint": "Substitute 10 into the position number: 2 × 10 - 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_boss_q4",
+    "atomic_objective": "Sequences & Functions Boss",
+    "original_question_text": "Work out an expression for the nth term for this sequence: -8, -5, -2, 1, ...",
+    "steps": [
+      {
+        "step_instruction": "Select the correct nth term expression.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "3n - 11",
+        "distractors": [
+          "3n + 11",
+          "-3n - 5",
+          "n - 9"
+        ],
+        "ai_hint": "The sequence goes up by 3 each time, so the rule starts with 3n. For n=1, 3(1) = 3. What do you need to subtract from 3 to get -8?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_boss_q5",
+    "atomic_objective": "Sequences & Functions Boss",
+    "original_question_text": "Work out the inverse function for the equation: y = (x + 1) / 2",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse equation.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "y = 2x - 1",
+        "distractors": [
+          "y = 2(x - 1)",
+          "y = 2x + 1",
+          "y = (x - 1) / 2"
+        ],
+        "ai_hint": "Reverse the operations starting from the outside. First multiply by 2, then subtract 1."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_boss_q6",
+    "atomic_objective": "Sequences & Functions Boss",
+    "original_question_text": "Work out the inverse function for the mapping: x → (x + 2) / 10",
+    "steps": [
+      {
+        "step_instruction": "Select the correct inverse mapping.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "x → 10x - 2",
+        "distractors": [
+          "x → 10(x - 2)",
+          "x → 10x + 2",
+          "x → (x - 2) / 10"
+        ],
+        "ai_hint": "Undo the division by 10 first by multiplying by 10. Then undo the +2 by subtracting 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_boss_q7",
+    "atomic_objective": "Sequences & Functions Boss",
+    "original_question_text": "Dakarai thought of a number. He subtracted 11 from the number then divided the result by 4. His answer was -1.2. Work out the number Dakarai thought of.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Write the mapping for Dakarai's operations.",
+        "input_type": "multiple_choice",
+        "time_limit": 35,
+        "correct_answer": "x → (x - 11) / 4",
+        "distractors": [
+          "x → x / 4 - 11",
+          "x → 4(x - 11)",
+          "x → (x + 11) / 4"
+        ],
+        "ai_hint": "He subtracted 11 first, so that needs to be grouped together before dividing by 4."
+      },
+      {
+        "step_instruction": "Step 2: Use the inverse function to find his original number.",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "6.2",
+        "distractors": [
+          "-15.8",
+          "15.8",
+          "-6.2"
+        ],
+        "ai_hint": "The inverse function is x → 4x + 11. Substitute -1.2 into this mapping: 4 × (-1.2) + 11."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_2_boss_q8",
+    "atomic_objective": "Sequences & Functions Boss",
+    "original_question_text": "Sasha thought of a number. She added 22.5 to the number then multiplied the result by 2. Her answer was 50. Work out the number Sasha thought of.",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "2.5",
+        "distractors": [
+          "22.5",
+          "45",
+          "12.5"
+        ],
+        "ai_hint": "Use the inverse function! The inverse of her steps is to divide by 2, then subtract 22.5. So, calculate (50 / 2) - 22.5."
+      }
+    ]
+  },
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  {
+    "question_id": "cam_y9_3_1_q1a",
+    "atomic_objective": "Mental Decimal Math",
+    "original_question_text": "Work out the value mentally: 8 × 0.2",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "1.6",
+        "distractors": [
+          "16",
+          "0.16",
+          "0.016"
+        ],
+        "ai_hint": "Ignore the decimal and multiply 8 by 2. Then, place the decimal point so there is one decimal place in your answer."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_1_q2a",
+    "atomic_objective": "Mental Decimal Math",
+    "original_question_text": "Work out the value mentally: 4 ÷ 0.2",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "20",
+        "distractors": [],
+        "ai_hint": "Multiply both numbers by 10 to eliminate the decimal. This makes the calculation an easy 40 ÷ 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_1_q5a",
+    "atomic_objective": "Mental Decimal Math",
+    "original_question_text": "Work out the value mentally: 0.6 × 0.2",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "0.12",
+        "distractors": [
+          "1.2",
+          "0.012",
+          "12"
+        ],
+        "ai_hint": "6 × 2 = 12. Since there are two decimal places in total in the original question, the answer must have two decimal places."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_1_q5f",
+    "atomic_objective": "Mental Decimal Math",
+    "original_question_text": "Work out the value mentally: 0.6 ÷ 0.02",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "30",
+        "distractors": [],
+        "ai_hint": "Multiply both numbers by 100 to completely remove the decimals. This makes the calculation 60 ÷ 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_1_q7a",
+    "atomic_objective": "Mental Decimal Math",
+    "original_question_text": "Work out the value mentally: (48 × 0.5) / (0.04 × 3)",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Work out the numerator (48 × 0.5).",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "24",
+        "distractors": [],
+        "ai_hint": "Multiplying by 0.5 is exactly the same as finding half of the number."
+      },
+      {
+        "step_instruction": "Step 2: Now divide that result by the denominator (0.04 × 3).",
+        "input_type": "numpad_exact",
+        "time_limit": 35,
+        "correct_answer": "200",
+        "distractors": [],
+        "ai_hint": "The denominator is 0.12. So you have 24 ÷ 0.12. Multiply both by 100 to get 2400 ÷ 12."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_2_q1a",
+    "atomic_objective": "Powers of 10",
+    "original_question_text": "Calculate the value of: 13 × 10²",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "1300",
+        "distractors": [],
+        "ai_hint": "10² is 100. Multiply 13 by 100."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_2_q1h",
+    "atomic_objective": "Powers of 10",
+    "original_question_text": "Calculate the value of: 8 × 10⁻¹",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "0.8",
+        "distractors": [
+          "0.08",
+          "80",
+          "-80"
+        ],
+        "ai_hint": "Multiplying by 10⁻¹ is mathematically identical to dividing by 10."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_2_q1j",
+    "atomic_objective": "Powers of 10",
+    "original_question_text": "Calculate the value of: 4500 × 10⁻⁴",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "0.45",
+        "distractors": [
+          "4.5",
+          "0.045",
+          "45"
+        ],
+        "ai_hint": "Multiplying by 10⁻⁴ is the same as dividing by 10,000. Move the decimal point 4 places to the left."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_2_q2c",
+    "atomic_objective": "Powers of 10",
+    "original_question_text": "Calculate the value of: 36 ÷ 10²",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "0.36",
+        "distractors": [
+          "3.6",
+          "0.036",
+          "3600"
+        ],
+        "ai_hint": "Divide 36 by 100 by moving the hidden decimal point two places to the left."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_2_q2h",
+    "atomic_objective": "Powers of 10",
+    "original_question_text": "Calculate the value of: 0.25 ÷ 10⁻¹",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "2.5",
+        "distractors": [
+          "0.025",
+          "25",
+          "0.0025"
+        ],
+        "ai_hint": "Dividing by 10⁻¹ is the exact same operation as multiplying by 10."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_2_q2j",
+    "atomic_objective": "Powers of 10",
+    "original_question_text": "Calculate the value of: 4.76 ÷ 10⁻⁴",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "47600",
+        "distractors": [],
+        "ai_hint": "Dividing by 10⁻⁴ is the same as multiplying by 10,000. Move the decimal point 4 places to the right."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_2_q4a",
+    "atomic_objective": "Powers of 10",
+    "original_question_text": "Find the missing index in this equation: 800 ÷ 10ⁿ = 8",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer value for n.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "2",
+        "distractors": [],
+        "ai_hint": "You are dividing 800 by 100 to get 8. What power of 10 is equal to 100?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_3_q1a",
+    "atomic_objective": "Rounding Decimals",
+    "original_question_text": "Round 4.76 to 1 decimal place.",
+    "steps": [
+      {
+        "step_instruction": "Select the correctly rounded decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "4.8",
+        "distractors": [
+          "4.7",
+          "4.76",
+          "5.0"
+        ],
+        "ai_hint": "Look at the digit in the second decimal place (6). Because it is 5 or more, round the first decimal place up by 1."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_3_q1b",
+    "atomic_objective": "Rounding Decimals",
+    "original_question_text": "Round 8.792 to 2 decimal places.",
+    "steps": [
+      {
+        "step_instruction": "Select the correctly rounded decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "8.79",
+        "distractors": [
+          "8.80",
+          "8.792",
+          "8.78"
+        ],
+        "ai_hint": "The third decimal place is 2, which is less than 5. So, keep the second decimal place exactly as it is."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_3_q1f",
+    "atomic_objective": "Rounding Decimals",
+    "original_question_text": "Round 18.34987 to 3 decimal places.",
+    "steps": [
+      {
+        "step_instruction": "Select the correctly rounded decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "18.350",
+        "distractors": [
+          "18.349",
+          "18.35",
+          "18.340"
+        ],
+        "ai_hint": "The fourth decimal digit is 8, so you must round the 9 up. This turns the 49 into a 50! Remember to keep the zero at the end to show 3 decimal places."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_3_q3a",
+    "atomic_objective": "Significant Figures",
+    "original_question_text": "Round 135 to 1 significant figure.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact rounded integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "100",
+        "distractors": [],
+        "ai_hint": "The first significant figure is the 1 (in the hundreds column). Look at the next digit (3). Since it's less than 5, the 1 stays the same. Replace the rest with zeros."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_3_q3b",
+    "atomic_objective": "Significant Figures",
+    "original_question_text": "Round 45678 to 2 significant figures.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact rounded integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "46000",
+        "distractors": [],
+        "ai_hint": "The second significant figure is 5. The digit next to it is 6, so round the 5 up to 6. Fill the remaining places with zeros."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_3_q3e",
+    "atomic_objective": "Significant Figures",
+    "original_question_text": "Round 0.7872 to 2 significant figures.",
+    "steps": [
+      {
+        "step_instruction": "Select the correctly rounded decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "0.79",
+        "distractors": [
+          "0.78",
+          "0.80",
+          "0.787"
+        ],
+        "ai_hint": "Zeros at the start don't count! The first significant figure is 7, and the second is 8. Look at the next digit (7) to decide how to round."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_3_q4a",
+    "atomic_objective": "Significant Figures",
+    "original_question_text": "Round 2569 to 1 significant figure.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact rounded integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "3000",
+        "distractors": [],
+        "ai_hint": "The first non-zero digit is 2. The next digit is 5, so round up!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_3_q4b",
+    "atomic_objective": "Significant Figures",
+    "original_question_text": "Round 47.6821 to 3 significant figures.",
+    "steps": [
+      {
+        "step_instruction": "Select the correctly rounded decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "47.7",
+        "distractors": [
+          "47.6",
+          "47.682",
+          "48.0"
+        ],
+        "ai_hint": "The first three significant figures are 4, 7, and 6. The next digit is 8, so the 6 must be rounded up to 7."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_3_q6",
+    "atomic_objective": "Significant Figures",
+    "original_question_text": "At a football match there were 63,475 Barcelona supporters and 32,486 Arsenal supporters. How many supporters were there altogether? Give your answer correct to two significant figures.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Calculate the exact total number of supporters.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "95961",
+        "distractors": [],
+        "ai_hint": "Add 63,475 and 32,486 together."
+      },
+      {
+        "step_instruction": "Step 2: Round your total to 2 significant figures.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "96000",
+        "distractors": [],
+        "ai_hint": "The first two significant figures are 9 and 5. The next digit is 9, so you must round the 5 up to a 6."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_5_q9a",
+    "atomic_objective": "Estimating Calculations",
+    "original_question_text": "Estimate the answer to (0.238 × 576) / 39.76 by rounding each number to 1 significant figure first.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer estimate.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "3",
+        "distractors": [],
+        "ai_hint": "Round the numbers first: 0.238 becomes 0.2. 576 becomes 600. 39.76 becomes 40. Now calculate: (0.2 × 600) / 40."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_5_q9c",
+    "atomic_objective": "Estimating Calculations",
+    "original_question_text": "Estimate the answer to (2.764 × 84.695) / (9.687 - 4.19) by rounding each number to 1 significant figure first.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer estimate.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "40",
+        "distractors": [],
+        "ai_hint": "Round first: 2.764 → 3. 84.695 → 80. 9.687 → 10. 4.19 → 4. Now calculate the simplified fraction: (3 × 80) / (10 - 4)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_5_q9d",
+    "atomic_objective": "Estimating Calculations",
+    "original_question_text": "Estimate the answer to (58432 × 0.08) / (0.2 × 348) by rounding each number to 1 significant figure.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer estimate.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "80",
+        "distractors": [],
+        "ai_hint": "Round first: 58432 → 60000. 348 → 300. Now calculate: (60000 × 0.08) / (0.2 × 300). This simplifies to 4800 / 60."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_6_q1a",
+    "atomic_objective": "Order of Operations",
+    "original_question_text": "Work out the value using the correct order of operations: 8 + 3 × 4",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "20",
+        "distractors": [],
+        "ai_hint": "Remember BIDMAS. Multiplication comes before Addition! Calculate 3 × 4 first."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_6_q1d",
+    "atomic_objective": "Order of Operations",
+    "original_question_text": "Work out the value using the correct order of operations: 18 - 5 × 6",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "-12",
+        "distractors": [],
+        "ai_hint": "According to BIDMAS, multiply before you subtract. Calculate 5 × 6 first, then subtract that from 18."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_6_q1g",
+    "atomic_objective": "Order of Operations",
+    "original_question_text": "Work out the value using the correct order of operations: 8(12 - 9)",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "24",
+        "distractors": [],
+        "ai_hint": "BIDMAS says Brackets first! Work out 12 - 9. Then multiply that result by the 8 on the outside."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_6_q1_ex",
+    "atomic_objective": "Order of Operations",
+    "original_question_text": "Work out the value: (29 - 5²)³",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "64",
+        "distractors": [],
+        "ai_hint": "Work inside the brackets first. Inside the brackets, do the index first (5² = 25). Then subtract. Finally, cube your answer!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_6_q6a",
+    "atomic_objective": "Order of Operations",
+    "original_question_text": "Work out the value of the expression 3x + y² when x = 6 and y = 2.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "22",
+        "distractors": [],
+        "ai_hint": "Substitute the numbers in: 3(6) + 2². Calculate the multiplication and the index separately, then add them."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_6_q6d",
+    "atomic_objective": "Order of Operations",
+    "original_question_text": "Work out the value of the expression 2(3x - 6y)² when x = 6 and y = 2.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 40,
+        "correct_answer": "72",
+        "distractors": [],
+        "ai_hint": "Step 1: Brackets first. Inside the bracket, calculate 3(6) - 6(2) which gives you 18 - 12. Step 2: Square that result. Step 3: Multiply by the 2 on the outside."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_boss_q1",
+    "atomic_objective": "Place Value & Rounding Boss",
+    "original_question_text": "Work out the value mentally: 15 × 0.4",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "6",
+        "distractors": [],
+        "ai_hint": "Ignore the decimal and do 15 × 4. Then divide your answer by 10 to put the decimal place back."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_boss_q2",
+    "atomic_objective": "Place Value & Rounding Boss",
+    "original_question_text": "Work out the value mentally: 2.4 ÷ 0.03",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "80",
+        "distractors": [],
+        "ai_hint": "Multiply both numbers by 100 to clear the decimals completely. The calculation becomes 240 ÷ 3."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_boss_q3",
+    "atomic_objective": "Place Value & Rounding Boss",
+    "original_question_text": "Calculate the value of: 7.5 × 10⁻²",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "0.075",
+        "distractors": [
+          "0.75",
+          "750",
+          "0.0075"
+        ],
+        "ai_hint": "Multiplying by 10⁻² is the same as dividing by 100. Move the decimal point 2 places to the left."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_boss_q4",
+    "atomic_objective": "Place Value & Rounding Boss",
+    "original_question_text": "Calculate the value of: 0.076 ÷ 10⁻³",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "76",
+        "distractors": [],
+        "ai_hint": "Dividing by 10⁻³ is mathematically the same as multiplying by 10³. Move the decimal point 3 places to the right."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_boss_q5",
+    "atomic_objective": "Place Value & Rounding Boss",
+    "original_question_text": "Round the number 0.018831 to 1 significant figure.",
+    "steps": [
+      {
+        "step_instruction": "Select the correctly rounded decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 25,
+        "correct_answer": "0.02",
+        "distractors": [
+          "0.01",
+          "0.019",
+          "0.1"
+        ],
+        "ai_hint": "Leading zeros don't count! The first significant figure is the 1. The next digit is 8, so round the 1 up to a 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_boss_q6",
+    "atomic_objective": "Place Value & Rounding Boss",
+    "original_question_text": "Round the number 3893.009561 to 4 significant figures.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact rounded integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 35,
+        "correct_answer": "3893",
+        "distractors": [],
+        "ai_hint": "The first 4 significant figures are 3, 8, 9, and 3. The 5th significant figure is 0, so the 3 stays exactly the same."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_boss_q7",
+    "atomic_objective": "Place Value & Rounding Boss",
+    "original_question_text": "Work out the value using the correct order of operations: 40 - 30 ÷ 10",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "37",
+        "distractors": [],
+        "ai_hint": "BIDMAS! Division comes before subtraction. Work out 30 ÷ 10 first."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_3_boss_q8",
+    "atomic_objective": "Place Value & Rounding Boss",
+    "original_question_text": "Work out the value of the expression 10(x² - 6y)² when x = 5 and y = 3.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "490",
+        "distractors": [],
+        "ai_hint": "Step 1: Work inside the brackets first (25 - 18 = 7). Step 2: Square that result (7² = 49). Step 3: Multiply by 10."
+      }
+    ]
+  },
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  {
+    "question_id": "cam_y9_4_1_q1a",
+    "atomic_objective": "Measurement Problems",
+    "original_question_text": "A pink gold bracelet weighs 60 g. It is made from 76% gold, 18% copper and 6% aluminium. What is the mass of the gold in the bracelet?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct mass in grams.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "45.6",
+        "distractors": [
+          "45",
+          "42.6",
+          "46.5"
+        ],
+        "ai_hint": "Find 76% of 60g. You can do this by converting the percentage to a decimal (0.76) and multiplying it by 60."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_1_q1b",
+    "atomic_objective": "Measurement Problems",
+    "original_question_text": "A pink gold bracelet weighs 60 g. It is made from 76% gold, 18% copper and 6% aluminium. What is the mass of the copper in the bracelet?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct mass in grams.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "10.8",
+        "distractors": [
+          "1.8",
+          "11.8",
+          "18"
+        ],
+        "ai_hint": "Find 18% of 60g. Multiply 0.18 by 60."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_1_q5a",
+    "atomic_objective": "Measurement Problems",
+    "original_question_text": "Paolo is building a brick wall. So far, the wall has 5 layers of bricks. Each brick is 7.5 cm high. The layers of mortar between the bricks are 15 mm thick. Work out the total height of the wall in centimetres.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Convert the mortar thickness to centimetres.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "1.5",
+        "distractors": [
+          "0.15",
+          "150",
+          "15"
+        ],
+        "ai_hint": "There are 10 millimetres in a centimetre. Divide 15 by 10."
+      },
+      {
+        "step_instruction": "Step 2: Calculate the total height of the 5 bricks and 4 layers of mortar.",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "43.5",
+        "distractors": [
+          "45",
+          "42.5",
+          "37.5"
+        ],
+        "ai_hint": "5 bricks = 5 × 7.5. Since there are 5 bricks, there are only 4 layers of mortar *between* them (4 × 1.5). Add those two totals together."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_1_q6a",
+    "atomic_objective": "Measurement Problems",
+    "original_question_text": "Ismail orders some logs for his open fire. The mass of one log is 2 kg. There are 5 logs in each bag. Ismail orders 150 bags. What is the total mass of the logs Ismail orders, in tonnes?",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Calculate the total mass in kilograms.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "1500",
+        "distractors": [],
+        "ai_hint": "First find the mass of one bag (2kg × 5). Then multiply that by 150 bags."
+      },
+      {
+        "step_instruction": "Step 2: Convert your total from kilograms into tonnes.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "1.5",
+        "distractors": [
+          "15",
+          "0.15",
+          "150"
+        ],
+        "ai_hint": "There are 1000 kilograms in 1 tonne. Divide your previous answer by 1000."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_1_q7a",
+    "atomic_objective": "Measurement Problems",
+    "original_question_text": "Henri plans to sell cups of coffee. He has a hot water container that holds 16 litres. He needs about 200 ml of hot water for each cup of coffee. How many cups of coffee can he make from a full container of water?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 35,
+        "correct_answer": "80",
+        "distractors": [],
+        "ai_hint": "First, convert 16 litres to millilitres by multiplying by 1000 (16000 ml). Then divide that by 200 ml."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_1_q7c",
+    "atomic_objective": "Measurement Problems",
+    "original_question_text": "Henri charges $0.80 per cup of coffee. If he sells 250 cups of coffee, how much money will he make in dollars?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer amount in dollars.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "200",
+        "distractors": [],
+        "ai_hint": "Multiply 250 by 0.80. You can also think of this as finding 80% of 250."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_2_q1",
+    "atomic_objective": "Average Speed",
+    "original_question_text": "A cyclist travels a distance of 116 km in 4 hours. What is his average speed in km/h?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer speed.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "29",
+        "distractors": [],
+        "ai_hint": "Use the formula: Speed = Distance ÷ Time. Divide 116 by 4."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_2_q2",
+    "atomic_objective": "Distance and Time",
+    "original_question_text": "A motorist drives at an average speed of 80 km/h. How far does she travel in 3.5 hours?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer distance in kilometres.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "280",
+        "distractors": [],
+        "ai_hint": "Use the formula: Distance = Speed × Time. Multiply 80 by 3.5."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_2_q3",
+    "atomic_objective": "Distance and Time",
+    "original_question_text": "How long will it take Seb to run 4000 m at an average speed of 5 m/s?",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Calculate the total time in seconds.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "800",
+        "distractors": [],
+        "ai_hint": "Use the formula: Time = Distance ÷ Speed. Divide 4000 by 5."
+      },
+      {
+        "step_instruction": "Step 2: Convert your answer into minutes and seconds.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "13 minutes 20 seconds",
+        "distractors": [
+          "13 minutes 33 seconds",
+          "12 minutes 20 seconds",
+          "14 minutes"
+        ],
+        "ai_hint": "Divide 800 by 60 to find the full minutes. 13 × 60 = 780. How many seconds are left over?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_2_q4",
+    "atomic_objective": "Distance and Time",
+    "original_question_text": "Sundeep travels by train to Barcelona, which is 270 km away. The train travels at an average speed of 120 km/h.",
+    "steps": [
+      {
+        "step_instruction": "Calculate the time the journey takes in hours.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "2.25",
+        "distractors": [
+          "2.5",
+          "2.15",
+          "2.7"
+        ],
+        "ai_hint": "Time = Distance ÷ Speed. Divide 270 by 120."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_2_q5",
+    "atomic_objective": "Average Speed",
+    "original_question_text": "Steffan cycled 10 km in 45 minutes. He rested for 20 minutes then cycled a further 8 km in 40 minutes.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: What is the total distance travelled?",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "18",
+        "distractors": [],
+        "ai_hint": "Add the two distances together: 10 + 8."
+      },
+      {
+        "step_instruction": "Step 2: What is the total time taken in minutes (including the rest)?",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "105",
+        "distractors": [],
+        "ai_hint": "Add 45 + 20 + 40."
+      },
+      {
+        "step_instruction": "Step 3: Work out his average speed for the whole journey in km/h (to 1 d.p.).",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "10.3",
+        "distractors": [
+          "10.5",
+          "9.8",
+          "11.2"
+        ],
+        "ai_hint": "First, convert 105 minutes into hours (105 ÷ 60 = 1.75 hours). Then use Speed = Distance ÷ Time (18 ÷ 1.75)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_2_q6",
+    "atomic_objective": "Distance and Time",
+    "original_question_text": "Avani runs the first 8 km to work at a speed of 12 km/h. She walks the last 2 km at a speed of 5 km/h.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Calculate the time she spent running, in minutes.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "40",
+        "distractors": [],
+        "ai_hint": "Time = Distance ÷ Speed = 8/12 of an hour. Multiply by 60 to get minutes."
+      },
+      {
+        "step_instruction": "Step 2: Calculate the time she spent walking, in minutes.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "24",
+        "distractors": [],
+        "ai_hint": "Time = Distance ÷ Speed = 2/5 of an hour. Multiply by 60 to get minutes."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_4_q8",
+    "atomic_objective": "Speed Conversions",
+    "original_question_text": "A high-speed train travels at a maximum speed of 320 kilometres per hour (km/h). Work out the maximum speed of this train in metres per second (m/s). Give your answer to the nearest whole number.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Convert the distance from kilometres to metres.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "320000",
+        "distractors": [],
+        "ai_hint": "There are 1000 metres in a kilometre. Multiply 320 by 1000."
+      },
+      {
+        "step_instruction": "Step 2: Calculate the speed in metres per second to the nearest whole number.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "89",
+        "distractors": [],
+        "ai_hint": "There are 60 minutes in an hour, and 60 seconds in a minute (60 × 60 = 3600 seconds in an hour). Divide 320,000 by 3600 and round to the nearest integer."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_4_q9",
+    "atomic_objective": "Speed Conversions",
+    "original_question_text": "An aeroplane travels at a cruising speed of 570 miles per hour. Work out the cruising speed in metres per second (m/s). Use the conversion 1 mile = 1.6 km. Give your answer to the nearest whole number.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Convert the speed to kilometres per hour (km/h).",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "912",
+        "distractors": [],
+        "ai_hint": "Multiply 570 by 1.6."
+      },
+      {
+        "step_instruction": "Step 2: Convert the speed to metres per second to the nearest whole number.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "253",
+        "distractors": [],
+        "ai_hint": "First multiply 912 by 1000 to get metres per hour (912,000). Then divide by 3600 to find the metres per second. Round to the nearest whole number."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_5_q1",
+    "atomic_objective": "Compound Measures",
+    "original_question_text": "A train travels 420 km in 2 1/2 hours. Another train travels 530 km in 3 1/4 hours. Which train travels faster?",
+    "steps": [
+      {
+        "step_instruction": "Select the train that travels faster.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "The first train (420 km)",
+        "distractors": [
+          "The second train (530 km)",
+          "They travel at the same speed"
+        ],
+        "ai_hint": "Calculate the speed for both. First train = 420 ÷ 2.5. Second train = 530 ÷ 3.25. Compare the results!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_5_q4",
+    "atomic_objective": "Compound Measures",
+    "original_question_text": "A pack of 4 toilet rolls costs $2.28. A pack of 9 of the same toilet rolls costs $4.95. Which pack is the better value for money?",
+    "steps": [
+      {
+        "step_instruction": "Select the pack that is better value.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "The pack of 9",
+        "distractors": [
+          "The pack of 4",
+          "They are the exact same value"
+        ],
+        "ai_hint": "Find the price per roll for each. Pack of 4: 2.28 ÷ 4 = $0.57. Pack of 9: 4.95 ÷ 9 = $0.55. The cheaper price per roll is the better value!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_5_q6",
+    "atomic_objective": "Compound Measures",
+    "original_question_text": "A 500 g bag of rice costs $0.64. A 2 kg bag of the same rice costs $2.65. Which bag is better value for money?",
+    "steps": [
+      {
+        "step_instruction": "Select the bag that is better value.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "The 500 g bag",
+        "distractors": [
+          "The 2 kg bag",
+          "They are the exact same value"
+        ],
+        "ai_hint": "Make the weights equal to compare! There are four 500g bags in 2kg (4 × 500g = 2000g). So, 4 × $0.64 = $2.56. Buying four 500g bags is cheaper than buying one 2kg bag!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_5_q7",
+    "atomic_objective": "Compound Measures",
+    "original_question_text": "A 330 ml bottle of mineral water costs $0.42. A 1.5 litre bottle of the same water costs $1.65. Which bottle is better value for money?",
+    "steps": [
+      {
+        "step_instruction": "Select the bottle that is better value.",
+        "input_type": "multiple_choice",
+        "time_limit": 40,
+        "correct_answer": "The 1.5 litre bottle",
+        "distractors": [
+          "The 330 ml bottle",
+          "They are the exact same value"
+        ],
+        "ai_hint": "Convert 1.5 litres to millilitres (1500 ml). Then compare the cost per ml: 0.42 ÷ 330 vs 1.65 ÷ 1500. The smaller number is the better value!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_boss_q1",
+    "atomic_objective": "Measures & Speed Boss",
+    "original_question_text": "Dave wants to put a row of tiles in his kitchen. The row has to be 3 m long. Each tile is a square, with 25 cm sides. How many tiles does he need?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "12",
+        "distractors": [],
+        "ai_hint": "First, make the units match! Convert the 3 metre row into centimetres (300 cm). Then divide 300 by the width of one tile (25)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_boss_q2",
+    "atomic_objective": "Measures & Speed Boss",
+    "original_question_text": "Caroline is tiling her bathroom floor. The bathroom floor is a rectangle measuring 4.5 m by 2 m. Each tile is a square with 25 cm sides. How many tiles does Caroline need in total?",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Convert the room dimensions to centimetres and find the area.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "90000",
+        "distractors": [],
+        "ai_hint": "4.5 m = 450 cm. 2 m = 200 cm. Multiply them together to find the total area of the floor in square centimetres."
+      },
+      {
+        "step_instruction": "Step 2: Find the area of one tile and divide to get the total number of tiles.",
+        "input_type": "numpad_exact",
+        "time_limit": 35,
+        "correct_answer": "144",
+        "distractors": [],
+        "ai_hint": "One tile is 25 × 25 = 625 cm². Divide the total floor area (90,000) by 625."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_boss_q3",
+    "atomic_objective": "Measures & Speed Boss",
+    "original_question_text": "A long-distance runner travels a distance of 108 km in 8 hours. What is his average speed in km/h?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct average speed.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "13.5",
+        "distractors": [
+          "12.5",
+          "14.5",
+          "13"
+        ],
+        "ai_hint": "Use the formula: Speed = Distance ÷ Time. Divide 108 by 8."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_boss_q4",
+    "atomic_objective": "Measures & Speed Boss",
+    "original_question_text": "Umi walked 8 km in 45 minutes. She rested for 15 minutes then walked a further 6 km in 30 minutes. Work out her average speed for the whole journey in km/h. Give your answer correct to 1 decimal place.",
+    "steps": [
+      {
+        "step_instruction": "Select the correct average speed.",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "9.3",
+        "distractors": [
+          "10.5",
+          "9.8",
+          "11.2"
+        ],
+        "ai_hint": "Total distance = 14 km. Total time = 45 + 15 + 30 = 90 minutes. 90 minutes is exactly 1.5 hours. Divide 14 by 1.5."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_4_boss_q5",
+    "atomic_objective": "Measures & Speed Boss",
+    "original_question_text": "The legal maximum speed on UK motorways is 70 miles per hour. Work out this speed in metres per second (m/s). Use 1 mile = 1.6 km. Give your answer to the nearest whole number.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer speed in m/s.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "31",
+        "distractors": [],
+        "ai_hint": "Convert miles to km: 70 × 1.6 = 112 km/h. Convert to metres: 112,000 metres per hour. Divide by 3600 (seconds in an hour) and round!"
+      }
+    ]
+  },
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  {
+    "question_id": "cam_y9_5_1_q2a",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "Work out the exterior angle of a regular hexagon.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "60",
+        "distractors": [],
+        "ai_hint": "A hexagon has 6 sides. The sum of the exterior angles of any polygon is always 360°. Divide 360 by 6."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q2b",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "Work out the interior angle of a regular hexagon.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "120",
+        "distractors": [],
+        "ai_hint": "The interior and exterior angles on a straight line add up to 180°. If the exterior angle is 60°, what is the interior angle?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q4",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "A regular polygon has an interior angle of 144°. Work out the exterior angle, then calculate the number of sides.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Work out the exterior angle.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "36",
+        "distractors": [],
+        "ai_hint": "Subtract the interior angle from 180° to find the exterior angle."
+      },
+      {
+        "step_instruction": "Step 2: How many sides does the polygon have?",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "10",
+        "distractors": [],
+        "ai_hint": "The sum of all exterior angles is 360°. Divide 360 by the size of one exterior angle (36) to find the number of sides."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q12b",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "How many sides does a regular polygon have if it has an interior angle of 178°?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer number of sides.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "180",
+        "distractors": [],
+        "ai_hint": "First, find the exterior angle (180 - 178 = 2°). Then, divide 360° by that exterior angle."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_2_q1c",
+    "atomic_objective": "Polygon Angle Sums",
+    "original_question_text": "Work out the sum of the interior angles of a decagon (10 sides).",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer sum in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "1440",
+        "distractors": [],
+        "ai_hint": "Use the formula: Sum = (N - 2) × 180°, where N is the number of sides. Calculate (10 - 2) × 180."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_2_q2a",
+    "atomic_objective": "Polygon Angle Sums",
+    "original_question_text": "Five of the interior angles of a hexagon are 90°, 100°, 110°, 120° and 130°. Work out the other interior angle of the hexagon.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 35,
+        "correct_answer": "170",
+        "distractors": [],
+        "ai_hint": "First, find the total sum for a 6-sided hexagon: (6-2) × 180 = 720°. Then, add up the five given angles and subtract them from 720."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_2_q6",
+    "atomic_objective": "Polygon Angle Sums",
+    "original_question_text": "The interior angles of a polygon add up to 1800°. How many sides does it have?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer number of sides.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "12",
+        "distractors": [],
+        "ai_hint": "Use the formula backwards: (N - 2) × 180 = 1800. Divide 1800 by 180, then add 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_2_q7a",
+    "atomic_objective": "Polygon Angle Sums",
+    "original_question_text": "Four of the interior angles of a pentagon are 105°. Work out the fifth angle.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "120",
+        "distractors": [],
+        "ai_hint": "A pentagon has 5 sides, so the total angle sum is (5-2) × 180 = 540°. Multiply 105 by 4, then subtract that from 540."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_3_q2",
+    "atomic_objective": "Complex Angle Problems",
+    "original_question_text": "Two straight lines cross at point Q, forming two intersecting triangles: Triangle PQT and Triangle RQS. In Triangle PQT, the other two angles are 68° and 54°. Work out the value of the intersecting angle 'c' at point Q, and then find angle 'd' if the third angle in Triangle RQS is 86°.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Calculate the intersecting angle 'c'.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "58",
+        "distractors": [],
+        "ai_hint": "Angles in a triangle add up to 180°. Subtract 68° and 54° from 180° to find the angle at Q. The vertically opposite angle 'c' will be exactly the same!"
+      },
+      {
+        "step_instruction": "Step 2: Calculate the missing angle 'd'.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "36",
+        "distractors": [],
+        "ai_hint": "Now look at the second triangle (RQS). You know two of its angles: 86° and your answer for 'c' (58°). Subtract them from 180° to find 'd'."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_3_q7",
+    "atomic_objective": "Complex Angle Problems",
+    "original_question_text": "A regular hexagon and a regular pentagon are placed next to each other so they share a common edge. They meet at a center point. Work out the size of the gap angle 'a' between them at that point.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Work out the interior angle of the regular hexagon.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "120",
+        "distractors": [],
+        "ai_hint": "A hexagon has 6 sides. The exterior angle is 360 ÷ 6 = 60°. Subtract that from 180°."
+      },
+      {
+        "step_instruction": "Step 2: Work out the interior angle of the regular pentagon.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "108",
+        "distractors": [],
+        "ai_hint": "A pentagon has 5 sides. The exterior angle is 360 ÷ 5 = 72°. Subtract that from 180°."
+      },
+      {
+        "step_instruction": "Step 3: Calculate the gap angle 'a'.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "132",
+        "distractors": [],
+        "ai_hint": "Angles around a full point add up to 360°. Subtract the hexagon's angle (120°) and the pentagon's angle (108°) from 360°."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_3_we",
+    "atomic_objective": "Complex Angle Problems",
+    "original_question_text": "In a pentagon, four of the interior angles are 120°, 130°, 80° and 100°. Work out the size of the fifth angle 'd'.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 40,
+        "correct_answer": "110",
+        "distractors": [],
+        "ai_hint": "First, find the total sum of angles for a pentagon using (5 - 2) × 180. Then, add up the four given angles and subtract them from that total."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_3_q1_adapted",
+    "atomic_objective": "Complex Angle Problems",
+    "original_question_text": "In triangle ABC, a line DE is drawn parallel to the base BC. Angle ADE is 40° and the top Angle A is 35°. Work out the size of Angle AED.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "105",
+        "distractors": [],
+        "ai_hint": "Focus on the small top triangle ADE. You have two angles (35° and 40°). Subtract them from 180° to find the third angle."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_4_q7a",
+    "atomic_objective": "Isometric Dimensions",
+    "original_question_text": "A right-angled triangular prism is drawn on isometric paper. The triangular face has a base of 3 units and a vertical height of 4 units. The length of the prism is 5 units. What are the dimensions of the rectangular face on the bottom of the prism?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct dimensions.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "3 units by 5 units",
+        "distractors": [
+          "4 units by 5 units",
+          "3 units by 4 units",
+          "5 units by 5 units"
+        ],
+        "ai_hint": "The 'bottom' face rests on the ground. It is formed by the base of the triangle (3 units) and the length of the prism (5 units)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_4_logic",
+    "atomic_objective": "Isometric Dimensions",
+    "original_question_text": "A cuboid is drawn on an isometric grid. It is 4 units long, 3 units wide, and 2 units high. If each unit on the isometric grid represents exactly 2 cm in real life, what is the actual length of the longest edge in centimetres?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in cm.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "8",
+        "distractors": [],
+        "ai_hint": "The longest edge is 4 units long on the grid. Multiply this by the scale factor (2 cm per unit)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_5_logic1",
+    "atomic_objective": "Plans & Elevations",
+    "original_question_text": "Imagine a 3D shape made from joining identical solid cubes together. You look at its plan view (from directly above) and see exactly 5 squares. What is the absolute minimum number of cubes that could have been used to build this shape?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "5",
+        "distractors": [],
+        "ai_hint": "Each square in the plan view must represent at least one cube resting on the ground. If there are no hidden cubes stacked on top, the minimum is just the footprint!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_5_logic2",
+    "atomic_objective": "Plans & Elevations",
+    "original_question_text": "A solid 3D mathematical object has a plan view (top view) that is a perfect circle. Its front elevation and side elevation are both identical rectangles. What is the mathematical name of this 3D shape?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct shape.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "Cylinder",
+        "distractors": [
+          "Sphere",
+          "Cone",
+          "Cuboid"
+        ],
+        "ai_hint": "A sphere looks like a circle from every angle. A cone has a triangle for a front elevation. Only a cylinder looks like a circle from the top and a rectangle from the side."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_6_q4",
+    "atomic_objective": "3D Symmetry",
+    "original_question_text": "Think about a standard cube. How many different planes of symmetry can pass straight through four of its edges, but NOT through any of its vertices (corners)?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "3",
+        "distractors": [],
+        "ai_hint": "These planes slice the cube exactly in half, parallel to its faces. Since a cube has 3 pairs of opposite parallel faces (top/bottom, left/right, front/back), there are 3 such planes."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_6_q5",
+    "atomic_objective": "3D Symmetry",
+    "original_question_text": "Think about a solid cylinder. How many planes of symmetry does a cylinder have that pass directly through both of its circular ends?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct number of planes.",
+        "input_type": "multiple_choice",
+        "time_limit": 20,
+        "correct_answer": "Infinite",
+        "distractors": [
+          "0",
+          "1",
+          "2"
+        ],
+        "ai_hint": "Think of cutting a round cake vertically from the top straight down. Because the top is a circle, you can rotate the knife to any angle and still cut it perfectly in half!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_boss_q1",
+    "atomic_objective": "Geometry & Shapes Boss",
+    "original_question_text": "A regular polygon has exactly 15 sides.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Work out the exterior angle.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "24",
+        "distractors": [],
+        "ai_hint": "The sum of the exterior angles of any regular polygon is 360°. Divide 360 by 15."
+      },
+      {
+        "step_instruction": "Step 2: Work out the interior angle.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "156",
+        "distractors": [],
+        "ai_hint": "The interior and exterior angles always add up to 180°. Subtract your previous answer from 180."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_boss_q2",
+    "atomic_objective": "Geometry & Shapes Boss",
+    "original_question_text": "Think of a regular nonagon (9 sides) with a center point O. If you draw lines from O to two adjacent corners, it creates an isosceles triangle.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Work out the size of the angle at the center (O) of the triangle.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "40",
+        "distractors": [],
+        "ai_hint": "A full circle around the center is 360°. Since it is a nonagon, divide 360 by 9."
+      },
+      {
+        "step_instruction": "Step 2: Calculate the size of the two equal base angles inside that triangle.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "70",
+        "distractors": [],
+        "ai_hint": "The angles in a triangle add up to 180°. Subtract the center angle (40°) from 180°, and then divide by 2 because it is an isosceles triangle."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_boss_q3",
+    "atomic_objective": "Geometry & Shapes Boss",
+    "original_question_text": "The five interior angles of a pentagon are a°, (a + 10)°, (a + 20)°, (a + 30)°, and (a + 40)°. Work out the size of the largest angle.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Find the value of 'a'.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "88",
+        "distractors": [],
+        "ai_hint": "First, find the total sum of a pentagon's angles: (5-2) × 180 = 540°. Then set up the equation: 5a + 100 = 540."
+      },
+      {
+        "step_instruction": "Step 2: Calculate the largest angle.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "128",
+        "distractors": [],
+        "ai_hint": "The largest angle is (a + 40). Add 40 to your value of 'a'."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_boss_q6_adapted",
+    "atomic_objective": "Geometry & Shapes Boss",
+    "original_question_text": "A solid cuboid has dimensions of 1 cm, 4 cm, and 6 cm. If you were to trace every single edge of this cuboid on a grid, what would be the total combined length of all its edges?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in cm.",
+        "input_type": "numpad_exact",
+        "time_limit": 35,
+        "correct_answer": "44",
+        "distractors": [],
+        "ai_hint": "A cuboid has 12 edges in total: 4 edges of length 1 cm, 4 edges of length 4 cm, and 4 edges of length 6 cm. Add them all together!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_boss_symmetry",
+    "atomic_objective": "Geometry & Shapes Boss",
+    "original_question_text": "Imagine a 3D square-based pyramid (like the famous pyramids in Egypt). How many total planes of symmetry does this shape have?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "4",
+        "distractors": [],
+        "ai_hint": "You can cut straight down through the center horizontally, straight down vertically, and straight down diagonally through each set of opposite corners."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_boss_q4",
+    "atomic_objective": "Geometry & Shapes Boss",
+    "original_question_text": "In a geometry diagram, triangle ABD is drawn with a line EC cutting through it. The line AB is perfectly parallel to the line EC. If the alternate interior angle to 'a' is exactly 46°, and the corresponding angle to 'b' is 28°, work out the values of a and b.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Type the exact integer value for angle a.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "46",
+        "distractors": [],
+        "ai_hint": "Because the lines AB and EC are parallel, alternate interior angles are equal!"
+      },
+      {
+        "step_instruction": "Step 2: Type the exact integer value for angle b.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "28",
+        "distractors": [],
+        "ai_hint": "Because the lines are parallel, corresponding angles are also equal. Angle b is exactly the same as its corresponding angle."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_boss_q5",
+    "atomic_objective": "Geometry & Shapes Boss",
+    "original_question_text": "Look at the large triangle PRT. Inside it, a smaller triangle is formed. You are given that Angle P is 87° and Angle R is 33°. Work out the value of the final corner, Angle T (labeled as 'd').",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "60",
+        "distractors": [],
+        "ai_hint": "Look at the big picture! The angles of the main, large triangle PRT must add up to exactly 180°. Subtract 87° and 33° from 180°."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_boss_q7_adapted",
+    "atomic_objective": "Geometry & Shapes Boss",
+    "original_question_text": "An isometric drawing shows a 3D object made of solid cubes. When you draw the 'Plan view' (looking perfectly straight down from above), you draw exactly 7 squares. If no cubes are hidden or stacked on top of each other, how many cubes were used to build this shape?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "7",
+        "distractors": [],
+        "ai_hint": "The plan view shows the 'footprint' of the shape on the ground. If there are no stacked cubes, each square in the plan view represents exactly one cube."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_boss_q5_part2",
+    "atomic_objective": "Geometry & Shapes Boss",
+    "original_question_text": "Look at the large triangle PRT again. You already found Angle T. Now look at the internal triangle with Angle Q (labeled 'c'). The angles inside the smaller right-side section are 105° and 33°. Work out the value of Angle 'c'.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "42",
+        "distractors": [],
+        "ai_hint": "Angles on a straight line add up to 180°. First find the internal angle next to 105° (180 - 105 = 75°). Then use the triangle rule (180 - 75 - 33) to find 'c'."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_3_q4",
+    "atomic_objective": "Complex Angle Problems",
+    "original_question_text": "O is the exact center of a circle. The line AB is a straight diameter cutting across it. A triangle AOC is drawn inside, and the angle at the center (Angle AOC) is 54°. Work out the size of Angle 'a' (Angle OAC).",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer for angle 'a'.",
+        "input_type": "numpad_exact",
+        "time_limit": 35,
+        "correct_answer": "63",
+        "distractors": [],
+        "ai_hint": "Lines OA and OC are both radiuses of the circle, which means they are exactly the same length! This makes triangle AOC an isosceles triangle. Subtract 54° from 180° and divide by 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_3_q6_adapted",
+    "atomic_objective": "Complex Angle Problems",
+    "original_question_text": "QRST is a parallelogram. A straight line runs along the top from P to R. Inside the parallelogram, two angles are given at the bottom: 73° and 46°. Work out the value of the top exterior angle 'x' (Angle PQT).",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer for angle 'x'.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "73",
+        "distractors": [],
+        "ai_hint": "Look for alternate angles! The top line (PR) is perfectly parallel to the bottom line (TS). Therefore, the angle 'x' and the interior angle 73° form a 'Z' shape and are equal."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_3_q8",
+    "atomic_objective": "Complex Angle Problems",
+    "original_question_text": "A shape is a kite. Its four interior angles are labeled algebraically: a°, 2a°, a°, and a°. Work out the exact value of angle 'a'.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "72",
+        "distractors": [],
+        "ai_hint": "A kite is a quadrilateral, so its four angles must add up to 360°. Add up your 'a's to get 5a. Then solve: 5a = 360."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_2_q4_adapted",
+    "atomic_objective": "Polygon Angle Sums",
+    "original_question_text": "Xavier has a rectangular piece of card. He cuts off all four of its corners. What do the interior angles of his new remaining shape add up to?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 35,
+        "correct_answer": "1080",
+        "distractors": [],
+        "ai_hint": "Think about the shape! A rectangle has 4 sides. Cutting off each corner adds 1 extra side. 4 corners cut = 8 sides total (an octagon). Use the formula (8 - 2) × 180."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q3",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "Work out the exterior and interior angles of a regular octagon (8 sides).",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Type the exact integer for the exterior angle.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "45",
+        "distractors": [],
+        "ai_hint": "Divide 360° by the number of sides (8)."
+      },
+      {
+        "step_instruction": "Step 2: Type the exact integer for the interior angle.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "135",
+        "distractors": [],
+        "ai_hint": "Subtract the exterior angle from 180°."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q5",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "A regular polygon has an interior angle of 150°. How many sides does it have?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer number of sides.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "12",
+        "distractors": [],
+        "ai_hint": "First, find the exterior angle (180 - 150 = 30°). Then divide 360 by 30."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q8",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "Three identical regular polygons are put together at one point. There is a gap of 36° left over. What is the name of the polygon?",
+    "steps": [
+      {
+        "step_instruction": "Select the correct polygon.",
+        "input_type": "multiple_choice",
+        "time_limit": 45,
+        "correct_answer": "Pentagon",
+        "distractors": [
+          "Hexagon",
+          "Octagon",
+          "Square"
+        ],
+        "ai_hint": "Angles around a point add up to 360°. Subtract the 36° gap first (324°). Divide that by 3 to find the interior angle of one shape (108°). Which shape has an interior angle of 108°?"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q9",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "Three regular polygons fit together perfectly at one point without a gap. One is a square and one is a hexagon. How many sides does the third shape have?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer number of sides.",
+        "input_type": "numpad_exact",
+        "time_limit": 45,
+        "correct_answer": "12",
+        "distractors": [],
+        "ai_hint": "A square's angle is 90°. A regular hexagon's angle is 120°. Subtract both from 360° to find the interior angle of the third shape. Then use that to find its sides!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q11",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "A heptagon has seven sides. How large is each interior angle of a regular heptagon? (Round to 2 decimal places).",
+    "steps": [
+      {
+        "step_instruction": "Select the correct decimal.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "128.57",
+        "distractors": [
+          "128.50",
+          "129.14",
+          "128.00"
+        ],
+        "ai_hint": "Use the formula: (7 - 2) × 180 to find the total sum. Then divide that total by 7."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q12a",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "How many sides does a regular polygon have if it has an exterior angle of 5°?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "72",
+        "distractors": [],
+        "ai_hint": "Divide 360 by 5."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_2_q1ab",
+    "atomic_objective": "Polygon Angle Sums",
+    "original_question_text": "Work out the sum of the interior angles of a heptagon (7 sides) and a nonagon (9 sides).",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Type the exact integer sum for the heptagon.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "900",
+        "distractors": [],
+        "ai_hint": "(7 - 2) × 180"
+      },
+      {
+        "step_instruction": "Step 2: Type the exact integer sum for the nonagon.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "1260",
+        "distractors": [],
+        "ai_hint": "(9 - 2) × 180"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_2_q3",
+    "atomic_objective": "Polygon Angle Sums",
+    "original_question_text": "Four of the interior angles of a hexagon are 128°. The other two angles are equal. How large are the other two angles?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 35,
+        "correct_answer": "104",
+        "distractors": [],
+        "ai_hint": "The sum of a hexagon's angles is 720°. Subtract the four 128° angles (4 × 128) from 720, then divide the remainder by 2."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q1",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "Write down the usual name for a regular quadrilateral, and state its interior angle.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: Select the correct name.",
+        "input_type": "multiple_choice",
+        "time_limit": 15,
+        "correct_answer": "Square",
+        "distractors": [
+          "Rectangle",
+          "Rhombus",
+          "Kite"
+        ],
+        "ai_hint": "A regular polygon must have all equal sides AND all equal angles."
+      },
+      {
+        "step_instruction": "Step 2: Type the exact integer for its interior angle.",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "90",
+        "distractors": [],
+        "ai_hint": "A full circle is 360°. Divide that by 4 sides to get the exterior angle, then subtract from 180°."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q6",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "A diagram shows the exterior angle of a regular polygon is exactly 18°. How many sides does the polygon have?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "20",
+        "distractors": [],
+        "ai_hint": "The sum of all exterior angles is 360°. Divide 360 by 18."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_1_q7",
+    "atomic_objective": "Regular Polygons",
+    "original_question_text": "A diagram shows the interior angle of a regular polygon is exactly 168°. How many sides does the polygon have?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "30",
+        "distractors": [],
+        "ai_hint": "First, find the exterior angle by subtracting 168 from 180 (which is 12°). Then divide 360 by 12."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_2_q5",
+    "atomic_objective": "Polygon Angle Sums",
+    "original_question_text": "Alicia says, 'The angles of this pentagon are 100°, 105°, 72°, 126° and 127°.' Prove whether she is right or wrong by adding them up.",
+    "steps": [
+      {
+        "step_instruction": "Step 1: What do Alicia's angles add up to?",
+        "input_type": "numpad_exact",
+        "time_limit": 25,
+        "correct_answer": "530",
+        "distractors": [],
+        "ai_hint": "Add 100 + 105 + 72 + 126 + 127."
+      },
+      {
+        "step_instruction": "Step 2: What SHOULD the angles of a pentagon add up to?",
+        "input_type": "numpad_exact",
+        "time_limit": 15,
+        "correct_answer": "540",
+        "distractors": [],
+        "ai_hint": "Use the formula: (5 - 2) × 180°."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_2_q7b",
+    "atomic_objective": "Polygon Angle Sums",
+    "original_question_text": "Can a pentagon have exactly four right angles?",
+    "steps": [
+      {
+        "step_instruction": "Select whether this is possible or impossible.",
+        "input_type": "multiple_choice",
+        "time_limit": 30,
+        "correct_answer": "Impossible",
+        "distractors": [
+          "Possible"
+        ],
+        "ai_hint": "A pentagon's angles add up to 540°. Four right angles equal 360°. That leaves 180° for the fifth angle, which would form a straight line, not a corner!"
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_3_q3",
+    "atomic_objective": "Complex Angle Problems",
+    "original_question_text": "ABCD is a perfect square. DEF is an equilateral triangle attached to the side of it. Work out the size of the gap angle 'd' created between the square and the triangle.",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer in degrees.",
+        "input_type": "numpad_exact",
+        "time_limit": 30,
+        "correct_answer": "150",
+        "distractors": [],
+        "ai_hint": "The corner of a square is 90°. The corner of an equilateral triangle is 60°. Add them together (150°)."
+      }
+    ]
+  },
+  {
+    "question_id": "cam_y9_5_3_q10",
+    "atomic_objective": "Complex Angle Problems",
+    "original_question_text": "ABCD is a trapezium where the top side AB and bottom side DC are parallel. Look at the interior angles on the left side (a and d). What do angle 'a' and angle 'd' add up to?",
+    "steps": [
+      {
+        "step_instruction": "Type the exact integer.",
+        "input_type": "numpad_exact",
+        "time_limit": 20,
+        "correct_answer": "180",
+        "distractors": [],
+        "ai_hint": "Because the top and bottom lines are parallel, angles 'a' and 'd' are consecutive interior angles (co-interior). They always add up to 180°."
+      }
+    ]
+  }
+]

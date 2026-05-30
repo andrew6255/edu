@@ -1,0 +1,479 @@
+{
+"chapter_id": "CH2",
+"title": "Sequences, expressions and formulae",
+"created_at": "2025-05-15T10:00:00Z",
+"source": {
+"pdf_name": "cambridge_checkpoint_maths_8.pdf",
+"page_range": [
+19,
+30
+]
+},
+"rendering": {
+"math_format": {
+"raw_text": true,
+"latex": true
+}
+},
+"atomic_scrolls": [
+{
+"scroll_id": "CH2_SCROLL_worked_example_2_1",
+"title": "Worked example 2.1",
+"content": {
+"raw_text": "a The first term of a sequence is 4. The term-to-term rule of the sequence is 'subtract 3'. Write down the first three terms of the sequence. b The position-to-term rule of a sequence is: term = 4 x position number + 1. Work out the first three terms of the sequence.",
+"latex": "\textbf{a} \text{ The first term of a sequence is 4. The term-to-term rule of the sequence is 'subtract 3'. Write down the first three terms of the sequence.} \\ \textbf{b} \text{ The position-to-term rule of a sequence is: term } = 4 \times \text{ position number } + 1. \text{ Work out the first three terms of the sequence.}"
+},
+"source_refs": [
+{
+"page": 19,
+"kind": "text",
+"note": "Example showing term-to-term and position-to-term rules."
+}
+]
+}
+],
+"regions": [
+{
+"region_id": "CH2_SEC_A",
+"section_label": "2.1",
+"section_title": "Generating sequences",
+"theme_name": null,
+"source_refs": [
+{
+"page": 19,
+"kind": "text",
+"note": "Start of section 2.1"
+},
+{
+"page": 20,
+"kind": "text",
+"note": "Continuation of section 2.1"
+}
+]
+},
+{
+"region_id": "CH2_SEC_B",
+"section_label": null,
+"section_title": "End-of-unit review",
+"theme_name": "Review",
+"source_refs": [
+{
+"page": 30,
+"kind": "text",
+"note": "Unit 2 review questions"
+}
+]
+}
+],
+"nodes": [
+{
+"node_id": "CH2_EX_2_1",
+"node_type": "exercise",
+"title": "Exercise 2.1",
+"source_refs": [
+{
+"page": 19,
+"kind": "text",
+"note": "Questions 1-2"
+},
+{
+"page": 20,
+"kind": "text",
+"note": "Questions 3-10"
+}
+],
+"questions": [
+{
+"question_id": "Q1",
+"text": {
+"raw_text": "Write down the first three terms of each sequence.",
+"latex": "\text{Write down the first three terms of each sequence.}"
+},
+"parts": [
+{
+"part_id": "a",
+"text": {
+"raw_text": "first term: 1, term-to-term rule: 'add 5'",
+"latex": "\text{first term: 1, term-to-term rule: 'add 5'}"
+}
+},
+{
+"part_id": "b",
+"text": {
+"raw_text": "first term: 20, term-to-term rule: 'subtract 4'",
+"latex": "\text{first term: 20, term-to-term rule: 'subtract 4'}"
+}
+},
+{
+"part_id": "c",
+"text": {
+"raw_text": "first term: 2, term-to-term rule: 'add 12'",
+"latex": "\text{first term: 2, term-to-term rule: 'add 12'}"
+}
+},
+{
+"part_id": "d",
+"text": {
+"raw_text": "first term: 6, term-to-term rule: 'subtract 5'",
+"latex": "\text{first term: 6, term-to-term rule: 'subtract 5'}"
+}
+},
+{
+"part_id": "e",
+"text": {
+"raw_text": "first term: -5, term-to-term rule: 'add 2'",
+"latex": "\text{first term: -5, term-to-term rule: 'add 2'}"
+}
+},
+{
+"part_id": "f",
+"text": {
+"raw_text": "first term: -3, term-to-term rule: 'subtract 6'",
+"latex": "\text{first term: -3, term-to-term rule: 'subtract 6'}"
+}
+}
+]
+},
+{
+"question_id": "Q2",
+"text": {
+"raw_text": "The first term of a sequence is 15. The term-to-term rule is add 7. What is the fifth term of the sequence? Explain how you worked out your answer.",
+"latex": "\text{The first term of a sequence is 15. The term-to-term rule is add 7. What is the fifth term of the sequence? Explain how you worked out your answer.}"
+}
+},
+{
+"question_id": "Q3",
+"text": {
+"raw_text": "This is part of Zalika’s homework. a Is Zalika’s answer correct? b Explain how her method works. c The first term of a sequence is 5. The term-to-term rule is ‘add 8’. Use Zalika’s method to work out: i the 10th term ii the 20th term iii the 50th term of the sequence.",
+"latex": "\text{This is part of Zalika’s homework.} \\ \textbf{a} \text{ Is Zalika’s answer correct?} \\ \textbf{b} \text{ Explain how her method works.} \\ \textbf{c} \text{ The first term of a sequence is 5. The term-to-term rule is ‘add 8’. Use Zalika’s method to work out: } \\ \textbf{i} \text{ the 10th term } \textbf{ii} \text{ the 20th term } \textbf{iii} \text{ the 50th term of the sequence.}"
+}
+},
+{
+"question_id": "Q4",
+"text": {
+"raw_text": "Ahmad is trying to solve this problem: 'The fourth term of a sequence is 39. The term-to-term rule is ‘add 7’. Work out the first term of the sequence.' Work out the answer to the problem. Explain how you solved the problem.",
+"latex": "\text{Ahmad is trying to solve this problem: 'The fourth term of a sequence is 39. The term-to-term rule is ‘add 7’. Work out the first term of the sequence.' Work out the answer to the problem. Explain how you solved the problem.}"
+}
+},
+{
+"question_id": "Q5",
+"text": {
+"raw_text": "Mia is trying to solve this problem: 'The 12th term of a sequence is 16. The term-to-term rule is ‘subtract 3’. Work out the third term of the sequence.' Work out the answer to the problem. Explain how you solved the problem.",
+"latex": "\text{Mia is trying to solve this problem: 'The 12th term of a sequence is 16. The term-to-term rule is ‘subtract 3’. Work out the third term of the sequence.' Work out the answer to the problem. Explain how you solved the problem.}"
+}
+},
+{
+"question_id": "Q6",
+"text": {
+"raw_text": "The table shows two of the terms in a sequence. Position-to-term rule: term = position number + 7. Copy the table. Use the position-to-term rule to work out the missing numbers. (Table: Pos 1, 2, 3, 4, 5, 10, 20 | Term: null, 9, null, null, null, 17, null)",
+"latex": "\text{The table shows two of the terms in a sequence. Position-to-term rule: term } = \text{ position number } + 7. \text{ Copy the table. Use the position-to-term rule to work out the missing numbers.}"
+}
+},
+{
+"question_id": "Q7",
+"text": {
+"raw_text": "Use the position-to-term rule to work out the first four terms of each sequence.",
+"latex": "\text{Use the position-to-term rule to work out the first four terms of each sequence.}"
+},
+"parts": [
+{
+"part_id": "a",
+"text": {
+"raw_text": "term = 6 x position number",
+"latex": "\text{term } = 6 \times \text{ position number}"
+}
+},
+{
+"part_id": "b",
+"text": {
+"raw_text": "term = position number - 4",
+"latex": "\text{term } = \text{ position number } - 4"
+}
+},
+{
+"part_id": "c",
+"text": {
+"raw_text": "term = 2 x position number + 1",
+"latex": "\text{term } = 2 \times \text{ position number } + 1"
+}
+},
+{
+"part_id": "d",
+"text": {
+"raw_text": "term = 3 x position number - 1",
+"latex": "\text{term } = 3 \times \text{ position number } - 1"
+}
+}
+]
+},
+{
+"question_id": "Q8",
+"text": {
+"raw_text": "Use the position-to-term rules to work out: i the 10th term, ii the 20th term, iii the 100th term of each sequence.",
+"latex": "\text{Use the position-to-term rules to work out: i the 10th term, ii the 20th term, iii the 100th term of each sequence.}"
+},
+"parts": [
+{
+"part_id": "a",
+"text": {
+"raw_text": "term = position number + 5",
+"latex": "\text{term } = \text{ position number } + 5"
+}
+},
+{
+"part_id": "b",
+"text": {
+"raw_text": "term = 2 x position number",
+"latex": "\text{term } = 2 \times \text{ position number}"
+}
+},
+{
+"part_id": "c",
+"text": {
+"raw_text": "term = 4 x position number + 8",
+"latex": "\text{term } = 4 \times \text{ position number } + 8"
+}
+},
+{
+"part_id": "d",
+"text": {
+"raw_text": "term = 5 x position number - 25",
+"latex": "\text{term } = 5 \times \text{ position number } - 25"
+}
+}
+]
+},
+{
+"question_id": "Q9",
+"text": {
+"raw_text": "The fourth term of a sequence is 11. The seventh term of the sequence is 20. Which of these position-to-term rules is the correct one for the sequence? A term = position number + 7; B term = 2 x position number + 3; C term = 3 x position number - 1; D term = 4 x position number - 5. Show how you worked out your answer.",
+"latex": "\text{The fourth term of a sequence is 11. The seventh term of the sequence is 20. Which of these position-to-term rules is the correct one for the sequence? } \\ \textbf{A} \text{ term } = \text{ position number } + 7; \\ \textbf{B} \text{ term } = 2 \times \text{ position number } + 3; \\ \textbf{C} \text{ term } = 3 \times \text{ position number } - 1; \\ \textbf{D} \text{ term } = 4 \times \text{ position number } - 5. \\ \text{Show how you worked out your answer.}"
+}
+},
+{
+"question_id": "Q10",
+"text": {
+"raw_text": "This is part of Razi’s homework. Question: 'The position-to-term rule of a sequence is: term = 3 x position number + 2. Work out the first three terms of the sequence.' Razi's Answer: 1st term = 5, 2nd term = 17, 3rd term = 53. Is Razi’s homework correct? Explain your answer.",
+"latex": "\text{This is part of Razi’s homework. Question: 'The position-to-term rule of a sequence is: term } = 3 \times \text{ position number } + 2. \text{ Work out the first three terms of the sequence.' Razi's Answer: 1st term } = 5, \text{ 2nd term } = 17, \text{ 3rd term } = 53. \text{ Is Razi’s homework correct? Explain your answer.}"
+}
+}
+]
+},
+{
+"node_id": "CH2_BOSS_unit_2_review",
+"node_type": "boss",
+"title": "End-of-unit review",
+"source_refs": [
+{
+"page": 30,
+"kind": "text",
+"note": "Comprehensive unit review questions."
+}
+],
+"questions": [
+{
+"question_id": "Q1",
+"text": {
+"raw_text": "Write down the first three terms of each of the sequences described.",
+"latex": "\text{Write down the first three terms of each of the sequences described.}"
+},
+"parts": [
+{
+"part_id": "a",
+"text": {
+"raw_text": "first term is 7, term-to-term rule is ‘add 3’",
+"latex": "\text{first term is 7, term-to-term rule is ‘add 3’}"
+}
+},
+{
+"part_id": "b",
+"text": {
+"raw_text": "first term is 11, term-to-term rule is ‘subtract 5’",
+"latex": "\text{first term is 11, term-to-term rule is ‘subtract 5’}"
+}
+},
+{
+"part_id": "c",
+"text": {
+"raw_text": "position-to-term rule is term = 8 x position number",
+"latex": "\text{position-to-term rule is term } = 8 \times \text{ position number}"
+}
+},
+{
+"part_id": "d",
+"text": {
+"raw_text": "position-to-term rule is term = 4 x position number - 3",
+"latex": "\text{position-to-term rule is term } = 4 \times \text{ position number } - 3"
+}
+}
+]
+},
+{
+"question_id": "Q2",
+"text": {
+"raw_text": "The third term of a sequence is 9. The eighth term of the sequence is 19. Which of these position-to-term rules is the correct one for the sequence? A term = position number + 9; B term = 2 x position number + 3; C term = 3 x position number; D term = 4 x position number - 3. Show how you worked out your answer.",
+"latex": "\text{The third term of a sequence is 9. The eighth term of the sequence is 19. Which of these position-to-term rules is the correct one for the sequence? } \\ \textbf{A} \text{ term } = \text{ position number } + 9; \\ \textbf{B} \text{ term } = 2 \times \text{ position number } + 3; \\ \textbf{C} \text{ term } = 3 \times \text{ position number}; \\ \textbf{D} \text{ term } = 4 \times \text{ position number } - 3. \\ \text{Show how you worked out your answer.}"
+}
+},
+{
+"question_id": "Q3",
+"text": {
+"raw_text": "For each sequence of numbers: i write down the term-to-term rule, ii write the sequence of numbers in a table, iii work out the position-to-term rule, iv check your rule works for the first three terms.",
+"latex": "\text{For each sequence of numbers: i write down the term-to-term rule, ii write the sequence of numbers in a table, iii work out the position-to-term rule, iv check your rule works for the first three terms.}"
+},
+"parts": [
+{
+"part_id": "a",
+"text": {
+"raw_text": "6, 12, 18, 24, ...",
+"latex": "6, 12, 18, 24, ..."
+}
+},
+{
+"part_id": "b",
+"text": {
+"raw_text": "6, 11, 16, 21, ...",
+"latex": "6, 11, 16, 21, ..."
+}
+},
+{
+"part_id": "c",
+"text": {
+"raw_text": "8, 9, 10, 11, ...",
+"latex": "8, 9, 10, 11, ..."
+}
+}
+]
+},
+{
+"question_id": "Q4",
+"text": {
+"raw_text": "This pattern is made from dots. (Image of 4 patterns). Alicia thinks that the nth term for the sequence of numbers of dots is 3n + 3. Is Alicia correct? Explain how you worked out your answer.",
+"latex": "\text{This pattern is made from dots. Alicia thinks that the } n\text{th term for the sequence of numbers of dots is } 3n + 3. \text{ Is Alicia correct? Explain how you worked out your answer.}"
+}
+},
+{
+"question_id": "Q5",
+"text": {
+"raw_text": "a Copy and complete the table of values for each function machine. i x -> +9 -> y. ii x -> *2 -> -3 -> y. b Write each of the functions in part a as an equation.",
+"latex": "\textbf{a} \text{ Copy and complete the table of values for each function machine. i } x \to +9 \to y. \text{ ii } x \to \times 2 \to -3 \to y. \\ \textbf{b} \text{ Write each of the functions in part a as an equation.}"
+}
+},
+{
+"question_id": "Q6",
+"text": {
+"raw_text": "Ahmad thinks of a number, x. Write an expression for the number Ahmad gets when he:",
+"latex": "\text{Ahmad thinks of a number, } x. \text{ Write an expression for the number Ahmad gets when he:}"
+},
+"parts": [
+{
+"part_id": "a",
+"text": {
+"raw_text": "multiplies the number by 4",
+"latex": "\text{multiplies the number by 4}"
+}
+},
+{
+"part_id": "b",
+"text": {
+"raw_text": "multiplies the number by 2 then adds 7",
+"latex": "\text{multiplies the number by 2 then adds 7}"
+}
+},
+{
+"part_id": "c",
+"text": {
+"raw_text": "divides the number by 3 then subtracts 10",
+"latex": "\text{divides the number by 3 then subtracts 10}"
+}
+},
+{
+"part_id": "d",
+"text": {
+"raw_text": "adds 4 to the number then multiplies by 5.",
+"latex": "\text{adds 4 to the number then multiplies by 5.}"
+}
+}
+]
+},
+{
+"question_id": "Q7",
+"text": {
+"raw_text": "Work out the value of each expression.",
+"latex": "\text{Work out the value of each expression.}"
+},
+"parts": [
+{
+"part_id": "a",
+"text": {
+"raw_text": "x + 7 when x = -12",
+"latex": "x + 7 \text{ when } x = -12"
+}
+},
+{
+"part_id": "b",
+"text": {
+"raw_text": "3x - 4y when x = 2 and y = 7",
+"latex": "3x - 4y \text{ when } x = 2 \text{ and } y = 7"
+}
+},
+{
+"part_id": "c",
+"text": {
+"raw_text": "3n + 1 when n = -6",
+"latex": "3n + 1 \text{ when } n = -6"
+}
+},
+{
+"part_id": "d",
+"text": {
+"raw_text": "30 - 5k when k = -2",
+"latex": "30 - 5k \text{ when } k = -2"
+}
+},
+{
+"part_id": "e",
+"text": {
+"raw_text": "x^2 - 10 when x = 3",
+"latex": "x^2 - 10 \text{ when } x = 3"
+}
+},
+{
+"part_id": "f",
+"text": {
+"raw_text": "4y^3 when y = 2",
+"latex": "4y^3 \text{ when } y = 2"
+}
+}
+]
+},
+{
+"question_id": "Q8",
+"text": {
+"raw_text": "Use the formula P = mgh to work out P when m = 5, g = 10 and h = 3.",
+"latex": "\text{Use the formula } P = mgh \text{ to work out } P \text{ when } m = 5, g = 10 \text{ and } h = 3."
+}
+},
+{
+"question_id": "Q9",
+"text": {
+"raw_text": "Zalika uses the formula v^2 = u^2 + 2as. When she substitutes v = 4, u = 3 and a = 7 into the formula she gets the equation 8 = 6 + 14s. Is Zalika correct? Show how you worked out your answer.",
+"latex": "\text{Zalika uses the formula } v^2 = u^2 + 2as. \text{ When she substitutes } v = 4, u = 3 \text{ and } a = 7 \text{ into the formula she gets the equation } 8 = 6 + 14s. \text{ Is Zalika correct? Show how you worked out your answer.}"
+}
+}
+]
+}
+],
+"edges": [
+{
+"from": "CH2_SCROLL_worked_example_2_1",
+"to": "CH2_EX_2_1",
+"edge_type": "prereq"
+}
+],
+"notes": [
+"Question 10 on page 20 was captured as a single conceptual question about Razi's homework accuracy.",
+"Questions with complex visual aids like dot patterns and function machines (Q4, Q5 on p.30) are described textually.",
+"Mathematical expressions were formatted using LaTeX for consistency and readability."
+]
+}

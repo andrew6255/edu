@@ -1,0 +1,290 @@
+{
+  "chapter_id": "2-1-generating-sequences",
+  "title": "2.1 Generating sequences",
+  "created_at": "2024-07-30T16:21:49Z",
+  "source": {
+    "pdf_name": null,
+    "page_range": [
+      19,
+      20
+    ]
+  },
+  "rendering": {
+    "math_format": {
+      "raw_text": true,
+      "latex": true
+    }
+  },
+  "atomic_scrolls": [
+    {
+      "scroll_id": "CH02_SC_WE_2_1",
+      "title": null,
+      "raw_text": "Worked example 2.1\na The first term of a sequence is 4. The term-to-term rule of the sequence is 'subtract 3'. Write down the first three terms of the sequence.\nb The position-to-term rule of a sequence is: term = 4 × position number + 1. Work out the first three terms of the sequence.\na First three terms are 4, 1, –2.\nWrite down the first term, which is 4, then use the term-to-term rule to work out the second and third terms. 2nd term = 4 – 3 = 1, 3rd term = 1 – 3 = –2.\nb First three terms are 5, 9, 13.\nUse the position-to-term rule to work out each term. 1st term = 4 × 1 + 1 = 5, 2nd term = 4 × 2 + 1 = 9, 3rd term = 4 × 3 + 1 = 13.",
+      "latex": "Worked example 2.1\na The first term of a sequence is $4$. The term-to-term rule of the sequence is 'subtract $3$'. Write down the first three terms of the sequence.\nb The position-to-term rule of a sequence is: $\\text{term} = 4 \\times \\text{position number} + 1$. Work out the first three terms of the sequence.\na First three terms are $4$, $1$, $-2$.\nWrite down the first term, which is $4$, then use the term-to-term rule to work out the second and third terms. $2\\text{nd term} = 4 - 3 = 1$, $3\\text{rd term} = 1 - 3 = -2$.\nb First three terms are $5$, $9$, $13$.\nUse the position-to-term rule to work out each term. $1\\text{st term} = 4 \\times 1 + 1 = 5$, $2\\text{nd term} = 4 \\times 2 + 1 = 9$, $3\\text{rd term} = 4 \\times 3 + 1 = 13$.",
+      "source_ref": {
+        "page": null,
+        "kind": "image",
+        "note": "missing source_ref for atomic_scrolls[0]"
+      },
+      "snippets": []
+    }
+  ],
+  "regions": [
+    {
+      "region_id": "CH02_SEC_A",
+      "section_label": "2.1",
+      "section_title": "Generating sequences",
+      "theme_name": "Generating Sequences Concepts"
+    },
+    {
+      "region_id": "CH02_SEC_B",
+      "section_label": "Exercise 2.1",
+      "section_title": null,
+      "theme_name": "Generating Sequences Practice"
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": "CH02_EX_2_1_1",
+      "node_type": "exercise",
+      "region_id": null,
+      "textbook_ref": "Exercise 2.1",
+      "tags": [],
+      "question_count": null,
+      "questions": [
+        {
+          "question_id": "Q1",
+          "raw_text": "Write down the first three terms of each of the sequences.",
+          "latex": null,
+          "parts": [
+            {
+              "part_id": "Q1a",
+              "raw_text": "first term: 1 term-to-term rule: 'add 5'",
+              "latex": null
+            },
+            {
+              "part_id": "Q1b",
+              "raw_text": "first term: 20 term-to-term rule: 'subtract 4'",
+              "latex": null
+            },
+            {
+              "part_id": "Q1c",
+              "raw_text": "first term: 2 term-to-term rule: 'add 12'",
+              "latex": null
+            },
+            {
+              "part_id": "Q1d",
+              "raw_text": "first term: 6 term-to-term rule: 'subtract 5'",
+              "latex": null
+            },
+            {
+              "part_id": "Q1e",
+              "raw_text": "first term: –3 term-to-term rule: 'add 2'",
+              "latex": null
+            },
+            {
+              "part_id": "Q1f",
+              "raw_text": "first term: –5 term-to-term rule: 'subtract 6'",
+              "latex": null
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[0].questions[0]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q2",
+          "raw_text": "The first term of a sequence is 15. The term-to-term rule is add 7. What is the fifth term of the sequence? Explain how you worked out your answer.",
+          "latex": null,
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[0].questions[1]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q3",
+          "raw_text": "This is part of Zalika’s homework.",
+          "latex": null,
+          "parts": [
+            {
+              "part_id": "Q3a",
+              "raw_text": "Explain her method works.",
+              "latex": null
+            },
+            {
+              "part_id": "Q3b",
+              "raw_text": "The first term of a sequence is 5. The term-to-term rule is 'add 8'. Use Zalika’s method to work out:",
+              "latex": null
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[0].questions[2]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q4",
+          "raw_text": "Ahmad is trying to solve this problem. Work out the answer to the problem. Explain how you solved the problem. The fourth term of a sequence is 39. The term-to-term rule is 'add 7'. Work out the first term of the sequence.",
+          "latex": null,
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[0].questions[3]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q5",
+          "raw_text": "Mia is trying to solve this problem. Work out the answer to the problem. Explain how you solved the problem. The 12th term of a sequence is 16. The term-to-term rule is 'subtract 3'. Work out the third term of the sequence.",
+          "latex": null,
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[0].questions[4]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q6",
+          "raw_text": "The table shows two of the terms in a sequence. Position-to-term rule: term = position number + 7 Copy the table. Use the position-to-term rule to work out the missing numbers.",
+          "latex": "The table shows two of the terms in a sequence. Position-to-term rule: $\\text{term} = \\text{position number} + 7$. Copy the table. Use the position-to-term rule to work out the missing numbers.",
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[0].questions[5]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q7",
+          "raw_text": "Use the position-to-term rule to work out the first four terms of each sequence.",
+          "latex": null,
+          "parts": [
+            {
+              "part_id": "Q7a",
+              "raw_text": "term = 6 × position number",
+              "latex": "$\\text{term} = 6 \\times \\text{position number}$"
+            },
+            {
+              "part_id": "Q7b",
+              "raw_text": "term = position number – 4",
+              "latex": "$\\text{term} = \\text{position number} - 4$"
+            },
+            {
+              "part_id": "Q7c",
+              "raw_text": "term = 2 × position number + 1",
+              "latex": "$\\text{term} = 2 \\times \\text{position number} + 1$"
+            },
+            {
+              "part_id": "Q7d",
+              "raw_text": "term = 3 × position number – 1",
+              "latex": "$\\text{term} = 3 \\times \\text{position number} - 1$"
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[0].questions[6]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q8",
+          "raw_text": "Use the position-to-term rules to work out: the 10th term, the 20th term, and the 100th term of each sequence.",
+          "latex": null,
+          "parts": [
+            {
+              "part_id": "Q8a",
+              "raw_text": "term = position number + 5",
+              "latex": "$\\text{term} = \\text{position number} + 5$"
+            },
+            {
+              "part_id": "Q8b",
+              "raw_text": "term = 2 × position number",
+              "latex": "$\\text{term} = 2 \\times \\text{position number}$"
+            },
+            {
+              "part_id": "Q8c",
+              "raw_text": "term = 4 × position number + 8",
+              "latex": "$\\text{term} = 4 \\times \\text{position number} + 8$"
+            },
+            {
+              "part_id": "Q8d",
+              "raw_text": "term = 5 × position number – 25",
+              "latex": "$\\text{term} = 5 \\times \\text{position number} - 25$"
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[0].questions[7]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q9",
+          "raw_text": "The fourth term of a sequence is 11. The seventh term of the sequence is 20. Which of these position-to-term rules is the correct one for the sequence?",
+          "latex": null,
+          "parts": [
+            {
+              "part_id": "Q9A",
+              "raw_text": "term = position number + 7",
+              "latex": "$\\text{term} = \\text{position number} + 7$"
+            },
+            {
+              "part_id": "Q9B",
+              "raw_text": "term = 2 × position number + 3",
+              "latex": "$\\text{term} = 2 \\times \\text{position number} + 3$"
+            },
+            {
+              "part_id": "Q9C",
+              "raw_text": "term = 3 × position number – 5",
+              "latex": "$\\text{term} = 3 \\times \\text{position number} - 5$"
+            },
+            {
+              "part_id": "Q9D",
+              "raw_text": "term = 4 × position number – 5",
+              "latex": "$\\text{term} = 4 \\times \\text{position number} - 5$"
+            }
+          ],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[0].questions[8]"
+          },
+          "hint_refs": []
+        },
+        {
+          "question_id": "Q10",
+          "raw_text": "This is part of Razi’s homework. Question The position-to-term rule of a sequence is: term = 3 x position number + 2 Work out the first three terms of the sequence. Answer 1st term = 3 × 1 + 2 = 5 2nd term = 3 × 2 + 2 = 8 3rd term = 3 × 17 + 2 = 53 Is Razi’s homework correct? Explain your answer.",
+          "latex": "This is part of Razi’s homework. Question The position-to-term rule of a sequence is: $\\text{term} = 3 \\times \\text{position number} + 2$. Work out the first three terms of the sequence. Answer $1\\text{st term} = 3 \\times 1 + 2 = 5$ $2\\text{nd term} = 3 \\times 2 + 2 = 8$ $3\\text{rd term} = 3 \\times 17 + 2 = 53$. Is Razi’s homework correct? Explain your answer.",
+          "parts": [],
+          "source_ref": {
+            "page": null,
+            "kind": "image",
+            "note": "missing source_ref for nodes[0].questions[9]"
+          },
+          "hint_refs": []
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "notes": [
+    "The provided images (pages 19-20) clearly correspond to chapter '2.1 Generating sequences' from the TOC, which has an end page implied by the start of the next section '2.2 Finding rules for sequences' on page 21.",
+    "No 'BossNodeTemplate' is assigned for this chapter as there are no 'Review Set' or 'Investigation' sections specifically within '2.1 Generating sequences'. The 'End-of-unit review' found on page 30 is for the entire Unit 2, not just this individual section.",
+    "Edges auto-generated from blueprint ordering (MVP prereq chain).",
+    "Not enough nodes to build edges."
+  ]
+}

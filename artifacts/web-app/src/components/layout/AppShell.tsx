@@ -1,0 +1,618 @@
+import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'wouter';
+import { requireSupabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import SettingsModal from '@/components/settings/SettingsModal';
+import { computeLevel } from '@/lib/userService';
+import NotificationsView from '@/views/NotificationsView';
+import FriendsView from '@/views/FriendsView';
+import { queryGlobalDocs, listenGlobalCollection } from '@/lib/supabaseDocStore';
+import { useSession } from '@/contexts/SessionContext';
+import { forfeitSession } from '@/lib/gameSessionService';
+import { getMyRunningQuizzes } from '@/lib/studentService';
+import type { AppNotification } from '@/lib/userService';
+import { createLinkingCode, getMyLinkingCode, getLinkedParent } from '@/lib/linkingService';
+
+type View =
+  | 'emporium'
+  | 'warmup'
+  | 'universe'
+  | 'logic'
+  | 'profile'
+  | 'curriculum'
+  | 'programMap'
+  | 'studySessions'
+  | 'classes'
+  | 'notifications'
+  | 'friends';
+
+function QuizzesButton({ onOpen }: { onOpen: () => void }) {
+  const [runningCount, setRunningCount] = useState(0);
+  const [finishedCount, setFinishedCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const result = await getMyRunningQuizzes();
+        if (!alive) return;
+        setRunningCount(result.running.length);
+        setFinishedCount(result.finished.length);
+      } catch { /* silent */ }
+      finally { if (alive) setLoading(false); }
+    }
+    load();
+    return () => { alive = false; };
+  }, []);
+
+  return (
+    <button
+      onClick={onOpen}
+      style={{
+        textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
+        background: 'rgba(245,158,11,0.08)',
+        border: '1px solid rgba(245,158,11,0.25)',
+        borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+      }}
+    >
+      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span>📋 Quizzes</span>
+        {!loading && runningCount > 0 && (
+          <span style={{
+            fontSize: 10, padding: '2px 8px', borderRadius: 999,
+            background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.4)',
+            color: '#f59e0b', fontWeight: 'bold',
+          }}>
+            {runningCount} running
+          </span>
+        )}
+        <span style={{ marginLeft: 'auto', color: '#f59e0b', fontWeight: 'bold' }}>→</span>
+      </span>
+      {!loading && (
+        <div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>
+          {runningCount} available · {finishedCount} finished
+        </div>
+      )}
+    </button>
+  );
+}
+
+interface AppShellProps {
+  view: View;
+  setView: (v: View) => void;
+  children: React.ReactNode;
+}
+
+export default function AppShell({ view, setView, children }: AppShellProps) {
+  const { user, userData, refreshUserData } = useAuth();
+  const { ongoingWarmup, activeSession, setActiveSession, setOngoingWarmup } = useSession();
+  const [, setLocation] = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [friendsOpen, setFriendsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [notifBadgeCount, setNotifBadgeCount] = useState(0);
+
+  const abandonTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (abandonTimerRef.current) {
+      window.clearTimeout(abandonTimerRef.current);
+      abandonTimerRef.current = null;
+    }
+
+    if (!user) return;
+    if (!activeSession) return;
+    if (view === 'warmup') return;
+
+    abandonTimerRef.current = window.setTimeout(async () => {
+      try {
+        await forfeitSession(activeSession.sessionId, user.uid);
+      } finally {
+        setActiveSession(null);
+        setOngoingWarmup(null);
+      }
+    }, 30000);
+
+    return () => {
+      if (abandonTimerRef.current) {
+        window.clearTimeout(abandonTimerRef.current);
+        abandonTimerRef.current = null;
+      }
+    };
+  }, [user, view, activeSession]);
+
+  useEffect(() => {
+    const uid = user?.uid;
+    if (!uid) return;
+    // Initial fetch
+    queryGlobalDocs(`notifications:${uid}`).then(docs => {
+      const count = docs.reduce((acc, d) => acc + ((d.data as any).read ? 0 : 1), 0);
+      setNotifBadgeCount(count);
+    }).catch(() => setNotifBadgeCount(0));
+    // Realtime listener
+    const unsub = listenGlobalCollection(
+      `notifications:${uid}`,
+      [],
+      docs => {
+        const count = docs.reduce((acc, d) => acc + ((d.data as any).read ? 0 : 1), 0);
+        setNotifBadgeCount(count);
+      }
+    );
+    return unsub;
+  }, [user]);
+
+  const gold = userData?.economy?.gold ?? 0;
+  const xp = userData?.economy?.global_xp ?? 0;
+  const streak = userData?.economy?.streak ?? 0;
+  const energy = userData?.economy?.energy ?? 0;
+  const rankedEnergyStreak = userData?.economy?.rankedEnergyStreak ?? 0;
+  const username = userData?.username ?? 'Student';
+  const role = userData?.role ?? 'student';
+  const { level, title } = computeLevel(xp);
+
+  const studyOngoingSessionId = typeof window !== 'undefined' ? localStorage.getItem('ll:ongoingStudySessionId') : null;
+  const studyOngoingProgramId = typeof window !== 'undefined' ? localStorage.getItem('ll:ongoingStudyProgramId') : null;
+
+  // Parent linking state (students only)
+  const [linkCode, setLinkCode] = useState<string | null>(null);
+  const [linkCodeExpires, setLinkCodeExpires] = useState<string | null>(null);
+  const [linkedParentName, setLinkedParentName] = useState<string | null>(null);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkPanelOpen, setLinkPanelOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user || role !== 'student') return;
+    let alive = true;
+    (async () => {
+      try {
+        const parent = await getLinkedParent(user.uid);
+        if (!alive) return;
+        if (parent) setLinkedParentName(parent.username || `${parent.first_name} ${parent.last_name}`.trim());
+        const existing = await getMyLinkingCode(user.uid);
+        if (!alive) return;
+        if (existing) { setLinkCode(existing.code); setLinkCodeExpires(existing.expires_at); }
+      } catch { /* silent */ }
+    })();
+    return () => { alive = false; };
+  }, [user, role]);
+
+  async function handleGenerateCode() {
+    if (!user) return;
+    setLinkLoading(true);
+    try {
+      const code = await createLinkingCode(user.uid);
+      setLinkCode(code);
+      setLinkCodeExpires(new Date(Date.now() + 30 * 60 * 1000).toISOString());
+    } catch (e) { console.error('Failed to generate code:', e); }
+    finally { setLinkLoading(false); }
+  }
+
+  const ongoingBadge = ongoingWarmup && view !== 'warmup' ? 1 : 0;
+  const hudBadgeCount = notifBadgeCount + ongoingBadge;
+
+  const maxXP = level * 1000;
+  const prevXP = (level - 1) * 1000;
+  const xpPct = Math.min(100, ((xp - prevXP) / (maxXP - prevXP)) * 100);
+
+  const battery = Math.max(0, Math.min(3, Math.floor(rankedEnergyStreak)));
+
+  async function handleLogout() {
+    await requireSupabase().auth.signOut();
+    localStorage.clear();
+    setLocation('/');
+  }
+
+
+  const navTabs = [
+    { id: 'emporium', icon: '🕰️', label: 'Chrono Empires' },
+    { id: 'warmup', icon: '⚡', label: 'Warmup' },
+    { id: 'universe', icon: '🌌', label: 'Universe' },
+    { id: 'logic', icon: '🧩', label: 'Logic Games' },
+    { id: 'classes', icon: '🏫', label: 'Classes' },
+    { id: 'profile', icon: '👤', label: 'Profile' },
+  ] as const;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--ll-surface-0)', color: 'var(--ll-text)', overflow: 'hidden' }}>
+      {/* Top HUD */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '10px 16px', background: 'var(--ll-overlay)',
+        borderBottom: '1px solid var(--ll-border)', zIndex: 10, flexShrink: 0,
+        backdropFilter: 'blur(10px)', gap: 10
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <span style={{ fontSize: 18, fontWeight: 'bold', letterSpacing: 1 }}>⚔️ LOGIC LORDS</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 14, overflow: 'hidden' }}>
+          <span style={{ color: '#fbbf24', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🪙 {gold.toLocaleString()}</span>
+          <span style={{ color: '#a78bfa', fontWeight: 'bold', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }}>
+            ⚡ {Math.max(0, Math.floor(energy)).toLocaleString()}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <span style={{ width: 14, height: 8, borderRadius: 2, border: '1px solid rgba(148,163,184,0.7)', background: 'rgba(30,41,59,0.85)', overflow: 'hidden', display: 'inline-flex' }}>
+                <span style={{ width: 4, height: '100%', background: battery >= 1 ? '#a78bfa' : 'rgba(100,116,139,0.35)' }} />
+                <span style={{ width: 4, height: '100%', background: battery >= 2 ? '#a78bfa' : 'rgba(100,116,139,0.35)' }} />
+                <span style={{ width: 4, height: '100%', background: battery >= 3 ? '#a78bfa' : 'rgba(100,116,139,0.35)' }} />
+              </span>
+              <span style={{ width: 2, height: 5, borderRadius: 1, background: 'rgba(148,163,184,0.7)' }} />
+            </span>
+          </span>
+          <span style={{ color: '#f97316', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🔥 {streak}</span>
+        </div>
+        <button
+          onClick={() => setMenuOpen(!menuOpen)}
+          style={{
+            width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+            background: 'var(--ll-surface-1)',
+            border: '2px solid var(--ll-border)',
+            color: 'var(--ll-text)', cursor: 'pointer', fontSize: 16,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            position: 'relative'
+          }}
+        >
+          {username[0]?.toUpperCase() || '?'}
+          {hudBadgeCount > 0 && (
+            <span style={{
+              position: 'absolute', top: -4, right: -4,
+              minWidth: 16, height: 16, padding: '0 4px',
+              borderRadius: 999, background: '#ef4444',
+              color: 'white', fontSize: 10, fontWeight: 'bold',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '2px solid rgba(0,0,0,0.85)'
+            }}>
+              {hudBadgeCount > 99 ? '99+' : hudBadgeCount}
+            </span>
+          )}
+
+        </button>
+      </div>
+
+      {/* Main content */}
+      <div style={{ flex: 1, height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+        {children}
+      </div>
+
+      {/* Bottom nav */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-around', alignItems: 'center',
+        background: 'var(--ll-overlay)', borderTop: '1px solid var(--ll-border)',
+        paddingTop: 8, paddingBottom: 'max(8px, env(safe-area-inset-bottom, 8px))',
+        zIndex: 10, flexShrink: 0
+      }}>
+        {navTabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setView(tab.id)}
+            style={{
+              flex: 1, background: 'none', border: 'none',
+              color: view === tab.id ? 'var(--ll-accent)' : 'var(--ll-text-muted)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+              cursor: 'pointer', transition: '0.2s', fontFamily: 'inherit', padding: '4px 0',
+              outline: 'none'
+            }}
+          >
+            <span style={{
+              fontSize: 22, transition: 'transform 0.2s',
+              transform: view === tab.id ? 'translateY(-3px) scale(1.1)' : 'none',
+              filter: view === tab.id ? 'none' : 'grayscale(1) opacity(0.6)'
+            }}>
+              {tab.icon}
+            </span>
+            <span style={{ fontSize: 10, fontWeight: 'bold' }}>{tab.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Side menu overlay */}
+      {menuOpen && (
+        <>
+          <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1001 }} />
+          <div style={{
+            position: 'fixed', top: 0, right: 0, width: 280, height: '100vh',
+            background: 'var(--ll-surface-1)', borderLeft: '2px solid var(--ll-border)',
+            zIndex: 1002, padding: 20, display: 'flex', flexDirection: 'column',
+            boxShadow: '-10px 0 30px rgba(0,0,0,0.8)', animation: 'slideUp 0.2s ease',
+            overflowY: 'auto'
+          }}>
+            {/* Profile header */}
+            <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: '1px solid var(--ll-border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: '50%',
+                  background: 'rgba(59,130,246,0.2)',
+                  border: '2px solid #3b82f6',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 22, fontWeight: 'bold', color: 'white'
+                }}>
+                  {username[0]?.toUpperCase() || '?'}
+                </div>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 'bold', color: 'var(--ll-text)' }}>{username}</div>
+                  <div style={{ color: 'var(--ll-text-soft)', fontSize: 12 }}>Level {level} • {title}</div>
+                </div>
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 140, height: 8, background: 'var(--ll-surface-3)', borderRadius: 999, overflow: 'hidden', border: '1px solid var(--ll-border)', flexShrink: 0 }}>
+                  <div style={{ width: `${xpPct}%`, height: '100%', background: 'linear-gradient(90deg, #3b82f6, #10b981)', transition: '0.5s' }} />
+                </div>
+                <div style={{ color: 'var(--ll-text-soft)', fontSize: 11, fontWeight: 'bold' }}>
+                  {Math.max(0, Math.floor(xp)).toLocaleString()} XP
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
+                <span style={{ color: '#fbbf24' }}>🪙 {gold.toLocaleString()}</span>
+                <span style={{ color: '#a78bfa' }}>⚡ {Math.max(0, Math.floor(energy)).toLocaleString()}</span>
+                <span style={{ color: '#f97316' }}>🔥 {streak}d</span>
+                <span style={{
+                  marginLeft: 'auto', fontSize: 11, padding: '2px 9px', borderRadius: 6, fontWeight: 'bold',
+                  background: 'rgba(59,130,246,0.15)',
+                  border: '1px solid rgba(59,130,246,0.4)',
+                  color: '#93c5fd'
+                }}>
+                  {role}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[{
+                icon: '🔔', label: 'Notifications', target: 'notifications' as View },
+                { icon: '👥', label: 'Friends List', target: 'friends' as View },
+                { icon: '👤', label: 'My Profile', target: 'profile' as View },
+                { icon: '⚙️', label: 'Settings', target: 'profile' as View },
+              ].map(item => (
+                <button
+                  key={item.label}
+                  onClick={() => {
+                    if (item.target === 'notifications') {
+                      setNotificationsOpen(true);
+                      setMenuOpen(false);
+                      return;
+                    }
+                    if (item.target === 'friends') {
+                      setFriendsOpen(true);
+                      setMenuOpen(false);
+                      return;
+                    }
+                    if (item.label === 'Settings') {
+                      setSettingsOpen(true);
+                      setMenuOpen(false);
+                      return;
+                    }
+                    setView(item.target);
+                    setMenuOpen(false);
+                  }}
+                  style={{
+                    textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
+                    background: view === item.target ? 'rgba(59,130,246,0.15)' : 'transparent',
+                    border: `1px solid ${view === item.target ? 'rgba(59,130,246,0.4)' : 'transparent'}`,
+                    borderRadius: 10, color: 'var(--ll-text)', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>{item.icon} {item.label}</span>
+                    {item.target === 'notifications' && notifBadgeCount > 0 && (
+                      <span style={{
+                        marginLeft: 'auto',
+                        minWidth: 18, height: 18, padding: '0 6px',
+                        borderRadius: 999, background: '#ef4444',
+                        color: 'white', fontSize: 11, fontWeight: 'bold',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}>
+                        {notifBadgeCount > 99 ? '99+' : notifBadgeCount}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              ))}
+
+              <button
+                onClick={() => {
+                  setView('studySessions');
+                  setMenuOpen(false);
+                }}
+                style={{
+                  textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
+                  background: 'rgba(16,185,129,0.08)',
+                  border: '1px solid rgba(16,185,129,0.25)',
+                  borderRadius: 10, color: 'var(--ll-text)', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>👨‍👩‍👧‍👦 Study Sessions</span>
+                  <span style={{ marginLeft: 'auto', color: '#34d399', fontWeight: 'bold' }}>→</span>
+                </span>
+              </button>
+
+              <QuizzesButton onOpen={() => { setView('classes'); setMenuOpen(false); }} />
+
+              {/* Link Parent button (students only) */}
+              {role === 'student' && (
+                <button
+                  onClick={() => setLinkPanelOpen(!linkPanelOpen)}
+                  style={{
+                    textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
+                    background: linkedParentName ? 'rgba(16,185,129,0.08)' : 'rgba(236,72,153,0.08)',
+                    border: `1px solid ${linkedParentName ? 'rgba(16,185,129,0.25)' : 'rgba(236,72,153,0.25)'}`,
+                    borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>👨‍👩‍👧 {linkedParentName ? 'Linked Parent' : 'Link a Parent'}</span>
+                    <span style={{ marginLeft: 'auto', color: linkedParentName ? '#34d399' : '#f9a8d4', fontWeight: 'bold' }}>{linkPanelOpen ? '▼' : '→'}</span>
+                  </span>
+                  {linkedParentName && (
+                    <div style={{ color: '#34d399', fontSize: 11, marginTop: 4, fontWeight: 'bold' }}>
+                      {linkedParentName}
+                    </div>
+                  )}
+                </button>
+              )}
+              {linkPanelOpen && role === 'student' && (
+                <div style={{
+                  padding: '12px 14px', background: 'rgba(0,0,0,0.3)', borderRadius: 10,
+                  border: '1px solid #334155', fontSize: 12, color: '#94a3b8'
+                }}>
+                  {linkedParentName ? (
+                    <p style={{ margin: 0 }}>Your account is linked to parent: <strong style={{ color: '#34d399' }}>{linkedParentName}</strong></p>
+                  ) : (
+                    <>
+                      <p style={{ margin: '0 0 8px' }}>Generate a code and share it with your parent so they can link their account to yours.</p>
+                      {linkCode && linkCodeExpires && new Date(linkCodeExpires) > new Date() ? (
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                            <div style={{
+                              fontSize: 28, fontWeight: 'bold', letterSpacing: 6, color: '#f9a8d4',
+                              padding: '10px 0', fontFamily: 'monospace'
+                            }}>
+                              {linkCode}
+                            </div>
+                            <button
+                              onClick={() => { navigator.clipboard.writeText(linkCode); }}
+                              title="Copy code"
+                              style={{
+                                padding: '6px 10px', borderRadius: 6, fontSize: 11, fontWeight: 'bold',
+                                fontFamily: 'inherit', cursor: 'pointer',
+                                background: 'rgba(236,72,153,0.15)', border: '1px solid rgba(236,72,153,0.35)',
+                                color: '#f9a8d4', flexShrink: 0,
+                              }}
+                            >
+                              📋
+                            </button>
+                          </div>
+                          <div style={{ color: '#64748b', fontSize: 10 }}>
+                            Expires in {Math.max(0, Math.ceil((new Date(linkCodeExpires).getTime() - Date.now()) / 60000))} min
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={handleGenerateCode}
+                          disabled={linkLoading}
+                          style={{
+                            width: '100%', padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 'bold',
+                            fontFamily: 'inherit', cursor: linkLoading ? 'not-allowed' : 'pointer',
+                            background: 'rgba(236,72,153,0.2)', border: '1px solid rgba(236,72,153,0.4)',
+                            color: '#f9a8d4'
+                          }}
+                        >
+                          {linkLoading ? 'Generating...' : 'Generate Link Code'}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {studyOngoingSessionId && studyOngoingProgramId && (
+                <button
+                  onClick={() => {
+                    localStorage.setItem('ll:studyResumeSessionId', studyOngoingSessionId);
+                    window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'programMap', programId: studyOngoingProgramId } }));
+                    setMenuOpen(false);
+                  }}
+                  style={{
+                    textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
+                    background: 'rgba(59,130,246,0.10)',
+                    border: '1px solid rgba(59,130,246,0.25)',
+                    borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>� Ongoing Study Session</span>
+                    <span style={{ marginLeft: 'auto', color: '#93c5fd', fontWeight: 'bold' }}>→</span>
+                  </span>
+                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+                    Code: {studyOngoingSessionId}
+                  </div>
+                </button>
+              )}
+
+              {ongoingWarmup && view !== 'warmup' && (
+                <button
+                  onClick={() => { setView('warmup'); setMenuOpen(false); }}
+                  style={{
+                    textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
+                    background: 'rgba(249,115,22,0.12)',
+                    border: '1px solid rgba(249,115,22,0.35)',
+                    borderRadius: 10, color: 'white', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>🎮 Ongoing Game</span>
+                    <span style={{
+                      marginLeft: 'auto',
+                      minWidth: 18, height: 18, padding: '0 6px',
+                      borderRadius: 999, background: '#f97316',
+                      color: 'white', fontSize: 11, fontWeight: 'bold',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      {ongoingBadge}
+                    </span>
+                  </span>
+                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+                    {ongoingWarmup.gameLabel}
+                  </div>
+                </button>
+              )}
+
+            </div>
+
+            <button onClick={handleLogout} className="ll-btn ll-btn-danger" style={{ width: '100%', padding: '12px', marginTop: 15 }}>
+              🚪 Log Out
+            </button>
+          </div>
+        </>
+      )}
+
+      {notificationsOpen && (
+        <>
+          <div onClick={() => setNotificationsOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1200 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            width: 'min(520px, 92vw)', height: 'min(720px, 88vh)',
+            background: '#0f172a', borderRadius: 16, border: '2px solid #334155',
+            zIndex: 1201, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.7)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 10, background: 'rgba(0,0,0,0.55)', borderBottom: '1px solid #334155' }}>
+              <button onClick={() => setNotificationsOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>×</button>
+            </div>
+            <div style={{ height: 'calc(100% - 41px)', overflow: 'hidden' }}>
+              <NotificationsView onClose={() => setNotificationsOpen(false)} />
+            </div>
+          </div>
+        </>
+      )}
+
+      {friendsOpen && (
+        <>
+          <div onClick={() => setFriendsOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1200 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            width: 'min(520px, 92vw)', height: 'min(720px, 88vh)',
+            background: '#0f172a', borderRadius: 16, border: '2px solid #334155',
+            zIndex: 1201, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.7)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 10, background: 'rgba(0,0,0,0.55)', borderBottom: '1px solid #334155' }}>
+              <button onClick={() => setFriendsOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>×</button>
+            </div>
+            <div style={{ height: 'calc(100% - 41px)', overflow: 'hidden' }}>
+              <FriendsView />
+            </div>
+          </div>
+        </>
+      )}
+
+      {user && userData && (
+        <SettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          uid={user.uid}
+          userData={userData}
+          onSaved={refreshUserData}
+        />
+      )}
+    </div>
+  );
+}

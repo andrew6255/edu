@@ -1,0 +1,71 @@
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+
+# compiled output
+dist
+tmp
+out-tsc
+*.tsbuildinfo
+.expo
+.expo-shared
+
+# dependencies
+node_modules
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# misc
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+/typings
+
+# System Files
+.DS_Store
+Thumbs.db
+
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
+
+# Replit
+.cache/
+.local/
+.env
+.env.*
+!.env.example
+
+# Local Python virtualenv
+.venv/
+
+# API server build artifacts
+artifacts/api-server/dist/
+
+# Training datasets and downloads (HUGE)
+artifacts/api-server/scripts/data/
+
+# Model weights produced during experiments
+artifacts/api-server/scripts/*.pt
+artifacts/api-server/scripts/*.pth
+
+# Optional: ignore large source maps
+*.map
+
+# Web ONNX demo model assets
+artifacts/web-app/public/models/symbol-classifier/

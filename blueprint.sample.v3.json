@@ -1,0 +1,111 @@
+{
+  "blueprint_version": "1.0",
+  "chapter_id": "CH2",
+  "chapter_title": "Sequences, expressions and formulae",
+  "domain": "Algebra",
+  "regions": [
+    {
+      "region_id": "CH2_SEC_A",
+      "section_label": "2.1",
+      "section_title": "Generating sequences",
+      "theme_name": null,
+      "source_refs": [
+        {
+          "page": 19,
+          "kind": "text",
+          "note": "Introduction and start of section 2.1"
+        },
+        {
+          "page": 20,
+          "kind": "text",
+          "note": "Continuation of section 2.1"
+        }
+      ]
+    },
+    {
+      "region_id": "CH2_SEC_B",
+      "section_label": null,
+      "section_title": "End-of-unit review",
+      "theme_name": "Review",
+      "source_refs": [
+        {
+          "page": 30,
+          "kind": "text",
+          "note": "Summary review for Unit 2"
+        }
+      ]
+    }
+  ],
+  "node_plan": [
+    {
+      "node_id": "CH2_SCROLL_worked_example_2_1",
+      "node_type": "atomic_scroll",
+      "region_id": "CH2_SEC_A",
+      "textbook_ref": "Worked example 2.1",
+      "source_refs": [
+        {
+          "page": 19,
+          "kind": "text",
+          "note": "Step-by-step example for sequence rules"
+        }
+      ]
+    },
+    {
+      "node_id": "CH2_EX_2_1",
+      "node_type": "exercise",
+      "region_id": "CH2_SEC_A",
+      "textbook_ref": "Exercise 2.1",
+      "source_refs": [
+        {
+          "page": 19,
+          "kind": "text",
+          "note": "Questions 1-2"
+        },
+        {
+          "page": 20,
+          "kind": "text",
+          "note": "Questions 3-10"
+        }
+      ]
+    },
+    {
+      "node_id": "CH2_BOSS_unit_2_review",
+      "node_type": "boss",
+      "region_id": "CH2_SEC_B",
+      "textbook_ref": "End-of-unit review",
+      "source_refs": [
+        {
+          "page": 30,
+          "kind": "text",
+          "note": "Comprehensive unit assessment questions 1-9"
+        }
+      ]
+    }
+  ],
+  "template_assignment": {
+    "region": "RegionTemplate",
+    "exercise": "ExerciseNodeTemplate",
+    "boss": "BossNodeTemplate",
+    "atomic_scroll": "AtomicScrollTemplate"
+  },
+  "extraction_targets": {
+    "questions": {
+      "include_full_text": true,
+      "include_latex": true
+    },
+    "hints": {
+      "include_self_tutor_scrolls": true,
+      "include_example_snippets": true
+    }
+  },
+  "laborer_prompt": "Please extract all content from Unit 2. For Section 2.1, capture the Worked Example as a scroll and the Exercise 2.1 questions. For the End-of-unit review on page 30, capture all 9 multi-part questions as a Boss challenge. Use LaTeX for all mathematical expressions and maintain the list structure (a, b, c... or i, ii, iii...).",
+  "quality_rules": {
+    "no_hallucination": true,
+    "when_uncertain": "set_null_and_add_note"
+  },
+  "notes": [
+    "The chapter title 'Sequences, expressions and formulae' is identified from the footer.",
+    "Exercise 2.1 is split across pages 19 and 20.",
+    "Page 30 contains the 'End-of-unit review' which serves as the Boss node."
+  ]
+}
