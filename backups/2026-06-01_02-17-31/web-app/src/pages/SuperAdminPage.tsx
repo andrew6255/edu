@@ -119,7 +119,7 @@ function TestingWhiteboard() {
       const cssTag = document.querySelector('link[data-myscript-css]') ? 'css:yes' : 'css:no';
       const host = editorHostRef.current;
       const rect = host ? host.getBoundingClientRect() : { width: 0, height: 0 } as DOMRect;
-      const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
+      const ns = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
       const g = (window as any)[ns];
       const api = g ? Object.keys(g).slice(0, 6).join(',') : 'none';
       const msg = `assets[${jsTag},${cssTag}] size=${Math.round(rect.width)}x${Math.round(rect.height)} ns=${ns} api=${api}${extra ? ' ' + extra : ''}`;
@@ -145,7 +145,7 @@ function TestingWhiteboard() {
             const ed = await createEditorNow();
             // Ensure we are in write mode so ink is visible immediately
             try {
-              const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
+              const ns = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
               const api: any = (window as any)[ns];
               const tool = api?.EditorTool?.Write || 'write';
               if (typeof (ed as any).setTool === 'function') (ed as any).setTool(tool);
@@ -222,7 +222,7 @@ function TestingWhiteboard() {
 
   async function createEditorNow() {
     const host = editorHostRef.current;
-    const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
+    const ns = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
     const appKey = import.meta.env.VITE_MYSCRIPT_APP_KEY as string | undefined;
     const hmacKey = import.meta.env.VITE_MYSCRIPT_HMAC_KEY as string | undefined;
     const contentType = (import.meta.env.VITE_MYSCRIPT_CONTENT_TYPE as string | undefined) || 'TEXT';
@@ -251,53 +251,39 @@ function TestingWhiteboard() {
       ? { scheme: serverScheme, host: serverHost, applicationKey: appKey, hmacKey }
       : { scheme: 'https', host: 'cloud.myscript.com', applicationKey: appKey, hmacKey };
 
-    // Options expected by iink web SDK (recognitionParams at top level)
+    // Simple configuration for this SDK version
     const options: any = {
-      recognitionParams: {
-        type: contentType,
-        protocol: 'WEBSOCKET',
-        server: serverCfg,
-        text: { smartGuide: { enable: false } },
-        math: { smartGuide: { enable: false } },
-      },
-      // Keep configuration for broader compatibility across builds
       configuration: {
         server: serverCfg,
         applicationKey: appKey,
         hmacKey: hmacKey,
-      },
+        recognitionParams: {
+          type: contentType,
+          protocol: 'WEBSOCKET',
+          server: serverCfg,
+          'text': {
+            'smartGuide': {
+              'enable': false
+            }
+          },
+          'math': {
+            'smartGuide': {
+              'enable': false
+            }
+          }
+        }
+      }
     };
     
-    // Create editor using whichever API is available (Factory, function, or constructor)
-    let ed: any = null;
-    if (api && api.EditorFactory && typeof api.EditorFactory.createEditor === 'function') {
-      ed = await api.EditorFactory.createEditor(host, 'TEXT', options);
-    } else if (api && typeof api.createEditor === 'function') {
-      // Older/global API
-      ed = await api.createEditor(host, options);
-    } else if (api && typeof api.Editor === 'function') {
-      // Constructor-based API; may require an explicit init/start/mount
-      ed = new api.Editor(host, options);
-      try {
-        if (typeof ed.init === 'function') {
-          const r = ed.init(host, options); if (r && typeof r.then === 'function') await r;
-        } else if (typeof ed.mount === 'function') {
-          const r = ed.mount(host, options); if (r && typeof r.then === 'function') await r;
-        } else if (typeof ed.start === 'function') {
-          const r = ed.start(options); if (r && typeof r.then === 'function') await r;
-        }
-      } catch {}
-    }
-    if (!ed) {
-      throw new Error('No compatible MyScript editor API found on window.' + ns);
-    }
+    // Create editor using EditorFactory.createEditor static method
+    const ed = await api.EditorFactory.createEditor(host, 'TEXT', options);
     editorInstanceRef.current = ed;
     computeDiagnostics('auto-mounted');
     try { setInitStatus('Ready'); } catch {}
     // Focus and tool setup so ink shows on pointer down
     try { host.style.touchAction = 'none'; host.style.cursor = 'crosshair'; host.focus(); } catch {}
     try {
-      const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
+      const ns = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
       const apiNS: any = (window as any)[ns];
       const writeTool = apiNS?.EditorTool?.Write || apiNS?.EditorWriteTool || 'write';
       if (typeof (ed as any).setTool === 'function') (ed as any).setTool(writeTool);
@@ -338,7 +324,7 @@ function TestingWhiteboard() {
     };
     const onChanged = () => {
       if (exportTimer) clearTimeout(exportTimer);
-      exportTimer = setTimeout(doExport, 200);
+      exportTimer = setTimeout(doExport, 400);
     };
     const target: any = (typeof (ed as any).addEventListener === 'function') ? ed : host;
     if (target && typeof target.addEventListener === 'function') {
@@ -349,37 +335,25 @@ function TestingWhiteboard() {
   }
 
   async function loadMyScriptAssets() {
-    const jsUrl = import.meta.env.VITE_MYSCRIPT_JS_URL as string | undefined;
-    const cssUrl = import.meta.env.VITE_MYSCRIPT_CSS_URL as string | undefined;
-    const isHttp = (u?: string) => !!u && /^https?:\/\//i.test(u);
-    if (!isHttp(jsUrl) || !isHttp(cssUrl)) {
-      throw new Error('Official MyScript SDK URLs required. Set VITE_MYSCRIPT_JS_URL and VITE_MYSCRIPT_CSS_URL to https URLs from MyScript.');
-    }
-    // Load CSS if not already present (replace if mismatched)
-    const existingCss = document.querySelector('link[data-myscript-css]') as HTMLLinkElement | null;
-    if (existingCss && existingCss.href !== cssUrl) {
-      existingCss.parentElement?.removeChild(existingCss);
-    }
+    const jsUrl = (import.meta.env.VITE_MYSCRIPT_JS_URL as string | undefined) || '/myscript/iink.min.js';
+    const cssUrl = (import.meta.env.VITE_MYSCRIPT_CSS_URL as string | undefined) || '/myscript/iink.css';
+    // Load CSS if not already present
     if (!document.querySelector(`link[data-myscript-css]`)) {
       await new Promise<void>((resolve, reject) => {
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = cssUrl!;
+        link.href = cssUrl;
         link.setAttribute('data-myscript-css', '1');
         link.onload = () => resolve();
         link.onerror = () => reject(new Error('Failed to load MyScript CSS'));
         document.head.appendChild(link);
       });
     }
-    // Load JS if not already present (replace if mismatched)
-    const existingJs = document.querySelector('script[data-myscript-js]') as HTMLScriptElement | null;
-    if (existingJs && existingJs.src !== jsUrl) {
-      existingJs.parentElement?.removeChild(existingJs);
-    }
+    // Load JS if not already present
     if (!document.querySelector(`script[data-myscript-js]`)) {
       await new Promise<void>((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = jsUrl!;
+        script.src = jsUrl;
         script.async = true;
         script.defer = true;
         script.setAttribute('data-myscript-js', '1');
@@ -435,7 +409,7 @@ function TestingWhiteboard() {
       setInitStatus(`Initializing... (attempt ${attempts}/${maxAttempts})`);
       try {
         const tag = (import.meta.env.VITE_MYSCRIPT_TAG as string | undefined) || 'iink-editor';
-        const globalNs = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
+        const globalNs = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
 
         // Strategy A: custom element <tag>
         if ((window as any).customElements?.get && (window as any).customElements.get(tag)) {
@@ -461,21 +435,12 @@ function TestingWhiteboard() {
           const size = { width: rect.width || host.clientWidth || 800, height: rect.height || 500 };
           const serverScheme = (import.meta.env.VITE_MYSCRIPT_SERVER_SCHEME as string | undefined) || undefined;
           const serverHost = (import.meta.env.VITE_MYSCRIPT_SERVER_HOST as string | undefined) || undefined;
-          const serverCfg2 = (serverScheme && serverHost)
-            ? { scheme: serverScheme, host: serverHost, applicationKey: appKey, hmacKey }
-            : { scheme: 'https', host: 'cloud.myscript.com', applicationKey: appKey, hmacKey };
           const options: any = {
-            recognitionParams: {
-              type: contentType,
-              protocol: 'WEBSOCKET',
-              server: serverCfg2,
-              text: { smartGuide: { enable: false } },
-              math: { smartGuide: { enable: false } },
-            },
+            recognitionParams: { type: contentType },
             configuration: {
-              server: serverCfg2,
               applicationKey: appKey,
               hmacKey,
+              ...(serverScheme && serverHost ? { server: { scheme: serverScheme, host: serverHost } } : {}),
             },
             theme: {},
             size,
@@ -588,6 +553,11 @@ function TestingWhiteboard() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 540 }}>
+      <div style={{ background: '#0b1220', color: '#93c5fd', border: '1px solid #1d2a44', borderRadius: 10, padding: 10, fontSize: 12 }}>
+        <div>
+          <b>Result</b> (<span style={{ color: '#eab308' }}>{exportFormat === 'latex' ? 'LaTeX' : 'Plain'}</span>): {recognized || '—'}
+        </div>
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', position: 'relative', zIndex: 10, pointerEvents: 'auto' }}>
         <button
           className="ll-btn"
@@ -629,7 +599,7 @@ function TestingWhiteboard() {
           onClick={() => {
             const inst = editorInstanceRef.current; if (!inst) return;
             try {
-              const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
+              const ns = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
               const api: any = (window as any)[ns];
               const tool = api?.EditorTool?.Write || 'write';
               if (typeof inst.setTool === 'function') inst.setTool(tool);
@@ -647,7 +617,7 @@ function TestingWhiteboard() {
           onClick={() => {
             const inst = editorInstanceRef.current; if (!inst) return;
             try {
-              const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
+              const ns = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
               const api: any = (window as any)[ns];
               const tool = api?.EditorTool?.Erase || 'erase';
               if (typeof inst.setTool === 'function') inst.setTool(tool);
@@ -860,7 +830,168 @@ function TestingWhiteboard() {
           }}
           title="Save as JSON"
         >📄 Save JSON</button>
-                {initStatus && !sdkError && <span style={{ color: '#a3e635', fontSize: 12 }}>{initStatus}</span>}
+        <button
+          className="ll-btn"
+          type="button"
+          onClick={() => {
+            const host = editorHostRef.current;
+            if (!host) return;
+            const handler = (e: PointerEvent) => {
+              const dot = document.createElement('div');
+              dot.style.position = 'absolute';
+              dot.style.left = `${e.offsetX - 4}px`;
+              dot.style.top = `${e.offsetY - 4}px`;
+              dot.style.width = '8px';
+              dot.style.height = '8px';
+              dot.style.borderRadius = '50%';
+              dot.style.background = 'rgba(168,85,247,0.6)';
+              dot.style.pointerEvents = 'none';
+              dot.style.zIndex = '9999';
+              host.appendChild(dot);
+              setTimeout(() => dot.remove(), 2000);
+            };
+            host.addEventListener('pointerdown', handler, { once: true });
+          }}
+        >Probe input</button>
+        <button
+          className="ll-btn"
+          type="button"
+          onClick={() => {
+            const inst = editorInstanceRef.current;
+            const host = editorHostRef.current;
+            if (!inst || !host) {
+              console.log('No instance or host');
+              return;
+            }
+            try {
+              // Force write mode with multiple API variants
+              const ns = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
+              const api: any = (window as any)[ns];
+              const writeTool = api?.EditorTool?.Write || api?.EditorWriteTool?.Pencil || 'write';
+              
+              if (typeof inst.setTool === 'function') {
+                inst.setTool(writeTool);
+              }
+              if (typeof inst.setMode === 'function') {
+                inst.setMode('write');
+              }
+              if (typeof inst.setPen === 'function') {
+                inst.setPen();
+              }
+              
+              // Force focus and interaction
+              host.focus();
+              host.style.pointerEvents = 'auto';
+              host.style.touchAction = 'none';
+              host.style.cursor = 'crosshair';
+              
+              // Ensure rendering layers are active
+              if (typeof inst.resize === 'function') {
+                inst.resize();
+              }
+              
+              // Update UI state
+              setActiveTool('write');
+              console.log('Force write tool applied:', writeTool);
+            } catch (e) {
+              console.error('Force write failed:', e);
+            }
+          }}
+        >Force write</button>
+        <button
+          className="ll-btn"
+          type="button"
+          onClick={() => {
+            const inst = editorInstanceRef.current;
+            const host = editorHostRef.current;
+            if (!inst || !host) {
+              console.log('Instance or host missing');
+              return;
+            }
+            
+            console.log('Editor instance methods:', Object.getOwnPropertyNames(inst).filter(n => typeof inst[n] === 'function'));
+            console.log('Editor instance props:', Object.getOwnPropertyNames(inst));
+            
+            const ns = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
+            const api: any = (window as any)[ns];
+            console.log('Global API available:', !!api);
+            console.log('Global API methods:', api ? Object.getOwnPropertyNames(api).filter(n => typeof api[n] === 'function') : []);
+            
+            // Try minimal re-init with just basic config
+            try {
+              if (typeof inst.destroy === 'function') {
+                inst.destroy();
+              }
+            } catch {}
+            
+            editorInstanceRef.current = null;
+            
+            // Check EditorFactory and try proper init
+            console.log('EditorFactory type:', typeof api.EditorFactory);
+            console.log('EditorFactory:', api.EditorFactory);
+            
+            setTimeout(async () => {
+              try {
+                let newInst: any = null;
+                
+                // Try EditorFactory if it's a constructor
+                if (typeof api.EditorFactory === 'function') {
+                  console.log('Trying EditorFactory constructor...');
+                  const factory = new api.EditorFactory();
+                  if (typeof factory.create === 'function') {
+                    const simpleOptions = {
+                      configuration: {
+                        applicationKey: import.meta.env.VITE_MYSCRIPT_APP_KEY,
+                        hmacKey: import.meta.env.VITE_MYSCRIPT_HMAC_KEY,
+                        server: { scheme: 'https', host: 'cloud.myscript.com' }
+                      },
+                      recognitionParams: { type: 'TEXT' }
+                    };
+                    newInst = factory.create(host, simpleOptions);
+                  }
+                }
+                
+                // Fallback to direct Editor
+                if (!newInst && typeof api.Editor === 'function') {
+                  console.log('Trying direct Editor constructor...');
+                  const simpleOptions = {
+                    configuration: {
+                      applicationKey: import.meta.env.VITE_MYSCRIPT_APP_KEY,
+                      hmacKey: import.meta.env.VITE_MYSCRIPT_HMAC_KEY,
+                      server: { scheme: 'https', host: 'cloud.myscript.com' }
+                    },
+                    recognitionParams: { type: 'TEXT' }
+                  };
+                  newInst = new api.Editor(host, simpleOptions);
+                }
+                
+                if (!newInst) {
+                  throw new Error('Could not create editor instance');
+                }
+                
+                // Initialize with available methods
+                if (typeof newInst.init === 'function') await newInst.init(host);
+                if (typeof newInst.start === 'function') await newInst.start();
+                if (typeof newInst.mount === 'function') await newInst.mount(host);
+                if (typeof newInst.initialize === 'function') await newInst.initialize();
+                
+                editorInstanceRef.current = newInst;
+                console.log('Enhanced re-init completed');
+                console.log('New instance methods:', Object.getOwnPropertyNames(newInst).filter(n => typeof newInst[n] === 'function'));
+                
+                // Force write
+                if (typeof newInst.setTool === 'function') {
+                  newInst.setTool('write');
+                } else if (typeof newInst.setMode === 'function') {
+                  newInst.setMode('write');
+                }
+              } catch (e) {
+                console.error('Enhanced re-init failed:', e);
+              }
+            }, 100);
+          }}
+        >Diagnose & Re-init</button>
+        {initStatus && !sdkError && <span style={{ color: '#a3e635', fontSize: 12 }}>{initStatus}</span>}
         {sdkError && <span style={{ color: '#f87171', fontSize: 12 }}>{sdkError}</span>}
       </div>
       <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', minHeight: 520 }}>
@@ -2039,7 +2170,23 @@ export default function SuperAdminPage() {
         {/* ── TESTING (MyScript) ── */}
         {tab === 'testing' && (
           <div style={{ animation: 'fadeIn 0.3s ease', display: 'flex', flexDirection: 'column', gap: 14, minHeight: 420 }}>
-                        <TestingWhiteboard />
+            <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 14, padding: 16 }}>
+              <h2 style={{ color: 'white', margin: '0 0 6px', fontSize: 18 }}>🧪 Testing — MyScript Whiteboard</h2>
+              <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.5 }}>
+                Write with your finger or mouse. When MyScript SDK is connected, ink will be replaced inline with text/math/shapes.
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap', color: '#cbd5e1', fontSize: 12 }}>
+                <div><b>VITE_MYSCRIPT_APP_KEY:</b> {import.meta.env.VITE_MYSCRIPT_APP_KEY ? 'set' : 'missing'}</div>
+                <div><b>VITE_MYSCRIPT_HMAC_KEY:</b> {import.meta.env.VITE_MYSCRIPT_HMAC_KEY ? 'set' : 'missing'}</div>
+                <div><b>VITE_MYSCRIPT_JS_URL:</b> {import.meta.env.VITE_MYSCRIPT_JS_URL || '/myscript/iink.min.js'}</div>
+                <div><b>VITE_MYSCRIPT_CSS_URL:</b> {import.meta.env.VITE_MYSCRIPT_CSS_URL || '/myscript/iink.css'}</div>
+                <div><b>VITE_MYSCRIPT_TAG:</b> {import.meta.env.VITE_MYSCRIPT_TAG || 'iink-editor'}</div>
+                <div><b>VITE_MYSCRIPT_GLOBAL:</b> {import.meta.env.VITE_MYSCRIPT_GLOBAL || 'iink'}</div>
+                <div><b>VITE_MYSCRIPT_SERVER_SCHEME:</b> {import.meta.env.VITE_MYSCRIPT_SERVER_SCHEME || 'unset'}</div>
+                <div><b>VITE_MYSCRIPT_SERVER_HOST:</b> {import.meta.env.VITE_MYSCRIPT_SERVER_HOST || 'unset'}</div>
+              </div>
+            </div>
+            <TestingWhiteboard />
           </div>
         )}
 

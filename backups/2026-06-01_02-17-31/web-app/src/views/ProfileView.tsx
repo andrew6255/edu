@@ -1,0 +1,403 @@
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { computeLevel } from '@/lib/userService';
+import CurriculumEditor from '@/components/profile/CurriculumEditor';
+import { getUserInventory } from '@/lib/inventoryService';
+import type { UserInventoryDoc } from '@/types/battlePass';
+
+// ── constants ────────────────────────────────────────────────────────────────
+
+const LEVELS = [
+  { min: 0,     title: 'Initiate',     color: '#64748b' },
+  { min: 500,   title: 'Apprentice',   color: '#3b82f6' },
+  { min: 1500,  title: 'Seeker',       color: '#06b6d4' },
+  { min: 3000,  title: 'Scholar',      color: '#10b981' },
+  { min: 6000,  title: 'Adept',        color: '#84cc16' },
+  { min: 10000, title: 'Expert',       color: '#f59e0b' },
+  { min: 15000, title: 'Master',       color: '#f97316' },
+  { min: 25000, title: 'Grandmaster',  color: '#ef4444' },
+  { min: 50000, title: 'Logic Lord',   color: '#a855f7' },
+];
+
+const BADGE_META: Record<string, { emoji: string; name: string; desc: string }> = {
+  badge_pioneer:    { emoji: '🚀', name: 'Pioneer',       desc: 'First to sign up'           },
+  badge_streak_3:   { emoji: '🔥', name: 'On Fire',       desc: '3-day login streak'         },
+  badge_streak_7:   { emoji: '⚡', name: 'Unstoppable',   desc: '7-day login streak'         },
+  badge_streak_30:  { emoji: '💫', name: 'Legendary',     desc: '30-day login streak'        },
+  badge_hoarder:    { emoji: '💰', name: 'Gold Hoarder',  desc: 'Amassed 1,000 gold'         },
+  badge_fashionista:{ emoji: '👗', name: 'Fashionista',   desc: 'Equipped a custom banner'   },
+  badge_gold_scholar:{ emoji: '🎓', name: 'Gold Scholar', desc: 'Earned 1,000 XP'            },
+  badge_logic_lord: { emoji: '👑', name: 'Logic Lord',    desc: 'Reached max level'          },
+  badge_boss_slayer:{ emoji: '🗡️', name: 'Boss Slayer',   desc: 'Defeated the Logic Lord'   },
+  badge_flawless_5: { emoji: '💎', name: 'Flawless Five', desc: 'Won 5 arena battles in a row'},
+  badge_no_hints:   { emoji: '🧠', name: 'No Hints',      desc: 'Completed a game hint-free' },
+};
+
+const GAME_META: Record<string, { label: string; icon: string }> = {
+  quickMath_10s:    { label: 'Quick Math (10s)',          icon: '⚡' },
+  quickMath_60s:    { label: 'Quick Math (60s)',          icon: '⏱️' },
+  advQuickMath_10s: { label: 'Advanced Math (10s)',       icon: '🔢' },
+  advQuickMath_60s: { label: 'Advanced Math (60s)',       icon: '⏱️' },
+  trueFalse_10s:    { label: 'True or False (10s)',       icon: '✅' },
+  trueFalse_60s:    { label: 'True or False (60s)',       icon: '⏱️' },
+  compareExp_10s:   { label: 'Compare Expressions (10s)', icon: '⚖️' },
+  compareExp_60s:   { label: 'Compare Expressions (60s)', icon: '⏱️' },
+  missingOp_10s:    { label: 'Missing Op (10s)',          icon: '❓' },
+  missingOp_60s:    { label: 'Missing Op (60s)',          icon: '⏱️' },
+  completeEq_10s:   { label: 'Complete Equation (10s)',   icon: '✏️' },
+  completeEq_60s:   { label: 'Complete Equation (60s)',   icon: '⏱️' },
+  sequence_10s:     { label: 'Sequence (10s)',            icon: '📈' },
+  sequence_60s:     { label: 'Sequence (60s)',            icon: '⏱️' },
+  pyramid:      { label: 'Number Pyramid',      icon: '🔺' },
+  blockPuzzle:  { label: 'Block Blast',         icon: '🟦' },
+  flipNodes:    { label: 'Flip Nodes',          icon: '🔄' },
+  fifteenPuzzle:{ label: '15 Puzzle',           icon: '🧩' },
+  memoOrder:    { label: 'Memo Order',          icon: '🧠' },
+  memoCells:    { label: 'Memo Cells',          icon: '🔲' },
+  ticTacToe:    { label: 'Tic-Tac-Toe',         icon: '❌' },
+  chessMemory:  { label: 'Chess Memory',        icon: '♟️' },
+  neonGrid:     { label: 'Neon Grid',           icon: '🌐' },
+  flipCup:      { label: 'Flip Cup',            icon: '🥤' },
+  nameSquare_10s: { label: 'Name Square (10s)', icon: '♜' },
+  nameSquare_60s: { label: 'Name Square (60s)', icon: '♝' },
+  findSquare_10s: { label: 'Find Square (10s)', icon: '♞' },
+  findSquare_60s: { label: 'Find Square (60s)', icon: '♛' },
+};
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function xpProgress(xp: number): { pct: number; current: number; needed: number } {
+  // Find current level index (0-based)
+  let lvIdx = 0;
+  for (let i = LEVELS.length - 1; i >= 0; i--) {
+    if (xp >= LEVELS[i].min) { lvIdx = i; break; }
+  }
+  if (lvIdx >= LEVELS.length - 1) return { pct: 100, current: xp - LEVELS[lvIdx].min, needed: 0 };
+  const floor = LEVELS[lvIdx].min;
+  const ceil  = LEVELS[lvIdx + 1].min;
+  const current = xp - floor;
+  const needed  = ceil - floor;
+  return { pct: Math.min(100, (current / needed) * 100), current, needed };
+}
+
+function countMastered(progress?: Record<string, Record<string, Record<string, { mastered: boolean }>>>): number {
+  if (!progress) return 0;
+  let n = 0;
+  for (const cur of Object.values(progress))
+    for (const ch of Object.values(cur))
+      for (const obj of Object.values(ch))
+        if (obj.mastered) n++;
+  return n;
+}
+
+function avatarBg(username: string): string {
+  const hue = ((username?.charCodeAt(0) || 65) * 137) % 360;
+  return `hsl(${hue}, 60%, 35%)`;
+}
+
+// ── component ─────────────────────────────────────────────────────────────────
+
+const CURRICULUM_SYSTEM_LABELS: Record<string, string> = {
+  IGCSE: '🇬🇧 IGCSE', BAC: '🇫🇷 Baccalauréat', American: '🇺🇸 American', IB: '🌐 IB', Other: '📚 Other'
+};
+
+export default function ProfileView() {
+  const { user, userData, refreshUserData } = useAuth();
+  const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
+  const [showAllScores, setShowAllScores] = useState(false);
+  const [inv, setInv] = useState<UserInventoryDoc | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadInv() {
+      const uid = user?.uid;
+      if (!uid) {
+        if (alive) setInv(null);
+        return;
+      }
+      try {
+        const doc0 = await getUserInventory(uid);
+        if (alive) setInv(doc0);
+      } catch {
+        if (alive) setInv(null);
+      }
+    }
+    loadInv();
+    return () => {
+      alive = false;
+    };
+  }, [user?.uid]);
+
+  if (!userData) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#64748b' }}>
+      Loading profile...
+    </div>
+  );
+
+  const xp      = userData.economy?.global_xp ?? 0;
+  const gold    = userData.economy?.gold ?? 0;
+  const streak  = userData.economy?.streak ?? 0;
+  const { level, title } = computeLevel(xp);
+  const lvColor = LEVELS[level - 1]?.color ?? '#64748b';
+  const prog    = xpProgress(xp);
+
+  const arenaW  = userData.arenaStats?.wins ?? 0;
+  const arenaL  = userData.arenaStats?.losses ?? 0;
+  const arenaTotal = arenaW + arenaL;
+  const winRate = arenaTotal > 0 ? Math.round((arenaW / arenaTotal) * 100) : 0;
+  const bestStreak = userData.arenaStats?.highestStreak ?? 0;
+
+  const badges    = userData.inventory?.badges ?? [];
+  const mastered  = countMastered(userData.progress);
+
+  const highScores = userData.high_scores ?? {};
+  const allGames = Object.entries(GAME_META).map(([id, meta]) => ({
+    id, ...meta, score: highScores[id] ?? 0, played: (highScores[id] ?? 0) > 0
+  }));
+  const playedGames  = allGames.filter(g => g.played).sort((a, b) => b.score - a.score);
+  const shownScores  = showAllScores ? allGames : (playedGames.length > 0 ? playedGames : allGames.slice(0, 6));
+
+  const initial = (userData.username?.[0] || userData.firstName?.[0] || '?').toUpperCase();
+
+  return (
+    <div style={{ height: '100%', overflowY: 'auto', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}>
+      {/* ── Hero ── */}
+      <div style={{
+        background: `linear-gradient(160deg, ${lvColor}22 0%, var(--ll-surface-0) 60%)`,
+        padding: '28px 20px 20px',
+        borderBottom: `1px solid ${lvColor}44`,
+        animation: 'fadeIn 0.4s ease'
+      }}>
+        {/* Avatar */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 18 }}>
+          <div style={{
+            width: 76, height: 76, borderRadius: '50%',
+            background: avatarBg(userData.username),
+            border: `3px solid ${lvColor}`,
+            boxShadow: `0 0 20px ${lvColor}66`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 34, fontWeight: 'bold', color: 'white', marginBottom: 10,
+            flexShrink: 0
+          }}>
+            {initial}
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 'bold', color: 'var(--ll-text)' }}>{userData.username}</div>
+          {inv?.equipped?.title && (
+            <div style={{
+              marginTop: 6,
+              padding: '4px 12px',
+              borderRadius: 999,
+              background: 'rgba(168,85,247,0.14)',
+              border: '1px solid rgba(168,85,247,0.45)',
+              color: '#ddd6fe',
+              fontSize: 12,
+              fontWeight: 'bold',
+            }}>
+              {inv.equipped.title}
+            </div>
+          )}
+          {(userData.firstName || userData.lastName) && (
+            <div style={{ color: 'var(--ll-text-soft)', fontSize: 13, marginTop: 2 }}>
+              {userData.firstName} {userData.lastName}
+            </div>
+          )}
+          <div style={{
+            marginTop: 8, padding: '4px 14px', borderRadius: 20,
+            background: `${lvColor}22`, border: `1px solid ${lvColor}66`,
+            color: lvColor, fontSize: 13, fontWeight: 'bold'
+          }}>
+            Level {level} · {title}
+          </div>
+        </div>
+
+        {/* 4-stat row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
+          {[
+            { label: 'XP',      value: xp.toLocaleString(),    color: '#10b981', icon: '⭐' },
+            { label: 'Gold',    value: gold.toLocaleString(),   color: '#fbbf24', icon: '🪙' },
+            { label: 'Streak',  value: `${streak}d`,            color: '#f97316', icon: '🔥' },
+            { label: 'Mastered',value: mastered,                color: '#a78bfa', icon: '🎯' },
+          ].map(s => (
+            <div key={s.label} style={{
+              background: 'var(--ll-surface-1)', borderRadius: 10, padding: '10px 6px',
+              textAlign: 'center', border: `1px solid ${s.color}33`
+            }}>
+              <div style={{ fontSize: 16 }}>{s.icon}</div>
+              <div style={{ fontSize: 16, fontWeight: 'bold', color: s.color, marginTop: 2 }}>{s.value}</div>
+              <div style={{ color: 'var(--ll-text-muted)', fontSize: 10, marginTop: 1 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* XP Progress bar */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ll-text-soft)', marginBottom: 5 }}>
+            <span>{prog.current.toLocaleString()} XP into level</span>
+            {prog.needed > 0
+              ? <span>{prog.needed.toLocaleString()} XP to Level {level + 1}</span>
+              : <span style={{ color: '#a855f7' }}>MAX LEVEL</span>
+            }
+          </div>
+          <div style={{ height: 10, background: 'var(--ll-surface-1)', borderRadius: 5, overflow: 'hidden', border: `1px solid ${lvColor}44` }}>
+            <div style={{
+              width: `${prog.pct}%`, height: '100%', borderRadius: 5, transition: 'width 0.8s ease',
+              background: `linear-gradient(90deg, ${lvColor}, ${lvColor}cc)`
+            }} />
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '16px 16px 32px' }}>
+
+        {/* ── Level Path ── */}
+        <div style={{ background: 'var(--ll-surface-1)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid var(--ll-border)' }}>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, fontWeight: 'bold' }}>
+            Level Path
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 0, overflowX: 'auto', paddingBottom: 4 }}>
+            {LEVELS.map((lv, i) => {
+              const lvNum = i + 1;
+              const isReached  = level >= lvNum;
+              const isCurrent  = level === lvNum;
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <div style={{
+                      width: isCurrent ? 32 : 24, height: isCurrent ? 32 : 24, borderRadius: '50%',
+                      background: isReached ? lv.color : 'var(--ll-border)',
+                      border: isCurrent ? `3px solid white` : `2px solid ${isReached ? lv.color : '#475569'}`,
+                      boxShadow: isCurrent ? `0 0 12px ${lv.color}99` : 'none',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: isCurrent ? 13 : 10, fontWeight: 'bold',
+                      color: isReached ? 'white' : '#475569',
+                      transition: 'all 0.3s'
+                    }}>
+                      {lvNum}
+                    </div>
+                    <div style={{ fontSize: 8, color: isCurrent ? lv.color : isReached ? 'var(--ll-text-soft)' : 'var(--ll-text-muted)', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                      {lv.title}
+                    </div>
+                  </div>
+                  {i < LEVELS.length - 1 && (
+                    <div style={{
+                      width: 22, height: 2, flexShrink: 0, marginBottom: 14,
+                      background: level > lvNum ? LEVELS[i].color : 'var(--ll-border)',
+                      transition: 'background 0.3s'
+                    }} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Curriculum Profile ── */}
+        <CurriculumEditor />
+
+        {/* ── Badges ── */}
+        <div style={{ background: 'var(--ll-surface-1)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid var(--ll-border)' }}>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, fontWeight: 'bold' }}>
+            🎖️ Badges ({badges.length})
+          </div>
+          {badges.length === 0 ? (
+            <div style={{ color: '#475569', fontSize: 13, textAlign: 'center', padding: '8px 0' }}>
+              No badges yet — keep playing to earn them!
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {badges.map(b => {
+                const meta = BADGE_META[b] ?? { emoji: '🏅', name: b, desc: '' };
+                const isHovered = hoveredBadge === b;
+                return (
+                  <div
+                    key={b}
+                    onMouseEnter={() => setHoveredBadge(b)}
+                    onMouseLeave={() => setHoveredBadge(null)}
+                    onClick={() => setHoveredBadge(isHovered ? null : b)}
+                    style={{ position: 'relative', cursor: 'pointer' }}
+                  >
+                    <div style={{
+                      background: isHovered ? 'rgba(59,130,246,0.2)' : 'var(--ll-surface-2)',
+                      border: `1px solid ${isHovered ? 'rgba(59,130,246,0.6)' : 'var(--ll-border)'}`,
+                      borderRadius: 10, padding: '8px 12px',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                      minWidth: 64, transition: 'all 0.15s'
+                    }}>
+                      <span style={{ fontSize: 24 }}>{meta.emoji}</span>
+                      <span style={{ fontSize: 9, color: isHovered ? '#93c5fd' : 'var(--ll-text-muted)', textAlign: 'center', lineHeight: 1.2 }}>
+                        {meta.name}
+                      </span>
+                    </div>
+                    {isHovered && meta.desc && (
+                      <div style={{
+                        position: 'absolute', bottom: '110%', left: '50%', transform: 'translateX(-50%)',
+                        background: 'var(--ll-surface-0)', border: '1px solid #3b82f6', borderRadius: 8,
+                        padding: '6px 10px', fontSize: 11, color: '#93c5fd', whiteSpace: 'nowrap',
+                        zIndex: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.5)', pointerEvents: 'none'
+                      }}>
+                        {meta.desc}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── High Scores ── */}
+        <div style={{ background: 'var(--ll-surface-1)', borderRadius: 14, padding: '14px 16px', border: '1px solid var(--ll-border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ color: 'var(--ll-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold' }}>
+              🏆 Personal Best
+            </div>
+            <button
+              onClick={() => setShowAllScores(v => !v)}
+              style={{
+                fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                background: 'transparent', border: '1px solid var(--ll-border)', color: 'var(--ll-text-muted)',
+                fontFamily: 'inherit'
+              }}
+            >
+              {showAllScores ? 'Show Played' : 'Show All'}
+            </button>
+          </div>
+
+          {shownScores.length === 0 ? (
+            <div style={{ textAlign: 'center', color: '#475569', fontSize: 13, padding: '16px 0' }}>
+              Play warmup games to set personal bests!
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              {shownScores.map(({ id, label, icon, score, played }) => (
+                <div key={id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: 'var(--ll-surface-0)', borderRadius: 9, padding: '8px 10px',
+                  border: played ? '1px solid var(--ll-border)' : '1px solid var(--ll-surface-1)',
+                  opacity: played ? 1 : 0.45
+                }}>
+                  <span style={{ fontSize: 16, flexShrink: 0 }}>{icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: 'var(--ll-text-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {label}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 'bold', color: played ? '#fbbf24' : 'var(--ll-border)' }}>
+                      {played ? (id === 'numGrid' ? `${score}s` : score.toLocaleString()) : '—'}
+                    </div>
+                  </div>
+                  {played && (
+                    <div style={{ flexShrink: 0 }}>
+                      <div style={{
+                        width: 6, height: 6, borderRadius: '50%', background: '#10b981'
+                      }} />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
