@@ -464,11 +464,11 @@ const PageCanvas = memo(function PageCanvas({
 interface FullScreenWorkspaceProps {
   onClose: () => void;
   visible: boolean;
+  activeQuestion?: string | null;
 }
 
-export default function FullScreenWorkspace({ onClose, visible }: FullScreenWorkspaceProps) {
+export default function FullScreenWorkspace({ onClose, visible, activeQuestion }: FullScreenWorkspaceProps) {
   // ── AI Grading State ──
-  const [currentQuestion] = useState("Find the equation of the line passing through the points (2,3) and (6, 7).");
   const [isGrading, setIsGrading] = useState(false);
   const [gradingFeedback, setGradingFeedback] = useState<{isCorrect: boolean, points: number, feedback: string} | null>(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -855,7 +855,7 @@ export default function FullScreenWorkspace({ onClose, visible }: FullScreenWork
       const studentAnswer = allLatex.join('\n\n');
       
       const prompt = `You are an expert, strict mathematics professor. You are evaluating a student's handwritten answer that has been converted to LaTeX.
-Question: ${currentQuestion}
+Question: ${activeQuestion || "No specific question provided."}
 Student Answer: ${studentAnswer}
 You must analyze the student's step-by-step logic, not just the final answer.
 You MUST respond ONLY with a raw JSON object matching this exact schema:
@@ -866,8 +866,8 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY;
       
       if (apiKey) {
-        // Real API Call (Gemini 1.5 Flash via REST)
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+        // Real API Call (Gemini 2.5 Flash via REST)
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -903,7 +903,7 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
     } finally {
       setIsGrading(false);
     }
-  }, [pages, currentQuestion, fetchMyScriptBlocks]);
+  }, [pages, activeQuestion, fetchMyScriptBlocks]);
 
   const handleOpenOutput = useCallback(() => {
     captureSnapshots();
@@ -952,7 +952,7 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
               key={page.id}
               page={page}
               pageIndex={idx}
-              currentQuestion={currentQuestion}
+              currentQuestion={activeQuestion || undefined}
               activeTool={activeTool}
               eraserMode={eraserMode}
               strokeColor={strokeColor}
