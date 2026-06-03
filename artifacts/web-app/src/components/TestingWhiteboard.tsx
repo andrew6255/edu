@@ -1,124 +1,242 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 
-// Enhanced TestingWhiteboard component with all features we built
+/* ═══════════════════════════════════════════════════════════════
+   Spatial Coordinate Block — one recognized text element
+   positioned at the same (x, y) it was handwritten
+   ═══════════════════════════════════════════════════════════════ */
+interface ConvertedBlock {
+  id: string;
+  text: string;           // plain text label
+  latex: string;          // LaTeX string (if available)
+  x: number;              // normalized X (0–1)
+  y: number;              // normalized Y (0–1)
+  width: number;          // normalized width
+  height: number;         // normalized height
+  fontSize: number;       // computed from bounding box height
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LLM Hook Stub — future grading endpoint
+   ═══════════════════════════════════════════════════════════════ */
+
+/** @placeholder Route spatial canvas data to Gemini/ChatGPT for physics and math grading */
+async function handleLLMCorrection(canvasData: ConvertedBlock[]): Promise<void> {
+  // TODO: POST canvasData to /api/llm-grade endpoint
+  // The canvasData array contains all text blocks with their spatial coordinates,
+  // which can be used by the LLM to understand the layout of the student's work.
+  console.log('[LLM Hook] Canvas data ready for grading:', canvasData);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Color Palette & Tool Definitions
+   ═══════════════════════════════════════════════════════════════ */
+const COLORS = [
+  { value: '#0f172a', label: 'Dark' },
+  { value: '#2563eb', label: 'Blue' },
+  { value: '#dc2626', label: 'Red' },
+  { value: '#059669', label: 'Green' },
+  { value: '#d97706', label: 'Amber' },
+  { value: '#7c3aed', label: 'Purple' },
+];
+
+type ToolType = 'write' | 'erase' | 'select' | 'line' | 'circle' | 'rectangle' | 'arrow';
+const SHAPE_TOOLS: ToolType[] = ['line', 'circle', 'rectangle', 'arrow'];
+
+/* ═══════════════════════════════════════════════════════════════
+   JIIX Parser — Extract spatial blocks from MyScript JIIX export
+   ═══════════════════════════════════════════════════════════════ */
+function parseJIIXToBlocks(jiix: any, canvasWidth: number, canvasHeight: number, contentType: string = 'TEXT'): ConvertedBlock[] {
+  if (!jiix) return [];
+  const blocks: ConvertedBlock[] = [];
+
+  // Determine canvas bounds from JIIX (used for normalization)
+  // iink 1.x uses flat words; iink 2.x may nest inside elements
+  const elements: any[] = jiix.elements || jiix.words || jiix.expressions || [];
+  if (!Array.isArray(elements) || elements.length === 0) {
+    // Fallback: if JIIX has only a top-level label, place it centered
+    const label = jiix.label || jiix.value || '';
+    const latex = jiix.latex || '';
+    if (label || latex) {
+      blocks.push({
+        id: 'root-0',
+        text: String(label),
+        latex: String(latex),
+        x: 0.05,
+        y: 0.05,
+        width: 0.9,
+        height: 0.06,
+        fontSize: 18,
+      });
+    }
+    return blocks;
+  }
+
+  // Compute the global bounding envelope for normalization
+  let globalMinX = Infinity, globalMinY = Infinity;
+  let globalMaxX = -Infinity, globalMaxY = -Infinity;
+
+  for (const el of elements) {
+    const bb = el['bounding-box'] || el.boundingBox || el;
+    const x = bb.x ?? bb.left ?? 0;
+    const y = bb.y ?? bb.top ?? 0;
+    const w = bb.width ?? 0;
+    const h = bb.height ?? 0;
+    if (x < globalMinX) globalMinX = x;
+    if (y < globalMinY) globalMinY = y;
+    if (x + w > globalMaxX) globalMaxX = x + w;
+    if (y + h > globalMaxY) globalMaxY = y + h;
+  }
+
+  const envW = Math.max(1, globalMaxX - globalMinX);
+  const envH = Math.max(1, globalMaxY - globalMinY);
+
+  // 1. If we are in MATH mode, stop granular iteration.
+  // Read the top-level math structure block as a single, unified string.
+  if (contentType === 'MATH' && jiix.latex) {
+    const rawX = jiix['bounding-box']?.x ?? globalMinX;
+    const rawY = jiix['bounding-box']?.y ?? globalMinY;
+    const rawW = jiix['bounding-box']?.width ?? envW;
+    const rawH = jiix['bounding-box']?.height ?? envH;
+
+    const pad = 0.03;
+    const normX = pad + ((rawX - globalMinX) / envW) * (1 - 2 * pad);
+    const normY = pad + ((rawY - globalMinY) / envH) * (1 - 2 * pad);
+    const normW = (rawW / envW) * (1 - 2 * pad);
+    const normH = (rawH / envH) * (1 - 2 * pad);
+
+    const computedFontSize = Math.max(16, Math.min(48, Math.round(normH * canvasHeight * 0.8)));
+
+    blocks.push({
+      id: 'math-root',
+      text: jiix.label || '',
+      latex: jiix.latex,
+      x: normX,
+      y: normY,
+      width: normW,
+      height: normH,
+      fontSize: computedFontSize,
+    });
+    return blocks;
+  }
+
+  // 2. Fallback recursive structural extraction for TEXT mode
+  function extractBlocks(items: any[], depth = 0) {
+    for (let i = 0; i < items.length; i++) {
+      const el = items[i];
+      const label = el.label ?? el.value ?? el.text ?? '';
+      const latex = el.latex ?? '';
+      
+      const bb = el['bounding-box'] || el.boundingBox || el;
+      const hasBoundingBox = bb && typeof bb.width === 'number';
+
+      // Group by Structural Blocks: Stop at TextLine, or any node providing latex, or leaf nodes
+      const isTarget = hasBoundingBox && (el.type === 'TextLine' || latex || (!el.elements && !el.children && !el.words && !el.expressions && label));
+
+      if (isTarget && (label || latex)) {
+        const rawX = bb.x ?? bb.left ?? 0;
+        const rawY = bb.y ?? bb.top ?? 0;
+        const rawW = bb.width ?? envW * 0.1;
+        const rawH = bb.height ?? envH * 0.05;
+
+        const pad = 0.03;
+        const normX = pad + ((rawX - globalMinX) / envW) * (1 - 2 * pad);
+        const normY = pad + ((rawY - globalMinY) / envH) * (1 - 2 * pad);
+        const normW = (rawW / envW) * (1 - 2 * pad);
+        const normH = (rawH / envH) * (1 - 2 * pad);
+
+        const computedFontSize = Math.max(12, Math.min(36, Math.round(normH * canvasHeight * 0.7)));
+
+        blocks.push({
+          id: `block-${depth}-${i}`,
+          text: String(label),
+          latex: String(latex),
+          x: normX,
+          y: normY,
+          width: normW,
+          height: normH,
+          fontSize: computedFontSize,
+        });
+        
+        // Stop recursion for this branch to prevent character scattering
+        continue;
+      }
+
+      // If not a target structural block, keep digging
+      if (el.elements) extractBlocks(el.elements, depth + 1);
+      else if (el.expressions) extractBlocks(el.expressions, depth + 1);
+      else if (el.children) extractBlocks(el.children, depth + 1);
+      else if (el.words) extractBlocks(el.words, depth + 1);
+    }
+  }
+
+  extractBlocks(elements);
+  return blocks;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TestingWhiteboard — Premium Dual-Board Component
+   ═══════════════════════════════════════════════════════════════ */
 export default function TestingWhiteboard() {
-  const [activeTool, setActiveTool] = useState<'write' | 'erase' | 'line' | 'circle' | 'rectangle' | 'arrow'>('write');
-  const editorInstanceRef = useRef<any>(null);
+  // ── Core Refs ──
   const editorHostRef = useRef<HTMLDivElement | null>(null);
+  const editorInstanceRef = useRef<any>(null);
+  const outputBoardRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [sdkLoaded, setSdkLoaded] = useState(false);
-  const [sdkError, setSdkError] = useState<string | null>(null);
-  const [initStatus, setInitStatus] = useState<string | null>(null);
-  const [recognized, setRecognized] = useState<string>('');
-  const [exportFormat, setExportFormat] = useState<'text' | 'latex'>('text');
-  const [history, setHistory] = useState<any[]>([]);
-  const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const drawing = useRef(false);
   const last = useRef<{ x: number; y: number } | null>(null);
 
-  function computeDiagnostics(extra?: string) {
-    try {
-      const jsTag = document.querySelector('script[data-myscript-js]') ? 'js:yes' : 'js:no';
-      const cssTag = document.querySelector('link[data-myscript-css]') ? 'css:yes' : 'css:no';
-      const host = editorHostRef.current;
-      const rect = host ? host.getBoundingClientRect() : { width: 0, height: 0 } as DOMRect;
-      const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
-      const g = (window as any)[ns];
-      const api = g ? Object.keys(g).slice(0, 6).join(',') : 'none';
-      const msg = `assets[${jsTag},${cssTag}] size=${Math.round(rect.width)}x${Math.round(rect.height)} ns=${ns} api=${api}${extra ? ' ' + extra : ''}`;
-    } catch {}
-  }
+  // ── SDK State ──
+  const [sdkLoaded, setSdkLoaded] = useState(false);
+  const [sdkError, setSdkError] = useState<string | null>(null);
+  const [initStatus, setInitStatus] = useState<string | null>(null);
 
-  // Auto-load SDK and initialize editor
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await loadMyScriptAssets();
-        if (cancelled) return;
-        setSdkLoaded(true);
-        let tries = 0;
-        while (!cancelled && !editorHostRef.current && tries < 20) {
-          tries += 1; await new Promise(r => setTimeout(r, 50));
-        }
-        if (!cancelled && editorHostRef.current) {
-          try {
-            await createEditorNow();
-          } catch (e: any) {
-            setSdkError(e?.message || 'Init failed');
-          }
-        }
-      } catch (e: any) {
-        if (!cancelled) setSdkError(e?.message || 'Failed to load MyScript SDK');
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  // ── Tool State ──
+  const [activeTool, setActiveTool] = useState<ToolType>('write');
+  const [strokeColor, setStrokeColor] = useState('#0f172a');
+  const [strokeWidth, setStrokeWidth] = useState(2.5);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!editorInstanceRef.current) return;
-      
-      if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        if (historyIndex > 0) {
-          setHistoryIndex(historyIndex - 1);
-          const inst = editorInstanceRef.current;
-          if (inst && typeof inst.import_ === 'function') {
-            inst.import_(history[historyIndex - 1]);
-          }
-        }
-      }
-      if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) {
-        e.preventDefault();
-        if (historyIndex < history.length - 1) {
-          setHistoryIndex(historyIndex + 1);
-          const inst = editorInstanceRef.current;
-          if (inst && typeof inst.import_ === 'function') {
-            inst.import_(history[historyIndex + 1]);
-          }
-        }
-      }
-    };
+  // ── Export State ──
+  const [exportFormat, setExportFormat] = useState<'text' | 'latex'>('text');
+  const exportFormatRef = useRef(exportFormat);
+  useEffect(() => { exportFormatRef.current = exportFormat; }, [exportFormat]);
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [historyIndex, history]);
+  // ── History (Undo/Redo) ──
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
+  // ── Spatial Output State ──
+  const [convertedCanvasState, setConvertedCanvasState] = useState<ConvertedBlock[]>([]);
+  const [recognizedPlain, setRecognizedPlain] = useState('');
+
+  // ═══════════════════════════════════════════════════════════════
+  //  MyScript Asset Loader
+  // ═══════════════════════════════════════════════════════════════
   async function loadMyScriptAssets() {
     const jsUrl = import.meta.env.VITE_MYSCRIPT_JS_URL as string | undefined;
     const cssUrl = import.meta.env.VITE_MYSCRIPT_CSS_URL as string | undefined;
-    const isHttp = (u?: string) => !!u && /^https?:\/\//i.test(u);
-    if (!isHttp(jsUrl) || !isHttp(cssUrl)) {
-      throw new Error('Official MyScript SDK URLs required. Set VITE_MYSCRIPT_JS_URL and VITE_MYSCRIPT_CSS_URL to https URLs from MyScript.');
-    }
-    // CSS: replace mismatched
-    const existingCss = document.querySelector('link[data-myscript-css]') as HTMLLinkElement | null;
-    if (existingCss && existingCss.href !== cssUrl) {
-      existingCss.parentElement?.removeChild(existingCss);
-    }
-    if (!document.querySelector(`link[data-myscript-css]`)) {
+    if (!jsUrl || !cssUrl) throw new Error('Missing VITE_MYSCRIPT_JS_URL or VITE_MYSCRIPT_CSS_URL in .env');
+
+    // Load CSS
+    if (!document.querySelector('link[data-myscript-css]')) {
       await new Promise<void>((resolve, reject) => {
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = cssUrl!;
+        link.href = cssUrl;
         link.setAttribute('data-myscript-css', 'true');
         link.onload = () => resolve();
         link.onerror = () => reject(new Error('Failed to load MyScript CSS'));
         document.head.appendChild(link);
       });
     }
-    // JS: replace mismatched
-    const existingJs = document.querySelector('script[data-myscript-js]') as HTMLScriptElement | null;
-    if (existingJs && existingJs.src !== jsUrl) {
-      existingJs.parentElement?.removeChild(existingJs);
-    }
-    if (!document.querySelector(`script[data-myscript-js]`)) {
+
+    // Load JS
+    if (!document.querySelector('script[data-myscript-js]')) {
       await new Promise<void>((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = jsUrl!;
+        script.src = jsUrl;
         script.setAttribute('data-myscript-js', 'true');
         script.onload = () => resolve();
         script.onerror = () => reject(new Error('Failed to load MyScript JS'));
@@ -127,306 +245,727 @@ export default function TestingWhiteboard() {
     }
   }
 
-  async function createEditorNow() {
-    const host = editorHostRef.current;
-    const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
-    const appKey = import.meta.env.VITE_MYSCRIPT_APP_KEY as string | undefined;
-    const hmacKey = import.meta.env.VITE_MYSCRIPT_HMAC_KEY as string | undefined;
-    const contentType = (import.meta.env.VITE_MYSCRIPT_CONTENT_TYPE as string | undefined) || 'TEXT';
-    const serverScheme = (import.meta.env.VITE_MYSCRIPT_SERVER_SCHEME as string | undefined) || undefined;
-    const serverHost = (import.meta.env.VITE_MYSCRIPT_SERVER_HOST as string | undefined) || undefined;
-    
-    if (!host) throw new Error('Missing editor host');
-    if (window && (window as any).isSecureContext === false) {
-      throw new Error('MyScript requires a secure context (HTTPS)');
-    }
-    
-    try {
-      const originalAdd = host.classList.add;
-      const originalRemove = host.classList.remove;
-      host.classList.add = (...tokens: any[]) => {
-        const valid = tokens.filter(t => typeof t === 'string' && !t.includes(' ') && t !== '[object Object]');
-        if (valid.length) originalAdd(...valid);
-      };
-      host.classList.remove = (...tokens: any[]) => {
-        const valid = tokens.filter(t => typeof t === 'string' && !t.includes(' ') && t !== '[object Object]');
-        if (valid.length) originalRemove(...valid);
-      };
-    } catch {}
-    
-    const w: any = window as any; const api = w[ns];
-    if (!api || typeof api.Editor !== 'function') throw new Error('window.' + ns + '.Editor not found');
-    
-    const serverCfg = (serverScheme && serverHost)
-      ? { scheme: serverScheme, host: serverHost, applicationKey: appKey, hmacKey }
-      : { scheme: 'https', host: 'cloud.myscript.com', applicationKey: appKey, hmacKey };
+  // ═══════════════════════════════════════════════════════════════
+  //  THE SINGLE, CLEAN INITIALIZATION HOOK
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    let cancelled = false;
 
-    const options: any = {
-      recognitionParams: {
-        type: contentType,
-        protocol: 'WEBSOCKET',
-        server: serverCfg,
-        text: { smartGuide: { enable: false } },
-        math: { smartGuide: { enable: false } },
-      },
-      configuration: {
-        server: serverCfg,
-        applicationKey: appKey,
-        hmacKey: hmacKey,
-      },
-    };
-    
-    // Create editor using whichever API is available (Factory, function, or constructor)
-    let ed: any = null;
-    if (api && api.EditorFactory && typeof api.EditorFactory.createEditor === 'function') {
-      ed = await api.EditorFactory.createEditor(host, 'TEXT', options);
-    } else if (api && typeof api.createEditor === 'function') {
-      ed = await api.createEditor(host, options);
-    } else if (api && typeof api.Editor === 'function') {
-      ed = new api.Editor(host, options);
+    const initBoard = async () => {
       try {
-        if (typeof ed.init === 'function') {
-          const r = ed.init(host, options); if (r && typeof r.then === 'function') await r;
-        } else if (typeof ed.mount === 'function') {
-          const r = ed.mount(host, options); if (r && typeof r.then === 'function') await r;
-        } else if (typeof ed.start === 'function') {
-          const r = ed.start(options); if (r && typeof r.then === 'function') await r;
+        await loadMyScriptAssets();
+        if (cancelled) return;
+        setSdkLoaded(true);
+
+        // Wait for host element to mount
+        let tries = 0;
+        while (!cancelled && !editorHostRef.current && tries < 20) {
+          tries += 1;
+          await new Promise(r => setTimeout(r, 50));
         }
-      } catch {}
-    }
-    if (!ed) throw new Error('No compatible MyScript editor API found on window.' + ns);
-    editorInstanceRef.current = ed;
-    computeDiagnostics('auto-mounted');
-    
-    try { setInitStatus('Ready'); } catch {}
-    try { host.style.touchAction = 'none'; host.style.cursor = 'crosshair'; host.focus(); } catch {}
-    
-    try {
-      const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
-      const apiNS: any = (window as any)[ns];
-      const writeTool = apiNS?.EditorTool?.Write || apiNS?.EditorWriteTool || 'write';
-      if (typeof (ed as any).setTool === 'function') (ed as any).setTool(writeTool);
-      else if (typeof (ed as any).setMode === 'function') (ed as any).setMode('write');
-    } catch {}
-    
-    setActiveTool('write');
-    
-    // Auto-export on content changes with debounce
-    let exportTimer: any = null;
-    const doExport = async () => {
-      try {
-        if ((ed as any).waitForIdle) await (ed as any).waitForIdle();
-        const expMethod = (ed as any).export || (ed as any).export_;
-        let exportsObj: any = (ed as any).exports;
-        if (typeof expMethod === 'function') {
-          exportsObj = await expMethod.call(ed);
+        if (cancelled || !editorHostRef.current) return;
+
+        const host = editorHostRef.current;
+        const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
+        const appKey = import.meta.env.VITE_MYSCRIPT_APP_KEY as string | undefined;
+        const hmacKey = import.meta.env.VITE_MYSCRIPT_HMAC_KEY as string | undefined;
+        const contentType = exportFormatRef.current === 'latex' ? 'MATH' : 'TEXT';
+
+        // ── Secure context guard (preserves existing crypto.subtle check) ──
+        if (window && (window as any).isSecureContext === false) {
+          throw new Error('Secure context required: open via localhost or https so crypto.subtle is available');
         }
-        const plain = exportsObj?.['text/plain'] || exportsObj?.['application/vnd.myscript.jiix']?.label || '';
-        const latex = exportsObj?.['application/x-latex'] || exportsObj?.['application/vnd.myscript.jiix']?.latex || '';
-        setRecognized((exportFormat === 'latex' ? latex : plain) || plain || latex || '');
-      } catch (e) {
-        // ignore transient export issues
+
+        if (!appKey || !hmacKey) throw new Error('Missing MyScript App/HMAC Keys');
+
+        // ── classList object patch (preserves existing malformed-token guard) ──
+        try {
+          const origAdd = host.classList.add.bind(host.classList);
+          const origRem = host.classList.remove.bind(host.classList);
+          (host.classList as any).add = (...tokens: any[]) => {
+            const valid = tokens.filter(t => typeof t === 'string' && !t.includes(' ') && t !== '[object Object]');
+            if (valid.length) origAdd(...valid);
+          };
+          (host.classList as any).remove = (...tokens: any[]) => {
+            const valid = tokens.filter(t => typeof t === 'string' && !t.includes(' ') && t !== '[object Object]');
+            if (valid.length) origRem(...valid);
+          };
+        } catch { /* guard only */ }
+
+        const serverScheme = (import.meta.env.VITE_MYSCRIPT_SERVER_SCHEME as string | undefined) || 'https';
+        const serverHost = (import.meta.env.VITE_MYSCRIPT_SERVER_HOST as string | undefined) || 'cloud.myscript.com';
+        const serverCfg = { scheme: serverScheme, host: serverHost, applicationKey: appKey, hmacKey };
+
+        // ── THE OMNI-CONFIG (Smart Guide disabled, JIIX export enabled) ──
+        const options: any = {
+          configuration: {
+            server: serverCfg,
+            recognition: { type: contentType, protocol: 'WEBSOCKET' },
+            text: { smartGuide: { enable: false }, mimeTypes: ['text/plain', 'application/vnd.myscript.jiix'] },
+            math: { smartGuide: { enable: false }, mimeTypes: ['application/x-latex', 'application/vnd.myscript.jiix'] },
+            export: { jiix: { 'bounding-box': true } },
+          },
+          recognitionParams: {
+            type: contentType,
+            protocol: 'WEBSOCKET',
+            server: serverCfg,
+            text: { smartGuide: { enable: false } },
+            math: { smartGuide: { enable: false } },
+            iink: { export: { jiix: { 'bounding-box': true } } },
+          },
+          theme: {
+            ink: { color: '#0f172a', '-myscript-pen-width': 2.5 },
+            '.text': { color: '#0f172a', 'font-size': 20 },
+          },
+        };
+
+        // ── Editor instantiation (multi-strategy) ──
+        const w: any = window;
+        const api = w[ns];
+        if (!api) throw new Error('MyScript API not loaded on window.' + ns);
+
+        let ed: any = null;
+        if (api.EditorFactory && typeof api.EditorFactory.createEditor === 'function') {
+          ed = await api.EditorFactory.createEditor(host, contentType, options);
+        } else if (typeof api.createEditor === 'function') {
+          ed = await api.createEditor(host, options);
+        } else if (typeof api.Editor === 'function') {
+          ed = new api.Editor(host, options);
+          if (typeof ed.init === 'function') await ed.init(host, options);
+          else if (typeof ed.mount === 'function') await ed.mount(host, options);
+        }
+
+        if (!ed) throw new Error('Failed to instantiate editor via window.' + ns);
+        editorInstanceRef.current = ed;
+        (window as any).debugEditor = ed;
+        setInitStatus('Ready');
+
+        // ── Set write mode ──
+        try {
+          const tool = api?.EditorTool?.Write || api?.EditorWriteTool || 'write';
+          if (typeof ed.setTool === 'function') ed.setTool(tool);
+          else if (typeof ed.setMode === 'function') ed.setMode('write');
+          setActiveTool('write');
+        } catch { /* guard */ }
+
+        // ── Focus + touch setup ──
+        try {
+          host.style.touchAction = 'none';
+          host.style.cursor = 'crosshair';
+          host.focus();
+        } catch { /* guard */ }
+
+        // ── Resize handler ──
+        try {
+          if (typeof ed.resize === 'function') {
+            ed.resize();
+            setTimeout(() => { try { ed.resize(); } catch { } }, 100);
+          }
+          const resizeHandler = () => { try { ed.resize?.(); } catch { } };
+          window.addEventListener('resize', resizeHandler);
+          (ed as any).__resizeHandler = resizeHandler;
+        } catch { /* guard */ }
+
+        // ═══════════════════════════════════════════════════════════
+        //  Real-time JIIX Export + Spatial Mapping via 'exported' event
+        // ═══════════════════════════════════════════════════════════
+        const onExported = (evt: any) => {
+          try {
+            const exportsObj = evt?.detail?.exports;
+            if (!exportsObj) return;
+
+            // Extract JIIX for spatial mapping
+            const jiixRaw = exportsObj['application/vnd.myscript.jiix'];
+            let jiix: any = null;
+            if (typeof jiixRaw === 'string') {
+              try { jiix = JSON.parse(jiixRaw); } catch { jiix = null; }
+            } else if (jiixRaw && typeof jiixRaw === 'object') {
+              jiix = jiixRaw;
+            }
+
+            // Get canvas dimensions for normalization
+            const hostRect = host.getBoundingClientRect();
+            const cW = hostRect.width || 800;
+            const cH = hostRect.height || 520;
+
+            if (jiix) {
+              const blocks = parseJIIXToBlocks(jiix, cW, cH, contentType);
+              setConvertedCanvasState(blocks);
+            }
+
+            // Also set plain recognized text as fallback
+            const plain = exportsObj['text/plain'] || jiix?.label || '';
+            const latex = exportsObj['application/x-latex'] || jiix?.latex || '';
+            const displayText = (exportFormatRef.current === 'latex' ? latex : plain) || plain || latex || '';
+            setRecognizedPlain(displayText);
+
+            // If no JIIX blocks but we have text, create a fallback block
+            if ((!jiix || parseJIIXToBlocks(jiix, cW, cH, contentType).length === 0) && displayText) {
+              setConvertedCanvasState([{
+                id: 'fallback-0',
+                text: displayText,
+                latex: latex || '',
+                x: 0.04,
+                y: 0.04,
+                width: 0.92,
+                height: 0.08,
+                fontSize: 18,
+              }]);
+            }
+          } catch (err) {
+            console.error('[TestingWhiteboard] Error processing export:', err);
+          }
+        };
+
+        const onChanged = (evt: any) => {
+          // Update undo/redo history state if available in event detail
+          if (evt?.detail) {
+            // Can sync undo/redo state here if we need to disable buttons
+          }
+        };
+
+        host.addEventListener('changed', onChanged);
+        host.addEventListener('exported', onExported);
+
+      } catch (e: any) {
+        if (!cancelled) setSdkError(e.message || String(e));
       }
     };
-    const onChanged = () => {
-      if (exportTimer) clearTimeout(exportTimer);
-      exportTimer = setTimeout(doExport, 400);
-    };
-    const target: any = (typeof (ed as any).addEventListener === 'function') ? ed : host;
-    if (target && typeof target.addEventListener === 'function') {
-      try { target.addEventListener('changed', onChanged as any); } catch {}
-      try { target.addEventListener('exported', onChanged as any); } catch {}
-    }
-    
-    return ed;
-  }
 
-  // Canvas fallback handlers
+    initBoard();
+
+    return () => {
+      cancelled = true;
+      try {
+        const inst = editorInstanceRef.current;
+        if (inst) {
+          if (typeof inst.destroy === 'function') inst.destroy();
+          if ((inst as any).__resizeHandler) {
+            window.removeEventListener('resize', (inst as any).__resizeHandler);
+          }
+        }
+      } catch { /* guard */ }
+      editorInstanceRef.current = null;
+    };
+  }, []);
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Dynamic Content-Type Hot Swapping
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    if (editorInstanceRef.current) {
+      const newType = exportFormat === 'latex' ? 'MATH' : 'TEXT';
+      const currentConfig = editorInstanceRef.current.configuration;
+      
+      // Safely update the nested recognition params
+      if (currentConfig.recognitionParams) {
+        currentConfig.recognitionParams.type = newType;
+      }
+      currentConfig.recognition = { type: newType, protocol: 'WEBSOCKET' };
+      
+      // Re-apply configuration and CLEAR the board to prevent engine panic/ink dropping
+      editorInstanceRef.current.configuration = currentConfig;
+      editorInstanceRef.current.clear();
+      setRecognizedPlain('');
+      setConvertedCanvasState([]);
+    }
+  }, [exportFormat]);
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Keyboard Shortcuts
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!editorInstanceRef.current) return;
+      // Undo
+      if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+      // Redo
+      if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [historyIndex, history]);
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Tool Actions
+  // ═══════════════════════════════════════════════════════════════
+  const handleUndo = useCallback(() => {
+    if (historyIndex > 0) {
+      setHistoryIndex(historyIndex - 1);
+      const inst = editorInstanceRef.current;
+      if (inst && typeof inst.undo === 'function') {
+        inst.undo();
+      } else if (inst && typeof inst.import_ === 'function') {
+        inst.import_(history[historyIndex - 1]);
+      }
+    }
+  }, [historyIndex, history]);
+
+  const handleRedo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      setHistoryIndex(historyIndex + 1);
+      const inst = editorInstanceRef.current;
+      if (inst && typeof inst.redo === 'function') {
+        inst.redo();
+      } else if (inst && typeof inst.import_ === 'function') {
+        inst.import_(history[historyIndex + 1]);
+      }
+    }
+  }, [historyIndex, history]);
+
+  const handleClear = useCallback(() => {
+    const inst = editorInstanceRef.current;
+    if (inst && typeof inst.clear === 'function') {
+      inst.clear();
+    }
+    setConvertedCanvasState([]);
+    setRecognizedPlain('');
+  }, []);
+
+  const switchTool = useCallback((tool: ToolType) => {
+    const inst = editorInstanceRef.current;
+    if (!inst) return;
+    try {
+      const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
+      const api: any = (window as any)[ns];
+      if (tool === 'write') {
+        const t = api?.EditorTool?.Write || 'write';
+        if (typeof inst.setTool === 'function') inst.setTool(t);
+        else if (typeof inst.setMode === 'function') inst.setMode('write');
+      } else if (tool === 'erase') {
+        const t = api?.EditorTool?.Erase || 'erase';
+        if (typeof inst.setTool === 'function') inst.setTool(t);
+        else if (typeof inst.setMode === 'function') inst.setMode('erase');
+      }
+    } catch { /* guard */ }
+    setActiveTool(tool);
+  }, []);
+
+  const handleColorChange = useCallback((color: string) => {
+    setStrokeColor(color);
+    const inst = editorInstanceRef.current;
+    if (inst) {
+      try {
+        if (typeof inst.setPenColor === 'function') inst.setPenColor(color);
+        else if (typeof inst.penColor === 'string') inst.penColor = color;
+        else if (inst.theme) {
+          inst.theme = { ...inst.theme, ink: { ...inst.theme?.ink, color } };
+        }
+      } catch { /* guard */ }
+    }
+  }, []);
+
+  const handleStrokeWidthChange = useCallback((width: number) => {
+    setStrokeWidth(width);
+    const inst = editorInstanceRef.current;
+    if (inst) {
+      try {
+        if (typeof inst.setPenWidth === 'function') inst.setPenWidth(width);
+        else if (typeof inst.penWidth === 'number') inst.penWidth = width;
+      } catch { /* guard */ }
+    }
+  }, []);
+
+  const handleExport = useCallback(async () => {
+    const inst = editorInstanceRef.current;
+    if (!inst) return;
+    try {
+      if (typeof inst.export === 'function') {
+        const exp = await inst.export();
+        const text = exportFormat === 'latex'
+          ? (exp?.['application/x-latex'] || exp?.LATEX || exp?.LaTeX || exp?.latex || '')
+          : (exp?.['text/plain'] || '');
+        setRecognizedPlain(text || '');
+      }
+    } catch { /* guard */ }
+  }, [exportFormat]);
+
+  const handleSavePNG = useCallback(() => {
+    const host = editorHostRef.current;
+    if (!host) return;
+    const canvas = host.querySelector('canvas') || host.querySelector('svg');
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = `whiteboard-${Date.now()}.png`;
+    if (canvas instanceof HTMLCanvasElement) {
+      link.href = canvas.toDataURL();
+    } else if (canvas instanceof SVGElement) {
+      const svgData = new XMLSerializer().serializeToString(canvas);
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+      link.href = URL.createObjectURL(svgBlob);
+    }
+    link.click();
+  }, []);
+
+  const handleSaveJSON = useCallback(() => {
+    const data = {
+      blocks: convertedCanvasState,
+      recognizedPlain,
+      exportFormat,
+      strokeColor,
+      strokeWidth,
+      timestamp: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.download = `whiteboard-${Date.now()}.json`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+  }, [convertedCanvasState, recognizedPlain, exportFormat, strokeColor, strokeWidth]);
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Fallback Canvas Drawing (when SDK not yet loaded or for shapes/eraser)
+  // ═══════════════════════════════════════════════════════════════
   const getPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   };
+
+  const drawShape = (ctx: CanvasRenderingContext2D, start: {x: number, y: number}, end: {x: number, y: number}, tool: ToolType) => {
+    ctx.beginPath();
+    if (tool === 'line') {
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
+    } else if (tool === 'rectangle') {
+      ctx.rect(start.x, start.y, end.x - start.x, end.y - start.y);
+    } else if (tool === 'circle') {
+      const radius = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+      ctx.arc(start.x, start.y, radius, 0, 2 * Math.PI);
+    } else if (tool === 'arrow') {
+      const headlen = 10;
+      const angle = Math.atan2(end.y - start.y, end.x - start.x);
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, end.y);
+      ctx.lineTo(end.x - headlen * Math.cos(angle - Math.PI / 6), end.y - headlen * Math.sin(angle - Math.PI / 6));
+      ctx.moveTo(end.x, end.y);
+      ctx.lineTo(end.x - headlen * Math.cos(angle + Math.PI / 6), end.y - headlen * Math.sin(angle + Math.PI / 6));
+    }
+    ctx.stroke();
+  };
+
+  // For shape preview
+  const [shapeStart, setShapeStart] = useState<{x: number, y: number} | null>(null);
+
+  // Resize observer to ensure fallback canvas resolution matches display size
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const updateSize = () => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width && rect.height) {
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+      }
+    };
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
   function onDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current; if (!canvas) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     canvas.setPointerCapture(e.pointerId);
-    drawing.current = true; last.current = getPoint(e);
-  }
-  function onMove(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawing.current) return; const p = getPoint(e); const l = last.current;
-    const ctx = canvasRef.current?.getContext('2d'); if (!ctx || !p) return;
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111827'; ctx.lineWidth = 2.8;
-    if (l) { ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+    drawing.current = true;
+    const p = getPoint(e);
     last.current = p;
-  }
-  function onUp(e: React.PointerEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current; if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
-    drawing.current = false; last.current = null;
+    if (SHAPE_TOOLS.includes(activeTool) && p) {
+      setShapeStart(p);
+    }
   }
 
+  function onMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawing.current) return;
+    const p = getPoint(e);
+    const l = last.current;
+    const ctx = canvasRef.current?.getContext('2d');
+    if (!ctx || !p || !l) return;
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = strokeWidth;
+
+    if (activeTool === 'erase') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+      ctx.lineWidth = strokeWidth * 2; // Make eraser wider
+      ctx.beginPath();
+      ctx.moveTo(l.x, l.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    } else if (!SHAPE_TOOLS.includes(activeTool)) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = strokeColor;
+      ctx.beginPath();
+      ctx.moveTo(l.x, l.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+
+    last.current = p;
+  }
+
+  function onUp(e: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    
+    // Finalize shape
+    if (drawing.current && shapeStart && SHAPE_TOOLS.includes(activeTool)) {
+      const p = getPoint(e);
+      const ctx = canvasRef.current?.getContext('2d');
+      if (ctx && p) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth;
+        drawShape(ctx, shapeStart, p, activeTool);
+      }
+    }
+
+    drawing.current = false;
+    last.current = null;
+    setShapeStart(null);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Helper: CSS class for active tool button
+  // ═══════════════════════════════════════════════════════════════
+  const toolBtnClass = (tool: ToolType) => {
+    if (activeTool !== tool) return 'wb-toolbar-btn';
+    if (tool === 'erase') return 'wb-toolbar-btn active-erase';
+    if (SHAPE_TOOLS.includes(tool)) return 'wb-toolbar-btn active-shape';
+    return 'wb-toolbar-btn active';
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Render
+  // ═══════════════════════════════════════════════════════════════
+  const hasEditor = !!editorInstanceRef.current;
+  const hasBlocks = convertedCanvasState.length > 0;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 540 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', position: 'relative', zIndex: 10, pointerEvents: 'auto' }}>
-        {/* Undo/Redo */}
-        <button
-          className="ll-btn"
-          type="button"
-          disabled={!editorInstanceRef.current || historyIndex <= 0}
-          onClick={() => {
-            if (historyIndex > 0) {
-              setHistoryIndex(historyIndex - 1);
-              const inst = editorInstanceRef.current;
-              if (inst && typeof inst.import_ === 'function') {
-                inst.import_(history[historyIndex - 1]);
-              }
-            }
-          }}
-          title="Undo (Ctrl+Z)"
-        >↶ Undo</button>
-        <button
-          className="ll-btn"
-          type="button"
-          disabled={!editorInstanceRef.current || historyIndex >= history.length - 1}
-          onClick={() => {
-            if (historyIndex < history.length - 1) {
-              setHistoryIndex(historyIndex + 1);
-              const inst = editorInstanceRef.current;
-              if (inst && typeof inst.import_ === 'function') {
-                inst.import_(history[historyIndex + 1]);
-              }
-            }
-          }}
-          title="Redo (Ctrl+Y)"
-        >↷ Redo</button>
-        
-        <div style={{ width: 1, height: 20, background: '#334155', margin: '0 4px' }} />
-        
-        {/* Drawing Tools */}
-        <button
-          className="ll-btn"
-          type="button"
-          disabled={!editorInstanceRef.current}
-          onClick={() => {
-            const inst = editorInstanceRef.current; if (!inst) return;
-            try {
-              const ns = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
-              const api: any = (window as any)[ns];
-              const tool = api?.EditorTool?.Write || 'write';
-              if (typeof inst.setTool === 'function') inst.setTool(tool);
-              else if (typeof inst.setMode === 'function') inst.setMode('write');
-            } catch {}
-            try { setActiveTool('write'); } catch {}
-          }}
-          style={{ background: activeTool === 'write' ? 'rgba(168,85,247,0.15)' : undefined, border: activeTool === 'write' ? '1px solid rgba(168,85,247,0.4)' : undefined }}
-          title="Pen Tool"
-        >✏️ Pen</button>
-        <button
-          className="ll-btn"
-          type="button"
-          disabled={!editorInstanceRef.current}
-          onClick={() => {
-            const inst = editorInstanceRef.current; if (!inst) return;
-            try {
-              const ns = (import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink';
-              const api: any = (window as any)[ns];
-              const tool = api?.EditorTool?.Erase || 'erase';
-              if (typeof inst.setTool === 'function') inst.setTool(tool);
-              else if (typeof inst.setMode === 'function') inst.setMode('erase');
-            } catch {}
-            try { setActiveTool('erase'); } catch {}
-          }}
-          style={{ background: activeTool === 'erase' ? 'rgba(239,68,68,0.12)' : undefined, border: activeTool === 'erase' ? '1px solid rgba(239,68,68,0.35)' : undefined }}
-          title="Eraser Tool"
-        >🧹 Eraser</button>
-                
-        <div style={{ width: 1, height: 20, background: '#334155', margin: '0 4px' }} />
-        
-        {/* Shape Tools */}
-        <button
-          className="ll-btn"
-          type="button"
-          disabled={!editorInstanceRef.current}
-          onClick={() => setActiveTool('line')}
-          style={{ background: activeTool === 'line' ? 'rgba(34,197,94,0.12)' : undefined, border: activeTool === 'line' ? '1px solid rgba(34,197,94,0.35)' : undefined }}
-          title="Line Tool"
-        >╱ Line</button>
-        <button
-          className="ll-btn"
-          type="button"
-          disabled={!editorInstanceRef.current}
-          onClick={() => setActiveTool('circle')}
-          style={{ background: activeTool === 'circle' ? 'rgba(34,197,94,0.12)' : undefined, border: activeTool === 'circle' ? '1px solid rgba(34,197,94,0.35)' : undefined }}
-          title="Circle Tool"
-        >○ Circle</button>
-        <button
-          className="ll-btn"
-          type="button"
-          disabled={!editorInstanceRef.current}
-          onClick={() => setActiveTool('rectangle')}
-          style={{ background: activeTool === 'rectangle' ? 'rgba(34,197,94,0.12)' : undefined, border: activeTool === 'rectangle' ? '1px solid rgba(34,197,94,0.35)' : undefined }}
-          title="Rectangle Tool"
-        >▭ Rectangle</button>
-        <button
-          className="ll-btn"
-          type="button"
-          disabled={!editorInstanceRef.current}
-          onClick={() => setActiveTool('arrow')}
-          style={{ background: activeTool === 'arrow' ? 'rgba(34,197,94,0.12)' : undefined, border: activeTool === 'arrow' ? '1px solid rgba(34,197,94,0.35)' : undefined }}
-          title="Arrow Tool"
-        >→ Arrow</button>
-        
-        <div style={{ width: 1, height: 20, background: '#334155', margin: '0 4px' }} />
-        
-        <button
-          className="ll-btn"
-          type="button"
-          onClick={() => {
-            if (editorInstanceRef.current && typeof editorInstanceRef.current.clear === 'function') {
-              editorInstanceRef.current.clear();
-            }
-            setRecognized('');
-          }}
-          title="Clear Canvas"
-        >🗑️ Clear</button>
-        
-        {initStatus && !sdkError && <span style={{ color: '#a3e635', fontSize: 12 }}>{initStatus}</span>}
-        {sdkError && <span style={{ color: '#f87171', fontSize: 12 }}>{sdkError}</span>}
-        <span style={{ color: '#94a3b8', fontSize: 12 }}>Editor: {editorInstanceRef.current ? '✓' : '✗'}</span>
-      </div>
-      
-      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', minHeight: 520 }}>
-        <div ref={containerRef} style={{ flex: 1, minHeight: 520, border: '1px solid #334155', borderRadius: 14, overflow: 'hidden', background: '#ffffff', position: 'relative' }}>
-          {!editorInstanceRef.current && (
-            <canvas ref={canvasRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-              style={{ position: 'absolute', inset: 0, display: 'block', touchAction: 'none', cursor: 'crosshair', zIndex: 1 }} />
-          )}
-          {sdkLoaded && (
-            <div
-              className="myscript-host"
-              ref={editorHostRef}
-              tabIndex={0}
-              onPointerDown={(e) => {
-                const el = e.currentTarget.querySelector('[data-placeholder]');
-                if (el && el.parentElement) el.parentElement.removeChild(el as Node);
-              }}
-              style={{ position: 'absolute', inset: 0, minHeight: 520, background: '#ffffff', pointerEvents: sdkLoaded ? 'auto' : 'none', opacity: sdkLoaded ? 1 : 0, zIndex: 10, cursor: 'crosshair', touchAction: 'none' }}
+    <>
+      <div className="wb-workspace">
+        {/* ── Header Bar ── */}
+        <div className="wb-header">
+          <div className="wb-header-title">
+            <span style={{ fontSize: 18 }}>✦</span>
+            Dual Whiteboard
+            {initStatus && !sdkError && (
+              <span className="wb-status ready">● {initStatus}</span>
+            )}
+            {sdkError && (
+              <span className="wb-status error">✕ {sdkError}</span>
+            )}
+            {!initStatus && !sdkError && (
+              <span className="wb-status loading">◌ Loading SDK...</span>
+            )}
+          </div>
+          <div className="wb-header-actions">
+            <button className="wb-action-btn" type="button" onClick={() => setExportFormat('text')}
+              style={exportFormat === 'text' ? { borderColor: 'rgba(59,130,246,0.4)', color: '#60a5fa' } : undefined}
             >
-              <div data-placeholder style={{ padding: 12, color: '#0f172a', fontSize: 13, userSelect: 'none' }}>
-                Start writing here...
-              </div>
-            </div>
-          )}
+              Text
+            </button>
+            <button className="wb-action-btn" type="button" onClick={() => setExportFormat('latex')}
+              style={exportFormat === 'latex' ? { borderColor: 'rgba(168,85,247,0.4)', color: '#c084fc' } : undefined}
+            >
+              LaTeX
+            </button>
+            <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.08)', margin: '0 4px' }} />
+            <button className="wb-action-btn" type="button" onClick={handleExport} title="Force Export">
+              📤 Export
+            </button>
+            <button className="wb-action-btn" type="button" onClick={handleSavePNG} title="Save as PNG">
+              💾 PNG
+            </button>
+            <button className="wb-action-btn" type="button" onClick={handleSaveJSON} title="Save as JSON">
+              📄 JSON
+            </button>
+            <button className="wb-action-btn" type="button"
+              onClick={() => handleLLMCorrection(convertedCanvasState)}
+              title="Send to LLM for grading (placeholder)"
+              style={{ borderColor: 'rgba(168,85,247,0.25)', color: '#a78bfa' }}
+            >
+              🧠 Grade
+            </button>
+          </div>
         </div>
-        <div style={{ flex: 1, minHeight: 520, border: '1px solid #334155', borderRadius: 14, overflow: 'auto', background: '#ffffff' }}>
-          <div style={{ padding: 12, color: '#0f172a' }}>
-            <div style={{ marginBottom: 8, fontWeight: 600 }}>Converted Text</div>
-            <div style={{ whiteSpace: 'pre-wrap', fontSize: 16, lineHeight: 1.5 }}>
-              {recognized || '— Start writing on the left. Text will appear here automatically.'}
+
+        {/* ── Twin Board Grid ── */}
+        <div className="wb-board-grid">
+          {/* ════════════════════════════════════════════════
+              LEFT BOARD — Input Canvas
+              ════════════════════════════════════════════════ */}
+          <div className="wb-board" ref={containerRef}>
+            <div className="wb-board-label">✏️ Input Canvas</div>
+
+            {/* Overlay Canvas (Always rendered, catches events when not writing) */}
+            <canvas
+              ref={canvasRef}
+              onPointerDown={onDown}
+              onPointerMove={onMove}
+              onPointerUp={onUp}
+              onPointerCancel={onUp}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'block',
+                touchAction: 'none',
+                cursor: activeTool === 'erase' ? 'cell' : 'crosshair',
+                zIndex: 20,
+                width: '100%',
+                height: '100%',
+                pointerEvents: (!sdkLoaded || activeTool !== 'write') ? 'auto' : 'none',
+              }}
+            />
+
+            {/* MyScript editor host */}
+            {sdkLoaded && (
+              <div
+                className="myscript-host"
+                ref={editorHostRef}
+                tabIndex={0}
+                onPointerDown={(e) => {
+                  // Remove placeholder on first interaction
+                  const el = e.currentTarget.querySelector('[data-placeholder]');
+                  if (el?.parentElement) el.parentElement.removeChild(el);
+                }}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  minHeight: 520,
+                  background: '#ffffff',
+                  pointerEvents: activeTool === 'write' ? 'auto' : 'none',
+                  opacity: 1,
+                  zIndex: 10,
+                  cursor: 'crosshair',
+                  touchAction: 'none',
+                }}
+              >
+                <div data-placeholder style={{ padding: '48px 24px 12px', color: 'rgba(148,163,184,0.5)', fontSize: 14, userSelect: 'none', fontWeight: 500 }}>
+                  Start writing here — your text will appear on the right board...
+                </div>
+              </div>
+            )}
+
+            {/* ── Floating Toolbar (Apple Freeform) ── */}
+            <div className="wb-floating-toolbar">
+              {/* Tools */}
+              <button className={toolBtnClass('write')} type="button" disabled={!hasEditor}
+                onClick={() => switchTool('write')} title="Pen Tool (P)">
+                ✏️ Pen
+              </button>
+              <button className={toolBtnClass('erase')} type="button" disabled={!hasEditor}
+                onClick={() => switchTool('erase')} title="Eraser (E)">
+                🧹 Erase
+              </button>
+              <button className={toolBtnClass('select')} type="button" disabled={!hasEditor}
+                onClick={() => switchTool('select')} title="Select (S)">
+                ⬚
+              </button>
+
+              <div className="wb-toolbar-divider" />
+
+              {/* Shape Tools */}
+              <button className={toolBtnClass('line')} type="button" disabled={!hasEditor}
+                onClick={() => switchTool('line')} title="Line">╱</button>
+              <button className={toolBtnClass('circle')} type="button" disabled={!hasEditor}
+                onClick={() => switchTool('circle')} title="Circle">○</button>
+              <button className={toolBtnClass('rectangle')} type="button" disabled={!hasEditor}
+                onClick={() => switchTool('rectangle')} title="Rectangle">▭</button>
+              <button className={toolBtnClass('arrow')} type="button" disabled={!hasEditor}
+                onClick={() => switchTool('arrow')} title="Arrow">→</button>
+
+              <div className="wb-toolbar-divider" />
+
+              {/* Color Palette */}
+              {COLORS.map(c => (
+                <button
+                  key={c.value}
+                  className={`wb-color-swatch${strokeColor === c.value ? ' active' : ''}`}
+                  type="button"
+                  onClick={() => handleColorChange(c.value)}
+                  style={{ background: c.value }}
+                  title={c.label}
+                />
+              ))}
+
+              {/* Stroke Width */}
+              <input
+                type="range"
+                className="wb-stroke-slider"
+                min="1" max="10" step="0.5"
+                value={strokeWidth}
+                onChange={(e) => handleStrokeWidthChange(parseFloat(e.target.value))}
+                title={`Stroke: ${strokeWidth}px`}
+              />
+
+              <div className="wb-toolbar-divider" />
+
+              {/* Undo / Redo / Clear */}
+              <button className="wb-toolbar-btn" type="button" disabled={!hasEditor}
+                onClick={handleUndo} title="Undo (Ctrl+Z)">↶</button>
+              <button className="wb-toolbar-btn" type="button" disabled={!hasEditor}
+                onClick={handleRedo} title="Redo (Ctrl+Y)">↷</button>
+              <button className="wb-toolbar-btn" type="button" disabled={!hasEditor}
+                onClick={handleClear} title="Clear All">🗑️</button>
             </div>
+          </div>
+
+          {/* ════════════════════════════════════════════════
+              RIGHT BOARD — Output Canvas (Read-Only)
+              ════════════════════════════════════════════════ */}
+          <div className="wb-board" ref={outputBoardRef}>
+            <div className="wb-board-label">📝 Converted Output</div>
+            <div className="wb-grid-lines" />
+
+            {/* Spatially positioned text blocks */}
+            {hasBlocks && convertedCanvasState.map((block) => (
+              <div
+                key={block.id}
+                className="wb-output-block"
+                style={{
+                  left: `${(block.x * 100).toFixed(2)}%`,
+                  top: `${(block.y * 100).toFixed(2)}%`,
+                  maxWidth: `${Math.max(10, block.width * 100).toFixed(2)}%`,
+                  fontSize: `${block.fontSize}px`,
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  whiteSpace: 'nowrap',
+                }}
+                title={block.latex || block.text}
+              >
+                {exportFormat === 'latex' && block.latex ? (
+                  <span dangerouslySetInnerHTML={{ __html: katex.renderToString(block.latex, { throwOnError: false }) }} />
+                ) : (
+                  block.text
+                )}
+              </div>
+            ))}
+
+            {/* Empty state placeholder */}
+            {!hasBlocks && (
+              <div className="wb-output-placeholder">
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.4 }}>✦</div>
+                  <div>Converted text appears here</div>
+                  <div style={{ fontSize: 12, marginTop: 4, opacity: 0.6 }}>
+                    at the same position you wrote it
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

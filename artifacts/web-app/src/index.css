@@ -268,3 +268,376 @@
   transition: top 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .achievement-popup.show { top: 80px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Premium Dual-Whiteboard System (Freeform / Notability Style)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── MyScript Smart Guide — Nuclear Override ── */
+.smart-guide,
+.ms-smart-guide,
+[data-layer="SMARTGUIDE"],
+.ms-editor-layer[data-layer-id="SMARTGUIDE"],
+.smartguide,
+.candidates,
+.more-menu,
+.tag-icon,
+.ellipsis {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Force dark ink on MyScript SVG paths */
+.myscript-host svg path {
+  stroke: #0f172a !important;
+}
+
+/* ── Workspace Container ── */
+.wb-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: calc(100vh - 200px);
+  padding: 20px 24px;
+  background: linear-gradient(145deg, #070b14 0%, #0c1222 40%, #111827 100%);
+  border-radius: 20px;
+  position: relative;
+}
+
+/* ── Board Grid ── */
+.wb-board-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  flex: 1;
+  min-height: 520px;
+}
+
+@media (max-width: 900px) {
+  .wb-board-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+/* ── Board Panel (shared between Input & Output) ── */
+.wb-board {
+  background: #ffffff;
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+  min-height: 520px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.wb-board:hover {
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.22),
+    0 4px 12px rgba(0, 0, 0, 0.10);
+}
+
+/* ── Board Label ── */
+.wb-board-label {
+  position: absolute;
+  top: 14px;
+  left: 18px;
+  z-index: 20;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(15, 23, 42, 0.35);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Floating Toolbar (Apple Freeform style) ── */
+.wb-floating-toolbar {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.10),
+    0 1px 4px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+  max-width: calc(100% - 32px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.wb-floating-toolbar:hover {
+  box-shadow:
+    0 6px 32px rgba(0, 0, 0, 0.14),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Toolbar Button ── */
+.wb-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 11px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  user-select: none;
+  line-height: 1;
+}
+
+.wb-toolbar-btn:hover {
+  background: rgba(59, 130, 246, 0.08);
+  color: #1e293b;
+}
+
+.wb-toolbar-btn:active {
+  transform: scale(0.95);
+}
+
+.wb-toolbar-btn.active {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #2563eb;
+}
+
+.wb-toolbar-btn.active-erase {
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.30);
+  color: #dc2626;
+}
+
+.wb-toolbar-btn.active-shape {
+  background: rgba(16, 185, 129, 0.10);
+  border-color: rgba(16, 185, 129, 0.30);
+  color: #059669;
+}
+
+.wb-toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.wb-toolbar-btn:disabled:hover {
+  background: transparent;
+  transform: none;
+}
+
+/* ── Toolbar Divider ── */
+.wb-toolbar-divider {
+  width: 1px;
+  height: 22px;
+  background: rgba(0, 0, 0, 0.10);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* ── Color Swatch ── */
+.wb-color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.wb-color-swatch:hover {
+  transform: scale(1.18);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.wb-color-swatch.active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+  transform: scale(1.12);
+}
+
+/* ── Stroke Width Slider ── */
+.wb-stroke-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #cbd5e1, #475569);
+  outline: none;
+  cursor: pointer;
+}
+
+.wb-stroke-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.wb-stroke-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+/* ── Output Board Text Blocks ── */
+.wb-output-block {
+  position: absolute;
+  color: #0f172a;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  line-height: 1.35;
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 0.3s ease, transform 0.15s ease;
+  animation: wbBlockFadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes wbBlockFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ── Output Board Placeholder ── */
+.wb-output-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(148, 163, 184, 0.5);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Status Indicator ── */
+.wb-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.wb-status.ready {
+  background: rgba(16, 185, 129, 0.10);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.20);
+}
+
+.wb-status.loading {
+  background: rgba(250, 204, 21, 0.10);
+  color: #eab308;
+  border: 1px solid rgba(250, 204, 21, 0.20);
+}
+
+.wb-status.error {
+  background: rgba(239, 68, 68, 0.10);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.20);
+}
+
+/* ── Header Bar ── */
+.wb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 16px 0;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.wb-header-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wb-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Header Action Button (small pill) ── */
+.wb-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.wb-action-btn:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.20);
+}
+
+.wb-action-btn:active {
+  transform: scale(0.96);
+}
+
+/* ── Grid Lines for Output Board ── */
+.wb-grid-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
