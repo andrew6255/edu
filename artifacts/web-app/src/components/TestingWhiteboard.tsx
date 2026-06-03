@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import FullScreenWorkspace from './FullScreenWorkspace';
 
 /* ═══════════════════════════════════════════════════════════════
    Spatial Coordinate Block — one recognized text element
@@ -210,6 +211,10 @@ export default function TestingWhiteboard() {
   // ── Spatial Output State ──
   const [convertedCanvasState, setConvertedCanvasState] = useState<ConvertedBlock[]>([]);
   const [recognizedPlain, setRecognizedPlain] = useState('');
+
+  // ── Full-Screen Workspace State (completely isolated from MyScript) ──
+  const [showWorkspace, setShowWorkspace] = useState(false);
+  const [workspaceEverOpened, setWorkspaceEverOpened] = useState(false);
 
   // ═══════════════════════════════════════════════════════════════
   //  MyScript Asset Loader
@@ -965,6 +970,57 @@ export default function TestingWhiteboard() {
           </div>
         </div>
       </div>
+
+      {/* ═══ Solve Question — Full-Screen Workspace Launcher ═══ */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        padding: '16px 0 8px',
+      }}>
+        <button
+          onClick={() => {
+            setWorkspaceEverOpened(true);
+            setShowWorkspace(true);
+          }}
+          style={{
+            padding: '12px 32px',
+            borderRadius: 14,
+            border: '1px solid rgba(168,85,247,0.25)',
+            background: 'linear-gradient(135deg, rgba(24,24,27,0.9) 0%, rgba(30,30,34,0.85) 100%)',
+            backdropFilter: 'blur(20px)',
+            color: '#c084fc',
+            fontSize: 15,
+            fontWeight: 600,
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+            letterSpacing: '-0.01em',
+            boxShadow: '0 4px 20px rgba(168,85,247,0.12), 0 0 0 1px rgba(255,255,255,0.04)',
+            transition: 'all 0.25s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(168,85,247,0.2) 0%, rgba(30,30,34,0.92) 100%)';
+            e.currentTarget.style.borderColor = 'rgba(168,85,247,0.5)';
+            e.currentTarget.style.boxShadow = '0 6px 28px rgba(168,85,247,0.2), 0 0 0 1px rgba(255,255,255,0.06)';
+            e.currentTarget.style.transform = 'translateY(-1px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(24,24,27,0.9) 0%, rgba(30,30,34,0.85) 100%)';
+            e.currentTarget.style.borderColor = 'rgba(168,85,247,0.25)';
+            e.currentTarget.style.boxShadow = '0 4px 20px rgba(168,85,247,0.12), 0 0 0 1px rgba(255,255,255,0.04)';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
+        >
+          ✦ Solve Question
+        </button>
+      </div>
+
+      {/* Full-Screen Workspace Overlay (stays mounted to preserve state) */}
+      {workspaceEverOpened && (
+        <FullScreenWorkspace
+          visible={showWorkspace}
+          onClose={() => setShowWorkspace(false)}
+        />
+      )}
     </>
   );
 }
