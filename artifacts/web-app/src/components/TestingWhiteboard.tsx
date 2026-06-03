@@ -215,9 +215,8 @@ export default function TestingWhiteboard() {
   //  MyScript Asset Loader
   // ═══════════════════════════════════════════════════════════════
   async function loadMyScriptAssets() {
-    const jsUrl = import.meta.env.VITE_MYSCRIPT_JS_URL as string | undefined;
-    const cssUrl = import.meta.env.VITE_MYSCRIPT_CSS_URL as string | undefined;
-    if (!jsUrl || !cssUrl) throw new Error('Missing VITE_MYSCRIPT_JS_URL or VITE_MYSCRIPT_CSS_URL in .env');
+    const jsUrl = (import.meta.env.VITE_MYSCRIPT_JS_URL as string | undefined) || 'https://cdn.jsdelivr.net/npm/iink-js@1.4.5/dist/iink.min.js';
+    const cssUrl = (import.meta.env.VITE_MYSCRIPT_CSS_URL as string | undefined) || 'https://cdn.jsdelivr.net/npm/iink-js@1.4.5/dist/iink.min.css';
 
     // Load CSS
     if (!document.querySelector('link[data-myscript-css]')) {
@@ -267,8 +266,8 @@ export default function TestingWhiteboard() {
 
         const host = editorHostRef.current;
         const ns = ((import.meta.env.VITE_MYSCRIPT_GLOBAL as string | undefined) || 'iink').trim();
-        const appKey = import.meta.env.VITE_MYSCRIPT_APP_KEY as string | undefined;
-        const hmacKey = import.meta.env.VITE_MYSCRIPT_HMAC_KEY as string | undefined;
+        const appKey = (import.meta.env.VITE_MYSCRIPT_APP_KEY as string | undefined) || 'a75f9183-fdc7-4c90-958b-a13c9d587db2';
+        const hmacKey = (import.meta.env.VITE_MYSCRIPT_HMAC_KEY as string | undefined) || 'e07209ce-819b-4a2f-9ace-7f3b5172fade';
         const contentType = exportFormatRef.current === 'latex' ? 'MATH' : 'TEXT';
 
         // ── Secure context guard (preserves existing crypto.subtle check) ──
