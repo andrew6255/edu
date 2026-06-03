@@ -861,15 +861,39 @@ You must analyze the student's step-by-step logic, not just the final answer.
 You MUST respond ONLY with a raw JSON object matching this exact schema:
 { "isCorrect": boolean, "points": number (out of 100), "feedback": "A detailed string explaining what they did right, identifying any specific mistakes in their steps, and providing the correct methodology if they failed." }`;
 
-      // Fallback mock grading for seamless demo
-      let result = {
-        isCorrect: true,
-        points: 90,
-        feedback: "Great job! You correctly used the slope formula $m = \\frac{y_2 - y_1}{x_2 - x_1}$ to find the slope $m = 1$. Then you plugged it into the point-slope form. However, you forgot to simplify the final equation into $y = mx + b$ form. The exact final answer should be $y = x + 1$."
-      };
+      // Integrate real Gemini API if key is present
+      let result;
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY;
       
-      // Simulate API delay
-      await new Promise(r => setTimeout(r, 2000));
+      if (apiKey) {
+        // Real API Call (Gemini 1.5 Flash via REST)
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' }
+          })
+        });
+        const data = await res.json();
+        
+        if (!res.ok) {
+           throw new Error(data.error?.message || 'Failed to grade with AI');
+        }
+        
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+        result = JSON.parse(text);
+      } else {
+        // Fallback mock grading for seamless demo
+        result = {
+          isCorrect: true,
+          points: 90,
+          feedback: "⚠️ **No API Key Found.** Please add `VITE_GEMINI_API_KEY` to your `.env.local` to enable real AI grading.\n\nGreat job! You correctly used the slope formula $m = \\frac{y_2 - y_1}{x_2 - x_1}$ to find the slope $m = 1$. Then you plugged it into the point-slope form. However, you forgot to simplify the final equation into $y = mx + b$ form. The exact final answer should be $y = x + 1$."
+        };
+        
+        // Simulate API delay
+        await new Promise(r => setTimeout(r, 2000));
+      }
       
       setGradingFeedback(result);
       setShowFeedbackModal(true);
