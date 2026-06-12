@@ -97,6 +97,34 @@ export async function markQuestionSolved(uid: string, programId: string, questio
   await updateUserDoc(uid, 'program_progress', programId, { solvedQuestionIds: Array.from(new Set([...current, questionId])), updatedAt: now });
 }
 
+export async function toggleQuestionSolved(uid: string, programId: string, questionId: string): Promise<boolean> {
+  const existing = await getUserDoc(uid, 'program_progress', programId);
+  const now = new Date().toISOString();
+
+  if (!existing) {
+    await setUserDoc(uid, 'program_progress', programId, {
+      programId,
+      completedUnitIds: [],
+      solvedQuestionIds: [questionId],
+      updatedAt: now,
+    } as any);
+    return true;
+  }
+
+  const current = Array.isArray((existing as any).solvedQuestionIds) ? ((existing as any).solvedQuestionIds as string[]) : [];
+  let next;
+  let isSolved = false;
+  if (current.includes(questionId)) {
+    next = current.filter(id => id !== questionId);
+  } else {
+    next = Array.from(new Set([...current, questionId]));
+    isSolved = true;
+  }
+
+  await updateUserDoc(uid, 'program_progress', programId, { solvedQuestionIds: next, updatedAt: now });
+  return isSolved;
+}
+
 export async function applyRankedAnswer(
   uid: string,
   programId: string,

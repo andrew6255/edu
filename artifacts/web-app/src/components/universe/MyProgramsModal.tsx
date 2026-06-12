@@ -8,15 +8,39 @@ import {
   purgeProgramFromUser,
   type PublicProgram,
 } from '@/lib/programMaps';
-import { submitProgramMapRequest } from '@/lib/userService';
+import EditProgramModal from './EditProgramModal';
+import {
+  deletePersonalProgram,
+  listMyPersonalPrograms,
+  renamePersonalProgram,
+  type PersonalProgramMeta,
+} from '@/lib/personalProgramService';
+import {
+  runPhase1Ocr,
+  runPhase2Questions,
+  createDebugLog,
+  saveDebugLogToFile,
+  type PipelineDebugLog,
+} from '@/lib/localOcrPipeline';
 
 export default function MyProgramsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user, userData, refreshUserData } = useAuth();
-  const [tab, setTab] = useState<'current' | 'finished' | 'search'>('current');
+  const [tab, setTab] = useState<'current' | 'finished' | 'search' | 'create'>('current');
   const [loading, setLoading] = useState(false);
-  const [requesting, setRequesting] = useState(false);
   const [programs, setPrograms] = useState<PublicProgram[]>([]);
   const [query, setQuery] = useState('');
+
+  // Personal Programs State
+  const [personalPrograms, setPersonalPrograms] = useState<PersonalProgramMeta[]>([]);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [uploadTitle, setUploadTitle] = useState('');
+  const [dragActive, setDragActive] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string>('');
+  const [renamingProgramId, setRenamingProgramId] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [editJobId, setEditJobId] = useState<string | null>(null);
+  const [debugLog, setDebugLog] = useState<PipelineDebugLog | null>(null);
 
   const assignedIds: string[] = userData?.assignedProgramIds ?? [];
   const activeIds: string[] = userData?.activeProgramIds ?? (userData?.activeProgramId ? [userData.activeProgramId] : []);
@@ -56,6 +80,41 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
       alive = false;
     };
   }, [open, user?.uid]);
+
+  // Load personal programs
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    listMyPersonalPrograms(user.uid).then(list => {
+      if (alive) setPersonalPrograms(list);
+    });
+    return () => { alive = false; };
+  }, [user]);
+
+  // Poll processing programs
+  useEffect(() => {
+    if (!open || !user) return;
+    const processing = personalPrograms.filter(p => p.status === 'processing');
+    if (processing.length === 0) return;
+
+    let alive = true;
+    const interval = setInterval(async () => {
+      const { refreshPersonalProgramStatus } = await import('@/lib/personalProgramService');
+      const updatedList = await Promise.all(
+        personalPrograms.map(async p => {
+          if (p.status !== 'processing') return p;
+          try {
+            return await refreshPersonalProgramStatus(user.uid, p.jobId);
+          } catch {
+            return p;
+          }
+        })
+      );
+      if (alive) setPersonalPrograms(updatedList);
+    }, 5000);
+
+    return () => { alive = false; clearInterval(interval); };
+  }, [open, user, personalPrograms]);
 
   const programsById = useMemo(() => {
     const m = new Map<string, PublicProgram>();
@@ -104,25 +163,172 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
     if (!window.confirm('Remove this program from your profile?')) return;
     await removeProgramFromUser(uid, programId);
     await refreshUserData();
+    window.dispatchEvent(new CustomEvent('ll:programDeleted', { detail: { programId } }));
   }
 
-  async function handleRequestCustomProgram() {
-    if (!userData) return;
-    const textbook = window.prompt('Enter the exact name of your book / curriculum program:');
-    const trimmed = textbook?.trim();
-    if (!trimmed) return;
-    setRequesting(true);
+  async function handleDeletePersonal(e: React.MouseEvent, jobId: string) {
+    e.stopPropagation();
+    if (!user) return;
+    if (!confirm('Are you sure you want to delete this program?')) return;
     try {
-      await submitProgramMapRequest(uid, userData.username, {
-        system: userData.curriculumProfile?.system || 'other',
-        year: userData.curriculumProfile?.year || 'Other',
-        textbook: trimmed,
-      });
-      window.alert("Your request was sent. We'll notify you once your custom program map is ready.");
-    } catch (e) {
-      window.alert('Failed to send request: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setRequesting(false);
+      const { deletePersonalProgram } = await import('@/lib/personalProgramService');
+      await deletePersonalProgram(user.uid, jobId);
+      setPersonalPrograms(prev => prev.filter(p => p.jobId !== jobId));
+      window.dispatchEvent(new CustomEvent('ll:personalProgramDeleted', { detail: { jobId } }));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete program');
+    }
+  }
+
+
+  // File drag & drop handling
+  function handleDrag(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const files = Array.from(e.dataTransfer.files).filter(f => 
+        f.type === 'application/pdf' || f.type.startsWith('image/')
+      );
+      if (files.length > 0) {
+        setUploadFiles(files);
+        if (!uploadTitle) {
+          setUploadTitle(files[0].name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '));
+        }
+      }
+    }
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files && e.target.files[0]) {
+      const files = Array.from(e.target.files).filter(f => 
+        f.type === 'application/pdf' || f.type.startsWith('image/')
+      );
+      if (files.length > 0) {
+        setUploadFiles(files);
+        if (!uploadTitle) {
+          setUploadTitle(files[0].name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '));
+        }
+      }
+    }
+  }
+
+  async function handleCreatePersonalProgram() {
+    if (!user || uploadFiles.length === 0) return;
+    setUploading(true);
+    setUploadProgress('Initializing...');
+    const file = uploadFiles[0]!;
+    const title = uploadTitle || file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
+
+    try {
+      const { createPersonalProgram } = await import('@/lib/personalProgramService');
+      const meta = await createPersonalProgram(user.uid, title, file);
+
+      // Close modal
+      onClose();
+
+      // Dispatch event so HexUniverseView renders it immediately
+      window.dispatchEvent(new CustomEvent('ll:personalProgramCreated', { detail: { program: meta } }));
+
+      // Run background pipeline
+      (async () => {
+        try {
+          // ── Phase 1: OCR
+          const phase1 = await runPhase1Ocr(file, title, () => {});
+          
+          // ── Phase 2: Questions & Topics
+          const phase2 = await runPhase2Questions(phase1.rawText, () => {});
+
+          // Map Phase 2 Topics into PersonalProgramData
+          const programData: any = {
+            title: meta.title,
+            subject: 'Custom',
+            totalQuestions: 0,
+            chapters: [],
+            questions: []
+          };
+
+          let qIndex = 0;
+          const chapter = {
+            id: 'ch1',
+            title: 'Extracted Content',
+            topics: phase2.topics.map((t, tIdx) => {
+              const questionIds = t.questions.map(q => {
+                qIndex++;
+                const newQId = `q${qIndex}`;
+                programData.questions.push({
+                  id: newQId,
+                  questionLabel: q.label || '',
+                  rawText: q.rawText,
+                  page: q.page || 1,
+                  difficulty: 'medium',
+                });
+                return newQId;
+              });
+
+              return {
+                id: t.id || `t${tIdx}`,
+                title: t.title,
+                questionTypeTitle: t.title,
+                questionIds
+              };
+            })
+          };
+
+          programData.chapters.push(chapter);
+          programData.totalQuestions = programData.questions.length;
+
+          // Update Supabase
+          const { getUserDoc, setUserDoc } = await import('@/lib/supabaseDocStore');
+          const existing = await getUserDoc(user.uid, 'personal_programs', meta.jobId);
+          if (existing) {
+            await setUserDoc(user.uid, 'personal_programs', meta.jobId, {
+              ...existing,
+              status: 'ready',
+              programData
+            });
+          }
+        } catch (err) {
+          console.error("Background processing failed:", err);
+          const { getUserDoc, setUserDoc } = await import('@/lib/supabaseDocStore');
+          const existing = await getUserDoc(user.uid, 'personal_programs', meta.jobId);
+          if (existing) {
+            await setUserDoc(user.uid, 'personal_programs', meta.jobId, {
+              ...existing,
+              status: 'failed',
+              errorMessage: err instanceof Error ? err.message : String(err)
+            });
+          }
+        }
+      })();
+
+    } catch (err) {
+      console.error(err);
+      window.alert('Failed to start program creation:\n\n' + (err instanceof Error ? err.message : String(err)));
+      setUploading(false);
+    }
+  }
+
+  async function handleRenameSubmit(jobId: string) {
+    if (!user || !renameTitle.trim()) return;
+    try {
+      const updated = await renamePersonalProgram(user.uid, jobId, renameTitle.trim());
+      setPersonalPrograms(prev => prev.map(p => p.jobId === jobId ? updated : p));
+      setRenamingProgramId(null);
+      window.dispatchEvent(new CustomEvent('ll:personalProgramCreated', { detail: { program: updated } }));
+    } catch (err) {
+      console.error(err);
+      window.alert('Failed to rename program');
     }
   }
 
@@ -213,6 +419,97 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
     );
   }
 
+  const renderPersonalProgramsList = (showTitle: boolean = true) => {
+    if (personalPrograms.length === 0) return null;
+    return (
+      <div style={{ marginTop: showTitle ? 8 : 0 }}>
+        {showTitle && <h3 style={{ fontSize: 14, color: 'var(--ll-text)', margin: '0 0 12px' }}>Your Personal Programs</h3>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {personalPrograms.map(p => (
+            <div key={p.programId} style={rowStyle}>
+              <div style={{ width: 32, textAlign: 'center', fontSize: 18 }}>
+                {p.status === 'processing' ? <div style={{ animation: 'pulse 1.5s ease infinite' }}>⚙️</div> : p.status === 'failed' ? '❌' : p.coverEmoji || '📄'}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {renamingProgramId === p.programId ? (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      autoFocus
+                      value={renameTitle}
+                      onChange={e => setRenameTitle(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') handleRenameSubmit(p.programId);
+                        if (e.key === 'Escape') setRenamingProgramId(null);
+                      }}
+                      style={{ flex: 1, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--ll-border)', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}
+                    />
+                    <button className="ll-btn" onClick={() => handleRenameSubmit(p.programId)} style={{ padding: '4px 8px', fontSize: 11 }}>Save</button>
+                    <button className="ll-btn" onClick={() => setRenamingProgramId(null)} style={{ padding: '4px 8px', fontSize: 11 }}>Cancel</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ color: 'var(--ll-text)', fontWeight: 800, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.title}
+                    </div>
+                    <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>
+                      {p.status === 'processing' ? 'Extracting & analyzing...' : 
+                       p.status === 'failed' ? 'Failed to process' : 
+                       'Ready to play'}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {p.status === 'processing' ? (
+                <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 'bold', padding: '6px 10px' }}>Processing...</div>
+              ) : p.status === 'failed' ? (
+                <>
+                  <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.5)', color: '#fca5a5' }} onClick={(e) => handleDeletePersonal(e, p.jobId)}>
+                    Delete
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setEditJobId(p.jobId); }}
+                    className="ll-btn" 
+                    style={{ padding: '6px 12px', fontSize: 11, background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="ll-btn"
+                    style={{ padding: '6px 10px', fontSize: 11 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenameTitle(p.title);
+                      setRenamingProgramId(p.programId);
+                    }}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    className="ll-btn ll-btn-primary"
+                    style={{ padding: '6px 10px', fontSize: 11 }}
+                    onClick={() => {
+                      onClose();
+                      window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'personalProgram', personalProgramId: p.programId } }));
+                    }}
+                  >
+                    Open
+                  </button>
+                  <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.5)', color: '#fca5a5' }} onClick={(e) => handleDeletePersonal(e, p.jobId)}>
+                    Delete
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       onClick={onClose}
@@ -227,6 +524,11 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
         padding: 16,
       }}
     >
+      <EditProgramModal 
+        open={!!editJobId} 
+        onClose={() => setEditJobId(null)} 
+        jobId={editJobId} 
+      />
       <div style={panelStyle} onClick={stop}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--ll-border)', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--ll-overlay)' }}>
           <div style={{ fontSize: 18 }}>📚</div>
@@ -235,48 +537,131 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
         </div>
 
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--ll-border)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', background: 'color-mix(in srgb, var(--ll-surface-0) 86%, transparent)' }}>
-          <button style={headerBtn(tab === 'current')} onClick={() => setTab('current')}>Current</button>
-          <button style={headerBtn(tab === 'finished')} onClick={() => setTab('finished')}>Finished</button>
-          <button style={headerBtn(tab === 'search')} onClick={() => setTab('search')}>Search</button>
+          <button style={headerBtn(tab === 'current')} onClick={() => setTab('current')}>My Programs</button>
+          <button style={{ ...headerBtn(tab === 'create'), color: tab === 'create' ? '#8b5cf6' : 'var(--ll-text-soft)', border: tab === 'create' ? '1px solid #8b5cf6' : '1px solid transparent' }} onClick={() => setTab('create')}>
+            ✨ Create New Program
+          </button>
+          <button style={headerBtn(tab === 'search')} onClick={() => setTab('search')}>Search public program</button>
           <div style={{ marginLeft: 'auto', color: 'var(--ll-text-muted)', fontSize: 12 }}>{loading ? 'Loading...' : `${programs.length} public programs`}</div>
         </div>
 
         <div style={{ padding: 16, overflowY: 'auto' }}>
+          {tab === 'create' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              <div style={{
+                background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)',
+                borderRadius: 10, padding: '14px 16px', fontSize: 13, color: '#c4b5fd', lineHeight: 1.5
+              }}>
+                <strong>Personal Program Creator</strong><br/>
+                Upload your own PDF worksheets or take photos of exercises. We'll automatically extract the questions, organize them into topics, and create an interactive program map just for you.
+              </div>
+
+              {/* Upload Zone */}
+              <div
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+                style={{
+                  border: `2px dashed ${dragActive ? '#8b5cf6' : 'var(--ll-border-strong)'}`,
+                  background: dragActive ? 'rgba(139,92,246,0.05)' : 'var(--ll-surface-1)',
+                  borderRadius: 16, padding: '40px 20px', textAlign: 'center',
+                  transition: 'all 0.2s', position: 'relative'
+                }}
+              >
+                <input
+                  type="file"
+                  multiple
+                  accept="application/pdf,image/png,image/jpeg,image/webp"
+                  onChange={handleFileChange}
+                  style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+                />
+                <div style={{ fontSize: 32, marginBottom: 12 }}>{dragActive ? '📥' : '📄'}</div>
+                <div style={{ fontSize: 14, fontWeight: 'bold', color: 'var(--ll-text)', marginBottom: 4 }}>
+                  Drag & Drop files here or click to browse
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--ll-text-muted)' }}>
+                  Supports .pdf, .png, .jpg
+                </div>
+              </div>
+
+              {/* Upload Details */}
+              {uploadFiles.length > 0 && (
+                <div style={{ background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)', borderRadius: 12, padding: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                    <div style={{ fontSize: 24 }}>📑</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 'bold', color: 'var(--ll-text)' }}>{uploadFiles.length} file(s) selected</div>
+                      <div style={{ fontSize: 11, color: 'var(--ll-text-muted)' }}>{uploadFiles.map(f => f.name).join(', ')}</div>
+                    </div>
+                    <button className="ll-btn" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => { setUploadFiles([]); setUploadTitle(''); }}>Clear</button>
+                  </div>
+                  
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', fontSize: 11, color: 'var(--ll-text-muted)', marginBottom: 4, fontWeight: 'bold' }}>PROGRAM TITLE</label>
+                    <input
+                      value={uploadTitle}
+                      onChange={e => setUploadTitle(e.target.value)}
+                      placeholder="E.g. Math Worksheet Chapter 4"
+                      style={{
+                        width: '100%', padding: '10px 12px', borderRadius: 8,
+                        border: '1px solid var(--ll-border)', background: 'var(--ll-surface-0)',
+                        color: 'var(--ll-text)', fontFamily: 'inherit', outline: 'none'
+                      }}
+                    />
+                  </div>
+
+                  <button
+                    className="ll-btn"
+                    disabled={uploading}
+                    onClick={handleCreatePersonalProgram}
+                    style={{
+                      width: '100%', padding: '12px', fontSize: 14, fontWeight: 'bold',
+                      background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)', border: 'none', color: 'white'
+                    }}
+                  >
+                    {uploading ? (uploadProgress || 'Starting OCR...') : 'Create Program'}
+                  </button>
+                  {uploading && uploadProgress && (
+                    <div style={{ fontSize: 12, color: '#a78bfa', marginTop: 8, lineHeight: 1.5, textAlign: 'center' }}>
+                      {uploadProgress}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Personal Programs List */}
+              {renderPersonalProgramsList()}
+            </div>
+          )}
+
           {tab === 'current' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, marginBottom: 2 }}>
-                Your assigned public programs. Status can be Active, Deactivated, or Completed.
-              </div>
-              {myCurrent.length === 0 ? (
+              {personalPrograms.length === 0 && myCurrent.length === 0 ? (
                 <div style={{ color: 'var(--ll-text-soft)' }}>
                   No programs yet. Go to Search and assign one.
                 </div>
               ) : (
-                myCurrent.map((p) => <ProgramRow key={p.id} p={p} showAssign={false} />)
-              )}
-            </div>
-          )}
-
-          {tab === 'finished' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {myFinished.length === 0 ? (
-                <div style={{ color: 'var(--ll-text-soft)' }}>
-                  No finished programs yet.
-                </div>
-              ) : (
-                myFinished.map((p) => <ProgramRow key={p.id} p={p} showAssign={false} />)
+                <>
+                  {personalPrograms.length > 0 && (
+                    <>
+                      <h3 style={{ fontSize: 14, color: 'var(--ll-text)', margin: '4px 0 12px' }}>My created programs</h3>
+                      {renderPersonalProgramsList(false)}
+                    </>
+                  )}
+                  {myCurrent.length > 0 && (
+                    <>
+                      <h3 style={{ fontSize: 14, color: 'var(--ll-text)', margin: '12px 0 4px' }}>Public programs</h3>
+                      {myCurrent.map((p) => <ProgramRow key={p.id} p={p} showAssign={false} />)}
+                    </>
+                  )}
+                </>
               )}
             </div>
           )}
 
           {tab === 'search' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{
-                background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)',
-                borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#fde68a', lineHeight: 1.5
-              }}>
-                Search by your main book name to assign a public program, or request a custom program map if you can't find it.
-              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
                 <input
                   value={query}
@@ -293,14 +678,6 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
                     outline: 'none',
                   }}
                 />
-                <button
-                  className="ll-btn"
-                  disabled={requesting}
-                  onClick={handleRequestCustomProgram}
-                  style={{ padding: '10px 12px', fontSize: 12 }}
-                >
-                  {requesting ? 'Sending request...' : 'Request Custom Program Map'}
-                </button>
               </div>
 
               {searchResults.length === 0 && !loading && (

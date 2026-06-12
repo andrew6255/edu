@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
 import AppShell from '@/components/layout/AppShell';
 import HexUniverseView from '@/views/HexUniverseView';
-import CurriculumView from '@/views/CurriculumView';
 import WarmupView from '@/views/WarmupView';
 import ProfileView from '@/views/ProfileView';
 import ArenaView from '@/views/ArenaView';
@@ -14,14 +13,16 @@ import ProgramMapView from '@/views/ProgramMapView';
 import StudySessionsView from '@/views/StudySessionsView';
 import ClassesView from '@/views/ClassesView';
 
+const PersonalProgramView = lazy(() => import('@/views/PersonalProgramView'));
+
 export type View =
   | 'emporium'
   | 'warmup'
   | 'universe'
   | 'logic'
   | 'profile'
-  | 'curriculum'
   | 'programMap'
+  | 'personalProgram'
   | 'studySessions'
   | 'classes'
   | 'notifications'
@@ -31,20 +32,21 @@ export default function AppPage() {
   const { user, userData, loading, refreshUserData } = useAuth();
   const [, setLocation] = useLocation();
   const [view, setView] = useState<View>('universe');
-  const [selectedSubject, setSelectedSubject] = useState<string | undefined>();
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
+  const [selectedPersonalProgramId, setSelectedPersonalProgramId] = useState<string | null>(null);
   const [pendingContentId, setPendingContentId] = useState<string | null>(null);
   const [pendingContentType, setPendingContentType] = useState<string | null>(null);
 
   useEffect(() => {
     function onSetView(e: Event) {
-      const ce = e as CustomEvent<{ view?: View; programId?: string | null }>;
+      const ce = e as CustomEvent<{ view?: View; programId?: string | null; personalProgramId?: string | null }>;
       const next = ce.detail?.view;
       if (!next) return;
       setView(next);
-      if (next !== 'curriculum') setSelectedSubject(undefined);
       if (next !== 'programMap') setSelectedProgramId(null);
       if (next === 'programMap') setSelectedProgramId(ce.detail?.programId ?? null);
+      if (next !== 'personalProgram') setSelectedPersonalProgramId(null);
+      if (next === 'personalProgram') setSelectedPersonalProgramId(ce.detail?.personalProgramId ?? null);
     }
 
     function onOpenClassContent(e: Event) {
@@ -118,24 +120,18 @@ export default function AppPage() {
     );
   }
 
-  function handleSelectSubject(subject: string) {
-    setSelectedSubject(subject);
-    setView('curriculum');
-  }
-
   function renderView() {
     switch (view) {
       case 'universe':
-        return <HexUniverseView onSelectSubject={handleSelectSubject} />;
-      case 'curriculum':
-        return (
-          <CurriculumView
-            subject={selectedSubject}
-            onBack={() => { setSelectedSubject(undefined); setView('universe'); }}
-          />
-        );
+        return <HexUniverseView />;
       case 'programMap':
         return <ProgramMapView onBack={() => setView('universe')} programId={selectedProgramId} />;
+      case 'personalProgram':
+        return (
+          <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--ll-text-muted)' }}>Loading...</div>}>
+            <PersonalProgramView programId={selectedPersonalProgramId} onBack={() => setView('universe')} />
+          </Suspense>
+        );
       case 'studySessions':
         return <StudySessionsView onBack={() => setView('universe')} />;
       case 'warmup':
@@ -149,12 +145,12 @@ export default function AppPage() {
       case 'profile':
         return <ProfileView />;
       default:
-        return <HexUniverseView onSelectSubject={handleSelectSubject} />;
+        return <HexUniverseView />;
     }
   }
 
   return (
-    <AppShell view={view} setView={v => { setView(v); if (v !== 'curriculum') setSelectedSubject(undefined); }}>
+    <AppShell view={view} setView={v => { setView(v); }}>
       <div style={{ height: '100%', overflow: 'hidden' }}>
         <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'block' : 'none' }}>
           <WarmupView />

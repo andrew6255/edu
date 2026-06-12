@@ -1,46 +1,27 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getCurriculaForSubject } from '@/data/curriculum';
-import { getUserProgress, getCurriculumCompletedCount, UserProgress } from '@/lib/progressService';
 import { getPublicProgram, purgeProgramFromUser } from '@/lib/programMaps';
 import { getProgramProgress } from '@/lib/programProgress';
 import { getAllMyContent, type StudentContentItem } from '@/lib/studentService';
 import MyProgramsModal from '@/components/universe/MyProgramsModal';
+import { listMyPersonalPrograms, refreshPersonalProgramStatus, type PersonalProgramMeta } from '@/lib/personalProgramService';
 
-interface HexUniverseViewProps {
-  onSelectSubject: (subject: string) => void;
+function getProgressPercentage(status: string) {
+  if (status === 'processing' || status === 'extracting') return 45;
+  if (status === 'analyzing') return 80;
+  if (status === 'ready') return 100;
+  return 10;
 }
 
-const PORTALS = [
-  { id: 'math',      label: 'Mathematics', icon: '∑',  color: '#0ea5e9', desc: 'Numbers & Logic', profileKey: 'mathematics' },
-  { id: 'physics',   label: 'Physics',     icon: '⚛',  color: '#7e22ce', desc: 'Forces & Motion', profileKey: 'physics' },
-  { id: 'chemistry', label: 'Chemistry',   icon: '⚗',  color: '#be185d', desc: 'Matter & Reactions', profileKey: 'chemistry' },
-  { id: 'biology',   label: 'Biology',     icon: '🧬', color: '#15803d', desc: 'Life Sciences', profileKey: 'biology' },
-];
-
-function getSubjectProgress(
-  subjectId: string,
-  progress: UserProgress
-): { pct: number; hasContent: boolean } {
-  const curricula = getCurriculaForSubject(subjectId).filter(c => c.available);
-  if (curricula.length === 0) return { pct: 0, hasContent: false };
-  let total = 0, completed = 0;
-  for (const c of curricula) {
-    const { completed: comp, total: tot } = getCurriculumCompletedCount(progress, c.id, c.chapters);
-    completed += comp;
-    total += tot;
-  }
-  return { pct: total > 0 ? Math.round((completed / total) * 100) : 0, hasContent: true };
-}
-
-export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProps) {
+export default function HexUniverseView() {
   const { user, userData } = useAuth();
-  const [progress, setProgress] = useState<UserProgress>({});
-  const [loaded, setLoaded] = useState(false);
   const [activeProgramTitle, setActiveProgramTitle] = useState<string | null>(null);
   const [activePrograms, setActivePrograms] = useState<Array<{ id: string; title: string; coverEmoji?: string }>>([]);
   const [programPctById, setProgramPctById] = useState<Record<string, number>>({});
   const [myProgramsOpen, setMyProgramsOpen] = useState(false);
+
+  // Personal Programs
+  const [personalPrograms, setPersonalPrograms] = useState<PersonalProgramMeta[]>([]);
 
   // Class content filters
   const [classContent, setClassContent] = useState<(StudentContentItem & { class_name: string })[]>([]);
@@ -50,10 +31,61 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
 
   useEffect(() => {
     if (!user) return;
-    getUserProgress(user.uid).then(p => { setProgress(p); setLoaded(true); });
     setLoadingClassContent(true);
     getAllMyContent().then(c => setClassContent(c)).catch(e => console.error(e)).finally(() => setLoadingClassContent(false));
+
+    // Fetch personal programs
+    let alive = true;
+    listMyPersonalPrograms(user.uid).then(list => {
+      if (alive) setPersonalPrograms(list);
+    });
+
+    // Listen for new ones created in modal
+    const onCreated = (e: Event) => {
+      const ce = e as CustomEvent<{ program: PersonalProgramMeta }>;
+      setPersonalPrograms(prev => [ce.detail.program, ...prev.filter(p => p.programId !== ce.detail.program.programId)]);
+    };
+    
+    // Listen for deleted ones
+    const onDeleted = (e: Event) => {
+      const ce = e as CustomEvent<{ jobId: string }>;
+      setPersonalPrograms(prev => prev.filter(p => p.jobId !== ce.detail.jobId));
+    };
+
+    window.addEventListener('ll:personalProgramCreated', onCreated);
+    window.addEventListener('ll:personalProgramDeleted', onDeleted);
+
+    return () => { 
+      alive = false; 
+      window.removeEventListener('ll:personalProgramCreated', onCreated);
+      window.removeEventListener('ll:personalProgramDeleted', onDeleted);
+    };
   }, [user]);
+
+  // Poll processing personal programs
+  useEffect(() => {
+    if (!user) return;
+    const isProcessing = (status: string) => status !== 'ready' && status !== 'published' && status !== 'failed';
+    const processing = personalPrograms.filter(p => isProcessing(p.status));
+    if (processing.length === 0) return;
+
+    let alive = true;
+    const interval = setInterval(async () => {
+      const updatedList = await Promise.all(
+        personalPrograms.map(async p => {
+          if (!isProcessing(p.status)) return p;
+          try {
+            return await refreshPersonalProgramStatus(user.uid, p.jobId);
+          } catch {
+            return p;
+          }
+        })
+      );
+      if (alive) setPersonalPrograms(updatedList);
+    }, 5000);
+
+    return () => { alive = false; clearInterval(interval); };
+  }, [user, personalPrograms]);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,25 +155,6 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
     };
   }, [userData?.activeProgramId, userData?.activeProgramIds]);
 
-  const profile = userData?.curriculumProfile;
-  const isNoSystem = !profile || profile.system === 'No System';
-
-  const subjects = profile?.subjects;
-  const subjectKeyByPortalId: Record<string, keyof NonNullable<typeof subjects>> = {
-    math: 'mathematics',
-    physics: 'physics',
-    chemistry: 'chemistry',
-    biology: 'biology',
-  };
-
-  // Filter which portals to show based on curriculum profile
-  const activePortals = PORTALS.filter(p => {
-    if (isNoSystem) return false;
-    const k = subjectKeyByPortalId[p.id];
-    const subj = k ? subjects?.[k] : undefined;
-    return !!subj?.isVisible;
-  });
-
   return (
     <div style={{
       height: '100%', overflow: 'auto',
@@ -166,90 +179,10 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
             📚 My Programs
           </button>
         </div>
-        {isNoSystem ? (
-          <p style={{ color: 'var(--ll-text-muted)', fontSize: 15, margin: 0, maxWidth: 400 }}>
-            You haven't assigned an education system yet. Set up your curriculum from the Profile tab to unlock portals!
-          </p>
-        ) : (
-          <p style={{ color: 'var(--ll-text-muted)', fontSize: 14, margin: 0 }}>
-            Enter a portal to continue your mastery
-          </p>
-        )}
+        <p style={{ color: 'var(--ll-text-muted)', fontSize: 14, margin: 0 }}>
+          Open your programs or create new ones from your own worksheets
+        </p>
       </div>
-
-      {/* Portals grid */}
-      {!isNoSystem && activePortals.length > 0 && (
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: 24, width: '100%', maxWidth: 800, zIndex: 2, marginBottom: 40
-        }}>
-          {activePortals.map((subj, i) => {
-            const { pct, hasContent } = loaded ? getSubjectProgress(subj.id, progress) : { pct: 0, hasContent: false };
-            const isDone = pct === 100 && hasContent;
-
-            return (
-              <div
-                key={subj.id}
-                onClick={() => onSelectSubject(subj.id)}
-                style={{
-                  background: `${subj.color}15`,
-                  border: `2px solid ${pct > 0 ? subj.color : subj.color + '55'}`,
-                  borderRadius: 20, padding: '30px 20px', textAlign: 'center',
-                  cursor: 'pointer', transition: 'all 0.3s',
-                  boxShadow: pct > 0 ? `0 0 30px ${subj.color}33` : `0 0 15px ${subj.color}15`,
-                  animation: `fadeIn ${0.3 + i * 0.1}s ease`,
-                  position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center'
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget as HTMLDivElement;
-                  el.style.transform = 'scale(1.03) translateY(-6px)';
-                  el.style.boxShadow = `0 15px 40px ${subj.color}55`;
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget as HTMLDivElement;
-                  el.style.transform = '';
-                  el.style.boxShadow = pct > 0 ? `0 0 30px ${subj.color}33` : `0 0 15px ${subj.color}15`;
-                }}
-              >
-                {isDone && (
-                  <div style={{
-                    position: 'absolute', top: 12, right: 12,
-                    background: '#fbbf24', borderRadius: '50%', width: 24, height: 24,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#0f172a', fontWeight: 'bold'
-                  }}>✓</div>
-                )}
-
-                <div style={{ fontSize: 48, marginBottom: 12, color: subj.color, textShadow: `0 0 20px ${subj.color}88` }}>
-                  {subj.icon}
-                </div>
-                <div style={{ fontWeight: 'bold', fontSize: 20, color: 'var(--ll-text)', marginBottom: 6 }}>
-                  {subj.label}
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--ll-text-soft)', marginBottom: hasContent ? 16 : 0 }}>
-                  {subj.desc}
-                </div>
-
-                {hasContent && loaded && (
-                  <div style={{ width: '100%', marginTop: 'auto' }}>
-                    <div style={{ height: 4, background: 'var(--ll-surface-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
-                      <div style={{
-                        width: `${pct}%`, height: '100%',
-                        background: isDone ? '#fbbf24' : subj.color, transition: '0.5s'
-                      }} />
-                    </div>
-                    <div style={{ fontSize: 12, color: pct > 0 ? subj.color : '#64748b', fontWeight: 'bold' }}>
-                      {pct}% Mastery
-                    </div>
-                  </div>
-                )}
-                {!hasContent && (
-                  <div style={{ fontSize: 11, color: '#475569', marginTop: 'auto' }}>Content compiling...</div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       {/* Active Programs (portal-style cards) */}
       {activePrograms.length > 0 && (
@@ -316,6 +249,129 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
         </div>
       )}
 
+      {/* Custom Programs */}
+      {personalPrograms.length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: 24,
+          width: '100%',
+          maxWidth: 800,
+          zIndex: 2,
+          marginBottom: 40,
+        }}>
+          {personalPrograms.map((p, i) => {
+            const isReady = p.status === 'ready' || p.status === 'published';
+            const isFailed = p.status === 'failed';
+            const pct = getProgressPercentage(p.status);
+
+            return (
+              <div
+                key={p.jobId}
+                onClick={() => {
+                  if (isReady) {
+                    window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'personalProgram', personalProgramId: p.programId } }));
+                  }
+                }}
+                style={{
+                  background: isReady ? 'rgba(96,165,250,0.10)' : 'rgba(148,163,184,0.05)',
+                  border: isReady ? '2px solid rgba(96,165,250,0.45)' : '2px dashed rgba(148,163,184,0.3)',
+                  borderRadius: 20,
+                  padding: '30px 20px',
+                  textAlign: 'center',
+                  cursor: isReady ? 'pointer' : 'default',
+                  transition: 'all 0.3s',
+                  boxShadow: isReady ? '0 0 20px rgba(96,165,250,0.20)' : 'none',
+                  animation: `fadeIn ${0.3 + i * 0.08}s ease`,
+                  position: 'relative',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  opacity: isReady ? 1 : 0.6,
+                }}
+                onMouseEnter={(e) => {
+                  if (!isReady) return;
+                  const el = e.currentTarget as HTMLDivElement;
+                  el.style.transform = 'scale(1.03) translateY(-6px)';
+                  el.style.boxShadow = '0 15px 40px rgba(96,165,250,0.35)';
+                }}
+                onMouseLeave={(e) => {
+                  if (!isReady) return;
+                  const el = e.currentTarget as HTMLDivElement;
+                  el.style.transform = '';
+                  el.style.boxShadow = '0 0 20px rgba(96,165,250,0.20)';
+                }}
+              >
+                <div style={{ fontSize: 48, marginBottom: 12, color: isReady ? '#60a5fa' : '#94a3b8', textShadow: 'none' }}>
+                  {p.coverEmoji || '📄'}
+                </div>
+                <div style={{ fontWeight: 'bold', fontSize: 20, color: isReady ? 'var(--ll-text)' : 'var(--ll-text-muted)', marginBottom: 6 }}>
+                  {p.title}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--ll-text-soft)', marginBottom: 16 }}>
+                  Custom Program
+                </div>
+                <div style={{ width: '100%', marginTop: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  {!isReady && !isFailed ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {/* Circular Loading Indicator */}
+                      <svg width="24" height="24" viewBox="0 0 36 36" style={{ animation: 'spin 2s linear infinite' }}>
+                        <path
+                          d="M18 2.0845
+                            a 15.9155 15.9155 0 0 1 0 31.831
+                            a 15.9155 15.9155 0 0 1 0 -31.831"
+                          fill="none"
+                          stroke="rgba(148,163,184,0.2)"
+                          strokeWidth="3"
+                        />
+                        <path
+                          d="M18 2.0845
+                            a 15.9155 15.9155 0 0 1 0 31.831
+                            a 15.9155 15.9155 0 0 1 0 -31.831"
+                          fill="none"
+                          stroke="#60a5fa"
+                          strokeWidth="3"
+                          strokeDasharray={`${pct}, 100`}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <div style={{ fontSize: 13, color: '#60a5fa', fontWeight: 'bold' }}>
+                        {pct}% Loading...
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 13, color: isFailed ? '#ef4444' : '#34d399', fontWeight: 'bold' }}>
+                      {isFailed ? 'Failed' : 'Ready'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Empty state when no programs */}
+      {activePrograms.length === 0 && personalPrograms.length === 0 && !loadingClassContent && classContent.length === 0 && (
+        <div style={{
+          textAlign: 'center', zIndex: 2, marginBottom: 40, maxWidth: 420,
+          background: 'var(--ll-surface-1)', borderRadius: 18, padding: '32px 24px',
+          border: '1px solid var(--ll-border)',
+        }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📚</div>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 800, fontSize: 16, marginBottom: 8 }}>No Programs Yet</div>
+          <div style={{ color: 'var(--ll-text-muted)', fontSize: 13, lineHeight: 1.5, marginBottom: 16 }}>
+            Click "My Programs" above to browse public programs, or create your own by uploading worksheets and PDFs.
+          </div>
+          <button
+            onClick={() => setMyProgramsOpen(true)}
+            className="ll-btn ll-btn-primary"
+            style={{ padding: '10px 20px', fontSize: 13 }}
+          >
+            Get Started
+          </button>
+        </div>
+      )}
 
       {/* Class Content with filters */}
       {classContent.length > 0 && (
@@ -357,20 +413,21 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
                   <div key={item.id} onClick={() => {
                     window.dispatchEvent(new CustomEvent('ll:openClassContent', { detail: { contentId: item.id, contentType: item.content_type } }));
                   }} style={{
-                    background: `${typeColor}10`, border: `1px solid ${typeColor}44`, borderRadius: 14,
-                    padding: '18px 16px', cursor: 'pointer', transition: 'all 0.2s',
-                    display: 'flex', flexDirection: 'column', gap: 6,
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-3px)'; (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 24px ${typeColor}33`; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ''; (e.currentTarget as HTMLDivElement).style.boxShadow = ''; }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 22 }}>{item.cover_emoji || typeIcon}</span>
-                      <span style={{ fontSize: 9, fontWeight: 'bold', padding: '2px 7px', borderRadius: 4, background: `${typeColor}22`, border: `1px solid ${typeColor}55`, color: typeColor }}>{typeLabel}</span>
-                    </div>
-                    <div style={{ color: 'var(--ll-text)', fontWeight: 'bold', fontSize: 14 }}>{item.title}</div>
-                    <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>
-                      {item.class_name}{item.subject ? ` · ${item.subject}` : ''}
+                    background: 'var(--ll-surface-0)', border: '1px solid var(--ll-border)',
+                    borderRadius: 12, padding: 16, cursor: 'pointer', transition: '0.2s',
+                  }} onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = typeColor;
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }} onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = 'var(--ll-border)';
+                    e.currentTarget.style.transform = 'none';
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <span style={{ fontSize: 20 }}>{typeIcon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 'bold', fontSize: 14 }}>{item.title}</div>
+                        <div style={{ fontSize: 11, color: 'var(--ll-text-muted)' }}>{item.class_name} • {typeLabel}</div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -399,6 +456,9 @@ export default function HexUniverseView({ onSelectSubject }: HexUniverseViewProp
         bottom: '10%', right: '5%', pointerEvents: 'none'
       }} />
       <MyProgramsModal open={myProgramsOpen} onClose={() => setMyProgramsOpen(false)} />
+      <style>{`
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }

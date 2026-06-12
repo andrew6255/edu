@@ -38,6 +38,7 @@ export interface ProgramIngestionRepository {
   updateDraftStructure(jobId: string, input: { title?: string; hierarchy: ProgramNode[]; aiSessionMeta?: IngestionDraft["aiSessionMeta"] }): Promise<void>;
   updateQuestion(questionId: string, updates: { reviewStatus?: string; normalizedQuestion?: Record<string, unknown> }): Promise<void>;
   publishAsProgram(jobId: string, state: IngestionJobState): Promise<string>;
+  setJobError(jobId: string, errorMessage: string): Promise<void>;
 }
 
 function makeId(prefix: string): string {
@@ -136,8 +137,8 @@ export class DbProgramIngestionRepository implements ProgramIngestionRepository 
       .limit(1);
 
     const creatorRole = creator[0]?.role;
-    if (creatorRole !== "admin" && creatorRole !== "superadmin") {
-      throw new Error("Only admins and superadmins can create programs or upload files.");
+    if (input.visibility !== "private" && creatorRole !== "admin" && creatorRole !== "superadmin") {
+      throw new Error("Only admins and superadmins can create public programs or upload files.");
     }
 
     const job: IngestionJob = {
@@ -445,5 +446,12 @@ export class DbProgramIngestionRepository implements ProgramIngestionRepository 
       .set({ draftStatus: "published", updatedAt: new Date() })
       .where(eq(programIngestionDraftsTable.jobId, jobId));
     return programId;
+  }
+
+  async setJobError(jobId: string, errorMessage: string): Promise<void> {
+    await db
+      .update(programIngestionJobsTable)
+      .set({ errorMessage, updatedAt: new Date() })
+      .where(eq(programIngestionJobsTable.id, jobId));
   }
 }

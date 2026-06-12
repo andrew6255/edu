@@ -2,6 +2,7 @@ import path from "node:path";
 import type { ExtractedDocument } from "./extractionTypes";
 import type { IngestionAsset } from "./types";
 import type { DocumentExtractionProvider } from "./providers.extraction";
+import { TesseractOcrExtractionProvider } from "./providers.tesseractOcr";
 
 export class StubScanDocumentExtractionProvider implements DocumentExtractionProvider {
   readonly name = "stub_scan_document";
@@ -53,19 +54,21 @@ export class UnconfiguredScanOcrProvider implements DocumentExtractionProvider {
 }
 
 export function getConfiguredScanDocumentExtractionProvider(): DocumentExtractionProvider {
-  const provider = (process.env["PROGRAM_INGESTION_OCR_PROVIDER"] ?? "stub").toLowerCase().trim();
+  const provider = (process.env["PROGRAM_INGESTION_OCR_PROVIDER"] ?? "tesseract").toLowerCase().trim();
 
   switch (provider) {
     case "":
     case "stub":
       return new StubScanDocumentExtractionProvider();
+    case "tesseract":
+      return new TesseractOcrExtractionProvider();
     case "mistral":
     case "google":
     case "azure":
       return new UnconfiguredScanOcrProvider();
     default:
       throw new Error(
-        `Unsupported PROGRAM_INGESTION_OCR_PROVIDER value: ${provider}. Supported values are stub, mistral, google, azure.`,
+        `Unsupported PROGRAM_INGESTION_OCR_PROVIDER value: ${provider}. Supported values are tesseract, stub, mistral, google, azure.`,
       );
   }
 }

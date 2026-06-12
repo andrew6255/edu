@@ -1,0 +1,61 @@
+{
+  "phase": "phase2_questions",
+  "created_at": "2026-06-12T10:41:59.914588+00:00",
+  "result": {
+    "topics": [
+      {
+        "id": "t1",
+        "title": "Finding equation of the line",
+        "questions": [
+          {
+            "id": "q1",
+            "label": "a)",
+            "rawText": "Find the equation of the line passing through the points ( 2 , 3 ) and ( 6 , 7 )"
+          },
+          {
+            "id": "q2",
+            "label": "b)",
+            "rawText": "Find the equation of the line passing through the points (-3 ,-1 ) and ( 5 , 3 )"
+          },
+          {
+            "id": "q3",
+            "label": "a)",
+            "rawText": "The line passes through ( 3 , 5 ) and ( 7 , 9 )"
+          },
+          {
+            "id": "q4",
+            "label": "b)",
+            "rawText": "The line passes through (-1 , 2 ) and (4,3). Write the equation of the line and find 3 other points in the line."
+          }
+        ]
+      },
+      {
+        "id": "t2",
+        "title": "Generating points from an equation",
+        "questions": [
+          {
+            "id": "q5",
+            "label": "a)",
+            "rawText": "The equation of a line is y=2x+1. List 10 points that lie on this line."
+          },
+          {
+            "id": "q6",
+            "label": "b)",
+            "rawText": "The equation of a line is y=-{\\frac{3}{2}}x+4. List 10 points that satisfy this equation."
+          }
+        ]
+      },
+      {
+        "id": "t3",
+        "title": "Finding equation and points of a line passing through two given points",
+        "questions": [
+          {
+            "id": "q7",
+            "label": null,
+            "rawText": "Write the equation of the line and find 3 other points in the line."
+          }
+        ]
+      }
+    ]
+  }
+}

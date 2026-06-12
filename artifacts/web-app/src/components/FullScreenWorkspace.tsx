@@ -463,20 +463,21 @@ const PageCanvas = memo(function PageCanvas({
 
 interface FullScreenWorkspaceProps {
   onClose: () => void;
-  visible: boolean;
-  activeQuestion?: string | null;
+  currentQuestion?: string | any[];
+  initialPages?: PageData[];
+  onPagesChange?: (pages: PageData[]) => void;
 }
 
-export default function FullScreenWorkspace({ onClose, visible, activeQuestion }: FullScreenWorkspaceProps) {
+export default function FullScreenWorkspace({ onClose, currentQuestion, initialPages, onPagesChange }: FullScreenWorkspaceProps) {
   // ── AI Grading State ──
   const [isGrading, setIsGrading] = useState(false);
   const [gradingFeedback, setGradingFeedback] = useState<{isCorrect: boolean, points: number, feedback: string} | null>(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
   // ── Pages State ──
-  const [pages, setPages] = useState<PageData[]>([
-    { id: uid(), strokes: [], annotations: [] },
-  ]);
+  const [pages, setPages] = useState<PageData[]>(
+    initialPages || [{ id: uid(), strokes: [], annotations: [] }]
+  );
 
   // ── Output snapshots (captured when modal opens) ──
   const [pageSnapshots, setPageSnapshots] = useState<{ 
@@ -903,7 +904,7 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
     } finally {
       setIsGrading(false);
     }
-  }, [pages, activeQuestion, fetchMyScriptBlocks]);
+  }, [pages, currentQuestion, fetchMyScriptBlocks]);
 
   const handleOpenOutput = useCallback(() => {
     captureSnapshots();
@@ -913,36 +914,8 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
   const totalStrokes = pages.reduce((s, p) => s + p.strokes.length, 0);
   const totalAnnotations = pages.reduce((s, p) => s + p.annotations.filter(a => a.text).length, 0);
 
-  if (!visible) return null;
-
   return (
-    <div className="fsw-overlay">
-      {/* ═══ TOP BAR ═══ */}
-      <div className="fsw-topbar">
-        <button className="fsw-btn fsw-btn-back" onClick={onClose}>
-          ← Back to Dashboard
-        </button>
-        <div className="fsw-topbar-title">
-          <span className="fsw-topbar-icon">✦</span>
-          Workspace
-          <span className="fsw-topbar-badge">{pages.length} {pages.length === 1 ? 'page' : 'pages'}</span>
-        </div>
-        <button className="fsw-btn fsw-btn-output" onClick={handleOpenOutput}>
-          📄 View Output
-        </button>
-        <button 
-          className="fsw-btn fsw-btn-grade" 
-          onClick={handleGradeSubmission} 
-          disabled={isGrading}
-        >
-          {isGrading ? (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="fsw-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> 
-              Grading...
-            </span>
-          ) : '🎓 Grade Answer'}
-        </button>
-      </div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
 
       {/* ═══ SCROLLABLE PAGE CONTAINER ═══ */}
       <div className="fsw-scroll" ref={scrollRef}>
@@ -952,7 +925,7 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
               key={page.id}
               page={page}
               pageIndex={idx}
-              currentQuestion={activeQuestion || undefined}
+              currentQuestion={currentQuestion || undefined}
               activeTool={activeTool}
               eraserMode={eraserMode}
               strokeColor={strokeColor}
@@ -1401,7 +1374,7 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
 
         /* ── Floating Toolbox ── */
         .fsw-toolbox {
-          position: fixed;
+          position: absolute;
           bottom: 24px;
           left: 50%;
           transform: translateX(-50%);

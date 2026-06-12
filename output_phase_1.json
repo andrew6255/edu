@@ -1,0 +1,30 @@
+{
+  "phase": "phase1_ocr",
+  "created_at": "2026-06-12T10:41:57.720833+00:00",
+  "source": {
+    "file_name": "Equation20a%20line.pdf",
+    "title": "Equation20a%20line",
+    "mime_type": "application/pdf",
+    "size_bytes": 242747
+  },
+  "result": {
+    "pages": [
+      {
+        "page": 1,
+        "method": "pix2text",
+        "char_count": 731,
+        "text": "1. Find the equation of the line\na) Find the equation of the line passing through the points\n( 2 , 3 )\nand\n( 6 , 7 )\nb) Find the equation of the line passing through the points\n(-3 ,-1 )\nand\n( 5 , 3 )\n2. Generate 10 points from an equation\na) The equation of a line is\ny=2 x+1 .\n. List 10 points that lie on this line.\nb} The equation of a line is\ny=-{\\frac{3} {2}} x+4 .\n_ List 10 points that satisfy this equation.\na) The line passes through\n( 3 , 5 )\nand\n( 7 , 9 )\n3. Find points from the equation of a line passing through two given points\n. Write the equation of the line and find 3 other\npoints in the line.\nb) The line passes through\n(-1 , 2 )\nand (4,3). Write the equation of the line and find\n3 ~\nother\npoints in the line."
+      }
+    ],
+    "full_text": "1. Find the equation of the line\na) Find the equation of the line passing through the points\n( 2 , 3 )\nand\n( 6 , 7 )\nb) Find the equation of the line passing through the points\n(-3 ,-1 )\nand\n( 5 , 3 )\n2. Generate 10 points from an equation\na) The equation of a line is\ny=2 x+1 .\n. List 10 points that lie on this line.\nb} The equation of a line is\ny=-{\\frac{3} {2}} x+4 .\n_ List 10 points that satisfy this equation.\na) The line passes through\n( 3 , 5 )\nand\n( 7 , 9 )\n3. Find points from the equation of a line passing through two given points\n. Write the equation of the line and find 3 other\npoints in the line.\nb) The line passes through\n(-1 , 2 )\nand (4,3). Write the equation of the line and find\n3 ~\nother\npoints in the line.",
+    "page_count": 1,
+    "methods_used": [
+      "pix2text"
+    ]
+  },
+  "debug": {
+    "pix2text_available": true,
+    "tesseract_available": true,
+    "pymupdf_version": "1.27.2.3"
+  }
+}
