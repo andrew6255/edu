@@ -186,7 +186,7 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
     const questionText = activeQuestion.rawText || 'Question';
 
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--ll-surface-0)' }}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', flexDirection: 'column', background: 'var(--ll-surface-0)' }}>
         {/* Top bar */}
         <div style={{
           padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8,

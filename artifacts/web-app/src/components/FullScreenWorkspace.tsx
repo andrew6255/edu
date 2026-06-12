@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
@@ -241,13 +241,56 @@ interface PageCanvasProps {
   onAnnotationAdd: (pageId: string, ann: TextAnnotation) => void;
   onAnnotationUpdate: (pageId: string, annId: string, text: string) => void;
   scale: number;
+  aiMode?: boolean;
+  aiStepText?: string;
+  aiFeedbackText?: string;
+  isFetchingAI?: boolean;
+  onToggleAI?: () => void;
+  onCheckStep?: () => void;
+  aiMistakeBox?: { x: number, y: number, width: number, height: number, pageIndex: number } | null;
 }
+
+const LatexRenderer = ({ content }: { content: string }) => {
+  const parts = content.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g);
+  return (
+    <span>
+      {parts.map((part, i) => {
+        if (part.startsWith('$$') && part.endsWith('$$')) {
+          const math = part.slice(2, -2);
+          try { return <span key={i} dangerouslySetInnerHTML={{ __html: katex.renderToString(math, { displayMode: true }) }} />; }
+          catch { return <span key={i}>{part}</span>; }
+        }
+        if (part.startsWith('$') && part.endsWith('$')) {
+          const math = part.slice(1, -1);
+          try { return <span key={i} dangerouslySetInnerHTML={{ __html: katex.renderToString(math, { displayMode: false }) }} />; }
+          catch { return <span key={i}>{part}</span>; }
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+};
 
 const PageCanvas = memo(function PageCanvas({
   page, pageIndex, currentQuestion, activeTool, eraserMode, strokeColor, strokeWidth,
   onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, scale,
+  aiMode, aiStepText, aiFeedbackText, isFetchingAI, onToggleAI, onCheckStep, aiMistakeBox
 }: PageCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  // Calculate lowest point of content to position the AI box dynamically
+  const maxY = useMemo(() => {
+    let max = 60; // minimum offset below question
+    page.strokes.forEach(s => {
+      s.points.forEach(p => {
+        if (p.y > max) max = p.y;
+      });
+    });
+    page.annotations.forEach(a => {
+      if (a.y + a.height > max) max = a.y + a.height;
+    });
+    return max;
+  }, [page.strokes, page.annotations]);
   const activeStroke = useRef<StrokePoint[]>([]);
   const isDrawing = useRef(false);
   const lastTap = useRef<{ time: number; x: number; y: number }>({ time: 0, x: 0, y: 0 });
@@ -389,9 +432,80 @@ const PageCanvas = memo(function PageCanvas({
 
       {/* Static Question Overlay */}
       {pageIndex === 0 && currentQuestion && (
-        <div className="fsw-static-question">
-          <strong style={{ color: '#4f46e5' }}>Question:</strong> {currentQuestion}
+        <div className="fsw-static-question" style={{ position: 'relative', zIndex: 10, pointerEvents: 'none' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+            <div style={{ flex: 1, paddingRight: 16 }}>
+              <strong style={{ color: '#4f46e5' }}>Question:</strong> <LatexRenderer content={currentQuestion} />
+            </div>
+            {onToggleAI && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: aiMode ? 'rgba(239,68,68,0.1)' : 'var(--ll-surface-1)', padding: '6px 10px', borderRadius: 20, cursor: 'pointer', border: `1px solid ${aiMode ? 'rgba(239,68,68,0.3)' : 'var(--ll-border)'}`, pointerEvents: 'auto' }} onClick={onToggleAI} onPointerDown={e => e.stopPropagation()}>
+                <span style={{ fontSize: 12, fontWeight: 'bold', color: aiMode ? '#ef4444' : 'var(--ll-text-muted)' }}>AI Tutor</span>
+                <div style={{ width: 32, height: 18, borderRadius: 10, background: aiMode ? '#ef4444' : 'var(--ll-surface-3)', position: 'relative', transition: '0.2s' }}>
+                  <div style={{ position: 'absolute', top: 2, left: aiMode ? 16 : 2, width: 14, height: 14, borderRadius: '50%', background: 'white', transition: '0.2s' }} />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+      )}
+
+      {/* Dynamic AI Box */}
+      {pageIndex === 0 && aiMode && (
+        <div style={{ 
+          position: 'absolute', top: maxY + 40, left: 24, right: 24, 
+          padding: 16, background: 'rgba(239,68,68,0.05)', borderRadius: 12, 
+          borderLeft: '4px solid #ef4444', pointerEvents: 'auto', zIndex: 10,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.05)'
+        }}>
+          <div style={{ color: '#ef4444', fontWeight: 'bold', fontSize: 14, marginBottom: 8 }}>🤖 AI Tutor:</div>
+          {isFetchingAI && !aiStepText ? (
+            <div style={{ color: '#ef4444', fontSize: 14, fontStyle: 'italic' }}>Thinking...</div>
+          ) : (
+            <div style={{ color: '#ef4444', fontSize: 15, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+              <LatexRenderer content={aiStepText || ''} />
+            </div>
+          )}
+          
+          {aiStepText && (
+            <div style={{ marginTop: 20 }}>
+              <button 
+                onClick={onCheckStep}
+                onPointerDown={e => e.stopPropagation()}
+                disabled={isFetchingAI}
+                style={{ background: '#ef4444', color: 'white', border: 'none', padding: '10px 20px', borderRadius: 8, fontSize: 14, fontWeight: 'bold', cursor: isFetchingAI ? 'not-allowed' : 'pointer', opacity: isFetchingAI ? 0.7 : 1, transition: '0.2s', boxShadow: '0 4px 12px rgba(239,68,68,0.3)' }}
+                onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+                onMouseLeave={e => e.currentTarget.style.transform = 'none'}
+              >
+                {isFetchingAI && aiStepText && !aiFeedbackText ? 'Checking...' : 'Check My Step'}
+              </button>
+              
+              {aiFeedbackText && (
+                <div style={{ marginTop: 16, color: '#ef4444', fontSize: 15, lineHeight: 1.6, fontWeight: 'bold', background: 'rgba(239,68,68,0.1)', padding: 16, borderRadius: 8, whiteSpace: 'pre-wrap' }}>
+                  <LatexRenderer content={aiFeedbackText} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Mistake Circle Overlay */}
+      {aiMistakeBox && aiMistakeBox.pageIndex === pageIndex && (
+        <svg 
+          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 4 }}
+        >
+          <ellipse 
+            cx={(aiMistakeBox.x * PAGE_W) / 100 + ((aiMistakeBox.width * PAGE_W) / 100) / 2} 
+            cy={(aiMistakeBox.y * PAGE_H) / 100 + ((aiMistakeBox.height * PAGE_H) / 100) / 2} 
+            rx={Math.max(20, ((aiMistakeBox.width * PAGE_W) / 100) / 1.5)} 
+            ry={Math.max(20, ((aiMistakeBox.height * PAGE_H) / 100) / 1.5)} 
+            fill="none" 
+            stroke="#ef4444" 
+            strokeWidth="3" 
+            strokeDasharray="8 4"
+            style={{ filter: 'drop-shadow(0 0 4px rgba(239,68,68,0.4))' }}
+          />
+        </svg>
       )}
 
       {/* Page number */}
@@ -474,6 +588,13 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
   const [gradingFeedback, setGradingFeedback] = useState<{isCorrect: boolean, points: number, feedback: string} | null>(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
+  // ── AI Tutor State ──
+  const [aiMode, setAiMode] = useState(false);
+  const [aiStepText, setAiStepText] = useState<string>('');
+  const [aiFeedbackText, setAiFeedbackText] = useState<string>('');
+  const [isFetchingAI, setIsFetchingAI] = useState(false);
+  const [aiMistakeBox, setAiMistakeBox] = useState<{ x: number, y: number, width: number, height: number, pageIndex: number } | null>(null);
+
   // ── Pages State ──
   const [pages, setPages] = useState<PageData[]>(
     initialPages || [{ id: uid(), strokes: [], annotations: [] }]
@@ -509,8 +630,9 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
   useEffect(() => {
     const updateScale = () => {
       const vw = window.innerWidth;
-      const target = Math.min(1, (vw - 80) / PAGE_W);
-      setScale(Math.max(0.4, target));
+      // Make paper take full width of screen
+      const target = vw / PAGE_W;
+      setScale(target);
     };
     updateScale();
     window.addEventListener('resize', updateScale);
@@ -911,6 +1033,145 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
     setShowOutputModal(true);
   }, [captureSnapshots]);
 
+  // ── AI Tutor Methods ──
+  const handleToggleAIMode = useCallback(async () => {
+    if (aiMode) {
+      setAiMode(false);
+      setAiStepText('');
+      setAiFeedbackText('');
+      return;
+    }
+    
+    setAiMode(true);
+    setIsFetchingAI(true);
+    setAiFeedbackText('');
+    try {
+      const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+      if (!apiKey) throw new Error("VITE_GROQ_API_KEY is missing in .env.local");
+      
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{
+            role: 'system',
+            content: 'You are an expert AI Math Tutor. Provide ONLY the very first step to solve the question. Keep it concise and instructional. Do NOT solve the whole problem.'
+          }, {
+            role: 'user',
+            content: `Question: ${currentQuestion}`
+          }],
+          temperature: 0.5,
+          max_tokens: 200,
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Failed to fetch from Groq');
+      
+      setAiStepText(data.choices[0].message.content);
+    } catch (err) {
+      console.error(err);
+      setAiStepText('Sorry, failed to get the first step. ' + (err instanceof Error ? err.message : ''));
+    } finally {
+      setIsFetchingAI(false);
+    }
+  }, [aiMode, currentQuestion]);
+
+  const handleCheckStep = useCallback(async () => {
+    setIsFetchingAI(true);
+    setAiFeedbackText('');
+    setAiMistakeBox(null);
+    try {
+      let allLatex: string[] = [];
+      let allBlocksWithPage: (ConvertedBlock & { pageIndex: number })[] = [];
+      
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        if (page.strokes.length === 0 && page.annotations.length === 0) continue;
+        const blocks = await fetchMyScriptBlocks(page.strokes);
+        blocks.sort((a, b) => a.y - b.y);
+        blocks.forEach(b => allBlocksWithPage.push({ ...b, pageIndex: i }));
+        const pageText = blocks.map(b => b.latex || b.text).join('\n');
+        const typedText = page.annotations.filter(a => a.text).map(a => a.text).join('\n');
+        if (pageText || typedText) {
+          allLatex.push([pageText, typedText].filter(Boolean).join('\n'));
+        }
+      }
+      const studentAnswer = allLatex.join('\n\n');
+      
+      if (!studentAnswer.trim()) {
+        setAiFeedbackText('Please write something on the paper first before checking!');
+        setIsFetchingAI(false);
+        return;
+      }
+
+      const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+      if (!apiKey) throw new Error("VITE_GROQ_API_KEY is missing in .env.local");
+      
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{
+            role: 'system',
+            content: 'You are an expert AI Math Tutor. Evaluate the student\'s work based on the question and the first step you previously provided. Respond ONLY with a raw JSON object matching this exact schema: { "isCorrect": boolean, "feedbackText": "string", "mistakeText": "string" }. If what is written is correct, set isCorrect=true, explain why in a positive way in feedbackText, and leave mistakeText empty (""). If there is a mistake, set isCorrect=false, explicitly explain the mistake and guide them in feedbackText, and set mistakeText to the EXACT literal snippet of the student\'s text or LaTeX that is incorrect so we can highlight it. Do NOT format as markdown, just raw JSON.'
+          }, {
+            role: 'user',
+            content: `Question: ${currentQuestion}\n\nAI's provided first step: ${aiStepText}\n\nStudent's written work (converted to text/LaTeX): ${studentAnswer}`
+          }],
+          temperature: 0.2,
+          max_tokens: 400,
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Failed to fetch from Groq');
+      
+      let parsed;
+      try {
+        const raw = data.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        throw new Error('AI returned malformed JSON: ' + data.choices[0].message.content);
+      }
+      
+      setAiFeedbackText(parsed.feedbackText);
+      
+      if (!parsed.isCorrect && parsed.mistakeText) {
+         let foundBox = null;
+         const target = parsed.mistakeText.trim();
+         for (const b of allBlocksWithPage) {
+           if ((b.text && b.text.includes(target)) || (b.latex && b.latex.includes(target))) {
+             foundBox = { x: b.x, y: b.y, width: b.width, height: b.height, pageIndex: b.pageIndex };
+             break;
+           }
+         }
+         if (!foundBox) {
+           for (const b of allBlocksWithPage) {
+             if (target.includes(b.text || '') || target.includes(b.latex || '')) {
+               foundBox = { x: b.x, y: b.y, width: b.width, height: b.height, pageIndex: b.pageIndex };
+               break;
+             }
+           }
+         }
+         setAiMistakeBox(foundBox);
+      } else {
+         setAiMistakeBox(null);
+      }
+    } catch (err) {
+      console.error(err);
+      setAiFeedbackText('Sorry, failed to check the step. ' + (err instanceof Error ? err.message : ''));
+    } finally {
+      setIsFetchingAI(false);
+    }
+  }, [pages, currentQuestion, aiStepText, fetchMyScriptBlocks]);
+
   const totalStrokes = pages.reduce((s, p) => s + p.strokes.length, 0);
   const totalAnnotations = pages.reduce((s, p) => s + p.annotations.filter(a => a.text).length, 0);
 
@@ -935,6 +1196,13 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
               onAnnotationAdd={handleAnnotationAdd}
               onAnnotationUpdate={handleAnnotationUpdate}
               scale={scale}
+              aiMode={aiMode}
+              aiStepText={aiStepText}
+              aiFeedbackText={aiFeedbackText}
+              isFetchingAI={isFetchingAI}
+              onToggleAI={handleToggleAIMode}
+              onCheckStep={handleCheckStep}
+              aiMistakeBox={aiMistakeBox}
             />
           ))}
           {/* Sentinel for infinite scroll */}
@@ -1276,7 +1544,7 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
         .fsw-static-question {
           position: absolute;
           top: 10px;
-          left: 80px;
+          left: 20px;
           right: 20px;
           background: rgba(255, 255, 255, 0.85);
           backdrop-filter: blur(8px);
