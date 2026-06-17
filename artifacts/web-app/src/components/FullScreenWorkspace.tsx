@@ -588,8 +588,28 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
 
   // ── Pages State ──
   const [pages, setPages] = useState<PageData[]>(
-    initialPages || [{ id: uid(), strokes: [], annotations: [] }]
+    initialPages && initialPages.length > 0 ? (initialPages as PageData[]) : [{ id: uid(), strokes: [], annotations: [] }]
   );
+
+  // Reset pages whenever a new question (new initialPages) is loaded
+  useEffect(() => {
+    setPages(
+      initialPages && initialPages.length > 0
+        ? (initialPages as PageData[])
+        : [{ id: uid(), strokes: [], annotations: [] }]
+    );
+    setUndoStack([]);
+    setRedoStack([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPages]);
+
+  // ── Auto-save: fire onPagesChange on every pages mutation ──
+  useEffect(() => {
+    if (onPagesChange) {
+      onPagesChange(pages);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages]);
 
   // ── Output snapshots (captured when modal opens) ──
   const [pageSnapshots, setPageSnapshots] = useState<{ 

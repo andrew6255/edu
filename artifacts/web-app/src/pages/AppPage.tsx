@@ -36,6 +36,15 @@ export default function AppPage() {
   const [selectedPersonalProgramId, setSelectedPersonalProgramId] = useState<string | null>(null);
   const [pendingContentId, setPendingContentId] = useState<string | null>(null);
   const [pendingContentType, setPendingContentType] = useState<string | null>(null);
+  const [showRefresh, setShowRefresh] = useState(false);
+
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
+    if (loading) {
+      timeout = setTimeout(() => setShowRefresh(true), 5000);
+    }
+    return () => clearTimeout(timeout);
+  }, [loading]);
 
   useEffect(() => {
     function onSetView(e: Event) {
@@ -92,6 +101,14 @@ export default function AppPage() {
         <div style={{ textAlign: 'center', animation: 'fadeIn 0.3s ease' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>⚔️</div>
           <div style={{ color: '#94a3b8', fontSize: 16 }}>Loading your realm...</div>
+          {showRefresh && (
+            <div style={{ marginTop: 24, animation: 'fadeIn 0.5s ease' }}>
+              <div style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>Taking too long?</div>
+              <button className="ll-btn" onClick={() => window.location.reload()} style={{ padding: '8px 16px' }}>
+                Refresh Page
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

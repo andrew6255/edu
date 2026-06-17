@@ -38,7 +38,19 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
   const [answeredIds, setAnsweredIds] = useState<Set<string>>(new Set());
   const [whiteboardPages, setWhiteboardPages] = useState<WhiteboardPageData[] | null>(null);
   const [loadingWhiteboard, setLoadingWhiteboard] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [showRefresh, setShowRefresh] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestPagesRef = useRef<WhiteboardPageData[] | null>(null);
+
+  // Show refresh button if loading takes too long
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
+    if (loading) {
+      timeout = setTimeout(() => setShowRefresh(true), 5000);
+    }
+    return () => clearTimeout(timeout);
+  }, [loading]);
 
   // Load program metadata and data
   useEffect(() => {
@@ -128,11 +140,18 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
   // Auto-save whiteboard
   const handleWhiteboardPagesChange = useCallback((pages: any[]) => {
     if (!user || !programId || !activeQuestionId) return;
+    latestPagesRef.current = pages as WhiteboardPageData[];
+    setSaveStatus('saving');
     // Debounce save
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       saveQuestionWhiteboard(user.uid, programId, activeQuestionId, pages as WhiteboardPageData[])
-        .catch(err => console.warn('Auto-save whiteboard failed:', err));
+        .then(() => {
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 2000);
+        })
+        .catch(err => console.warn('Auto-save whiteboard failed:', err))
+        .finally(() => { saveTimerRef.current = null; });
     }, 1500);
   }, [user, programId, activeQuestionId]);
 
@@ -141,12 +160,19 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
+      // Flush pending save synchronously
+      if (user && programId && activeQuestionId && latestPagesRef.current) {
+        saveQuestionWhiteboard(user.uid, programId, activeQuestionId, latestPagesRef.current)
+          .catch(err => console.warn('Auto-save on close failed:', err));
+      }
     }
+    latestPagesRef.current = null;
+    setSaveStatus('idle');
     // Note: We don't automatically mark as answered here anymore, 
     // we let the user manually check the box or we rely on the whiteboard stroke detection on reload.
     setActiveQuestionId(null);
     setWhiteboardPages(null);
-  }, []);
+  }, [user, programId, activeQuestionId]);
 
   const handleToggleSolved = async (e: React.MouseEvent, questionId: string) => {
     e.stopPropagation();
@@ -192,8 +218,10 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
           flexShrink: 0, zIndex: 10,
         }}>
           <button onClick={closeWhiteboard} className="ll-btn" style={{ padding: '6px 12px', fontSize: 11 }}>← Back</button>
-          <span style={{ color: 'var(--ll-text-muted)', fontSize: 11, flex: 1, textAlign: 'center' }}>
-            Question {currentQuestionIndex + 1} of {allQuestions.length}
+          <span style={{ color: 'var(--ll-text-muted)', fontSize: 11, flex: 1, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+            <span>Question {currentQuestionIndex + 1} of {allQuestions.length}</span>
+            {saveStatus === 'saving' && <span style={{ color: '#fbbf24', animation: 'pulse 1.5s infinite' }}>Saving...</span>}
+            {saveStatus === 'saved' && <span style={{ color: '#10b981' }}>Saved</span>}
           </span>
           <button
             onClick={() => goToQuestion('prev')}
@@ -235,6 +263,14 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
         <div style={{ textAlign: 'center', animation: 'fadeIn 0.3s ease' }}>
           <div style={{ fontSize: 48, marginBottom: 12, animation: 'pulse 1.5s ease infinite' }}>📄</div>
           <div style={{ color: 'var(--ll-text-muted)', fontSize: 14 }}>Loading program...</div>
+          {showRefresh && (
+            <div style={{ marginTop: 24, animation: 'fadeIn 0.5s ease' }}>
+              <div style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>Taking too long?</div>
+              <button className="ll-btn" onClick={() => window.location.reload()} style={{ padding: '8px 16px' }}>
+                Refresh Page
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
