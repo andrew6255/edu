@@ -128,6 +128,17 @@ export default function HexUniverseView() {
   const [classFilter, setClassFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'program' | 'assignment' | 'quiz'>('all');
   const [loadingClassContent, setLoadingClassContent] = useState(false);
+  const [showClassContentRefresh, setShowClassContentRefresh] = useState(false);
+
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
+    if (loadingClassContent) {
+      timeout = setTimeout(() => setShowClassContentRefresh(true), 5000);
+    } else {
+      setShowClassContentRefresh(false);
+    }
+    return () => clearTimeout(timeout);
+  }, [loadingClassContent]);
 
   useEffect(() => {
     if (!user) return;
@@ -475,7 +486,17 @@ export default function HexUniverseView() {
         </div>
       )}
       {loadingClassContent && classContent.length === 0 && (
-        <div style={{ color: 'var(--ll-text-muted)', fontSize: 13, zIndex: 2, marginBottom: 30 }}>Loading class content...</div>
+        <div style={{ color: 'var(--ll-text-muted)', fontSize: 13, zIndex: 2, marginBottom: 30, textAlign: 'center' }}>
+          <div>Loading class content...</div>
+          {showClassContentRefresh && (
+            <div style={{ marginTop: 16, animation: 'fadeIn 0.5s ease' }}>
+              <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>Taking too long?</div>
+              <button className="ll-btn" onClick={() => window.location.reload()} style={{ padding: '6px 12px', fontSize: 12 }}>
+                Refresh Page
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Decorative orbs */}
