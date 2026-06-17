@@ -15,12 +15,25 @@ import { getUserDoc, setUserDoc, listUserDocs, type DocData } from './supabaseDo
 
 export type PersonalProgramStatus = 'processing' | 'ready' | 'failed';
 
+/**
+ * Granular stage written by the client pipeline at each real async milestone.
+ * Used by ProcessingDetailsModal to show true progress.
+ */
+export type ProcessingStage =
+  | 'uploading'          // 10% — saving initial record to Supabase
+  | 'ocr'               // 35% — OCR server reading PDF
+  | 'extracting_questions' // 65% — AI extracting questions via Groq
+  | 'building_program'  // 85% — assembling chapters/topics structure
+  | 'saving';           // 95% — writing finished programData to Supabase
+
 export interface PersonalProgramMeta {
   programId: string;
   jobId: string;
   title: string;
   coverEmoji: string;
   status: PersonalProgramStatus;
+  /** Granular in-progress stage — only meaningful when status === 'processing' */
+  processingStage?: ProcessingStage;
   contentHash: string;
   sourceFileName: string;
   createdAt: string;
@@ -35,6 +48,11 @@ export interface PersonalProgramQuestion {
   rawText: string;
   page: number;
   difficulty?: 'easy' | 'medium' | 'hard';
+  context?: string;
+  subQuestions?: Array<{
+    label?: string;
+    rawText: string;
+  }>;
   promptBlocks?: Array<{ type: string; text?: string; latex?: string }>;
   normalizedQuestion?: Record<string, unknown> | null;
 }
@@ -121,13 +139,6 @@ export async function findProgramByHash(uid: string, contentHash: string): Promi
   return null;
 }
 
-/**
- * Create a personal program from uploaded files.
- * 1. Compute content hash
- * 2. Check for existing program with same hash
- * 3. If not found, upload to backend and trigger auto-run pipeline
- * 4. Store metadata in user_docs
- */
 export async function createPersonalProgram(
   uid: string,
   title: string,
@@ -135,10 +146,18 @@ export async function createPersonalProgram(
 ): Promise<PersonalProgramMeta> {
   const contentHash = await computeFileHash(file);
 
-  // Check if program already exists with this hash
-  const existing = await findProgramByHash(uid, contentHash);
-  if (existing && existing.status === 'ready') {
-    return existing;
+  let finalTitle = title || file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
+
+  // Enforce unique title
+  const docs = await listUserDocs(uid, COLLECTION_PERSONAL_PROGRAMS);
+  const existingTitles = new Set(docs.map(d => (d.data as any)?.title));
+  
+  if (existingTitles.has(finalTitle)) {
+    let counter = 1;
+    while (existingTitles.has(`${finalTitle} (${counter})`)) {
+      counter++;
+    }
+    finalTitle = `${finalTitle} (${counter})`;
   }
 
   // Generate a local ID instead of calling the backend
@@ -148,7 +167,7 @@ export async function createPersonalProgram(
   const meta: PersonalProgramMeta = {
     programId,
     jobId,
-    title: title || file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '),
+    title: finalTitle,
     coverEmoji: '📄',
     status: 'processing',
     contentHash,
@@ -179,12 +198,47 @@ export async function refreshPersonalProgramStatus(uid: string, jobId: string): 
   return existing as unknown as PersonalProgramMeta;
 }
 
+/**
+ * Write a granular processing stage to the Supabase doc.
+ * Called by the client pipeline between async steps so the UI can show real progress.
+ */
+export async function updateProcessingStage(
+  uid: string,
+  jobId: string,
+  stage: ProcessingStage,
+): Promise<void> {
+  const existing = await getUserDoc(uid, COLLECTION_PERSONAL_PROGRAMS, jobId);
+  if (!existing) return;
+  await setUserDoc(uid, COLLECTION_PERSONAL_PROGRAMS, jobId, {
+    ...existing,
+    processingStage: stage,
+  });
+}
+
 export async function renamePersonalProgram(uid: string, jobId: string, newTitle: string): Promise<PersonalProgramMeta> {
+  const docs = await listUserDocs(uid, COLLECTION_PERSONAL_PROGRAMS);
+  const existingTitles = new Set(docs.map(d => (d.data as any)?.title).filter(t => t));
+  
+  let finalTitle = newTitle.trim();
+  // We only care about collisions with OTHER programs
+  // Let's do a simple check. If they rename to same name it's fine.
+  // We handle that by filtering out the current job's title from the set:
+  const otherDocs = docs.filter(d => d.id !== jobId);
+  const otherTitles = new Set(otherDocs.map(d => (d.data as any)?.title).filter(t => t));
+
+  if (otherTitles.has(finalTitle)) {
+    let counter = 1;
+    while (otherTitles.has(`${finalTitle} (${counter})`)) {
+      counter++;
+    }
+    finalTitle = `${finalTitle} (${counter})`;
+  }
+
   const existing = await getUserDoc(uid, COLLECTION_PERSONAL_PROGRAMS, jobId);
   if (!existing) throw new Error('Personal program not found');
   const updated: PersonalProgramMeta = {
     ...(existing as unknown as PersonalProgramMeta),
-    title: newTitle,
+    title: finalTitle,
   };
   await setUserDoc(uid, COLLECTION_PERSONAL_PROGRAMS, jobId, updated as unknown as DocData);
   return updated;

@@ -4,13 +4,111 @@ import { getPublicProgram, purgeProgramFromUser } from '@/lib/programMaps';
 import { getProgramProgress } from '@/lib/programProgress';
 import { getAllMyContent, type StudentContentItem } from '@/lib/studentService';
 import MyProgramsModal from '@/components/universe/MyProgramsModal';
-import { listMyPersonalPrograms, refreshPersonalProgramStatus, type PersonalProgramMeta } from '@/lib/personalProgramService';
+import { listMyPersonalPrograms, refreshPersonalProgramStatus, deletePersonalProgram, type PersonalProgramMeta } from '@/lib/personalProgramService';
+import ProcessingDetailsModal, { getProgressPercentage, useSmoothProgress, getStageLabel } from '@/components/universe/ProcessingDetailsModal';
 
-function getProgressPercentage(status: string) {
-  if (status === 'processing' || status === 'extracting') return 45;
-  if (status === 'analyzing') return 80;
-  if (status === 'ready') return 100;
-  return 10;
+function PersonalProgramCard({
+  p,
+  i,
+  onOpenDetails,
+}: {
+  p: PersonalProgramMeta;
+  i: number;
+  onOpenDetails: (p: PersonalProgramMeta) => void;
+}) {
+  const isReady = p.status === 'ready' || p.status === 'published';
+  const isFailed = p.status === 'failed';
+  const targetPct = getProgressPercentage(p.status, p.processingStage);
+  const pct = useSmoothProgress(targetPct, isFailed);
+  const stageLabel = getStageLabel(p.status, p.processingStage);
+
+  return (
+    <div
+      onClick={() => {
+        if (isReady) {
+          window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'personalProgram', personalProgramId: p.programId } }));
+        } else if (!isFailed) {
+          onOpenDetails(p);
+        }
+      }}
+      style={{
+        background: isReady ? 'rgba(96,165,250,0.10)' : 'rgba(148,163,184,0.05)',
+        border: isReady ? '2px solid rgba(96,165,250,0.45)' : '2px dashed rgba(148,163,184,0.3)',
+        borderRadius: 20,
+        padding: '30px 20px',
+        textAlign: 'center',
+        cursor: isFailed ? 'default' : 'pointer',
+        transition: 'all 0.3s',
+        boxShadow: isReady ? '0 0 20px rgba(96,165,250,0.20)' : 'none',
+        animation: `fadeIn ${0.3 + i * 0.08}s ease`,
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        opacity: isReady ? 1 : 0.6,
+      }}
+      onMouseEnter={(e) => {
+        if (!isReady) return;
+        const el = e.currentTarget as HTMLDivElement;
+        el.style.transform = 'scale(1.03) translateY(-6px)';
+        el.style.boxShadow = '0 15px 40px rgba(96,165,250,0.35)';
+      }}
+      onMouseLeave={(e) => {
+        if (!isReady) return;
+        const el = e.currentTarget as HTMLDivElement;
+        el.style.transform = '';
+        el.style.boxShadow = '0 0 20px rgba(96,165,250,0.20)';
+      }}
+    >
+      <div style={{ fontSize: 48, marginBottom: 12, color: isReady ? '#60a5fa' : '#94a3b8', textShadow: 'none' }}>
+        {p.coverEmoji || '📄'}
+      </div>
+      <div style={{ fontWeight: 'bold', fontSize: 20, color: isReady ? 'var(--ll-text)' : 'var(--ll-text-muted)', marginBottom: 6 }}>
+        {p.title}
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--ll-text-soft)', marginBottom: 16 }}>
+        Custom Program
+      </div>
+      <div style={{ width: '100%', marginTop: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        {!isReady && !isFailed ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Circular Loading Indicator */}
+            <svg width="24" height="24" viewBox="0 0 36 36" style={{ animation: 'spin 2s linear infinite' }}>
+              <path
+                d="M18 2.0845
+                  a 15.9155 15.9155 0 0 1 0 31.831
+                  a 15.9155 15.9155 0 0 1 0 -31.831"
+                fill="none"
+                stroke="rgba(148,163,184,0.2)"
+                strokeWidth="3"
+              />
+              <path
+                d="M18 2.0845
+                  a 15.9155 15.9155 0 0 1 0 31.831
+                  a 15.9155 15.9155 0 0 1 0 -31.831"
+                fill="none"
+                stroke="#60a5fa"
+                strokeWidth="3"
+                strokeDasharray={`${pct}, 100`}
+                strokeLinecap="round"
+                style={{ transition: 'stroke-dasharray 0.8s ease-out' }}
+              />
+            </svg>
+            <div style={{ fontSize: 13, color: '#60a5fa', fontWeight: 'bold' }}>
+              {pct}% Loading...
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ll-text-muted)', marginTop: 2, textAlign: 'center', lineHeight: 1.1 }}>
+              {stageLabel}
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: isFailed ? '#ef4444' : '#34d399', fontWeight: 'bold' }}>
+            {isFailed ? 'Failed' : 'Ready'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function HexUniverseView() {
@@ -22,6 +120,8 @@ export default function HexUniverseView() {
 
   // Personal Programs
   const [personalPrograms, setPersonalPrograms] = useState<PersonalProgramMeta[]>([]);
+  const [selectedProcessingJobId, setSelectedProcessingJobId] = useState<string | null>(null);
+  const selectedProcessingProgram = personalPrograms.find(p => p.jobId === selectedProcessingJobId) || null;
 
   // Class content filters
   const [classContent, setClassContent] = useState<(StudentContentItem & { class_name: string })[]>([]);
@@ -86,6 +186,20 @@ export default function HexUniverseView() {
 
     return () => { alive = false; clearInterval(interval); };
   }, [user, personalPrograms]);
+
+  const handleCancelProcessing = async () => {
+    if (!selectedProcessingProgram || !user) return;
+    if (!confirm('Cancel and delete this program?')) return;
+    const jobId = selectedProcessingProgram.jobId;
+    setSelectedProcessingJobId(null);
+    try {
+      await deletePersonalProgram(user.uid, jobId);
+      setPersonalPrograms(prev => prev.filter(p => p.jobId !== jobId));
+      window.dispatchEvent(new CustomEvent('ll:personalProgramDeleted', { detail: { jobId } }));
+    } catch (err) {
+      alert('Failed to delete: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -260,94 +374,14 @@ export default function HexUniverseView() {
           zIndex: 2,
           marginBottom: 40,
         }}>
-          {personalPrograms.map((p, i) => {
-            const isReady = p.status === 'ready' || p.status === 'published';
-            const isFailed = p.status === 'failed';
-            const pct = getProgressPercentage(p.status);
-
-            return (
-              <div
-                key={p.jobId}
-                onClick={() => {
-                  if (isReady) {
-                    window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'personalProgram', personalProgramId: p.programId } }));
-                  }
-                }}
-                style={{
-                  background: isReady ? 'rgba(96,165,250,0.10)' : 'rgba(148,163,184,0.05)',
-                  border: isReady ? '2px solid rgba(96,165,250,0.45)' : '2px dashed rgba(148,163,184,0.3)',
-                  borderRadius: 20,
-                  padding: '30px 20px',
-                  textAlign: 'center',
-                  cursor: isReady ? 'pointer' : 'default',
-                  transition: 'all 0.3s',
-                  boxShadow: isReady ? '0 0 20px rgba(96,165,250,0.20)' : 'none',
-                  animation: `fadeIn ${0.3 + i * 0.08}s ease`,
-                  position: 'relative',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  opacity: isReady ? 1 : 0.6,
-                }}
-                onMouseEnter={(e) => {
-                  if (!isReady) return;
-                  const el = e.currentTarget as HTMLDivElement;
-                  el.style.transform = 'scale(1.03) translateY(-6px)';
-                  el.style.boxShadow = '0 15px 40px rgba(96,165,250,0.35)';
-                }}
-                onMouseLeave={(e) => {
-                  if (!isReady) return;
-                  const el = e.currentTarget as HTMLDivElement;
-                  el.style.transform = '';
-                  el.style.boxShadow = '0 0 20px rgba(96,165,250,0.20)';
-                }}
-              >
-                <div style={{ fontSize: 48, marginBottom: 12, color: isReady ? '#60a5fa' : '#94a3b8', textShadow: 'none' }}>
-                  {p.coverEmoji || '📄'}
-                </div>
-                <div style={{ fontWeight: 'bold', fontSize: 20, color: isReady ? 'var(--ll-text)' : 'var(--ll-text-muted)', marginBottom: 6 }}>
-                  {p.title}
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--ll-text-soft)', marginBottom: 16 }}>
-                  Custom Program
-                </div>
-                <div style={{ width: '100%', marginTop: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  {!isReady && !isFailed ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {/* Circular Loading Indicator */}
-                      <svg width="24" height="24" viewBox="0 0 36 36" style={{ animation: 'spin 2s linear infinite' }}>
-                        <path
-                          d="M18 2.0845
-                            a 15.9155 15.9155 0 0 1 0 31.831
-                            a 15.9155 15.9155 0 0 1 0 -31.831"
-                          fill="none"
-                          stroke="rgba(148,163,184,0.2)"
-                          strokeWidth="3"
-                        />
-                        <path
-                          d="M18 2.0845
-                            a 15.9155 15.9155 0 0 1 0 31.831
-                            a 15.9155 15.9155 0 0 1 0 -31.831"
-                          fill="none"
-                          stroke="#60a5fa"
-                          strokeWidth="3"
-                          strokeDasharray={`${pct}, 100`}
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                      <div style={{ fontSize: 13, color: '#60a5fa', fontWeight: 'bold' }}>
-                        {pct}% Loading...
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 13, color: isFailed ? '#ef4444' : '#34d399', fontWeight: 'bold' }}>
-                      {isFailed ? 'Failed' : 'Ready'}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {personalPrograms.map((p, i) => (
+            <PersonalProgramCard
+              key={p.jobId}
+              p={p}
+              i={i}
+              onOpenDetails={(prog) => setSelectedProcessingJobId(prog.jobId)}
+            />
+          ))}
         </div>
       )}
 
@@ -456,9 +490,12 @@ export default function HexUniverseView() {
         bottom: '10%', right: '5%', pointerEvents: 'none'
       }} />
       <MyProgramsModal open={myProgramsOpen} onClose={() => setMyProgramsOpen(false)} />
-      <style>{`
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-      `}</style>
+      <ProcessingDetailsModal
+        open={!!selectedProcessingJobId}
+        onClose={() => setSelectedProcessingJobId(null)}
+        program={selectedProcessingProgram}
+        onCancel={handleCancelProcessing}
+      />
     </div>
   );
 }

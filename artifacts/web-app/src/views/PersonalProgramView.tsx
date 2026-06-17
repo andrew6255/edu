@@ -183,8 +183,6 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
 
   // ─── Whiteboard Screen ────────────────────────────────────────────────────────
   if (activeQuestionId && activeQuestion) {
-    const questionText = activeQuestion.rawText || 'Question';
-
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', flexDirection: 'column', background: 'var(--ll-surface-0)' }}>
         {/* Top bar */}
@@ -219,7 +217,7 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
             </div>
           ) : (
             <FullScreenWorkspace
-              currentQuestion={questionText}
+              currentQuestion={activeQuestion}
               onClose={closeWhiteboard}
               initialPages={whiteboardPages ?? undefined}
               onPagesChange={handleWhiteboardPagesChange}

@@ -1,147 +1,404 @@
-import React from 'react';
-import { type PersonalProgramMeta } from '@/lib/personalProgramService';
+import React, { useEffect, useState } from 'react';
+import { type PersonalProgramMeta, type ProcessingStage } from '@/lib/personalProgramService';
 
 interface ProcessingDetailsModalProps {
   open: boolean;
   onClose: () => void;
   program: PersonalProgramMeta | null;
+  onCancel?: () => void; // called when user cancels/deletes a processing program
 }
 
-const INGESTION_STAGES = [
-  { id: 'uploaded', label: 'File Uploaded', pct: 10 },
-  { id: 'extracting', label: 'Extracting Text & Images (OCR)', pct: 30 },
-  { id: 'auditing', label: 'Auditing Extraction Quality', pct: 40 },
-  { id: 'segmenting', label: 'Segmenting Questions', pct: 50 },
-  { id: 'normalizing', label: 'Normalizing Formats & Math', pct: 70 },
-  { id: 'structuring', label: 'Structuring Program AI', pct: 90 },
-  { id: 'reviewing', label: 'Finalizing Details', pct: 95 },
-  { id: 'published', label: 'Ready', pct: 100 },
+// ── Real stages that match actual async work in the pipeline ─────────────────
+interface StageConfig {
+  id: ProcessingStage | 'done';
+  label: string;
+  description: string;
+  pct: number;
+}
+
+const PIPELINE_STAGES: StageConfig[] = [
+  {
+    id: 'uploading',
+    label: 'Saving File',
+    description: 'Creating program record in your library',
+    pct: 10,
+  },
+  {
+    id: 'ocr',
+    label: 'Reading Document (OCR)',
+    description: 'Extracting text and math formulas from your PDF using pix2text + Tesseract',
+    pct: 35,
+  },
+  {
+    id: 'extracting_questions',
+    label: 'Extracting Questions',
+    description: 'AI is identifying and grouping all questions by topic',
+    pct: 65,
+  },
+  {
+    id: 'building_program',
+    label: 'Building Program Structure',
+    description: 'Assembling chapters, topics, and question links',
+    pct: 85,
+  },
+  {
+    id: 'saving',
+    label: 'Saving to Library',
+    description: 'Writing the finished program to your account',
+    pct: 95,
+  },
+  {
+    id: 'done',
+    label: 'Ready!',
+    description: 'Your program is ready to play',
+    pct: 100,
+  },
 ];
 
-export function getProgressPercentage(status: string): number {
-  if (status === 'ready' || status === 'published') return 100;
+export function getProgressPercentage(
+  status: string,
+  processingStage?: ProcessingStage,
+): number {
+  if (status === 'ready') return 100;
   if (status === 'failed') return 0;
-  const stage = INGESTION_STAGES.find((s) => s.id === status);
-  return stage ? stage.pct : 20; // fallback processing
+  if (processingStage) {
+    const stage = PIPELINE_STAGES.find((s) => s.id === processingStage);
+    if (stage) return stage.pct;
+  }
+  return 10; // fallback — just started
 }
 
-export default function ProcessingDetailsModal({ open, onClose, program }: ProcessingDetailsModalProps) {
+export function getStageLabel(
+  status: string,
+  processingStage?: ProcessingStage,
+): string {
+  if (status === 'ready') return 'Ready!';
+  if (status === 'failed') return 'Failed';
+  if (processingStage) {
+    const stage = PIPELINE_STAGES.find((s) => s.id === processingStage);
+    if (stage) return stage.label;
+  }
+  return 'Saving File'; // fallback — just started
+}
+
+// ── Elapsed timer hook ───────────────────────────────────────────────────────
+function useElapsed(startIso: string | undefined, active: boolean): string {
+  const [elapsed, setElapsed] = useState('0s');
+  useEffect(() => {
+    if (!active || !startIso) return;
+    const update = () => {
+      const secs = Math.floor((Date.now() - new Date(startIso).getTime()) / 1000);
+      if (secs < 60) setElapsed(`${secs}s`);
+      else setElapsed(`${Math.floor(secs / 60)}m ${secs % 60}s`);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [startIso, active]);
+  return elapsed;
+}
+
+export function useSmoothProgress(targetPct: number, isFailed: boolean): number {
+  const [displayedPct, setDisplayedPct] = useState(targetPct);
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (displayedPct < targetPct) {
+      // Catch up quickly to the target
+      interval = setInterval(() => {
+        setDisplayedPct(p => Math.min(p + 1, targetPct));
+      }, 20);
+    } else if (displayedPct >= targetPct && targetPct < 100 && !isFailed) {
+      // Simulate slow background progress while waiting for next stage
+      const cap = Math.min(targetPct + 15, 99);
+      interval = setInterval(() => {
+        setDisplayedPct(p => Math.min(p + 1, cap));
+      }, 1500);
+    } else if (targetPct === 100 || isFailed) {
+      setDisplayedPct(targetPct);
+    }
+
+    return () => clearInterval(interval);
+  }, [displayedPct, targetPct, isFailed]);
+
+  return displayedPct;
+}
+
+// ── Spinner ───────────────────────────────────────────────────────────────────
+function Spinner() {
+  return (
+    <span style={{
+      display: 'inline-block',
+      width: 14, height: 14,
+      border: '2px solid rgba(139,92,246,0.3)',
+      borderTopColor: '#8b5cf6',
+      borderRadius: '50%',
+      animation: 'spin 0.7s linear infinite',
+    }} />
+  );
+}
+
+// ── Main Modal ────────────────────────────────────────────────────────────────
+export default function ProcessingDetailsModal({
+  open,
+  onClose,
+  program,
+  onCancel,
+}: ProcessingDetailsModalProps) {
   if (!open || !program) return null;
 
-  const currentPct = getProgressPercentage(program.status);
-  const isFailed = program.status === 'failed';
-  const isReady = program.status === 'ready' || program.status === 'published';
+  const isFailed  = program.status === 'failed';
+  const isReady   = program.status === 'ready';
+  const isActive  = program.status === 'processing';
 
-  const modalOverlayStyle: React.CSSProperties = {
+  const targetPct = getProgressPercentage(program.status, program.processingStage);
+  const currentPct = useSmoothProgress(targetPct, isFailed);
+
+  // Which stage index is currently running?
+  const activeStageId: string = isReady
+    ? 'done'
+    : (program.processingStage ?? 'uploading');
+
+  const activeStageIdx = PIPELINE_STAGES.findIndex((s) => s.id === activeStageId);
+
+  const elapsed = useElapsed(program.createdAt, isActive);
+
+  const overlayStyle: React.CSSProperties = {
     position: 'fixed',
-    top: 0, left: 0, right: 0, bottom: 0,
-    background: 'rgba(15, 23, 42, 0.8)',
-    backdropFilter: 'blur(4px)',
+    inset: 0,
+    background: 'rgba(8, 12, 28, 0.85)',
+    backdropFilter: 'blur(6px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 9999,
+    padding: 16,
   };
 
   const panelStyle: React.CSSProperties = {
-    width: 'min(500px, 94vw)',
+    width: 'min(520px, 96vw)',
     background: 'var(--ll-surface-0)',
-    borderRadius: 18,
-    border: '2px solid var(--ll-border)',
-    boxShadow: '0 30px 80px rgba(0,0,0,0.65)',
-    padding: '24px 32px',
+    borderRadius: 20,
+    border: `2px solid ${isFailed ? 'rgba(239,68,68,0.4)' : 'rgba(139,92,246,0.35)'}`,
+    boxShadow: '0 32px 80px rgba(0,0,0,0.7)',
+    padding: '28px 32px',
     color: 'var(--ll-text)',
     display: 'flex',
     flexDirection: 'column',
-    gap: 20,
+    gap: 22,
     position: 'relative',
   };
 
   return (
-    <div style={modalOverlayStyle} onClick={onClose}>
-      <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={onClose}
-          style={{
-            position: 'absolute', top: 16, right: 16,
-            background: 'none', border: 'none', color: 'var(--ll-text-muted)',
-            fontSize: 24, cursor: 'pointer'
-          }}
-        >
-          &times;
-        </button>
+    <>
+      <div style={overlayStyle} onClick={onClose}>
+        <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
 
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>
-          {program.coverEmoji} {program.title}
-        </h2>
-        <p style={{ margin: 0, color: 'var(--ll-text-muted)', fontSize: 14 }}>
-          {isFailed ? 'Creation Failed' : isReady ? 'Creation Complete!' : 'Automated creation in progress...'}
-        </p>
-
-        {isFailed && program.errorMessage && (
-          <div style={{ background: '#7f1d1d', color: '#fca5a5', padding: 12, borderRadius: 8, fontSize: 13 }}>
-            <strong>Error:</strong> {program.errorMessage}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 10 }}>
-          {INGESTION_STAGES.map((stage, idx) => {
-            const isCompleted = currentPct >= stage.pct;
-            const isCurrent = program.status === stage.id;
-            
-            return (
-              <div key={stage.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ 
-                  width: 24, height: 24, borderRadius: '50%', 
-                  background: isCompleted ? 'var(--ll-primary)' : 'var(--ll-surface-2)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: isCompleted ? '#fff' : 'transparent',
-                  fontSize: 14,
-                  border: isCurrent && !isFailed ? '2px solid var(--ll-text)' : '2px solid transparent'
-                }}>
-                  {isCompleted && '✓'}
-                </div>
-                <div style={{ 
-                  flex: 1, 
-                  color: isCompleted ? 'var(--ll-text)' : 'var(--ll-text-muted)',
-                  fontWeight: isCurrent ? 600 : 400
-                }}>
-                  {stage.label}
-                </div>
-                {isCurrent && !isFailed && !isReady && (
-                  <div style={{ fontSize: 13, color: 'var(--ll-primary)', animation: 'pulse 1.5s infinite' }}>
-                    Running...
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div style={{ marginTop: 10 }}>
-          <div style={{ height: 6, background: 'var(--ll-surface-2)', borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{ 
-              height: '100%', 
-              background: isFailed ? '#ef4444' : 'var(--ll-primary)', 
-              width: `${currentPct}%`,
-              transition: 'width 0.5s ease-out'
-            }} />
-          </div>
-          <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--ll-text-muted)', marginTop: 4 }}>
-            {isFailed ? 'Failed' : `${currentPct}% Complete`}
-          </div>
-        </div>
-
-        {isReady && (
-          <button 
-            className="ll-btn"
+          {/* ── Close button ── */}
+          <button
             onClick={onClose}
-            style={{ marginTop: 10, alignSelf: 'center', width: '100%' }}
+            style={{
+              position: 'absolute', top: 16, right: 16,
+              background: 'none', border: 'none',
+              color: 'var(--ll-text-muted)', fontSize: 22,
+              cursor: 'pointer', lineHeight: 1,
+            }}
+            title="Close"
           >
-            Start Playing
+            ×
           </button>
-        )}
+
+          {/* ── Header ── */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+              <span style={{ fontSize: 26 }}>{program.coverEmoji || '📄'}</span>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, lineHeight: 1.2 }}>
+                {program.title}
+              </h2>
+            </div>
+            <p style={{ margin: 0, color: 'var(--ll-text-muted)', fontSize: 13 }}>
+              {isFailed
+                ? 'Processing failed'
+                : isReady
+                ? '✅ Program is ready!'
+                : `Processing… ${elapsed} elapsed`}
+            </p>
+          </div>
+
+          {/* ── Error box ── */}
+          {isFailed && program.errorMessage && (
+            <div style={{
+              background: 'rgba(127,29,29,0.5)',
+              border: '1px solid rgba(239,68,68,0.4)',
+              color: '#fca5a5',
+              padding: '12px 14px',
+              borderRadius: 10,
+              fontSize: 13,
+              lineHeight: 1.5,
+            }}>
+              <strong>Error:</strong> {program.errorMessage}
+            </div>
+          )}
+
+          {/* ── Stage list ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {PIPELINE_STAGES.map((stage, idx) => {
+              const isCompleted = isReady
+                ? true
+                : activeStageIdx > idx;
+              const isCurrent = !isFailed && !isReady && activeStageIdx === idx;
+              const isPending  = !isCompleted && !isCurrent;
+
+              return (
+                <div key={stage.id} style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 12,
+                  opacity: isPending ? 0.45 : 1,
+                  transition: 'opacity 0.3s',
+                }}>
+                  {/* Dot / checkmark / spinner */}
+                  <div style={{
+                    width: 26, height: 26, flexShrink: 0,
+                    borderRadius: '50%',
+                    background: isCompleted
+                      ? 'linear-gradient(135deg,#8b5cf6,#3b82f6)'
+                      : isCurrent
+                      ? 'rgba(139,92,246,0.15)'
+                      : 'var(--ll-surface-2)',
+                    border: isCurrent
+                      ? '2px solid #8b5cf6'
+                      : isCompleted
+                      ? '2px solid transparent'
+                      : '2px solid var(--ll-border)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: 1,
+                  }}>
+                    {isCompleted ? (
+                      <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>✓</span>
+                    ) : isCurrent ? (
+                      <Spinner />
+                    ) : null}
+                  </div>
+
+                  {/* Labels */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 13,
+                      fontWeight: isCurrent ? 700 : 500,
+                      color: isCompleted
+                        ? 'var(--ll-text)'
+                        : isCurrent
+                        ? '#c4b5fd'
+                        : 'var(--ll-text-muted)',
+                      marginBottom: 2,
+                    }}>
+                      {stage.label}
+                      {isCurrent && (
+                        <span style={{ marginLeft: 8, fontSize: 11, color: '#8b5cf6', fontWeight: 400 }}>
+                          running…
+                        </span>
+                      )}
+                    </div>
+                    {(isCurrent || isCompleted) && (
+                      <div style={{ fontSize: 11, color: 'var(--ll-text-muted)', lineHeight: 1.4 }}>
+                        {stage.description}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* % badge on active step */}
+                  {isCurrent && (
+                    <div style={{
+                      fontSize: 12, fontWeight: 700,
+                      color: '#8b5cf6',
+                      background: 'rgba(139,92,246,0.12)',
+                      border: '1px solid rgba(139,92,246,0.3)',
+                      borderRadius: 6,
+                      padding: '2px 7px',
+                      flexShrink: 0,
+                    }}>
+                      {stage.pct}%
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Progress bar ── */}
+          <div>
+            <div style={{
+              height: 8, background: 'var(--ll-surface-2)',
+              borderRadius: 4, overflow: 'hidden',
+            }}>
+              <div style={{
+                height: '100%',
+                background: isFailed
+                  ? '#ef4444'
+                  : 'linear-gradient(90deg,#8b5cf6,#3b82f6)',
+                width: `${currentPct}%`,
+                transition: 'width 0.6s cubic-bezier(0.4,0,0.2,1)',
+                borderRadius: 4,
+              }} />
+            </div>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between',
+              fontSize: 12, color: 'var(--ll-text-muted)', marginTop: 5,
+            }}>
+              <span>
+                {isFailed ? 'Failed' : isReady ? 'Complete' : `${currentPct}% complete`}
+              </span>
+              {isActive && (
+                <span style={{ color: '#6b7280' }}>↻ updates every 5s</span>
+              )}
+            </div>
+          </div>
+
+          {/* ── Action buttons ── */}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {isReady && (
+              <button
+                className="ll-btn ll-btn-primary"
+                onClick={onClose}
+                style={{ flex: 1, padding: '11px', fontSize: 14, fontWeight: 700 }}
+              >
+                🎮 Start Playing
+              </button>
+            )}
+
+            {(isActive || isFailed) && onCancel && (
+              <button
+                className="ll-btn"
+                onClick={onCancel}
+                style={{
+                  flex: 1,
+                  padding: '11px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  borderColor: 'rgba(239,68,68,0.4)',
+                  color: '#fca5a5',
+                }}
+              >
+                🗑 {isFailed ? 'Delete' : 'Cancel & Delete'}
+              </button>
+            )}
+
+            {!isReady && (
+              <button
+                className="ll-btn"
+                onClick={onClose}
+                style={{ padding: '11px 18px', fontSize: 13 }}
+              >
+                Close
+              </button>
+            )}
+          </div>
+
+        </div>
       </div>
-    </div>
+    </>
   );
 }

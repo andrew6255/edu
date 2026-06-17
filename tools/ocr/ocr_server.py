@@ -430,7 +430,13 @@ def phase2_questions():
             "1. Output ONLY a valid JSON object containing a 'topics' array.\n"
             "2. Group the extracted questions by their semantic question type (e.g., 'Finding equation of the line', 'Generating points from an equation'). Set this as the 'title' of the topic.\n"
             "3. Each topic must have an 'id' (e.g., 't1', 't2') and a 'questions' array.\n"
-            "4. Each item in the 'questions' array must have an 'id' (e.g., 'q1', 'q2'), a 'label' (e.g., 'a)', 'b)' if present), and 'rawText' (the exact text of the question).\n"
+            "4. Distinguish between 'independent questions sharing an instruction' and 'multi-part questions sharing a scenario/given':\n"
+            "   - If an instruction applies to multiple independent questions (e.g., 'Find the derivatives:' followed by 'a) f(x)=cos(x)', 'b) f(x)=sin(x)'), output them as SEPARATE items in the 'questions' array. For each separate item, combine the instruction and the specific question into a cohesive 'rawText' (e.g., 'Find the derivative of f(x)=cos(x)'). Do NOT use the 'context' or 'subQuestions' fields.\n"
+            "   - If an exercise introduces a specific scenario or 'given' that has multi-step sub-questions analyzing that SAME scenario (e.g., 'Given f(x)=cos(x). a) Find its derivative. b) Evaluate f(2).'), output this as a SINGLE item in the 'questions' array.\n"
+            "     For this single multi-part item, provide:\n"
+            "       - 'rawText': The full exact text of the entire exercise.\n"
+            "       - 'context': The overarching scenario/given text (e.g., 'Given f(x)=cos(x).').\n"
+            "       - 'subQuestions': An array of objects, each containing 'label' (e.g., 'a)') and 'rawText' (the text of the sub-question).\n"
             "5. Extract each question EXACTLY as written. Do NOT rephrase. Keep all LaTeX formatting intact.\n"
             "6. CRITICAL: You MUST double-escape all backslashes in LaTeX formulas so they are valid JSON strings. For example, output '\\\\frac{3}{2}' instead of '\\frac{3}{2}'.\n"
             "7. Do NOT output incomplete fragments as separate questions. If a question is fragmented or interrupted by a section header, ignore the header and seamlessly merge the question parts into a single string.\n"
@@ -492,4 +498,7 @@ if __name__ == "__main__":
     print(f"[OCR Server] Tesseract : {'yes' if TESSERACT_AVAILABLE else 'no'}", flush=True)
     print(f"[OCR Server] Output    : {OUTPUT_FILE}", flush=True)
     print(f"[OCR Server] Starting on http://localhost:5100 ...", flush=True)
-    app.run(host="0.0.0.0", port=5100, debug=False)
+    # threaded=True keeps the server alive while a long OCR request runs —
+    # without it a single slow pix2text call blocks the entire process and
+    # the browser sees ERR_CONNECTION_RESET.
+    app.run(host="0.0.0.0", port=5100, debug=False, threaded=True)

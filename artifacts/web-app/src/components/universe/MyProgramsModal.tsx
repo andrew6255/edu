@@ -9,10 +9,12 @@ import {
   type PublicProgram,
 } from '@/lib/programMaps';
 import EditProgramModal from './EditProgramModal';
+import ProcessingDetailsModal from './ProcessingDetailsModal';
 import {
   deletePersonalProgram,
   listMyPersonalPrograms,
   renamePersonalProgram,
+  updateProcessingStage,
   type PersonalProgramMeta,
 } from '@/lib/personalProgramService';
 import {
@@ -41,6 +43,7 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
   const [renameTitle, setRenameTitle] = useState('');
   const [editJobId, setEditJobId] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<PipelineDebugLog | null>(null);
+  const [selectedProcessingProgram, setSelectedProcessingProgram] = useState<PersonalProgramMeta | null>(null);
 
   const assignedIds: string[] = userData?.assignedProgramIds ?? [];
   const activeIds: string[] = userData?.activeProgramIds ?? (userData?.activeProgramId ? [userData.activeProgramId] : []);
@@ -236,26 +239,38 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
 
       // Close modal
       onClose();
+      setUploading(false);
+      setUploadProgress('');
+      setUploadFiles([]);
+      setUploadTitle('');
 
       // Dispatch event so HexUniverseView renders it immediately
       window.dispatchEvent(new CustomEvent('ll:personalProgramCreated', { detail: { program: meta } }));
 
-      // Run background pipeline
+      // Run background pipeline — each step writes its stage to Supabase
+      // so the ProcessingDetailsModal shows real progress.
       (async () => {
+        const uid = user.uid;
+        const jobId = meta.jobId;
+        const { getUserDoc, setUserDoc } = await import('@/lib/supabaseDocStore');
         try {
-          // ── Phase 1: OCR
+          // ── Stage: OCR ──────────────────────────────────────────────────
+          await updateProcessingStage(uid, jobId, 'ocr');
           const phase1 = await runPhase1Ocr(file, title, () => {});
-          
-          // ── Phase 2: Questions & Topics
+
+          // ── Stage: Extracting questions ──────────────────────────────────
+          await updateProcessingStage(uid, jobId, 'extracting_questions');
           const phase2 = await runPhase2Questions(phase1.rawText, () => {});
 
-          // Map Phase 2 Topics into PersonalProgramData
+          // ── Stage: Building program structure ────────────────────────────
+          await updateProcessingStage(uid, jobId, 'building_program');
+
           const programData: any = {
             title: meta.title,
             subject: 'Custom',
             totalQuestions: 0,
             chapters: [],
-            questions: []
+            questions: [],
           };
 
           let qIndex = 0;
@@ -275,38 +290,38 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
                 });
                 return newQId;
               });
-
               return {
                 id: t.id || `t${tIdx}`,
                 title: t.title,
                 questionTypeTitle: t.title,
-                questionIds
+                questionIds,
               };
-            })
+            }),
           };
 
           programData.chapters.push(chapter);
           programData.totalQuestions = programData.questions.length;
 
-          // Update Supabase
-          const { getUserDoc, setUserDoc } = await import('@/lib/supabaseDocStore');
-          const existing = await getUserDoc(user.uid, 'personal_programs', meta.jobId);
+          // ── Stage: Saving ────────────────────────────────────────────────
+          await updateProcessingStage(uid, jobId, 'saving');
+
+          const existing = await getUserDoc(uid, 'personal_programs', jobId);
           if (existing) {
-            await setUserDoc(user.uid, 'personal_programs', meta.jobId, {
+            await setUserDoc(uid, 'personal_programs', jobId, {
               ...existing,
               status: 'ready',
-              programData
+              processingStage: undefined,
+              programData,
             });
           }
         } catch (err) {
-          console.error("Background processing failed:", err);
-          const { getUserDoc, setUserDoc } = await import('@/lib/supabaseDocStore');
-          const existing = await getUserDoc(user.uid, 'personal_programs', meta.jobId);
+          console.error('Background processing failed:', err);
+          const existing = await getUserDoc(uid, 'personal_programs', jobId);
           if (existing) {
-            await setUserDoc(user.uid, 'personal_programs', meta.jobId, {
+            await setUserDoc(uid, 'personal_programs', jobId, {
               ...existing,
               status: 'failed',
-              errorMessage: err instanceof Error ? err.message : String(err)
+              errorMessage: err instanceof Error ? err.message : String(err),
             });
           }
         }
@@ -425,86 +440,134 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
       <div style={{ marginTop: showTitle ? 8 : 0 }}>
         {showTitle && <h3 style={{ fontSize: 14, color: 'var(--ll-text)', margin: '0 0 12px' }}>Your Personal Programs</h3>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {personalPrograms.map(p => (
-            <div key={p.programId} style={rowStyle}>
-              <div style={{ width: 32, textAlign: 'center', fontSize: 18 }}>
-                {p.status === 'processing' ? <div style={{ animation: 'pulse 1.5s ease infinite' }}>⚙️</div> : p.status === 'failed' ? '❌' : p.coverEmoji || '📄'}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                {renamingProgramId === p.programId ? (
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <input
-                      autoFocus
-                      value={renameTitle}
-                      onChange={e => setRenameTitle(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') handleRenameSubmit(p.programId);
-                        if (e.key === 'Escape') setRenamingProgramId(null);
-                      }}
-                      style={{ flex: 1, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--ll-border)', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}
-                    />
-                    <button className="ll-btn" onClick={() => handleRenameSubmit(p.programId)} style={{ padding: '4px 8px', fontSize: 11 }}>Save</button>
-                    <button className="ll-btn" onClick={() => setRenamingProgramId(null)} style={{ padding: '4px 8px', fontSize: 11 }}>Cancel</button>
-                  </div>
-                ) : (
-                  <>
-                    <div style={{ color: 'var(--ll-text)', fontWeight: 800, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.title}
-                    </div>
-                    <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>
-                      {p.status === 'processing' ? 'Extracting & analyzing...' : 
-                       p.status === 'failed' ? 'Failed to process' : 
-                       'Ready to play'}
-                    </div>
-                  </>
-                )}
-              </div>
+          {personalPrograms.map(p => {
+            const isProcessing = p.status === 'processing';
+            const isFailed = p.status === 'failed';
 
-              {p.status === 'processing' ? (
-                <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 'bold', padding: '6px 10px' }}>Processing...</div>
-              ) : p.status === 'failed' ? (
-                <>
-                  <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.5)', color: '#fca5a5' }} onClick={(e) => handleDeletePersonal(e, p.jobId)}>
-                    Delete
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); setEditJobId(p.jobId); }}
-                    className="ll-btn" 
-                    style={{ padding: '6px 12px', fontSize: 11, background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' }}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="ll-btn"
-                    style={{ padding: '6px 10px', fontSize: 11 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRenameTitle(p.title);
-                      setRenamingProgramId(p.programId);
-                    }}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    className="ll-btn ll-btn-primary"
-                    style={{ padding: '6px 10px', fontSize: 11 }}
-                    onClick={() => {
-                      onClose();
-                      window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'personalProgram', personalProgramId: p.programId } }));
-                    }}
-                  >
-                    Open
-                  </button>
-                  <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.5)', color: '#fca5a5' }} onClick={(e) => handleDeletePersonal(e, p.jobId)}>
-                    Delete
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
+            return (
+              <div
+                key={p.programId}
+                style={{
+                  ...rowStyle,
+                  cursor: isProcessing ? 'pointer' : 'default',
+                  transition: 'background 0.15s',
+                }}
+                onClick={isProcessing ? () => setSelectedProcessingProgram(p) : undefined}
+                title={isProcessing ? 'Click to see processing details' : undefined}
+              >
+                <div style={{ width: 32, textAlign: 'center', fontSize: 18 }}>
+                  {isProcessing
+                    ? <div style={{ animation: 'pulse 1.5s ease infinite' }}>⚙️</div>
+                    : isFailed ? '❌' : p.coverEmoji || '📄'}
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {renamingProgramId === p.programId ? (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input
+                        autoFocus
+                        value={renameTitle}
+                        onChange={e => setRenameTitle(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleRenameSubmit(p.programId);
+                          if (e.key === 'Escape') setRenamingProgramId(null);
+                        }}
+                        style={{ flex: 1, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--ll-border)', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}
+                      />
+                      <button className="ll-btn" onClick={() => handleRenameSubmit(p.programId)} style={{ padding: '4px 8px', fontSize: 11 }}>Save</button>
+                      <button className="ll-btn" onClick={() => setRenamingProgramId(null)} style={{ padding: '4px 8px', fontSize: 11 }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ color: 'var(--ll-text)', fontWeight: 800, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {p.title}
+                      </div>
+                      <div style={{ color: isProcessing ? '#f59e0b' : isFailed ? '#fca5a5' : 'var(--ll-text-muted)', fontSize: 11 }}>
+                        {isProcessing
+                          ? '⚙️ Processing… click for details'
+                          : isFailed ? 'Failed to process'
+                          : 'Ready to play'}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Action buttons — stop propagation so clicking them doesn't open modal */}
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                  {isProcessing && (
+                    <>
+                      <button
+                        className="ll-btn"
+                        style={{ padding: '5px 10px', fontSize: 11, color: '#f59e0b', borderColor: 'rgba(245,158,11,0.4)' }}
+                        onClick={() => setSelectedProcessingProgram(p)}
+                        title="See processing details"
+                      >
+                        Details
+                      </button>
+                      <button
+                        className="ll-btn"
+                        style={{ padding: '5px 10px', fontSize: 11, color: '#fca5a5', borderColor: 'rgba(239,68,68,0.4)' }}
+                        onClick={(e) => handleDeletePersonal(e, p.jobId)}
+                        title="Cancel and delete"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  )}
+
+                  {isFailed && (
+                    <button
+                      className="ll-btn"
+                      style={{ padding: '5px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.5)', color: '#fca5a5' }}
+                      onClick={(e) => handleDeletePersonal(e, p.jobId)}
+                    >
+                      Delete
+                    </button>
+                  )}
+
+                  {!isProcessing && !isFailed && (
+                    <>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setEditJobId(p.jobId); }}
+                        className="ll-btn"
+                        style={{ padding: '6px 12px', fontSize: 11, background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="ll-btn"
+                        style={{ padding: '6px 10px', fontSize: 11 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenameTitle(p.title);
+                          setRenamingProgramId(p.programId);
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        className="ll-btn ll-btn-primary"
+                        style={{ padding: '6px 10px', fontSize: 11 }}
+                        onClick={() => {
+                          onClose();
+                          window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'personalProgram', personalProgramId: p.programId } }));
+                        }}
+                      >
+                        Open
+                      </button>
+                      <button
+                        className="ll-btn"
+                        style={{ padding: '6px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.5)', color: '#fca5a5' }}
+                        onClick={(e) => handleDeletePersonal(e, p.jobId)}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -524,10 +587,26 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
         padding: 16,
       }}
     >
-      <EditProgramModal 
-        open={!!editJobId} 
-        onClose={() => setEditJobId(null)} 
-        jobId={editJobId} 
+      <EditProgramModal
+        open={!!editJobId}
+        onClose={() => setEditJobId(null)}
+        jobId={editJobId}
+      />
+      <ProcessingDetailsModal
+        open={!!selectedProcessingProgram}
+        onClose={() => setSelectedProcessingProgram(null)}
+        program={selectedProcessingProgram}
+        onCancel={async () => {
+          if (!selectedProcessingProgram || !user) return;
+          if (!confirm('Cancel and delete this program?')) return;
+          setSelectedProcessingProgram(null);
+          try {
+            await deletePersonalProgram(user.uid, selectedProcessingProgram.jobId);
+            setPersonalPrograms(prev => prev.filter(p => p.jobId !== selectedProcessingProgram.jobId));
+          } catch (err) {
+            alert('Failed to delete: ' + (err instanceof Error ? err.message : String(err)));
+          }
+        }}
       />
       <div style={panelStyle} onClick={stop}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--ll-border)', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--ll-overlay)' }}>

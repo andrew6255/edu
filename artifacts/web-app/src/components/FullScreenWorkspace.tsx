@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import AiTutorPanel from '@/components/AiTutorPanel';
 
 /* ═══════════════════════════════════════════════════════════════
    DATA MODEL — Completely isolated from MyScript state
@@ -231,7 +232,7 @@ function renderAllStrokes(canvas: HTMLCanvasElement, strokes: Stroke[]) {
 interface PageCanvasProps {
   page: PageData;
   pageIndex: number;
-  currentQuestion?: string;
+  currentQuestion?: import('@/lib/personalProgramService').PersonalProgramQuestion | string;
   activeTool: 'pen' | 'eraser';
   eraserMode: EraserMode;
   strokeColor: string;
@@ -241,13 +242,7 @@ interface PageCanvasProps {
   onAnnotationAdd: (pageId: string, ann: TextAnnotation) => void;
   onAnnotationUpdate: (pageId: string, annId: string, text: string) => void;
   scale: number;
-  aiMode?: boolean;
-  aiStepText?: string;
-  aiFeedbackText?: string;
-  isFetchingAI?: boolean;
   onToggleAI?: () => void;
-  onCheckStep?: () => void;
-  aiMistakeBox?: { x: number, y: number, width: number, height: number, pageIndex: number } | null;
 }
 
 const LatexRenderer = ({ content }: { content: string }) => {
@@ -273,8 +268,7 @@ const LatexRenderer = ({ content }: { content: string }) => {
 
 const PageCanvas = memo(function PageCanvas({
   page, pageIndex, currentQuestion, activeTool, eraserMode, strokeColor, strokeWidth,
-  onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, scale,
-  aiMode, aiStepText, aiFeedbackText, isFetchingAI, onToggleAI, onCheckStep, aiMistakeBox
+  onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, scale, onToggleAI,
 }: PageCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
@@ -431,82 +425,88 @@ const PageCanvas = memo(function PageCanvas({
       <div className="fsw-page-lines" />
 
       {/* Static Question Overlay */}
-      {pageIndex === 0 && currentQuestion && (
-        <div className="fsw-static-question" style={{ position: 'relative', zIndex: 10, pointerEvents: 'none' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-            <div style={{ flex: 1, paddingRight: 16 }}>
-              <strong style={{ color: '#4f46e5' }}>Question:</strong> <LatexRenderer content={currentQuestion} />
-            </div>
-            {onToggleAI && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: aiMode ? 'rgba(239,68,68,0.1)' : 'var(--ll-surface-1)', padding: '6px 10px', borderRadius: 20, cursor: 'pointer', border: `1px solid ${aiMode ? 'rgba(239,68,68,0.3)' : 'var(--ll-border)'}`, pointerEvents: 'auto' }} onClick={onToggleAI} onPointerDown={e => e.stopPropagation()}>
-                <span style={{ fontSize: 12, fontWeight: 'bold', color: aiMode ? '#ef4444' : 'var(--ll-text-muted)' }}>AI Tutor</span>
-                <div style={{ width: 32, height: 18, borderRadius: 10, background: aiMode ? '#ef4444' : 'var(--ll-surface-3)', position: 'relative', transition: '0.2s' }}>
-                  <div style={{ position: 'absolute', top: 2, left: aiMode ? 16 : 2, width: 14, height: 14, borderRadius: '50%', background: 'white', transition: '0.2s' }} />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {pageIndex === 0 && currentQuestion && (() => {
+        const isMulti = typeof currentQuestion !== 'string' && currentQuestion.subQuestions && currentQuestion.subQuestions.length > 0;
+        const mainText = typeof currentQuestion === 'string' ? currentQuestion : currentQuestion.context || currentQuestion.rawText;
+        const subQuestions = isMulti ? (currentQuestion as any).subQuestions : [];
 
-      {/* Dynamic AI Box */}
-      {pageIndex === 0 && aiMode && (
-        <div style={{ 
-          position: 'absolute', top: maxY + 40, left: 24, right: 24, 
-          padding: 16, background: 'rgba(239,68,68,0.05)', borderRadius: 12, 
-          borderLeft: '4px solid #ef4444', pointerEvents: 'auto', zIndex: 10,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.05)'
-        }}>
-          <div style={{ color: '#ef4444', fontWeight: 'bold', fontSize: 14, marginBottom: 8 }}>🤖 AI Tutor:</div>
-          {isFetchingAI && !aiStepText ? (
-            <div style={{ color: '#ef4444', fontSize: 14, fontStyle: 'italic' }}>Thinking...</div>
-          ) : (
-            <div style={{ color: '#ef4444', fontSize: 15, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-              <LatexRenderer content={aiStepText || ''} />
-            </div>
-          )}
-          
-          {aiStepText && (
-            <div style={{ marginTop: 20 }}>
-              <button 
-                onClick={onCheckStep}
-                onPointerDown={e => e.stopPropagation()}
-                disabled={isFetchingAI}
-                style={{ background: '#ef4444', color: 'white', border: 'none', padding: '10px 20px', borderRadius: 8, fontSize: 14, fontWeight: 'bold', cursor: isFetchingAI ? 'not-allowed' : 'pointer', opacity: isFetchingAI ? 0.7 : 1, transition: '0.2s', boxShadow: '0 4px 12px rgba(239,68,68,0.3)' }}
-                onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
-                onMouseLeave={e => e.currentTarget.style.transform = 'none'}
-              >
-                {isFetchingAI && aiStepText && !aiFeedbackText ? 'Checking...' : 'Check My Step'}
-              </button>
+        // Simple heuristic for dynamic Y positions: 
+        // each subquestion looks at the max stroke Y that is conceptually above it.
+        // We do this by assigning baseline default Ys and expanding them if strokes dip below.
+        const yPositions: number[] = [];
+        let currentY = 0; // relative to the container below the main text
+        
+        for (let i = 0; i < subQuestions.length; i++) {
+          if (i === 0) {
+            yPositions.push(0);
+          } else {
+            // Find strokes that belong to the PREVIOUS subquestion
+            // A stroke belongs to subQuestions[i-1] if its minY is >= yPositions[i-1] (roughly)
+            // We just look at all strokes below yPositions[i-1] and find their maxY
+            const prevY = yPositions[i-1];
+            let maxYOfPrev = prevY + 120; // default minimum gap is 120px
+            page.strokes.forEach(s => {
+              let strokeMinY = Infinity;
+              let strokeMaxY = -Infinity;
+              s.points.forEach(p => {
+                // Adjust stroke Y by -80 to account for the top margin of the context
+                const adjustedY = p.y - 80; 
+                if (adjustedY < strokeMinY) strokeMinY = adjustedY;
+                if (adjustedY > strokeMaxY) strokeMaxY = adjustedY;
+              });
               
-              {aiFeedbackText && (
-                <div style={{ marginTop: 16, color: '#ef4444', fontSize: 15, lineHeight: 1.6, fontWeight: 'bold', background: 'rgba(239,68,68,0.1)', padding: 16, borderRadius: 8, whiteSpace: 'pre-wrap' }}>
-                  <LatexRenderer content={aiFeedbackText} />
+              // If the stroke started *after* the previous question but *before* a huge gap
+              if (strokeMinY >= prevY - 40) {
+                if (strokeMaxY > maxYOfPrev) maxYOfPrev = strokeMaxY;
+              }
+            });
+            
+            // Add a 60px padding below the lowest stroke for the next question
+            yPositions.push(maxYOfPrev + 60);
+          }
+        }
+
+        return (
+          <div className="fsw-static-question" style={{ position: 'relative', zIndex: 10, pointerEvents: 'none' }}>
+            {/* Main Context / Given */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, background: isMulti ? 'rgba(255,255,255,0.7)' : 'transparent', padding: isMulti ? '12px' : 0, borderRadius: 8 }}>
+              <div style={{ flex: 1, paddingRight: 16 }}>
+                <strong style={{ color: '#4f46e5' }}>{isMulti ? 'Given:' : 'Question:'}</strong> <LatexRenderer content={mainText} />
+              </div>
+              {onToggleAI && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--ll-surface-1)', padding: '6px 10px', borderRadius: 20, cursor: 'pointer', border: '1px solid var(--ll-border)', pointerEvents: 'auto' }} onClick={onToggleAI} onPointerDown={e => e.stopPropagation()}>
+                  <span style={{ fontSize: 12, fontWeight: 'bold', color: 'var(--ll-text-muted)' }}>AI Tutor</span>
+                  <div style={{ width: 32, height: 18, borderRadius: 10, background: 'var(--ll-surface-3)', position: 'relative', transition: '0.2s' }}>
+                    <div style={{ position: 'absolute', top: 2, left: 2, width: 14, height: 14, borderRadius: '50%', background: 'white', transition: '0.2s' }} />
+                  </div>
                 </div>
               )}
             </div>
-          )}
-        </div>
-      )}
+            
+            {/* Subquestions with dynamic spacing */}
+            {isMulti && (
+              <div style={{ position: 'relative', width: '100%', minHeight: yPositions[yPositions.length - 1] + 100 }}>
+                {subQuestions.map((sq: any, idx: number) => (
+                  <div key={idx} style={{ 
+                    position: 'absolute', 
+                    top: yPositions[idx], 
+                    left: 0, 
+                    right: 0, 
+                    color: '#1e293b', 
+                    fontWeight: 600,
+                    transition: 'top 0.3s ease-out'
+                  }}>
+                    <span style={{ color: '#4f46e5', marginRight: 8 }}>{sq.label}</span>
+                    <LatexRenderer content={sq.rawText} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
-      {/* Mistake Circle Overlay */}
-      {aiMistakeBox && aiMistakeBox.pageIndex === pageIndex && (
-        <svg 
-          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 4 }}
-        >
-          <ellipse 
-            cx={(aiMistakeBox.x * PAGE_W) / 100 + ((aiMistakeBox.width * PAGE_W) / 100) / 2} 
-            cy={(aiMistakeBox.y * PAGE_H) / 100 + ((aiMistakeBox.height * PAGE_H) / 100) / 2} 
-            rx={Math.max(20, ((aiMistakeBox.width * PAGE_W) / 100) / 1.5)} 
-            ry={Math.max(20, ((aiMistakeBox.height * PAGE_H) / 100) / 1.5)} 
-            fill="none" 
-            stroke="#ef4444" 
-            strokeWidth="3" 
-            strokeDasharray="8 4"
-            style={{ filter: 'drop-shadow(0 0 4px rgba(239,68,68,0.4))' }}
-          />
-        </svg>
-      )}
+
 
       {/* Page number */}
       <div className="fsw-page-number">{pageIndex + 1}</div>
@@ -577,23 +577,14 @@ const PageCanvas = memo(function PageCanvas({
 
 interface FullScreenWorkspaceProps {
   onClose: () => void;
-  currentQuestion?: string | any[];
+  currentQuestion?: import('@/lib/personalProgramService').PersonalProgramQuestion | string;
   initialPages?: PageData[];
   onPagesChange?: (pages: PageData[]) => void;
 }
 
 export default function FullScreenWorkspace({ onClose, currentQuestion, initialPages, onPagesChange }: FullScreenWorkspaceProps) {
-  // ── AI Grading State ──
-  const [isGrading, setIsGrading] = useState(false);
-  const [gradingFeedback, setGradingFeedback] = useState<{isCorrect: boolean, points: number, feedback: string} | null>(null);
-  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
-
-  // ── AI Tutor State ──
-  const [aiMode, setAiMode] = useState(false);
-  const [aiStepText, setAiStepText] = useState<string>('');
-  const [aiFeedbackText, setAiFeedbackText] = useState<string>('');
-  const [isFetchingAI, setIsFetchingAI] = useState(false);
-  const [aiMistakeBox, setAiMistakeBox] = useState<{ x: number, y: number, width: number, height: number, pageIndex: number } | null>(null);
+  // ── AI Panel State ──
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
 
   // ── Pages State ──
   const [pages, setPages] = useState<PageData[]>(
@@ -952,225 +943,12 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
 
   }, [pages, fetchMyScriptBlocks]);
 
-  // ── Handle Grade Submission ──
-  const handleGradeSubmission = useCallback(async () => {
-    setIsGrading(true);
-    try {
-      let allLatex: string[] = [];
-      // Harvest all LaTeX from all pages sequentially to preserve order
-      for (const page of pages) {
-        if (page.strokes.length === 0 && page.annotations.length === 0) continue;
-        const blocks = await fetchMyScriptBlocks(page.strokes);
-        
-        // Sort blocks by Y position to maintain logical step-by-step reading order
-        blocks.sort((a, b) => a.y - b.y);
-        
-        // Extract LaTeX string, falling back to text
-        const pageText = blocks.map(b => b.latex || b.text).join('\n');
-        
-        // Append typed annotations
-        const typedText = page.annotations.filter(a => a.text).map(a => a.text).join('\n');
-        
-        if (pageText || typedText) {
-          allLatex.push([pageText, typedText].filter(Boolean).join('\n'));
-        }
-      }
-      const studentAnswer = allLatex.join('\n\n');
-      
-      const prompt = `You are an expert, strict mathematics professor. You are evaluating a student's handwritten answer that has been converted to LaTeX.
-Question: ${activeQuestion || "No specific question provided."}
-Student Answer: ${studentAnswer}
-You must analyze the student's step-by-step logic, not just the final answer.
-You MUST respond ONLY with a raw JSON object matching this exact schema:
-{ "isCorrect": boolean, "points": number (out of 100), "feedback": "A detailed string explaining what they did right, identifying any specific mistakes in their steps, and providing the correct methodology if they failed." }`;
-
-      // Integrate real Gemini API if key is present
-      let result;
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY;
-      
-      if (apiKey) {
-        // Real API Call (Gemini 2.5 Flash via REST)
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json' }
-          })
-        });
-        const data = await res.json();
-        
-        if (!res.ok) {
-           throw new Error(data.error?.message || 'Failed to grade with AI');
-        }
-        
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-        result = JSON.parse(text);
-      } else {
-        // Fallback mock grading for seamless demo
-        result = {
-          isCorrect: true,
-          points: 90,
-          feedback: "⚠️ **No API Key Found.** Please add `VITE_GEMINI_API_KEY` to your `.env.local` to enable real AI grading.\n\nGreat job! You correctly used the slope formula $m = \\frac{y_2 - y_1}{x_2 - x_1}$ to find the slope $m = 1$. Then you plugged it into the point-slope form. However, you forgot to simplify the final equation into $y = mx + b$ form. The exact final answer should be $y = x + 1$."
-        };
-        
-        // Simulate API delay
-        await new Promise(r => setTimeout(r, 2000));
-      }
-      
-      setGradingFeedback(result);
-      setShowFeedbackModal(true);
-    } catch (err) {
-      console.error('Grading submission failed:', err);
-      alert('Grading submission failed. Please check your connection and try again.');
-    } finally {
-      setIsGrading(false);
-    }
-  }, [pages, currentQuestion, fetchMyScriptBlocks]);
+  // Grade submission is now handled by AiTutorPanel
 
   const handleOpenOutput = useCallback(() => {
     captureSnapshots();
     setShowOutputModal(true);
   }, [captureSnapshots]);
-
-  // ── AI Tutor Methods ──
-  const handleToggleAIMode = useCallback(async () => {
-    if (aiMode) {
-      setAiMode(false);
-      setAiStepText('');
-      setAiFeedbackText('');
-      return;
-    }
-    
-    setAiMode(true);
-    setIsFetchingAI(true);
-    setAiFeedbackText('');
-    try {
-      const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-      if (!apiKey) throw new Error("VITE_GROQ_API_KEY is missing in .env.local");
-      
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{
-            role: 'system',
-            content: 'You are an expert AI Math Tutor. Provide ONLY the very first step to solve the question. Keep it concise and instructional. Do NOT solve the whole problem.'
-          }, {
-            role: 'user',
-            content: `Question: ${currentQuestion}`
-          }],
-          temperature: 0.5,
-          max_tokens: 200,
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || 'Failed to fetch from Groq');
-      
-      setAiStepText(data.choices[0].message.content);
-    } catch (err) {
-      console.error(err);
-      setAiStepText('Sorry, failed to get the first step. ' + (err instanceof Error ? err.message : ''));
-    } finally {
-      setIsFetchingAI(false);
-    }
-  }, [aiMode, currentQuestion]);
-
-  const handleCheckStep = useCallback(async () => {
-    setIsFetchingAI(true);
-    setAiFeedbackText('');
-    setAiMistakeBox(null);
-    try {
-      let allLatex: string[] = [];
-      let allBlocksWithPage: (ConvertedBlock & { pageIndex: number })[] = [];
-      
-      for (let i = 0; i < pages.length; i++) {
-        const page = pages[i];
-        if (page.strokes.length === 0 && page.annotations.length === 0) continue;
-        const blocks = await fetchMyScriptBlocks(page.strokes);
-        blocks.sort((a, b) => a.y - b.y);
-        blocks.forEach(b => allBlocksWithPage.push({ ...b, pageIndex: i }));
-        const pageText = blocks.map(b => b.latex || b.text).join('\n');
-        const typedText = page.annotations.filter(a => a.text).map(a => a.text).join('\n');
-        if (pageText || typedText) {
-          allLatex.push([pageText, typedText].filter(Boolean).join('\n'));
-        }
-      }
-      const studentAnswer = allLatex.join('\n\n');
-      
-      if (!studentAnswer.trim()) {
-        setAiFeedbackText('Please write something on the paper first before checking!');
-        setIsFetchingAI(false);
-        return;
-      }
-
-      const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-      if (!apiKey) throw new Error("VITE_GROQ_API_KEY is missing in .env.local");
-      
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{
-            role: 'system',
-            content: 'You are an expert AI Math Tutor. Evaluate the student\'s work based on the question and the first step you previously provided. Respond ONLY with a raw JSON object matching this exact schema: { "isCorrect": boolean, "feedbackText": "string", "mistakeText": "string" }. If what is written is correct, set isCorrect=true, explain why in a positive way in feedbackText, and leave mistakeText empty (""). If there is a mistake, set isCorrect=false, explicitly explain the mistake and guide them in feedbackText, and set mistakeText to the EXACT literal snippet of the student\'s text or LaTeX that is incorrect so we can highlight it. Do NOT format as markdown, just raw JSON.'
-          }, {
-            role: 'user',
-            content: `Question: ${currentQuestion}\n\nAI's provided first step: ${aiStepText}\n\nStudent's written work (converted to text/LaTeX): ${studentAnswer}`
-          }],
-          temperature: 0.2,
-          max_tokens: 400,
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || 'Failed to fetch from Groq');
-      
-      let parsed;
-      try {
-        const raw = data.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
-        parsed = JSON.parse(raw);
-      } catch (e) {
-        throw new Error('AI returned malformed JSON: ' + data.choices[0].message.content);
-      }
-      
-      setAiFeedbackText(parsed.feedbackText);
-      
-      if (!parsed.isCorrect && parsed.mistakeText) {
-         let foundBox = null;
-         const target = parsed.mistakeText.trim();
-         for (const b of allBlocksWithPage) {
-           if ((b.text && b.text.includes(target)) || (b.latex && b.latex.includes(target))) {
-             foundBox = { x: b.x, y: b.y, width: b.width, height: b.height, pageIndex: b.pageIndex };
-             break;
-           }
-         }
-         if (!foundBox) {
-           for (const b of allBlocksWithPage) {
-             if (target.includes(b.text || '') || target.includes(b.latex || '')) {
-               foundBox = { x: b.x, y: b.y, width: b.width, height: b.height, pageIndex: b.pageIndex };
-               break;
-             }
-           }
-         }
-         setAiMistakeBox(foundBox);
-      } else {
-         setAiMistakeBox(null);
-      }
-    } catch (err) {
-      console.error(err);
-      setAiFeedbackText('Sorry, failed to check the step. ' + (err instanceof Error ? err.message : ''));
-    } finally {
-      setIsFetchingAI(false);
-    }
-  }, [pages, currentQuestion, aiStepText, fetchMyScriptBlocks]);
 
   const totalStrokes = pages.reduce((s, p) => s + p.strokes.length, 0);
   const totalAnnotations = pages.reduce((s, p) => s + p.annotations.filter(a => a.text).length, 0);
@@ -1179,7 +957,7 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
 
       {/* ═══ SCROLLABLE PAGE CONTAINER ═══ */}
-      <div className="fsw-scroll" ref={scrollRef}>
+      <div className="fsw-scroll" ref={scrollRef} style={{ paddingBottom: aiPanelOpen ? 370 : 0 }}>
         <div className="fsw-pages-stack">
           {pages.map((page, idx) => (
             <PageCanvas
@@ -1196,13 +974,7 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
               onAnnotationAdd={handleAnnotationAdd}
               onAnnotationUpdate={handleAnnotationUpdate}
               scale={scale}
-              aiMode={aiMode}
-              aiStepText={aiStepText}
-              aiFeedbackText={aiFeedbackText}
-              isFetchingAI={isFetchingAI}
-              onToggleAI={handleToggleAIMode}
-              onCheckStep={handleCheckStep}
-              aiMistakeBox={aiMistakeBox}
+              onToggleAI={() => setAiPanelOpen(true)}
             />
           ))}
           {/* Sentinel for infinite scroll */}
@@ -1399,45 +1171,16 @@ You MUST respond ONLY with a raw JSON object matching this exact schema:
         </div>
       )}
 
-      {/* ═══ GRADING FEEDBACK MODAL ═══ */}
-      {showFeedbackModal && gradingFeedback && (
-        <div className="fsw-modal-overlay" onClick={() => setShowFeedbackModal(false)}>
-          <div className="fsw-modal fsw-grading-modal" onClick={e => e.stopPropagation()}>
-            <div className="fsw-modal-header" style={{ borderBottomColor: 'rgba(255,255,255,0.08)' }}>
-              <h2>AI Grading Results</h2>
-              <button className="fsw-modal-close" onClick={() => setShowFeedbackModal(false)}>✕</button>
-            </div>
-            <div className="fsw-modal-body">
-              <div className="fsw-grading-scorebox" style={{ 
-                background: gradingFeedback.isCorrect ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                borderColor: gradingFeedback.isCorrect ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'
-              }}>
-                <div className="fsw-grading-icon">
-                  {gradingFeedback.isCorrect ? '✅' : '❌'}
-                </div>
-                <div className="fsw-grading-score">
-                  <div className="fsw-grading-label">Score</div>
-                  <div className="fsw-grading-points" style={{ color: gradingFeedback.isCorrect ? '#10b981' : '#ef4444' }}>
-                    {gradingFeedback.points} <span className="fsw-grading-outof">/ 100</span>
-                  </div>
-                </div>
-              </div>
-              <div className="fsw-modal-section">
-                <h3>Feedback</h3>
-                <div className="fsw-grading-text">
-                  {/* Basic markdown rendering of math in the LLM response */}
-                  <span dangerouslySetInnerHTML={{
-                    __html: gradingFeedback.feedback.replace(/\$([^$]+)\$/g, (match, math) => {
-                      try { return katex.renderToString(math, { throwOnError: false }); } 
-                      catch { return match; }
-                    })
-                  }} />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+
+      {/* ═══ AI TUTOR PANEL ═══ */}
+      <AiTutorPanel
+        currentQuestion={currentQuestion}
+        pages={pages}
+        fetchMyScriptBlocks={fetchMyScriptBlocks}
+        hasStrokes={totalStrokes > 0}
+        isOpen={aiPanelOpen}
+        onClose={() => setAiPanelOpen(false)}
+      />
 
       {/* ═══ STYLES ═══ */}
       <style>{`
