@@ -94,7 +94,9 @@ export interface InteractiveQuestion {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const OCR_SERVER_URL = 'http://127.0.0.1:5100';
+const OCR_SERVER_URL = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+  ? `http://${window.location.hostname}:5100`
+  : 'http://127.0.0.1:5100';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

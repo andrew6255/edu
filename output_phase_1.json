@@ -1,31 +1,25 @@
 {
   "phase": "phase1_ocr",
-  "created_at": "2026-06-17T11:56:40.174239+00:00",
+  "created_at": "2026-06-19T07:40:21.637780+00:00",
   "source": {
-    "file_name": "Worksheet 1 - Maclaurin and Taylor Series.pdf",
-    "title": "Worksheet 1   Maclaurin and Taylor Series",
+    "file_name": "Calcule Literale.pdf",
+    "title": "Calcule Literale",
     "mime_type": "application/pdf",
-    "size_bytes": 123906
+    "size_bytes": 229427
   },
   "result": {
     "pages": [
       {
         "page": 1,
-        "method": "pymupdf_text_layer",
-        "char_count": 872,
-        "text": "1. Apply the definition in order to find Maclaurin/Taylor series of each of the following functions: \n \na.   𝑓(𝑥) = cosh 𝑥  \nc.   𝑓(𝑥) = 1\n𝑥2 ,            𝑎= 1 \ne.   𝑓(𝑥) = 5 cos 𝜋𝑥  \nb.   𝑓(𝑥) =\n𝑥\n𝑥+ 1  \nd.   𝑓(𝑥) = ln 𝑥,        𝑎= 2 \nf.   𝑓(𝑥) = ln √𝑥+ 1 \n \n2. Find a power series representation for each of the following functions: \n \na.    𝑓(𝑥) =\n5\n1 -4𝑥2 \nc.   𝑓(𝑥) =\n𝑥2\n8 -𝑥3 \nb.    𝑓(𝑥) = 1 + 𝑥\n1 -𝑥 \nd.   𝑓(𝑥) =\n1\n(1 + 𝑥)2 \n \n3. Find Maclaurin series of each of the following functions: \n \na.   𝑓(𝑥) = 𝑒sin 𝑥 \nd.   𝑓(𝑥) =\n𝑥\n(1 + 4𝑥2)2 \nb.   𝑓(𝑥) = 𝑒-𝑥2 + cos 𝑥 \ne.   𝑓(𝑥) = 𝑥2 tan-1(𝑥3) \nc.   𝑓(𝑥) = 𝑥2 + sinh(𝑥4) \n \n \n4. Evaluate each of the indefinite integrals as an infinite series: \n \na.  ∫𝑥 cos(𝑥3) 𝑑𝑥 \nc.  ∫cos 𝑥-1\n𝑥\n𝑑𝑥 \nb.  ∫𝑒𝑥-1\n𝑥\n𝑑𝑥 \nd.  ∫tan-1(𝑥2) 𝑑𝑥 \n \n \nMathematics Department \nAssoc. Prof. Mustafa El-Agamy \nWorksheet (1) \nMaclaurin and Taylor Series"
-      },
-      {
-        "page": 2,
-        "method": "pymupdf_text_layer",
-        "char_count": 318,
-        "text": "5. Find the second order Taylor series of each of the following functions: \n \na.   𝑓(𝑥) = √1 + 𝑥,            𝑎= 2 \nb.   𝑓(𝑥) = 𝑥cos 𝑥,            𝑎= 𝜋 \nc.   𝑓(𝑥) = tan-1 𝑥,            𝑎= 1 \n \n \n6. Given that 𝑓(𝑥) is differentiable function at 𝒙= 𝟏 such that 𝑓(1) = 3 and 𝑓′(1) = -2. \nFind an estimated value of 𝑓(1.2)."
+        "method": "pix2text",
+        "char_count": 689,
+        "text": "EXERCICE 1 (5 points)\nDévelopper et réduire les expressions suivantes :\nA=4 ( 3 x-5 )\n2.\nB=-2 x ( 4 x+3 )\nC=( x+7 ) ( x-2 )\n3.\n4,\nD=( 5 x-1 ) ( x+4 )-( 2 x+3 ) ( x-1 )\nEXERCICE 2 (5 points)\nFactoriser :\n1.\n1 0 x+1 5\n2.\n1 8 a-6 b\n3.\n1 2 x^{2} y+2 0 x y\n4.\n9 t^{2}-2 4 t+1 6\n5.\n( x-4 ) ( 3 x+2 )+( x-4 ) ( x-5 )\nEXERCICE 3 (2 points)\na.\nExprimer l'aire du carré ABCD en fonction de\nx ,\npuis développer et réduire l'expression\nobtenue.\nLe c6té du carré mesure :\n$$5 x+2$$\nb.\nCalculer l'aire de ce carré lorsque :\n$$x=3$$\nEXERCICE 4 (3 points)\nUn rectangle a pour :\nlongueur :\n4 x+1\nlargeur :\nx-2\na.\nExprimer son aire en fonction de\nx\n.\nb.\nDévelopper et réduire.\nc.\nCalculer I'aire lorsque\nx=5"
       }
     ],
-    "full_text": "1. Apply the definition in order to find Maclaurin/Taylor series of each of the following functions: \n \na.   𝑓(𝑥) = cosh 𝑥  \nc.   𝑓(𝑥) = 1\n𝑥2 ,            𝑎= 1 \ne.   𝑓(𝑥) = 5 cos 𝜋𝑥  \nb.   𝑓(𝑥) =\n𝑥\n𝑥+ 1  \nd.   𝑓(𝑥) = ln 𝑥,        𝑎= 2 \nf.   𝑓(𝑥) = ln √𝑥+ 1 \n \n2. Find a power series representation for each of the following functions: \n \na.    𝑓(𝑥) =\n5\n1 -4𝑥2 \nc.   𝑓(𝑥) =\n𝑥2\n8 -𝑥3 \nb.    𝑓(𝑥) = 1 + 𝑥\n1 -𝑥 \nd.   𝑓(𝑥) =\n1\n(1 + 𝑥)2 \n \n3. Find Maclaurin series of each of the following functions: \n \na.   𝑓(𝑥) = 𝑒sin 𝑥 \nd.   𝑓(𝑥) =\n𝑥\n(1 + 4𝑥2)2 \nb.   𝑓(𝑥) = 𝑒-𝑥2 + cos 𝑥 \ne.   𝑓(𝑥) = 𝑥2 tan-1(𝑥3) \nc.   𝑓(𝑥) = 𝑥2 + sinh(𝑥4) \n \n \n4. Evaluate each of the indefinite integrals as an infinite series: \n \na.  ∫𝑥 cos(𝑥3) 𝑑𝑥 \nc.  ∫cos 𝑥-1\n𝑥\n𝑑𝑥 \nb.  ∫𝑒𝑥-1\n𝑥\n𝑑𝑥 \nd.  ∫tan-1(𝑥2) 𝑑𝑥 \n \n \nMathematics Department \nAssoc. Prof. Mustafa El-Agamy \nWorksheet (1) \nMaclaurin and Taylor Series\n\n--- PAGE BREAK ---\n\n5. Find the second order Taylor series of each of the following functions: \n \na.   𝑓(𝑥) = √1 + 𝑥,            𝑎= 2 \nb.   𝑓(𝑥) = 𝑥cos 𝑥,            𝑎= 𝜋 \nc.   𝑓(𝑥) = tan-1 𝑥,            𝑎= 1 \n \n \n6. Given that 𝑓(𝑥) is differentiable function at 𝒙= 𝟏 such that 𝑓(1) = 3 and 𝑓′(1) = -2. \nFind an estimated value of 𝑓(1.2).",
-    "page_count": 2,
+    "full_text": "EXERCICE 1 (5 points)\nDévelopper et réduire les expressions suivantes :\nA=4 ( 3 x-5 )\n2.\nB=-2 x ( 4 x+3 )\nC=( x+7 ) ( x-2 )\n3.\n4,\nD=( 5 x-1 ) ( x+4 )-( 2 x+3 ) ( x-1 )\nEXERCICE 2 (5 points)\nFactoriser :\n1.\n1 0 x+1 5\n2.\n1 8 a-6 b\n3.\n1 2 x^{2} y+2 0 x y\n4.\n9 t^{2}-2 4 t+1 6\n5.\n( x-4 ) ( 3 x+2 )+( x-4 ) ( x-5 )\nEXERCICE 3 (2 points)\na.\nExprimer l'aire du carré ABCD en fonction de\nx ,\npuis développer et réduire l'expression\nobtenue.\nLe c6té du carré mesure :\n$$5 x+2$$\nb.\nCalculer l'aire de ce carré lorsque :\n$$x=3$$\nEXERCICE 4 (3 points)\nUn rectangle a pour :\nlongueur :\n4 x+1\nlargeur :\nx-2\na.\nExprimer son aire en fonction de\nx\n.\nb.\nDévelopper et réduire.\nc.\nCalculer I'aire lorsque\nx=5",
+    "page_count": 1,
     "methods_used": [
-      "pymupdf_text_layer"
+      "pix2text"
     ]
   },
   "debug": {

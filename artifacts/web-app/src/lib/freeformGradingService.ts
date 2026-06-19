@@ -34,7 +34,10 @@ function buildFeedbackFromDetails(details: FreeformGradingDetails | null | undef
 }
 
 function getFreeformGradingApiBase(): string {
-  const explicit = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim();
+  let explicit = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim();
+  if (explicit && typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    explicit = explicit.replace('localhost', window.location.hostname);
+  }
   const base = explicit && explicit.length > 0 ? explicit.replace(/\/+$/, '') : '';
   return `${base}/api/freeform-grading`;
 }

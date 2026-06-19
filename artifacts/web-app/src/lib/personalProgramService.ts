@@ -88,7 +88,10 @@ const COLLECTION_PERSONAL_PROGRAMS = 'personal_programs';
 const COLLECTION_PERSONAL_WHITEBOARDS = 'personal_whiteboards';
 
 function getApiBase(): string {
-  const explicit = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim();
+  let explicit = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim();
+  if (explicit && typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    explicit = explicit.replace('localhost', window.location.hostname);
+  }
   const base = explicit && explicit.length > 0 ? explicit.replace(/\/+$/, '') : '';
   return `${base}/api/program-ingestion`;
 }
@@ -96,10 +99,17 @@ function getApiBase(): string {
 // ─── Content Hashing ────────────────────────────────────────────────────────────
 
 export async function computeFileHash(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch (e) {
+      // Fallback on error
+    }
+  }
+  return `fallback-${file.name}-${file.size}-${file.lastModified}`;
 }
 
 // ─── Program Creation ───────────────────────────────────────────────────────────
@@ -161,7 +171,15 @@ export async function createPersonalProgram(
   }
 
   // Generate a local ID instead of calling the backend
-  const jobId = crypto.randomUUID();
+  let jobId: string;
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    jobId = crypto.randomUUID();
+  } else {
+    jobId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
   const programId = jobId;
 
   const meta: PersonalProgramMeta = {

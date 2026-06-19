@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import AiTutorPanel from '@/components/AiTutorPanel';
+import CryptoJS from 'crypto-js';
 
 /* ═══════════════════════════════════════════════════════════════
    DATA MODEL — Completely isolated from MyScript state
@@ -880,13 +881,22 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
       };
 
       const bodyStr = JSON.stringify(payload);
-      const encoder = new TextEncoder();
-      const cryptoKey = await window.crypto.subtle.importKey(
-        'raw', encoder.encode(applicationKey + hmacKey),
-        { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']
-      );
-      const signature = await window.crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(bodyStr));
-      const hmacHex = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+      let hmacHex: string;
+      if (typeof window.crypto !== 'undefined' && window.crypto.subtle) {
+        try {
+          const encoder = new TextEncoder();
+          const cryptoKey = await window.crypto.subtle.importKey(
+            'raw', encoder.encode(applicationKey + hmacKey),
+            { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']
+          );
+          const signature = await window.crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(bodyStr));
+          hmacHex = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch (err) {
+          hmacHex = CryptoJS.HmacSHA512(bodyStr, applicationKey + hmacKey).toString(CryptoJS.enc.Hex);
+        }
+      } else {
+        hmacHex = CryptoJS.HmacSHA512(bodyStr, applicationKey + hmacKey).toString(CryptoJS.enc.Hex);
+      }
 
       const res = await fetch("https://cloud.myscript.com/api/v4.0/iink/batch", {
         method: 'POST',

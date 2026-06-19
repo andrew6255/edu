@@ -7,6 +7,17 @@ import {
   updatePersonalProgramData 
 } from '@/lib/personalProgramService';
 
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -70,9 +81,9 @@ export default function EditProgramModal({ open, onClose, jobId }: Props) {
   function handleAddTopic(chIdx: number) {
     const newData = { ...programData! };
     if (!newData.chapters[chIdx]) {
-      newData.chapters.push({ id: 'ch_' + crypto.randomUUID(), title: title || 'Chapter 1', topics: [] });
+      newData.chapters.push({ id: 'ch_' + generateId(), title: title || 'Chapter 1', topics: [] });
     }
-    const topicId = 'topic_' + crypto.randomUUID();
+    const topicId = 'topic_' + generateId();
     if (!newData.chapters[chIdx].topics) newData.chapters[chIdx].topics = [];
     newData.chapters[chIdx].topics!.push({
       id: topicId,
@@ -92,7 +103,7 @@ export default function EditProgramModal({ open, onClose, jobId }: Props) {
 
   function handleAddQuestion(chIdx: number, tIdx: number) {
     const newData = { ...programData! };
-    const qId = 'q_' + crypto.randomUUID();
+    const qId = 'q_' + generateId();
     newData.questions.push({
       id: qId,
       rawText: 'New question text...',
@@ -155,7 +166,7 @@ export default function EditProgramModal({ open, onClose, jobId }: Props) {
                 {programData.chapters.length === 0 && (
                   <button className="ll-btn" onClick={() => {
                     const newData = { ...programData };
-                    newData.chapters.push({ id: 'ch_' + crypto.randomUUID(), title: 'Chapter 1', topics: [] });
+                    newData.chapters.push({ id: 'ch_' + generateId(), title: 'Chapter 1', topics: [] });
                     setProgramData(newData);
                   }}>
                     + Initialize Chapter
