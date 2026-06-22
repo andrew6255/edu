@@ -107,6 +107,16 @@ function EmojiPicker({ current, onSelect, onClose }: {
   );
 }
 
+// ─── V-Shape slot positions (x offset, y offset from baseline) ──────────────
+// The V opens upward — center slot (idx 2) is lowest, outer slots are higher.
+const V_OFFSETS: { x: number; y: number }[] = [
+  { x: -230, y: -90 },  // slot 0 — far left, highest
+  { x: -120, y: -30 },  // slot 1 — mid left
+  { x:    0, y:  30 },  // slot 2 — CENTER (owner) — lowest
+  { x:  120, y: -30 },  // slot 3 — mid right
+  { x:  230, y: -90 },  // slot 4 — far right, highest
+];
+
 // ─── Player Slot ──────────────────────────────────────────────────────────────
 function PlayerSlot({ player, isMe, onEmojiClick, isEmpty }: {
   player?: { uid: string; username: string; emoji: string; ready: boolean; isLeader: boolean };
@@ -114,10 +124,10 @@ function PlayerSlot({ player, isMe, onEmojiClick, isEmpty }: {
 }) {
   if (isEmpty || !player) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, opacity: 0.35 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, opacity: 0.25 }}>
         <div style={{
-          width: 80, height: 80, borderRadius: '50%', border: '2px dashed #334155',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, color: '#475569',
+          width: 110, height: 110, borderRadius: '50%', border: '2px dashed #334155',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34, color: '#475569',
         }}>+</div>
         <div style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>Empty Slot</div>
       </div>
@@ -125,20 +135,22 @@ function PlayerSlot({ player, isMe, onEmojiClick, isEmpty }: {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-      <div style={{ height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {player.isLeader && <span style={{ fontSize: 16 }}>👑</span>}
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+      <div style={{ height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {player.isLeader && <span style={{ fontSize: 20 }}>👑</span>}
       </div>
       <div
         style={{
-          width: 80, height: 80, borderRadius: '50%', fontSize: 38,
+          width: 110, height: 110, borderRadius: '50%', fontSize: 52,
           background: player.ready
-            ? 'radial-gradient(circle, rgba(52,211,153,0.25), rgba(52,211,153,0.05))'
-            : 'radial-gradient(circle, rgba(99,102,241,0.25), rgba(99,102,241,0.05))',
+            ? 'radial-gradient(circle, rgba(52,211,153,0.3), rgba(52,211,153,0.06))'
+            : 'radial-gradient(circle, rgba(99,102,241,0.3), rgba(99,102,241,0.06))',
           border: `3px solid ${player.ready ? '#34d399' : isMe ? '#a78bfa' : '#475569'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: isMe ? 'pointer' : 'default', transition: 'all 0.3s',
-          boxShadow: player.ready ? '0 0 20px rgba(52,211,153,0.4)' : isMe ? '0 0 20px rgba(167,139,250,0.3)' : 'none',
+          boxShadow: player.ready
+            ? '0 0 28px rgba(52,211,153,0.5)'
+            : isMe ? '0 0 28px rgba(167,139,250,0.4)' : 'none',
           position: 'relative',
         }}
         onClick={isMe ? onEmojiClick : undefined}
@@ -148,21 +160,21 @@ function PlayerSlot({ player, isMe, onEmojiClick, isEmpty }: {
         {isMe && (
           <div style={{
             position: 'absolute', bottom: -2, right: -2, background: '#a78bfa',
-            borderRadius: '50%', width: 20, height: 20,
+            borderRadius: '50%', width: 24, height: 24,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 10, border: '2px solid #0f172a',
+            fontSize: 12, border: '2px solid #0f172a',
           }}>✏️</div>
         )}
       </div>
       <div style={{
-        fontSize: 12, fontWeight: 700,
+        fontSize: 13, fontWeight: 700,
         color: isMe ? '#a78bfa' : 'var(--ll-text)',
-        maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center',
+        maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center',
       }}>
         {player.username}{isMe ? ' (you)' : ''}
       </div>
       <div style={{
-        fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+        fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 10,
         background: player.ready ? 'rgba(52,211,153,0.15)' : 'rgba(71,85,105,0.3)',
         color: player.ready ? '#34d399' : '#64748b',
         border: `1px solid ${player.ready ? '#34d399' : '#334155'}`,
@@ -214,6 +226,11 @@ export default function LobbyView() {
         localStorage.removeItem('ll:pendingLobbyId');
         const doc = await getLobbyDoc(pendingLobbyId);
         if (doc && doc.state === 'waiting' && doc.players.length < LOBBY_MAX_PLAYERS) {
+          // Leave current solo lobby first
+          const currentId = await getUserLobbyId(myUid);
+          if (currentId && currentId !== pendingLobbyId) {
+            await leaveLobby(currentId, myUid).catch(() => {});
+          }
           const emoji = DEFAULT_EMOJI_LIST[Math.floor(Math.random() * DEFAULT_EMOJI_LIST.length)];
           const result = await joinLobby({ lobbyId: pendingLobbyId, uid: myUid, username: myUsername, emoji });
           if (result.success) {
@@ -397,6 +414,19 @@ export default function LobbyView() {
     if (a.isOnline && !b.isOnline) return -1;
     if (!a.isOnline && b.isOnline) return 1;
     return a.username.localeCompare(b.username);
+  });
+
+  // ── Build V-shape slot array: owner always at center (index 2) ────────────
+  // Slot layout: [other] [other] [ME] [other] [other]
+  const vSlots: (any | undefined)[] = Array(LOBBY_MAX_PLAYERS).fill(undefined);
+  const me = lobby?.players.find(p => p.uid === myUid);
+  const others = lobby?.players.filter(p => p.uid !== myUid) ?? [];
+  // Place me at slot 2 (center)
+  vSlots[2] = me;
+  // Fill remaining slots: 1, 3, 0, 4 (close to center first)
+  const fillOrder = [1, 3, 0, 4];
+  others.forEach((p, idx) => {
+    if (fillOrder[idx] !== undefined) vSlots[fillOrder[idx]] = p;
   });
 
   // ─── Loading state ────────────────────────────────────────────────────────
@@ -664,16 +694,43 @@ export default function LobbyView() {
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: 24, alignItems: 'flex-end', justifyContent: 'center', flexWrap: 'wrap' }}>
-            {slots.map((_, i) => {
-              const player = lobby.players[i];
+          {/* V-shape player slots — absolute positioned around center */}
+          <div style={{
+            position: 'relative',
+            width: 600,
+            height: 280,
+            flexShrink: 0,
+          }}>
+            {vSlots.map((player, i) => {
+              const off = V_OFFSETS[i];
               const isMe = player?.uid === myUid;
+              // Translate: center of container is (300, 140)
+              const left = 300 + off.x - 55; // 55 = half of slot width (110/2)
+              const top  = 140 + off.y;
               return (
-                <div key={i} style={{ position: 'relative' }}>
-                  <PlayerSlot player={player} isMe={isMe} isEmpty={!player}
-                    onEmojiClick={() => isMe && setShowEmojiPicker(v => !v)} />
+                <div
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    left,
+                    top,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                  }}
+                >
+                  <PlayerSlot
+                    player={player}
+                    isMe={isMe}
+                    isEmpty={!player}
+                    onEmojiClick={() => isMe && setShowEmojiPicker(v => !v)}
+                  />
                   {isMe && showEmojiPicker && (
-                    <EmojiPicker current={myEmoji} onSelect={handleEmojiSelect} onClose={() => setShowEmojiPicker(false)} />
+                    <EmojiPicker
+                      current={myEmoji}
+                      onSelect={handleEmojiSelect}
+                      onClose={() => setShowEmojiPicker(false)}
+                    />
                   )}
                 </div>
               );
