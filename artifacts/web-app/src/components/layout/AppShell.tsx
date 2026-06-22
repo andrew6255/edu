@@ -12,6 +12,7 @@ import { forfeitSession } from '@/lib/gameSessionService';
 import { getMyRunningQuizzes } from '@/lib/studentService';
 import type { AppNotification } from '@/lib/userService';
 import { createLinkingCode, getMyLinkingCode, getLinkedParent } from '@/lib/linkingService';
+import ProfileView from '@/views/ProfileView';
 
 type View =
   | 'emporium'
@@ -24,7 +25,8 @@ type View =
   | 'studySessions'
   | 'classes'
   | 'notifications'
-  | 'friends';
+  | 'friends'
+  | 'lobby';
 
 function QuizzesButton({ onOpen }: { onOpen: () => void }) {
   const [runningCount, setRunningCount] = useState(0);
@@ -91,6 +93,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [notifBadgeCount, setNotifBadgeCount] = useState(0);
 
@@ -207,11 +210,11 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
   const navTabs = [
     { id: 'emporium', icon: '🕰️', label: 'Chrono Empires' },
-    { id: 'warmup', icon: '⚡', label: 'Warmup' },
+    { id: 'warmup', icon: '⚡', label: 'Warmup Games' },
     { id: 'universe', icon: '🌌', label: 'Universe' },
-    { id: 'logic', icon: '🧩', label: 'Logic Games' },
+    { id: 'lobby', icon: '🏛️', label: 'Lobby' },
+    { id: 'logic', icon: '🧠', label: 'IQ Games' },
     { id: 'classes', icon: '🏫', label: 'Classes' },
-    { id: 'profile', icon: '👤', label: 'Profile' },
   ] as const;
 
   return (
@@ -373,6 +376,11 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                     }
                     if (item.target === 'friends') {
                       setFriendsOpen(true);
+                      setMenuOpen(false);
+                      return;
+                    }
+                    if (item.label === 'My Profile') {
+                      setProfileOpen(true);
                       setMenuOpen(false);
                       return;
                     }
@@ -599,6 +607,25 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
             </div>
             <div style={{ height: 'calc(100% - 41px)', overflow: 'hidden' }}>
               <FriendsView />
+            </div>
+          </div>
+        </>
+      )}
+
+      {profileOpen && (
+        <>
+          <div onClick={() => setProfileOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1200 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            width: 'min(800px, 96vw)', height: 'min(800px, 92vh)',
+            background: 'var(--ll-surface-0)', borderRadius: 16, border: '2px solid #334155',
+            zIndex: 1201, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.7)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 10, background: 'rgba(0,0,0,0.55)', borderBottom: '1px solid #334155' }}>
+              <button onClick={() => setProfileOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>×</button>
+            </div>
+            <div style={{ height: 'calc(100% - 41px)', overflow: 'auto' }}>
+              <ProfileView />
             </div>
           </div>
         </>

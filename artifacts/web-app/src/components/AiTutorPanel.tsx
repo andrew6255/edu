@@ -130,7 +130,10 @@ async function callGroq(messages: Array<{ role: string; content: string }>, maxT
 }
 
 function parseJSON(text: string): any {
-  return JSON.parse(text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim());
+  // Extract JSON object ignoring conversational preamble
+  const match = text.match(/\{[\s\S]*\}/);
+  const clean = match ? match[0] : text;
+  return JSON.parse(clean.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim());
 }
 
 /* ─────────────────────────────────────────────────────────────────
@@ -243,8 +246,28 @@ CRITICAL: Double-escape all LaTeX backslashes. Output ONLY the raw JSON object, 
     return parts.join('\n\n');
   }, [pages, fetchMyScriptBlocks]);
 
+  // ── Arithmetic pre-check (deterministic, no LLM) ──
+  // Extracts a bare arithmetic expression from the question and evaluates it exactly.
+  // Returns { expr, correctValue } if found, or null.
+  const getArithmeticGroundTruth = useCallback((question: string): { expr: string; correctValue: number } | null => {
+    // Require at least two digits separated by an operator
+    const match = question.match(/(\d+(?:\.\d+)?\s*[-+*/×]\s*[\d\s\-+*/×().]*\d+(?:\.\d+)?)/);
+    if (!match) return null;
+    const expr = match[1].trim();
+    // Only safe characters: digits, spaces, operators, parens
+    if (!/^[\-+*/().0-9×\s]+$/.test(expr)) return null;
+    const safe = expr.replace(/×/g, '*').replace(/\s+/g, '');
+    try {
+      // eslint-disable-next-line no-new-func
+      const value = Function('"use strict"; return (' + safe + ');')() as unknown;
+      if (typeof value === 'number' && Number.isFinite(value)) return { expr, correctValue: value };
+    } catch { /* not evaluable */ }
+    return null;
+  }, []);
+
   // ── Correct Me ──
   const handleCorrectMe = useCallback(async () => {
+
     setLoadingCorrections(true);
     setCorrectionsError(null);
     setCorrections([]);
@@ -257,17 +280,58 @@ CRITICAL: Double-escape all LaTeX backslashes. Output ONLY the raw JSON object, 
         return;
       }
 
+      // ── Step 1: Deterministic arithmetic pre-check ──
+      const groundTruth = getArithmeticGroundTruth(questionText);
+      if (groundTruth) {
+        const studentNumbers = studentWork.match(/-?\d+(?:\.\d+)?/g);
+        if (studentNumbers && studentNumbers.length > 0) {
+          const studentValue = Number(studentNumbers[studentNumbers.length - 1]);
+          if (Number.isFinite(studentValue)) {
+            const tol = Math.abs(groundTruth.correctValue) < 1 ? 1e-9 : Math.abs(groundTruth.correctValue) * 1e-9;
+            if (Math.abs(studentValue - groundTruth.correctValue) <= tol) {
+              // Correct — no need to call the LLM at all
+              setNoMistakesFound(true);
+              return;
+            } else {
+              // Definitely wrong — short-circuit with a reliable correction
+              setCorrections([{
+                label: 'calculation error',
+                wrongText: String(studentValue),
+                correctedText: String(groundTruth.correctValue),
+                briefNote: `${groundTruth.expr} = ${groundTruth.correctValue}, not ${studentValue}.`,
+                explanation: `The correct result of ${groundTruth.expr} is ${groundTruth.correctValue}. The student wrote ${studentValue}. Double-check the arithmetic step by step.`,
+                expanded: false,
+              }]);
+              return;
+            }
+          }
+        }
+      }
+
+      // ── Step 2: Call Groq (LLM) for non-arithmetic or unrecognized work ──
       const fullSolutionText = analysis?.fullSolution
         .map((s, i) => `Step ${i + 1} — ${s.title}: ${s.body}`).join('\n') || '';
+
+      // If we have a ground truth, inject it so the LLM cannot hallucinate the correct answer
+      const groundTruthNote = groundTruth
+        ? `\n\nIMPORTANT: The correct answer to this expression is EXACTLY ${groundTruth.correctValue}. Do NOT claim any other number is correct. If the student wrote ${groundTruth.correctValue}, they are correct.`
+        : '';
 
       const raw = await callGroq([
         {
           role: 'system',
-          content: `You are a math teacher reviewing a student's work. Identify mistakes and return ONLY a JSON object:
+          content: `You are a math teacher reviewing a student's work. 
+CRITICAL ARITHMETIC RULE: Before marking any numeric answer as wrong, compute the correct answer yourself from scratch. Never trust your memory for arithmetic — always derive the result step by step. Only flag a number as wrong if you are 100% certain after recomputing.
+${groundTruthNote}
+IMPORTANT: If the student's work is entirely correct, you MUST return exactly:
+{ "corrections": [] }
+
+Do NOT invent corrections or return a "correction" that just explains why the student is right.
+If and ONLY if there are genuine mathematical errors, return them in this JSON format:
 {
   "corrections": [
     {
-      "label": "brief label like 'sign mistake', 'wrong formula', 'calculation error', 'wrong technique', 'irrelevant step'",
+      "label": "brief label like 'sign mistake', 'wrong formula', 'calculation error'",
       "wrongText": "the exact snippet the student wrote that is wrong",
       "correctedText": "the corrected version",
       "briefNote": "one concise sentence naming the error",
@@ -275,7 +339,6 @@ CRITICAL: Double-escape all LaTeX backslashes. Output ONLY the raw JSON object, 
     }
   ]
 }
-If the student's work is fully correct, return { "corrections": [] }.
 CRITICAL: Double-escape LaTeX backslashes. Output ONLY raw JSON.`,
         },
         {
@@ -295,7 +358,7 @@ CRITICAL: Double-escape LaTeX backslashes. Output ONLY raw JSON.`,
     } finally {
       setLoadingCorrections(false);
     }
-  }, [questionText, analysis, getStudentWork]);
+  }, [questionText, analysis, getStudentWork, getArithmeticGroundTruth]);
 
   // ── Toggle correction explanation ──
   const handleToggleCorrection = useCallback((idx: number) => {

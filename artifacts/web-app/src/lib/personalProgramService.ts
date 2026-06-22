@@ -34,6 +34,8 @@ export interface PersonalProgramMeta {
   status: PersonalProgramStatus;
   /** Granular in-progress stage — only meaningful when status === 'processing' */
   processingStage?: ProcessingStage;
+  stageUpdatedAt?: string;
+  subjectId?: string;
   contentHash: string;
   sourceFileName: string;
   createdAt: string;
@@ -153,6 +155,7 @@ export async function createPersonalProgram(
   uid: string,
   title: string,
   file: File,
+  subjectId?: string,
 ): Promise<PersonalProgramMeta> {
   const contentHash = await computeFileHash(file);
 
@@ -188,6 +191,9 @@ export async function createPersonalProgram(
     title: finalTitle,
     coverEmoji: '📄',
     status: 'processing',
+    processingStage: 'uploading',
+    stageUpdatedAt: new Date().toISOString(),
+    subjectId,
     contentHash,
     sourceFileName: file.name,
     createdAt: new Date().toISOString(),
@@ -230,6 +236,7 @@ export async function updateProcessingStage(
   await setUserDoc(uid, COLLECTION_PERSONAL_PROGRAMS, jobId, {
     ...existing,
     processingStage: stage,
+    stageUpdatedAt: new Date().toISOString(),
   });
 }
 
@@ -257,6 +264,17 @@ export async function renamePersonalProgram(uid: string, jobId: string, newTitle
   const updated: PersonalProgramMeta = {
     ...(existing as unknown as PersonalProgramMeta),
     title: finalTitle,
+  };
+  await setUserDoc(uid, COLLECTION_PERSONAL_PROGRAMS, jobId, updated as unknown as DocData);
+  return updated;
+}
+
+export async function updateProgramSubject(uid: string, jobId: string, subjectId: string | undefined): Promise<PersonalProgramMeta> {
+  const existing = await getUserDoc(uid, COLLECTION_PERSONAL_PROGRAMS, jobId);
+  if (!existing) throw new Error('Personal program not found');
+  const updated: PersonalProgramMeta = {
+    ...(existing as unknown as PersonalProgramMeta),
+    subjectId,
   };
   await setUserDoc(uid, COLLECTION_PERSONAL_PROGRAMS, jobId, updated as unknown as DocData);
   return updated;

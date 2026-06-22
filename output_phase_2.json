@@ -1,65 +1,53 @@
 {
   "phase": "phase2_questions",
-  "created_at": "2026-06-19T07:40:23.951804+00:00",
+  "created_at": "2026-06-22T09:51:14.654242+00:00",
   "result": {
     "topics": [
       {
         "id": "t1",
-        "title": "Developing and reducing expressions",
+        "title": "Addition with Regrouping",
         "questions": [
           {
-            "rawText": "Développer et réduire les expressions suivantes : A=4 ( 3 x-5 )"
+            "rawText": "425 + 279"
           },
           {
-            "rawText": "B=-2 x ( 4 x+3 )"
+            "rawText": "595 + 176"
           },
           {
-            "rawText": "C=( x+7 ) ( x-2 )"
+            "rawText": "595 + 478"
           },
           {
-            "rawText": "D=( 5 x-1 ) ( x+4 )-( 2 x+3 ) ( x-1 )"
+            "rawText": "683 + 236"
+          },
+          {
+            "rawText": "304 + 483"
+          },
+          {
+            "rawText": "360 + 528"
+          },
+          {
+            "rawText": "149 + 198"
+          },
+          {
+            "rawText": "259 + 610"
+          },
+          {
+            "rawText": "435 + 500"
+          },
+          {
+            "rawText": "274 + 169"
+          },
+          {
+            "rawText": "382 + 239"
           }
         ]
       },
       {
         "id": "t2",
-        "title": "Factorizing expressions",
+        "title": "Subtraction with Regrouping",
         "questions": [
           {
-            "rawText": "Factoriser : 10 x+15"
-          },
-          {
-            "rawText": "Factoriser : 18 a-6 b"
-          },
-          {
-            "rawText": "Factoriser : 12 x^{2} y+20 x y"
-          },
-          {
-            "rawText": "Factoriser : 9 t^{2}-24 t+16"
-          },
-          {
-            "rawText": "Factoriser : ( x-4 ) ( 3 x+2 )+( x-4 ) ( x-5 )"
-          }
-        ]
-      },
-      {
-        "id": "t3",
-        "title": "Finding area of a square",
-        "questions": [
-          {
-            "rawText": "Exprimer l'aire du carré ABCD en fonction de x , puis développer et réduire l'expression obtenue. Le côté du carré mesure : $$5 x+2$$"
-          },
-          {
-            "rawText": "Calculer l'aire de ce carré lorsque : $$x=3$$"
-          }
-        ]
-      },
-      {
-        "id": "t4",
-        "title": "Finding area of a rectangle",
-        "questions": [
-          {
-            "rawText": "Un rectangle a pour longueur : 4 x+1 largeur : x-2 a. Exprimer son aire en fonction de x . b. Développer et réduire. c. Calculer l'aire lorsque x=5"
+            "rawText": "702 / -\\frac{439}{}"
           }
         ]
       }

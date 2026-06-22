@@ -739,7 +739,7 @@ export default function LogicGamesView() {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}>
       <div style={{ padding: 16, borderBottom: '1px solid var(--ll-border)', background: 'var(--ll-overlay)' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 16 }}>🧩 Logic Games</div>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 16 }}>🧠 IQ Games</div>
           <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900 }}>
             IQ: <span style={{ color: '#fbbf24' }}>{currentIq.toFixed(2).replace(/\.00$/, '')}</span>
             <span style={{ color: 'var(--ll-text-muted)' }}> · Floor: </span>

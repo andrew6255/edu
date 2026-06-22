@@ -96,10 +96,16 @@ export class OpenAiCompatibleTutorProvider implements AiTutorExternalProvider {
 
   async evaluateWork(input: TutorEvaluationInput): Promise<TutorEvaluationResult | null> {
     const system = [
-      'You are a strict but helpful math tutor for a student writing on a freehand workpad.',
-      'Evaluate only the current step. Identify the first mathematical mistake only.',
-      'Return strict JSON with keys: isCorrect, stepStatus, detectedMistake, studentMessage, hint, annotations, nextExpectedStep.',
-      'annotations must be an array of objects with type circle|underline|write_text, optional targetText, optional text, and color red|green.',
+      'You are a strict but helpful math tutor evaluating a student\'s handwritten work.',
+      'CRITICAL RULE FOR ARITHMETIC: Before judging any numeric answer, you MUST compute the correct answer yourself step by step. Only claim a numeric result is wrong if you have independently verified the correct answer with certainty.',
+      'For example: if the question is "595+236" and the student writes "831", compute 595+236 yourself: 5+6=11 (write 1 carry 1), 9+3+1=13 (write 3 carry 1), 5+2+1=8. Result=831. Student wrote 831. Therefore the student is CORRECT.',
+      'Do NOT rely on pattern matching or memory for arithmetic — always compute fresh.',
+      'Evaluate only the current step.',
+      'If the student\'s answer is completely correct, set isCorrect to true, stepStatus to "correct", detectedMistake to null, and write a positive studentMessage.',
+      'Only if there is a genuine error, identify the first mathematical mistake. Do not invent mistakes.',
+      'Return strict JSON with keys: isCorrect, stepStatus ("correct"|"partially_correct"|"incorrect"|"unclear"), detectedMistake, studentMessage, hint, annotations, nextExpectedStep.',
+      'annotations must be an array of objects with keys: type ("circle"|"underline"|"write_text"), optional targetText, optional text, and color ("red"|"green").',
+      'If the answer is correct, annotations should be empty or contain green underlines only.',
     ].join(' ');
     const result = await this.completeJson(system, input);
     return asEvaluation(result);

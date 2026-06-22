@@ -17,6 +17,7 @@ import {
   updateProcessingStage,
   type PersonalProgramMeta,
 } from '@/lib/personalProgramService';
+import { type PersonalSubject, listPersonalSubjects } from '@/lib/personalSubjectService';
 import {
   runPhase1Ocr,
   runPhase2Questions,
@@ -25,9 +26,15 @@ import {
   type PipelineDebugLog,
 } from '@/lib/localOcrPipeline';
 
-export default function MyProgramsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  subjectId?: string | null;
+}
+
+export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
   const { user, userData, refreshUserData } = useAuth();
-  const [tab, setTab] = useState<'current' | 'finished' | 'search' | 'create'>('current');
+  const [tab, setTab] = useState<'create' | 'current'>('create');
   const [loading, setLoading] = useState(false);
   const [programs, setPrograms] = useState<PublicProgram[]>([]);
   const [query, setQuery] = useState('');
@@ -44,6 +51,7 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
   const [editJobId, setEditJobId] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<PipelineDebugLog | null>(null);
   const [selectedProcessingProgram, setSelectedProcessingProgram] = useState<PersonalProgramMeta | null>(null);
+  const [subjects, setSubjects] = useState<PersonalSubject[]>([]);
 
   const assignedIds: string[] = userData?.assignedProgramIds ?? [];
   const activeIds: string[] = userData?.activeProgramIds ?? (userData?.activeProgramId ? [userData.activeProgramId] : []);
@@ -91,7 +99,17 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
     listMyPersonalPrograms(user.uid).then(list => {
       if (alive) setPersonalPrograms(list);
     });
-    return () => { alive = false; };
+    const fetchSubjects = () => {
+      listPersonalSubjects(user.uid).then(list => {
+        if (alive) setSubjects(list);
+      });
+    };
+    fetchSubjects();
+    window.addEventListener('ll:subjectsUpdated', fetchSubjects);
+    return () => { 
+      alive = false; 
+      window.removeEventListener('ll:subjectsUpdated', fetchSubjects);
+    };
   }, [user]);
 
   // Poll processing programs
@@ -235,7 +253,7 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
 
     try {
       const { createPersonalProgram } = await import('@/lib/personalProgramService');
-      const meta = await createPersonalProgram(user.uid, title, file);
+      const meta = await createPersonalProgram(user.uid, title, file, subjectId || undefined);
 
       // Close modal
       onClose();
@@ -434,13 +452,16 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
     );
   }
 
+  // Filter personal programs to the current subject
+  const subjectPersonalPrograms = personalPrograms.filter(p => p.subjectId === subjectId);
+
   const renderPersonalProgramsList = (showTitle: boolean = true) => {
-    if (personalPrograms.length === 0) return null;
+    if (subjectPersonalPrograms.length === 0) return null;
     return (
       <div style={{ marginTop: showTitle ? 8 : 0 }}>
         {showTitle && <h3 style={{ fontSize: 14, color: 'var(--ll-text)', margin: '0 0 12px' }}>Your Personal Programs</h3>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {personalPrograms.map(p => {
+          {subjectPersonalPrograms.map(p => {
             const isProcessing = p.status === 'processing';
             const isFailed = p.status === 'failed';
 
@@ -716,7 +737,7 @@ export default function MyProgramsModal({ open, onClose }: { open: boolean; onCl
 
           {tab === 'current' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {personalPrograms.length === 0 && myCurrent.length === 0 ? (
+              {subjectPersonalPrograms.length === 0 && myCurrent.length === 0 ? (
                 <div style={{ color: 'var(--ll-text-soft)' }}>
                   No programs yet. Go to Search and assign one.
                 </div>

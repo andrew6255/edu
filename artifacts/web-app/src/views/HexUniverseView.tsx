@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getPublicProgram, purgeProgramFromUser } from '@/lib/programMaps';
 import { getProgramProgress } from '@/lib/programProgress';
-import { getAllMyContent, type StudentContentItem } from '@/lib/studentService';
 import MyProgramsModal from '@/components/universe/MyProgramsModal';
 import { listMyPersonalPrograms, refreshPersonalProgramStatus, deletePersonalProgram, type PersonalProgramMeta } from '@/lib/personalProgramService';
+import { type PersonalSubject, listPersonalSubjects } from '@/lib/personalSubjectService';
 import ProcessingDetailsModal, { getProgressPercentage, useSmoothProgress, getStageLabel } from '@/components/universe/ProcessingDetailsModal';
+import ManageSubjectsModal from '@/components/universe/ManageSubjectsModal';
 
 function PersonalProgramCard({
   p,
@@ -19,7 +20,7 @@ function PersonalProgramCard({
   const isReady = p.status === 'ready' || p.status === 'published';
   const isFailed = p.status === 'failed';
   const targetPct = getProgressPercentage(p.status, p.processingStage);
-  const pct = useSmoothProgress(targetPct, isFailed);
+  const pct = useSmoothProgress(targetPct, isFailed, p.stageUpdatedAt);
   const stageLabel = getStageLabel(p.status, p.processingStage);
 
   return (
@@ -118,38 +119,58 @@ export default function HexUniverseView() {
   const [programPctById, setProgramPctById] = useState<Record<string, number>>({});
   const [myProgramsOpen, setMyProgramsOpen] = useState(false);
 
-  // Personal Programs
   const [personalPrograms, setPersonalPrograms] = useState<PersonalProgramMeta[]>([]);
+  const [subjects, setSubjects] = useState<PersonalSubject[]>([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
+  const [manageSubjectsOpen, setManageSubjectsOpen] = useState(false);
+  
   const [selectedProcessingJobId, setSelectedProcessingJobId] = useState<string | null>(null);
   const selectedProcessingProgram = personalPrograms.find(p => p.jobId === selectedProcessingJobId) || null;
 
-  // Class content filters
-  const [classContent, setClassContent] = useState<(StudentContentItem & { class_name: string })[]>([]);
-  const [classFilter, setClassFilter] = useState('all');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'program' | 'assignment' | 'quiz'>('all');
-  const [loadingClassContent, setLoadingClassContent] = useState(false);
-  const [showClassContentRefresh, setShowClassContentRefresh] = useState(false);
-
-  useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout>;
-    if (loadingClassContent) {
-      timeout = setTimeout(() => setShowClassContentRefresh(true), 5000);
-    } else {
-      setShowClassContentRefresh(false);
-    }
-    return () => clearTimeout(timeout);
-  }, [loadingClassContent]);
-
   useEffect(() => {
     if (!user) return;
-    setLoadingClassContent(true);
-    getAllMyContent().then(c => setClassContent(c)).catch(e => console.error(e)).finally(() => setLoadingClassContent(false));
 
-    // Fetch personal programs
     let alive = true;
-    listMyPersonalPrograms(user.uid).then(list => {
-      if (alive) setPersonalPrograms(list);
-    });
+    
+    const loadAndMigrate = async () => {
+      const [progs, subs] = await Promise.all([
+        listMyPersonalPrograms(user.uid),
+        listPersonalSubjects(user.uid)
+      ]);
+      if (!alive) return;
+      
+      let mathSubject = subs.find(s => s.name.toLowerCase().includes('math'));
+      const uncatProgs = progs.filter(p => !p.subjectId);
+      
+      if (uncatProgs.length > 0) {
+        if (!mathSubject) {
+          const { createPersonalSubject } = await import('@/lib/personalSubjectService');
+          mathSubject = await createPersonalSubject(user.uid, 'Mathematics', '📐');
+          subs.push(mathSubject);
+        }
+        
+        const { updateProgramSubject } = await import('@/lib/personalProgramService');
+        await Promise.all(uncatProgs.map(p => updateProgramSubject(user.uid, p.jobId, mathSubject!.id)));
+        
+        const newProgs = await listMyPersonalPrograms(user.uid);
+        if (alive) {
+          setPersonalPrograms(newProgs);
+          setSubjects(subs);
+        }
+      } else {
+        setPersonalPrograms(progs);
+        setSubjects(subs);
+      }
+    };
+    
+    loadAndMigrate();
+
+    const fetchSubjects = () => {
+      listPersonalSubjects(user.uid).then(list => {
+        if (alive) setSubjects(list);
+      });
+    };
+    window.addEventListener('ll:subjectsUpdated', fetchSubjects);
 
     // Listen for new ones created in modal
     const onCreated = (e: Event) => {
@@ -168,6 +189,7 @@ export default function HexUniverseView() {
 
     return () => { 
       alive = false; 
+      window.removeEventListener('ll:subjectsUpdated', fetchSubjects);
       window.removeEventListener('ll:personalProgramCreated', onCreated);
       window.removeEventListener('ll:personalProgramDeleted', onDeleted);
     };
@@ -280,6 +302,10 @@ export default function HexUniverseView() {
     };
   }, [userData?.activeProgramId, userData?.activeProgramIds]);
 
+  const filteredPersonalPrograms = selectedSubjectId
+    ? personalPrograms.filter(p => p.subjectId === selectedSubjectId)
+    : [];
+
   return (
     <div style={{
       height: '100%', overflow: 'auto',
@@ -288,26 +314,25 @@ export default function HexUniverseView() {
       display: 'flex', flexDirection: 'column', alignItems: 'center',
       position: 'relative', padding: '40px 20px'
     }}>
-      <div style={{ textAlign: 'center', marginBottom: 40, zIndex: 2 }}>
-        <h1 style={{
-          fontSize: 'clamp(28px, 6vw, 44px)', margin: '0 0 12px',
-          color: '#c4b5fd', textShadow: '0 0 24px rgba(139,92,246,0.5)', letterSpacing: 2
-        }}>
-          YOUR UNIVERSE
-        </h1>
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-          <button
-            onClick={() => setMyProgramsOpen(true)}
-            className="ll-btn"
-            style={{ padding: '10px 16px', fontSize: 12 }}
-          >
-            📚 My Programs
-          </button>
+      {!selectedSubjectId && (
+        <div style={{ textAlign: 'center', marginBottom: 40, zIndex: 2 }}>
+          <h1 style={{
+            fontSize: 'clamp(28px, 6vw, 44px)', margin: '0 0 12px',
+            color: '#c4b5fd', textShadow: '0 0 24px rgba(139,92,246,0.5)', letterSpacing: 2
+          }}>
+            YOUR UNIVERSE
+          </h1>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, gap: 12 }}>
+            <button
+              onClick={() => setManageSubjectsOpen(true)}
+              className="ll-btn"
+              style={{ padding: '10px 16px', fontSize: 12 }}
+            >
+              ⚙️ My Subjects
+            </button>
+          </div>
         </div>
-        <p style={{ color: 'var(--ll-text-muted)', fontSize: 14, margin: 0 }}>
-          Open your programs or create new ones from your own worksheets
-        </p>
-      </div>
+      )}
 
       {/* Active Programs (portal-style cards) */}
       {activePrograms.length > 0 && (
@@ -374,128 +399,141 @@ export default function HexUniverseView() {
         </div>
       )}
 
-      {/* Custom Programs */}
-      {personalPrograms.length > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: 24,
-          width: '100%',
-          maxWidth: 800,
-          zIndex: 2,
-          marginBottom: 40,
-        }}>
-          {personalPrograms.map((p, i) => (
-            <PersonalProgramCard
-              key={p.jobId}
-              p={p}
-              i={i}
-              onOpenDetails={(prog) => setSelectedProcessingJobId(prog.jobId)}
-            />
-          ))}
+      {/* Custom Subjects / Worksheets View */}
+      {selectedSubjectId ? (
+        <div style={{ width: '100%', maxWidth: 800, zIndex: 2, marginBottom: 40 }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 32 }}>
+            <button className="ll-btn" onClick={() => setSelectedSubjectId(null)} style={{ padding: '6px 12px', fontSize: 12, position: 'absolute', left: 0 }}>
+              ← Back
+            </button>
+            <h2 style={{ color: '#c4b5fd', fontSize: 'clamp(36px, 6vw, 56px)', margin: 0, textShadow: '0 0 32px rgba(139,92,246,0.6)', textAlign: 'center' }}>
+              {`${subjects.find(s => s.id === selectedSubjectId)?.emoji || '📘'} ${subjects.find(s => s.id === selectedSubjectId)?.name || 'Worksheets'}`}
+            </h2>
+            <button
+              onClick={() => setMyProgramsOpen(true)}
+              className="ll-btn"
+              style={{ padding: '10px 16px', fontSize: 12, position: 'absolute', right: 0 }}
+            >
+              📚 My Programs
+            </button>
+          </div>
+          
+          {filteredPersonalPrograms.length > 0 ? (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: 24,
+            }}>
+              {filteredPersonalPrograms.map((p, i) => (
+                <PersonalProgramCard
+                  key={p.jobId}
+                  p={p}
+                  i={i}
+                  onOpenDetails={(prog) => setSelectedProcessingJobId(prog.jobId)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: 'var(--ll-text-muted)', textAlign: 'center', padding: 40 }}>
+              No worksheets in this subject yet.
+            </div>
+          )}
         </div>
+      ) : (
+        <>
+          {/* Subjects Grid */}
+          {(subjects.length > 0 || personalPrograms.filter(p => !p.subjectId).length > 0) && (
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              gap: 20,
+              width: '100%',
+              maxWidth: 800,
+              zIndex: 2,
+              marginBottom: 40,
+            }}>
+              {subjects.map((s, i) => {
+                const count = personalPrograms.filter(p => p.subjectId === s.id).length;
+                const palette = [
+                  '139,92,246', // Purple
+                  '236,72,153', // Pink
+                  '59,130,246', // Blue
+                  '16,185,129', // Green
+                  '249,115,22', // Orange
+                  '6,182,212',  // Cyan
+                  '234,179,8'   // Yellow
+                ];
+                const c = palette[i % palette.length];
+                return (
+                    <div
+                      key={s.id}
+                      onClick={() => setSelectedSubjectId(s.id)}
+                      style={{
+                        background: `linear-gradient(135deg, rgba(${c},0.15) 0%, rgba(${c},0.05) 100%)`,
+                        border: `1px solid rgba(${c},0.3)`,
+                        borderRadius: 24,
+                        padding: '16px',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        animation: `fadeIn ${0.2 + i * 0.05}s ease`,
+                        width: 220,
+                        height: 220,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+                        backdropFilter: 'blur(8px)',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.transform = 'translateY(-6px) scale(1.02)';
+                        e.currentTarget.style.borderColor = `rgba(${c},0.8)`;
+                        e.currentTarget.style.boxShadow = `0 15px 40px rgba(${c},0.25)`;
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.transform = 'none';
+                        e.currentTarget.style.borderColor = `rgba(${c},0.3)`;
+                        e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.1)';
+                      }}
+                    >
+                      <div style={{ 
+                        fontSize: 64, 
+                        marginBottom: 16,
+                        filter: `drop-shadow(0 8px 16px rgba(${c},0.4))`
+                      }}>
+                        {s.emoji}
+                      </div>
+                      <div style={{ 
+                        fontWeight: 800, 
+                        fontSize: 20, 
+                        color: 'var(--ll-text)',
+                        letterSpacing: '0.5px'
+                      }}>
+                        {s.name}
+                      </div>
+                    </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
 
+
       {/* Empty state when no programs */}
-      {activePrograms.length === 0 && personalPrograms.length === 0 && !loadingClassContent && classContent.length === 0 && (
+      {activePrograms.length === 0 && personalPrograms.length === 0 && subjects.length === 0 && (
         <div style={{
           textAlign: 'center', zIndex: 2, marginBottom: 40, maxWidth: 420,
           background: 'var(--ll-surface-1)', borderRadius: 18, padding: '32px 24px',
           border: '1px solid var(--ll-border)',
         }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>📚</div>
-          <div style={{ color: 'var(--ll-text)', fontWeight: 800, fontSize: 16, marginBottom: 8 }}>No Programs Yet</div>
+          <div style={{ color: 'var(--ll-text)', fontWeight: 800, fontSize: 16, marginBottom: 8 }}>No Subjects Yet</div>
           <div style={{ color: 'var(--ll-text-muted)', fontSize: 13, lineHeight: 1.5, marginBottom: 16 }}>
-            Click "My Programs" above to browse public programs, or create your own by uploading worksheets and PDFs.
+            Click "My Subjects" above to create subjects and upload worksheets.
           </div>
-          <button
-            onClick={() => setMyProgramsOpen(true)}
-            className="ll-btn ll-btn-primary"
-            style={{ padding: '10px 20px', fontSize: 13 }}
-          >
-            Get Started
-          </button>
-        </div>
-      )}
-
-      {/* Class Content with filters */}
-      {classContent.length > 0 && (
-        <div style={{ width: '100%', maxWidth: 800, zIndex: 2, marginBottom: 40 }}>
-          <h2 style={{ color: '#c4b5fd', fontSize: 20, margin: '0 0 12px', textAlign: 'center' }}>Class Content</h2>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
-            {/* Class filter */}
-            <select value={classFilter} onChange={e => setClassFilter(e.target.value)} style={{
-              padding: '6px 12px', borderRadius: 8, fontSize: 12, fontFamily: 'inherit',
-              background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)', color: 'var(--ll-text)', cursor: 'pointer', outline: 'none',
-            }}>
-              <option value="all">All Classes</option>
-              {[...new Set(classContent.map(c => c.class_name))].map(cn => (
-                <option key={cn} value={cn}>{cn}</option>
-              ))}
-            </select>
-            {/* Type filter */}
-            {(['all', 'program', 'assignment', 'quiz'] as const).map(t => {
-              const label = t === 'all' ? 'All' : t === 'program' ? '📘 Programs' : t === 'assignment' ? '📝 Quests' : '📋 Quizzes';
-              return (
-                <button key={t} onClick={() => setTypeFilter(t)} style={{
-                  padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit',
-                  background: typeFilter === t ? 'rgba(139,92,246,0.2)' : 'transparent',
-                  border: `1px solid ${typeFilter === t ? 'rgba(139,92,246,0.5)' : 'var(--ll-border)'}`,
-                  color: typeFilter === t ? '#c4b5fd' : 'var(--ll-text-muted)', cursor: 'pointer',
-                }}>{label}</button>
-              );
-            })}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-            {classContent
-              .filter(c => classFilter === 'all' || c.class_name === classFilter)
-              .filter(c => typeFilter === 'all' || c.content_type === typeFilter)
-              .map(item => {
-                const typeColor = item.content_type === 'program' ? '#3b82f6' : item.content_type === 'assignment' ? '#f59e0b' : '#10b981';
-                const typeIcon = item.content_type === 'program' ? '📘' : item.content_type === 'assignment' ? '📝' : '📋';
-                const typeLabel = item.content_type === 'program' ? 'Program' : item.content_type === 'assignment' ? 'Quest' : 'Quiz';
-                return (
-                  <div key={item.id} onClick={() => {
-                    window.dispatchEvent(new CustomEvent('ll:openClassContent', { detail: { contentId: item.id, contentType: item.content_type } }));
-                  }} style={{
-                    background: 'var(--ll-surface-0)', border: '1px solid var(--ll-border)',
-                    borderRadius: 12, padding: 16, cursor: 'pointer', transition: '0.2s',
-                  }} onMouseEnter={e => {
-                    e.currentTarget.style.borderColor = typeColor;
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }} onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = 'var(--ll-border)';
-                    e.currentTarget.style.transform = 'none';
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                      <span style={{ fontSize: 20 }}>{typeIcon}</span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 'bold', fontSize: 14 }}>{item.title}</div>
-                        <div style={{ fontSize: 11, color: 'var(--ll-text-muted)' }}>{item.class_name} • {typeLabel}</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-          {classContent
-            .filter(c => classFilter === 'all' || c.class_name === classFilter)
-            .filter(c => typeFilter === 'all' || c.content_type === typeFilter).length === 0 && (
-            <div style={{ textAlign: 'center', color: 'var(--ll-text-muted)', marginTop: 20, fontSize: 13 }}>No content matches the selected filters.</div>
-          )}
-        </div>
-      )}
-      {loadingClassContent && classContent.length === 0 && (
-        <div style={{ color: 'var(--ll-text-muted)', fontSize: 13, zIndex: 2, marginBottom: 30, textAlign: 'center' }}>
-          <div>Loading class content...</div>
-          {showClassContentRefresh && (
-            <div style={{ marginTop: 16, animation: 'fadeIn 0.5s ease' }}>
-              <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>Taking too long?</div>
-              <button className="ll-btn" onClick={() => window.location.reload()} style={{ padding: '6px 12px', fontSize: 12 }}>
-                Refresh Page
-              </button>
-            </div>
-          )}
         </div>
       )}
 
@@ -510,7 +548,8 @@ export default function HexUniverseView() {
         background: 'radial-gradient(circle at center, rgba(14,165,233,0.05) 0%, transparent 60%)',
         bottom: '10%', right: '5%', pointerEvents: 'none'
       }} />
-      <MyProgramsModal open={myProgramsOpen} onClose={() => setMyProgramsOpen(false)} />
+      <MyProgramsModal open={myProgramsOpen} onClose={() => setMyProgramsOpen(false)} subjectId={selectedSubjectId} />
+      <ManageSubjectsModal open={manageSubjectsOpen} onClose={() => setManageSubjectsOpen(false)} />
       <ProcessingDetailsModal
         open={!!selectedProcessingJobId}
         onClose={() => setSelectedProcessingJobId(null)}

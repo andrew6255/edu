@@ -1,22 +1,22 @@
 {
   "phase": "phase1_ocr",
-  "created_at": "2026-06-19T07:40:21.637780+00:00",
+  "created_at": "2026-06-22T09:51:13.118242+00:00",
   "source": {
-    "file_name": "Calcule Literale.pdf",
-    "title": "Calcule Literale",
+    "file_name": "Free-Addition-and-Subtraction-Worksheet-3-Digit-Numbers-With-Regrouping-2.pdf",
+    "title": "Free Addition and Subtraction Worksheet 3 Digit Numbers With Regrouping 2",
     "mime_type": "application/pdf",
-    "size_bytes": 229427
+    "size_bytes": 44556
   },
   "result": {
     "pages": [
       {
         "page": 1,
         "method": "pix2text",
-        "char_count": 689,
-        "text": "EXERCICE 1 (5 points)\nDévelopper et réduire les expressions suivantes :\nA=4 ( 3 x-5 )\n2.\nB=-2 x ( 4 x+3 )\nC=( x+7 ) ( x-2 )\n3.\n4,\nD=( 5 x-1 ) ( x+4 )-( 2 x+3 ) ( x-1 )\nEXERCICE 2 (5 points)\nFactoriser :\n1.\n1 0 x+1 5\n2.\n1 8 a-6 b\n3.\n1 2 x^{2} y+2 0 x y\n4.\n9 t^{2}-2 4 t+1 6\n5.\n( x-4 ) ( 3 x+2 )+( x-4 ) ( x-5 )\nEXERCICE 3 (2 points)\na.\nExprimer l'aire du carré ABCD en fonction de\nx ,\npuis développer et réduire l'expression\nobtenue.\nLe c6té du carré mesure :\n$$5 x+2$$\nb.\nCalculer l'aire de ce carré lorsque :\n$$x=3$$\nEXERCICE 4 (3 points)\nUn rectangle a pour :\nlongueur :\n4 x+1\nlargeur :\nx-2\na.\nExprimer son aire en fonction de\nx\n.\nb.\nDévelopper et réduire.\nc.\nCalculer I'aire lorsque\nx=5"
+        "char_count": 225,
+        "text": "Addition and Subtraction\nName_\nWith Regrouping_\n425\n279\n595\n+176 +478\n+236\n683\n304\n483\n#149 +198\n+239\n360\n528\n$$\\frac{7 0 2} {-\\frac{4 3 9} {}} \\textcircled{1}$$\nAS\n259\n610\n435\n500\n274\n169\n382\n‘Copyright © Freedclassrooms.com"
       }
     ],
-    "full_text": "EXERCICE 1 (5 points)\nDévelopper et réduire les expressions suivantes :\nA=4 ( 3 x-5 )\n2.\nB=-2 x ( 4 x+3 )\nC=( x+7 ) ( x-2 )\n3.\n4,\nD=( 5 x-1 ) ( x+4 )-( 2 x+3 ) ( x-1 )\nEXERCICE 2 (5 points)\nFactoriser :\n1.\n1 0 x+1 5\n2.\n1 8 a-6 b\n3.\n1 2 x^{2} y+2 0 x y\n4.\n9 t^{2}-2 4 t+1 6\n5.\n( x-4 ) ( 3 x+2 )+( x-4 ) ( x-5 )\nEXERCICE 3 (2 points)\na.\nExprimer l'aire du carré ABCD en fonction de\nx ,\npuis développer et réduire l'expression\nobtenue.\nLe c6té du carré mesure :\n$$5 x+2$$\nb.\nCalculer l'aire de ce carré lorsque :\n$$x=3$$\nEXERCICE 4 (3 points)\nUn rectangle a pour :\nlongueur :\n4 x+1\nlargeur :\nx-2\na.\nExprimer son aire en fonction de\nx\n.\nb.\nDévelopper et réduire.\nc.\nCalculer I'aire lorsque\nx=5",
+    "full_text": "Addition and Subtraction\nName_\nWith Regrouping_\n425\n279\n595\n+176 +478\n+236\n683\n304\n483\n#149 +198\n+239\n360\n528\n$$\\frac{7 0 2} {-\\frac{4 3 9} {}} \\textcircled{1}$$\nAS\n259\n610\n435\n500\n274\n169\n382\n‘Copyright © Freedclassrooms.com",
     "page_count": 1,
     "methods_used": [
       "pix2text"

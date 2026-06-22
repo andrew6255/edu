@@ -186,3 +186,74 @@ export async function getPersonalProgramDebug(req: Request, res: Response): Prom
     res.status(400).json({ error: message });
   }
 }
+
+// ─── IQ Games Specific Endpoints ──────────────────────────────────────────────
+
+export async function extractMcqFromText(req: Request, res: Response): Promise<void> {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== "string") {
+      res.status(400).json({ error: "Text is required" });
+      return;
+    }
+
+    const apiKey = process.env["GEMINI_API_KEY"];
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not configured.");
+    }
+
+    const model = process.env["PROGRAM_INGESTION_GEMINI_MODEL"] ?? "gemini-2.0-flash";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const prompt = `You are an expert curriculum developer. Given the following raw text extracted from an Olympiad/IQ test PDF, identify all the Multiple Choice Questions (MCQs).
+Extract them into a JSON array of objects, where each object has the following structure:
+{
+  "promptRawText": "The question text",
+  "interaction": {
+    "type": "mcq",
+    "choices": ["Choice A text", "Choice B text", "Choice C text", "Choice D text", "Choice E text"],
+    "correctChoiceIndex": 0
+  }
+}
+If the correct answer is not explicitly given in the text, make your best guess for the correctChoiceIndex, but prioritize capturing the question and options accurately.
+Make sure the choices array only contains the text of the option, without the A) or B) prefix.
+
+Raw text:
+${text}
+`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+        },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini request failed with status ${response.status}: ${errorText}`);
+    }
+
+    const payload = await response.json() as any;
+    const responseText = payload.candidates?.[0]?.content?.parts?.map((part: any) => part.text ?? "").join("\n").trim();
+    
+    if (!responseText) {
+      throw new Error("Gemini response did not include any text content.");
+    }
+
+    const trimmed = responseText.trim();
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    const candidate = fenced?.[1] ?? trimmed;
+    const questions = JSON.parse(candidate);
+
+    res.json({ questions });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    res.status(500).json({ error: message });
+  }
+}

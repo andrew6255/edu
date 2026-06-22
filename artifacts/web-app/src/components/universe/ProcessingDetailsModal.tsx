@@ -98,28 +98,34 @@ function useElapsed(startIso: string | undefined, active: boolean): string {
   return elapsed;
 }
 
-export function useSmoothProgress(targetPct: number, isFailed: boolean): number {
+export function useSmoothProgress(targetPct: number, isFailed: boolean, stageUpdatedAt?: string): number {
   const [displayedPct, setDisplayedPct] = useState(targetPct);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
-    if (displayedPct < targetPct) {
-      // Catch up quickly to the target
-      interval = setInterval(() => {
-        setDisplayedPct(p => Math.min(p + 1, targetPct));
-      }, 20);
-    } else if (displayedPct >= targetPct && targetPct < 100 && !isFailed) {
-      // Simulate slow background progress while waiting for next stage
+    
+    // Calculate exactly what the deterministic percentage SHOULD be at this millisecond.
+    const getDeterministicPct = () => {
+      if (isFailed || targetPct === 100) return targetPct;
+      if (!stageUpdatedAt) return targetPct; // Fallback
+
+      const elapsedMs = Date.now() - new Date(stageUpdatedAt).getTime();
+      const fakeTicks = Math.floor(elapsedMs / 1500); // 1 tick per 1.5s
       const cap = Math.min(targetPct + 15, 99);
+      return Math.min(targetPct + fakeTicks, cap);
+    };
+
+    // Initialize/catch up immediately on mount/update
+    setDisplayedPct(getDeterministicPct());
+
+    if (!isFailed && targetPct < 100) {
       interval = setInterval(() => {
-        setDisplayedPct(p => Math.min(p + 1, cap));
+        setDisplayedPct(getDeterministicPct());
       }, 1500);
-    } else if (targetPct === 100 || isFailed) {
-      setDisplayedPct(targetPct);
     }
 
     return () => clearInterval(interval);
-  }, [displayedPct, targetPct, isFailed]);
+  }, [targetPct, isFailed, stageUpdatedAt]);
 
   return displayedPct;
 }
@@ -152,7 +158,7 @@ export default function ProcessingDetailsModal({
   const isActive  = program.status === 'processing';
 
   const targetPct = getProgressPercentage(program.status, program.processingStage);
-  const currentPct = useSmoothProgress(targetPct, isFailed);
+  const currentPct = useSmoothProgress(targetPct, isFailed, program.stageUpdatedAt);
 
   // Which stage index is currently running?
   const activeStageId: string = isReady

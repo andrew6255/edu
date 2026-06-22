@@ -23,8 +23,9 @@ function extractFinalAnswer(value: string): string {
 }
 
 function evaluateNumericExpression(expression: string): number | null {
-  if (!expression || !/^[-+*/().0-9×]+$/.test(expression)) return null;
-  const safe = expression.replace(/×/g, '*');
+  // Allow spaces so "595 + 236" works too
+  if (!expression || !/^[\-+*/().0-9×\s]+$/.test(expression)) return null;
+  const safe = expression.replace(/×/g, '*').replace(/\s+/g, '');
   try {
     const value = Function(`"use strict"; return (${safe});`)();
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -191,6 +192,59 @@ function evaluatePoint(input: TutorEvaluationInput): TutorEvaluationResult {
   };
 }
 
+/**
+ * Pre-check for simple arithmetic questions (e.g. "595+236", "12*7").
+ * Extracts the expression from the question prompt, evaluates it exactly,
+ * then checks if the student's recognized text contains that answer.
+ * Returns a TutorEvaluationResult if it can make a confident determination,
+ * or null to fall through to the LLM.
+ */
+function tryArithmeticPreCheck(input: TutorEvaluationInput): TutorEvaluationResult | null {
+  const question = input.questionPrompt.trim();
+  const studentText = input.recognizedText.trim();
+
+  // Extract a bare arithmetic expression from the question (strips labels/punctuation)
+  const exprMatch = question.match(/([\d][\d\s+\-*/×().]*[\d])/);
+  if (!exprMatch) return null;
+
+  const expr = exprMatch[1].trim();
+  const correctValue = evaluateNumericExpression(expr);
+  if (correctValue === null) return null;
+
+  // Try to extract a number from the student's answer (final number they wrote)
+  const studentNumbers = studentText.match(/-?\d+(?:\.\d+)?/g);
+  if (!studentNumbers || studentNumbers.length === 0) return null;
+
+  // Use the last number the student wrote as their final answer
+  const studentValue = Number(studentNumbers[studentNumbers.length - 1]);
+  if (!Number.isFinite(studentValue)) return null;
+
+  const tolerance = Math.abs(correctValue) < 1 ? 1e-9 : Math.abs(correctValue) * 1e-9;
+  const isCorrect = Math.abs(studentValue - correctValue) <= tolerance;
+
+  if (isCorrect) {
+    return {
+      isCorrect: true,
+      stepStatus: 'correct',
+      detectedMistake: null,
+      studentMessage: `Correct! ${expr} = ${correctValue}.`,
+      hint: null,
+      annotations: [{ type: 'underline', targetText: String(studentValue), text: '✓', color: 'green' }],
+      nextExpectedStep: null,
+    };
+  }
+
+  return {
+    isCorrect: false,
+    stepStatus: 'incorrect',
+    detectedMistake: `Expected ${correctValue}, but got ${studentValue}.`,
+    studentMessage: `Not quite. ${expr} = ${correctValue}, but you wrote ${studentValue}. Double-check your arithmetic.`,
+    hint: `Try computing ${expr} step by step.`,
+    annotations: [{ type: 'circle', targetText: String(studentValue), text: `Should be ${correctValue}`, color: 'red' }],
+    nextExpectedStep: `Write ${expr} = ${correctValue}.`,
+  };
+}
+
 export class AiTutorService {
   getStatus(): TutorStatusResult {
     const { apiKey, model } = getAiTutorProviderConfig();
@@ -200,6 +254,14 @@ export class AiTutorService {
   }
 
   async evaluateWork(input: TutorEvaluationInput): Promise<TutorEvaluationResult> {
+    // 1. Try deterministic arithmetic pre-check first (no LLM, no hallucinations)
+    const arithmeticResult = tryArithmeticPreCheck(input);
+    if (arithmeticResult) {
+      console.log('[ai-tutor] arithmetic pre-check resolved evaluation deterministically');
+      return arithmeticResult;
+    }
+
+    // 2. Try external AI provider
     const external = getExternalAiTutorProvider();
     if (external) {
       try {

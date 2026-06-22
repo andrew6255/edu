@@ -21,10 +21,51 @@ import {
 import { getUserDoc } from '@/lib/supabaseDocStore';
 import { getProgramProgress, toggleQuestionSolved } from '@/lib/programProgress';
 import FullScreenWorkspace from '@/components/FullScreenWorkspace';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 
 interface Props {
   programId: string | null;
   onBack: () => void;
+}
+
+function renderWithMath(text: string) {
+  if (!text) return null;
+  const parts = text.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/);
+  return (
+    <span>
+      {parts.map((part, i) => {
+        if (part.startsWith('$$') && part.endsWith('$$')) {
+          const math = part.slice(2, -2);
+          try {
+            return (
+              <span
+                key={i}
+                dangerouslySetInnerHTML={{
+                  __html: katex.renderToString(math, { displayMode: true, throwOnError: false }),
+                }}
+              />
+            );
+          } catch { return <span key={i}>{part}</span>; }
+        }
+        if (part.startsWith('$') && part.endsWith('$')) {
+          const math = part.slice(1, -1);
+          try {
+            return (
+              <span
+                key={i}
+                dangerouslySetInnerHTML={{
+                  __html: katex.renderToString(math, { displayMode: false, throwOnError: false }),
+                }}
+              />
+            );
+          } catch { return <span key={i}>{part}</span>; }
+        }
+        // Plain text — preserve newlines
+        return <span key={i} style={{ whiteSpace: 'pre-wrap' }}>{part}</span>;
+      })}
+    </span>
+  );
 }
 
 export default function PersonalProgramView({ programId, onBack }: Props) {
@@ -547,7 +588,7 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
                             fontSize: 14, color: 'var(--ll-text-soft)', lineHeight: 1.6,
                             fontFamily: 'inherit',
                           }}>
-                            {previewText}
+                            {renderWithMath(previewText)}
                           </div>
                           <div style={{ marginTop: 12, fontSize: 11, color: 'var(--ll-text-muted)' }}>
                             Page {question.page}
@@ -593,7 +634,7 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
                     <span style={{ fontSize: 14, marginLeft: 'auto' }}>{isAnswered ? '📝' : '✏️'}</span>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--ll-text-soft)', lineHeight: 1.5, maxHeight: 54, overflow: 'hidden' }}>
-                    {question.rawText.length > 120 ? question.rawText.slice(0, 120) + '...' : question.rawText}
+                    {renderWithMath(question.rawText.length > 120 ? question.rawText.slice(0, 120) + '...' : question.rawText)}
                   </div>
                 </div>
               );

@@ -12,6 +12,7 @@ import LogicGamesView from '@/views/LogicGamesView';
 import ProgramMapView from '@/views/ProgramMapView';
 import StudySessionsView from '@/views/StudySessionsView';
 import ClassesView from '@/views/ClassesView';
+import LobbyView from '@/views/LobbyView';
 
 const PersonalProgramView = lazy(() => import('@/views/PersonalProgramView'));
 
@@ -26,7 +27,8 @@ export type View =
   | 'studySessions'
   | 'classes'
   | 'notifications'
-  | 'friends';
+  | 'friends'
+  | 'lobby';
 
 export default function AppPage() {
   const { user, userData, loading, refreshUserData } = useAuth();
@@ -159,8 +161,8 @@ export default function AppPage() {
         return <LogicGamesView />;
       case 'classes':
         return <ClassesView pendingContentId={pendingContentId} pendingContentType={pendingContentType} onPendingHandled={() => { setPendingContentId(null); setPendingContentType(null); }} />;
-      case 'profile':
-        return <ProfileView />;
+      case 'lobby':
+        return <LobbyView />;
       default:
         return <HexUniverseView />;
     }

@@ -10,6 +10,7 @@ import {
   createPersonalProgramJob,
   getPersonalProgramStatus,
   getPersonalProgramDebug,
+  extractMcqFromText,
 } from "./controller";
 
 const router: IRouter = Router();
@@ -26,5 +27,8 @@ router.post("/program-ingestion/:jobId/publish", publishProgramIngestionJob);
 router.post("/program-ingestion/personal", createPersonalProgramJob);
 router.get("/program-ingestion/personal/:jobId/status", getPersonalProgramStatus);
 router.get("/program-ingestion/personal/:jobId/debug", getPersonalProgramDebug);
+
+// IQ Games API endpoints
+router.post("/program-ingestion/extract-mcq", extractMcqFromText);
 
 export default router;
