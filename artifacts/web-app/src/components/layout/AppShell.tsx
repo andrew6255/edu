@@ -13,6 +13,7 @@ import { getMyRunningQuizzes } from '@/lib/studentService';
 import type { AppNotification } from '@/lib/userService';
 import { createLinkingCode, getMyLinkingCode, getLinkedParent } from '@/lib/linkingService';
 import ProfileView from '@/views/ProfileView';
+import { useToast } from '@/hooks/use-toast';
 
 type View =
   | 'emporium'
@@ -126,25 +127,51 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
     };
   }, [user, view, activeSession]);
 
+  const { toast } = useToast();
+  const prevUnreadIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     const uid = user?.uid;
     if (!uid) return;
+    
+    // Helper to process docs and show toasts for new ones
+    const processDocs = (docs: any[], isInitial: boolean) => {
+      const unreadDocs = docs.filter(d => !(d.data as any).read);
+      setNotifBadgeCount(unreadDocs.length);
+      
+      if (!isInitial) {
+        const currentUnreadIds = new Set(unreadDocs.map(d => d.id));
+        for (const doc of unreadDocs) {
+          if (!prevUnreadIdsRef.current.has(doc.id)) {
+            // New unread notification!
+            const data = doc.data as any;
+            toast({
+              title: data.type === 'friendRequest' ? 'Friend Request' : 
+                     data.type === 'lobbyJoinRequest' ? 'Party Request' :
+                     data.type === 'lobbyInvite' ? 'Party Invite' : 'Notification',
+              description: data.message,
+              duration: 4000,
+            });
+          }
+        }
+        prevUnreadIdsRef.current = currentUnreadIds;
+      } else {
+        prevUnreadIdsRef.current = new Set(unreadDocs.map(d => d.id));
+      }
+    };
+
     // Initial fetch
-    queryGlobalDocs(`notifications:${uid}`).then(docs => {
-      const count = docs.reduce((acc, d) => acc + ((d.data as any).read ? 0 : 1), 0);
-      setNotifBadgeCount(count);
-    }).catch(() => setNotifBadgeCount(0));
+    queryGlobalDocs(`notifications:${uid}`).then(docs => processDocs(docs, true))
+      .catch(() => setNotifBadgeCount(0));
+      
     // Realtime listener
     const unsub = listenGlobalCollection(
       `notifications:${uid}`,
       [],
-      docs => {
-        const count = docs.reduce((acc, d) => acc + ((d.data as any).read ? 0 : 1), 0);
-        setNotifBadgeCount(count);
-      }
+      docs => processDocs(docs, false)
     );
     return unsub;
-  }, [user]);
+  }, [user, toast]);
 
   const gold = userData?.economy?.gold ?? 0;
   const xp = userData?.economy?.global_xp ?? 0;
