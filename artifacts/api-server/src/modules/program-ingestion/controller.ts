@@ -197,14 +197,12 @@ export async function extractMcqFromText(req: Request, res: Response): Promise<v
       return;
     }
 
-    const apiKey = process.env["GEMINI_API_KEY"];
+    const apiKey = process.env["GROQ_API_KEY"];
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is not configured.");
+      throw new Error("GROQ_API_KEY is not configured.");
     }
 
-    const model = process.env["PROGRAM_INGESTION_GEMINI_MODEL"] ?? "gemini-2.0-flash";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
+    const url = "https://api.groq.com/openai/v1/chat/completions";
     const prompt = `You are an expert curriculum developer. Given the following raw text extracted from an Olympiad/IQ test PDF, identify all the Multiple Choice Questions (MCQs).
 Extract them into a JSON array of objects, where each object has the following structure:
 {
@@ -216,7 +214,7 @@ Extract them into a JSON array of objects, where each object has the following s
   }
 }
 If the correct answer is not explicitly given in the text, make your best guess for the correctChoiceIndex, but prioritize capturing the question and options accurately.
-Make sure the choices array only contains the text of the option, without the A) or B) prefix.
+Make sure the choices array only contains the text of the option, without the A) or B) prefix. Output ONLY valid JSON array and nothing else.
 
 Raw text:
 ${text}
@@ -224,34 +222,51 @@ ${text}
 
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
       body: JSON.stringify({
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: "application/json",
-        },
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "You output valid JSON arrays. Since response_format requires an object, output an object with a 'questions' key containing the array." },
+          { role: "user", content: prompt }
+        ],
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Gemini request failed with status ${response.status}: ${errorText}`);
+      throw new Error(`Groq request failed with status ${response.status}: ${errorText}`);
     }
 
     const payload = await response.json() as any;
-    const responseText = payload.candidates?.[0]?.content?.parts?.map((part: any) => part.text ?? "").join("\n").trim();
+    let responseText = payload.choices?.[0]?.message?.content?.trim();
     
     if (!responseText) {
-      throw new Error("Gemini response did not include any text content.");
+      throw new Error("Groq response did not include any text content.");
     }
 
     const trimmed = responseText.trim();
-    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    const candidate = fenced?.[1] ?? trimmed;
-    const questions = JSON.parse(candidate);
+    let jsonArray;
+    try {
+      const parsed = JSON.parse(trimmed);
+      jsonArray = Array.isArray(parsed) ? parsed : (parsed.questions || []);
+    } catch (e) {
+      const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      const toParse = fenced ? fenced[1].trim() : trimmed;
+      const parsed = JSON.parse(toParse);
+      jsonArray = Array.isArray(parsed) ? parsed : (parsed.questions || []);
+    }
 
-    res.json({ questions });
+    const formattedQuestions = jsonArray.map((item: any) => ({
+      promptRawText: item.promptRawText,
+      interaction: item.interaction
+    }));
+
+    res.json({ questions: formattedQuestions });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     res.status(500).json({ error: message });

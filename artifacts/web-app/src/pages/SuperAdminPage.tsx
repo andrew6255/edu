@@ -45,16 +45,10 @@ import {
 } from '@/lib/programQuestionBank';
 import {
   deleteDraftLogicGameNode,
-  deletePublishedLogicGameNode,
   getDraftLogicGameQuestions,
   listDraftLogicGameNodes,
-  listPublishedLogicGameNodes,
-  publishLogicGameQuestions,
   upsertDraftLogicGameNode,
   upsertDraftLogicGameQuestions,
-  getPublishedLogicGameQuestions,
-  upsertPublishedLogicGameNode,
-  upsertPublishedLogicGameQuestions,
 } from '@/lib/logicGamesService';
 import ProgramMapView from '@/views/ProgramMapView';
 import { clearDraftProgram, setDraftProgram } from '@/lib/draftProgramStore';
@@ -972,12 +966,9 @@ function LogicGamesAdmin() {
     setErr(null);
     setStatus(null);
     try {
-      const pub = await listPublishedLogicGameNodes();
+      const pub = await listDraftLogicGameNodes();
       setNodes(pub);
-      if (!selectedNodeId && pub.length > 0) setSelectedNodeId(pub[0].id);
-      if (selectedNodeId && pub.every((n) => n.id !== selectedNodeId)) {
-        setSelectedNodeId(pub[0]?.id ?? null);
-      }
+      
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -992,7 +983,7 @@ function LogicGamesAdmin() {
     }
     setQuestionsLoading(true);
     try {
-      const doc = await getPublishedLogicGameQuestions(selectedNodeId);
+      const doc = await getDraftLogicGameQuestions(selectedNodeId);
       setQuestions(doc ? doc.questions : []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -1018,8 +1009,8 @@ function LogicGamesAdmin() {
       const nextIq = nodes.length > 0 ? (nodes[nodes.length - 1].iq ?? 80) + 10 : 80;
       const id = `iq-${nextIq}`;
       const node: LogicGameNode = { id, iq: nextIq, order: nextOrder, label: `Level ${nodes.length + 1}` };
-      await upsertPublishedLogicGameNode(node);
-      await upsertPublishedLogicGameQuestions(id, { questions: [], updatedAt: new Date().toISOString() });
+      await upsertDraftLogicGameNode(node);
+      await upsertDraftLogicGameQuestions(id, { questions: [], updatedAt: new Date().toISOString() });
 
       setNodes((prev) => {
         const next = prev.some((n) => n.id === node.id) ? prev : [...prev, node];
@@ -1043,7 +1034,7 @@ function LogicGamesAdmin() {
 
     setSaving(true);
     try {
-      await upsertPublishedLogicGameNode({ ...n, label });
+      await upsertDraftLogicGameNode({ ...n, label });
       setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, label } : x)));
       setStatus('✅ Renamed');
     } catch (e) {
@@ -1060,7 +1051,7 @@ function LogicGamesAdmin() {
     if (!n) return;
     setSaving(true);
     try {
-      await upsertPublishedLogicGameNode({ ...n, iq: nextIq });
+      await upsertDraftLogicGameNode({ ...n, iq: nextIq });
       setNodes((prev) =>
         prev
           .map((x) => (x.id === nodeId ? { ...x, iq: nextIq } : x))
@@ -1079,7 +1070,7 @@ function LogicGamesAdmin() {
     if (!window.confirm('Delete this level and all its questions? This cannot be undone.')) return;
     setSaving(true);
     try {
-      await deletePublishedLogicGameNode(nodeId);
+      await deleteDraftLogicGameNode(nodeId);
       if (selectedNodeId === nodeId) setSelectedNodeId(null);
       await load();
       setStatus('✅ Level deleted');
@@ -1094,7 +1085,7 @@ function LogicGamesAdmin() {
     if (!selectedNodeId) return;
     setSaving(true);
     try {
-      await upsertPublishedLogicGameQuestions(selectedNodeId, {
+      await upsertDraftLogicGameQuestions(selectedNodeId, {
         questions: newQuestions,
         updatedAt: new Date().toISOString()
       });
@@ -1145,7 +1136,8 @@ function LogicGamesAdmin() {
       setPdfError('OCR complete. Extracting questions using AI...');
 
       // 2. Pass extracted text to our new endpoint
-      const aiRes = await fetch('/api/program-ingestion/extract-mcq', {
+      const apiUrl = import.meta.env.VITE_API_SERVER_URL || '';
+      const aiRes = await fetch(`${apiUrl}/api/program-ingestion/extract-mcq`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: ocrRes.rawText })
@@ -1187,72 +1179,82 @@ function LogicGamesAdmin() {
     <div style={{ animation: 'fadeIn 0.3s ease', display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, flexShrink: 0 }}>
         <h3 style={{ color: 'white', margin: 0, fontSize: 16 }}>🧠 IQ Games</h3>
-        <button onClick={load} className="ll-btn" style={{ padding: '7px 14px', fontSize: 12 }}>
-          ↺ Refresh
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}><button onClick={load} className="ll-btn" style={{ padding: '7px 14px', fontSize: 12 }}>↺ Refresh</button>
+          <button 
+            onClick={async () => {
+              if (!window.confirm('Publish all edits to all students now?')) return;
+              setSaving(true); setStatus(null); setErr(null);
+              try {
+                await import('@/lib/logicGamesService').then(m => m.publishAllLogicGames());
+                setStatus('✅ Published all questions successfully!');
+              } catch(e) {
+                setErr(e instanceof Error ? e.message : String(e));
+              } finally {
+                setSaving(false);
+              }
+            }} 
+            disabled={saving}
+            className="ll-btn ll-btn-primary" style={{ padding: '7px 14px', fontSize: 12, fontWeight: 'bold' }}>
+            🚀 Publish to Students
+          </button>
+</div>
       </div>
 
       {err && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10, flexShrink: 0 }}>{err}</div>}
       {status && <div style={{ color: '#34d399', fontSize: 12, marginBottom: 10, flexShrink: 0 }}>{status}</div>}
 
       {/* Main layout */}
-      <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
-        {/* Left Panel: Levels */}
-        <div style={{ width: 320, display: 'flex', flexDirection: 'column', background: '#1e293b', border: '1px solid #334155', borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: 12, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ color: 'white', fontWeight: 900, fontSize: 13 }}>Levels</div>
-            <div style={{ color: '#64748b', fontSize: 11 }}>{nodes.length}</div>
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {nodes.map((n) => {
-              const active = n.id === selectedNodeId;
-              return (
-                <div key={n.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <button
-                    onClick={() => setSelectedNodeId(n.id)}
-                    className="ll-btn"
-                    style={{
-                      flex: 1, textAlign: 'left', padding: '10px', borderRadius: 8,
-                      background: active ? 'rgba(168,85,247,0.15)' : 'rgba(15,23,42,0.5)',
-                      border: active ? '1px solid rgba(168,85,247,0.5)' : '1px solid #334155',
-                      color: active ? '#d8b4fe' : 'white', fontWeight: 900
-                    }}
-                  >
-                    {n.label}
-                    <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 'normal', marginTop: 2 }}>IQ Threshold: {n.iq}</div>
-                  </button>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <button className="ll-btn" title="Edit" onClick={() => renameNode(n.id)} style={{ padding: '4px', borderRadius: 6, fontSize: 12 }}>✎</button>
-                    <button className="ll-btn" title="Delete" onClick={() => deleteNode(n.id)} style={{ padding: '4px', borderRadius: 6, fontSize: 12, color: '#fca5a5' }}>🗑</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ padding: 12, borderTop: '1px solid #334155' }}>
-             <button onClick={addNode} disabled={saving} className="ll-btn ll-btn-primary" style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 'bold' }}>
-               + Add New Level
-             </button>
-          </div>
-        </div>
-
-        {/* Right Panel: Questions */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0f172a', border: '1px solid #334155', borderRadius: 12, overflow: 'hidden' }}>
-          {selectedNodeId ? (
-             <>
-               <div style={{ padding: 12, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b' }}>
-                  <div>
-                    <div style={{ color: 'white', fontWeight: 900, fontSize: 14 }}>
-                      {nodes.find(n => n.id === selectedNodeId)?.label} Questions
+      <div style={{ display: 'flex', justifyContent: 'center', flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 20px' }}>
+        {!selectedNodeId ? (
+          <div style={{ width: '100%', maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', padding: 16, borderRadius: 12, border: '1px solid #334155' }}>
+              <div>
+                <h2 style={{ color: 'white', margin: 0, fontSize: 20 }}>Levels Management</h2>
+                <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>{nodes.length} total levels available.</div>
+              </div>
+              <button onClick={addNode} disabled={saving} className="ll-btn ll-btn-primary" style={{ padding: '10px 20px', fontSize: 14, fontWeight: 'bold' }}>
+                + Add New Level
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, paddingBottom: 40 }}>
+              {nodes.map((n) => (
+                <div key={n.id} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ color: 'white', fontWeight: 900, fontSize: 18 }}>{n.label}</div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="ll-btn" title="Edit Name" onClick={(e) => { e.stopPropagation(); renameNode(n.id); }} style={{ padding: '6px 10px', borderRadius: 8, fontSize: 13, background: 'rgba(255,255,255,0.05)' }}>✎</button>
+                      <button className="ll-btn" title="Delete" onClick={(e) => { e.stopPropagation(); deleteNode(n.id); }} style={{ padding: '6px 10px', borderRadius: 8, fontSize: 13, color: '#fca5a5', background: 'rgba(239,68,68,0.1)' }}>🗑</button>
                     </div>
-                    <div style={{ color: '#64748b', fontSize: 11 }}>{questions.length} questions</div>
                   </div>
-                  <button onClick={() => setAddModalOpen(true)} className="ll-btn ll-btn-primary" style={{ padding: '8px 16px', fontSize: 13, fontWeight: 'bold' }}>
-                    + Add Questions
+                  <div style={{ fontSize: 13, color: '#94a3b8', background: '#0f172a', padding: '8px 12px', borderRadius: 8, display: 'inline-block', alignSelf: 'flex-start' }}>
+                    IQ Threshold: <span style={{ color: '#d8b4fe', fontWeight: 'bold', marginLeft: 4 }}>{n.iq}</span>
+                  </div>
+                  <button onClick={() => setSelectedNodeId(n.id)} className="ll-btn" style={{ marginTop: 'auto', padding: '12px', background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.3)', color: '#d8b4fe', fontWeight: 'bold', fontSize: 14, borderRadius: 8 }}>
+                    Open Level ➔
                   </button>
-               </div>
-               
-               <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ width: '100%', maxWidth: 1000, display: 'flex', flexDirection: 'column', background: '#0f172a', border: '1px solid #334155', borderRadius: 12, overflow: 'hidden', margin: '0 auto', height: '100%' }}>
+            <div style={{ padding: 16, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <button onClick={() => setSelectedNodeId(null)} className="ll-btn" style={{ padding: '8px 14px', fontSize: 14, background: 'rgba(255,255,255,0.1)' }}>
+                  ← Back to Levels
+                </button>
+                <div>
+                  <div style={{ color: 'white', fontWeight: 900, fontSize: 18 }}>
+                    {nodes.find(n => n.id === selectedNodeId)?.label}
+                  </div>
+                  <div style={{ color: '#a855f7', fontSize: 13, fontWeight: 'bold' }}>{questions.length} questions</div>
+                </div>
+              </div>
+              <button onClick={() => setAddModalOpen(true)} className="ll-btn ll-btn-primary" style={{ padding: '10px 20px', fontSize: 14, fontWeight: 'bold' }}>
+                + Add Questions
+              </button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
                  {questionsLoading ? (
                    <div style={{ color: '#94a3b8' }}>Loading questions...</div>
                  ) : questions.length === 0 ? (
@@ -1371,212 +1373,11 @@ function LogicGamesAdmin() {
                    </div>
                  )}
                </div>
-             </>
-          ) : (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-              Select a level to view or add questions.
-            </div>
-          )}
-        </div>
-      </div>
-      
-      {/* ADD QUESTIONS MODAL */}
-      {addModalOpen && (
-        <>
-          <div onClick={() => setAddModalOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000 }} />
-          <div style={{
-            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-            background: '#1e293b', border: '1px solid #475569', borderRadius: 16, width: 'min(800px, 95vw)',
-            maxHeight: '90vh', display: 'flex', flexDirection: 'column', zIndex: 1001
-          }}>
-            <div style={{ padding: 16, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, color: 'white', fontSize: 18 }}>Add Questions</h3>
-              <button onClick={() => setAddModalOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 20 }}>×</button>
-            </div>
-            
-            <div style={{ display: 'flex', borderBottom: '1px solid #334155' }}>
-              <button 
-                onClick={() => setAddModalTab('manual')}
-                style={{ flex: 1, padding: 12, background: addModalTab === 'manual' ? 'rgba(168,85,247,0.1)' : 'transparent', color: addModalTab === 'manual' ? '#c084fc' : '#94a3b8', border: 'none', borderBottom: addModalTab === 'manual' ? '2px solid #c084fc' : '2px solid transparent', fontWeight: 'bold', cursor: 'pointer' }}
-              >
-                Manual Entry
-              </button>
-              <button 
-                onClick={() => setAddModalTab('pdf')}
-                style={{ flex: 1, padding: 12, background: addModalTab === 'pdf' ? 'rgba(168,85,247,0.1)' : 'transparent', color: addModalTab === 'pdf' ? '#c084fc' : '#94a3b8', border: 'none', borderBottom: addModalTab === 'pdf' ? '2px solid #c084fc' : '2px solid transparent', fontWeight: 'bold', cursor: 'pointer' }}
-              >
-                Upload PDF
-              </button>
-            </div>
-            
-            <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
-              {addModalTab === 'manual' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <div>
-                    <label style={{ display: 'block', color: '#cbd5e1', marginBottom: 8, fontWeight: 'bold' }}>Question Prompt</label>
-                    <textarea 
-                      value={manualPrompt} onChange={(e) => setManualPrompt(e.target.value)}
-                      placeholder="Type the question text here..."
-                      style={{ width: '100%', minHeight: 100, padding: 12, borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', resize: 'vertical' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', color: '#cbd5e1', marginBottom: 8, fontWeight: 'bold' }}>Choices & Correct Answer</label>
-                    {manualChoices.map((choice, idx) => (
-                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                        <input 
-                          type="radio" name="manualCorrect" checked={manualCorrectIndex === idx}
-                          onChange={() => setManualCorrectIndex(idx)}
-                          style={{ width: 18, height: 18, cursor: 'pointer' }}
-                        />
-                        <div style={{ color: '#94a3b8', fontWeight: 'bold', width: 20 }}>{String.fromCharCode(65 + idx)}</div>
-                        <input 
-                          value={choice} onChange={(e) => {
-                            const nc = [...manualChoices];
-                            nc[idx] = e.target.value;
-                            setManualChoices(nc);
-                          }}
-                          placeholder={`Option ${String.fromCharCode(65 + idx)}`}
-                          style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white' }}
-                        />
-                      </div>
-                    ))}
-                    <button 
-                      onClick={() => setManualChoices([...manualChoices, ''])}
-                      style={{ background: 'none', border: '1px dashed #475569', color: '#94a3b8', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', marginTop: 4 }}
-                    >
-                      + Add Option
-                    </button>
-                  </div>
-                  
-                  <button onClick={handleAddManualQuestion} className="ll-btn ll-btn-primary" style={{ padding: '12px', fontSize: 15, fontWeight: 'bold', marginTop: 10 }}>
-                    Add Question
-                  </button>
-                </div>
-              )}
-              
-              {addModalTab === 'pdf' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  {!extractedQuestions ? (
-                    <>
-                      <div style={{ background: '#0f172a', border: '2px dashed #475569', borderRadius: 12, padding: 40, textAlign: 'center' }}>
-                         <div style={{ fontSize: 40, marginBottom: 16 }}>📄</div>
-                         <div style={{ color: 'white', fontWeight: 'bold', marginBottom: 8 }}>Upload Olympiad PDF</div>
-                         <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 20 }}>We will automatically extract all MCQ questions and answers.</div>
-                         
-                         <input 
-                           type="file" accept="application/pdf"
-                           onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
-                           style={{ display: 'none' }} id="pdf-upload"
-                         />
-                         <label htmlFor="pdf-upload" className="ll-btn ll-btn-primary" style={{ display: 'inline-block', padding: '10px 20px', cursor: 'pointer', fontWeight: 'bold' }}>
-                           {pdfFile ? pdfFile.name : 'Choose File'}
-                         </label>
-                      </div>
-                      
-                      {pdfError && <div style={{ color: '#fca5a5', padding: 12, background: 'rgba(239,68,68,0.1)', borderRadius: 8 }}>{pdfError}</div>}
-                      
-                      <button 
-                        onClick={handleExtractFromPdf}
-                        disabled={!pdfFile || pdfExtracting}
-                        className="ll-btn ll-btn-primary" 
-                        style={{ padding: '12px', fontSize: 15, fontWeight: 'bold', opacity: (!pdfFile || pdfExtracting) ? 0.5 : 1 }}
-                      >
-                        {pdfExtracting ? 'Extracting questions (this may take a minute)...' : 'Extract Questions'}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                         <div style={{ color: '#34d399', fontWeight: 'bold' }}>✅ Extracted {extractedQuestions.length} questions</div>
-                         <button onClick={() => { setExtractedQuestions(null); setPdfFile(null); }} className="ll-btn">Start Over</button>
-                       </div>
-                       
-                       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
-                         {extractedQuestions.map((q, qIndex) => (
-                           <div key={qIndex} style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 12, padding: 16 }}>
-                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                               <div style={{ color: '#94a3b8', fontWeight: 'bold', fontSize: 12 }}>Extracted Question {qIndex + 1}</div>
-                               <button 
-                                 onClick={() => setExtractedQuestions(extractedQuestions.filter((_, i) => i !== qIndex))}
-                                 className="ll-btn" style={{ padding: '4px 8px', fontSize: 12, color: '#fca5a5' }}
-                               >
-                                 🗑 Remove
-                               </button>
-                             </div>
-                             
-                             <textarea
-                               value={q.promptRawText || (q.promptBlocks?.[0] as any)?.text || ''}
-                               onChange={(e) => {
-                                 const nq = [...extractedQuestions];
-                                 nq[qIndex].promptRawText = e.target.value;
-                                 nq[qIndex].promptBlocks = [{ type: 'text', text: e.target.value }];
-                                 setExtractedQuestions(nq);
-                               }}
-                               style={{ width: '100%', minHeight: 60, padding: 10, borderRadius: 8, background: '#1e293b', border: '1px solid #475569', color: 'white', marginBottom: 12, outline: 'none' }}
-                             />
-                             
-                             {q.interaction.type === 'mcq' && (
-                               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                 {q.interaction.choices.map((choice, cIndex) => (
-                                   <div key={cIndex} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                     <button
-                                       onClick={() => {
-                                         const nq = [...extractedQuestions];
-                                         if (nq[qIndex].interaction.type === 'mcq') {
-                                           (nq[qIndex].interaction as any).correctChoiceIndex = cIndex;
-                                           setExtractedQuestions(nq);
-                                         }
-                                       }}
-                                       style={{
-                                         width: 28, height: 28, borderRadius: '50%', border: 'none',
-                                         background: q.interaction.type === 'mcq' && q.interaction.correctChoiceIndex === cIndex ? '#22c55e' : '#334155',
-                                         color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: 12
-                                       }}
-                                     >
-                                       {String.fromCharCode(65 + cIndex)}
-                                     </button>
-                                     <input
-                                       value={choice}
-                                       onChange={(e) => {
-                                          const nq = [...extractedQuestions];
-                                          if (nq[qIndex].interaction.type === 'mcq') {
-                                            (nq[qIndex].interaction as any).choices[cIndex] = e.target.value;
-                                            setExtractedQuestions(nq);
-                                          }
-                                       }}
-                                       style={{ flex: 1, padding: '6px 10px', borderRadius: 8, background: '#1e293b', border: '1px solid #475569', color: 'white', outline: 'none', fontSize: 13 }}
-                                     />
-                                   </div>
-                                 ))}
-                               </div>
-                             )}
-                           </div>
-                         ))}
-                       </div>
-                       
-                       <button 
-                         onClick={async () => {
-                           await saveQuestionsList([...questions, ...extractedQuestions]);
-                           setAddModalOpen(false);
-                           setExtractedQuestions(null);
-                           setPdfFile(null);
-                         }} 
-                         className="ll-btn ll-btn-primary" 
-                         style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', marginTop: 20 }}
-                       >
-                         Add All {extractedQuestions.length} Questions to Level
-                       </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+             
           </div>
-        </>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    </div>  );
 }
 
 

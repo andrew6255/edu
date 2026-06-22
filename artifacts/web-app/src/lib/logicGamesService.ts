@@ -1,4 +1,4 @@
-import { requireSupabase } from '@/lib/supabase';
+import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import type { LogicGameNode, LogicGameQuestionsDoc, LogicGamesProgressDoc } from '@/types/logicGames';
 
 const NODES_PUBLIC_COL = 'logic_game_nodes_public';
@@ -55,7 +55,7 @@ async function listNodes(table: string): Promise<LogicGameNode[]> {
 
 async function upsertNode(table: string, node: LogicGameNode, publishedAt?: string): Promise<void> {
   const now = new Date().toISOString();
-  const supabase = requireSupabase();
+  const supabase = getAdminClient();
   const payload: Record<string, unknown> = {
     id: node.id,
     iq: node.iq,
@@ -64,7 +64,7 @@ async function upsertNode(table: string, node: LogicGameNode, publishedAt?: stri
     updated_at: now,
   };
   if (publishedAt) payload.published_at = publishedAt;
-  const { error } = await supabase.from(table).upsert(payload);
+  const { error } = await supabase.from(table as any).upsert(payload as any);
   if (error) throw error;
 }
 
@@ -79,8 +79,8 @@ async function getQuestions(table: string, nodeId: string): Promise<LogicGameQue
 
 async function replaceQuestions(table: string, nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>, publishedAt?: string): Promise<void> {
   const now = new Date().toISOString();
-  const supabase = requireSupabase();
-  const { error: deleteError } = await supabase.from(table).delete().eq('node_id', nodeId);
+  const supabase = getAdminClient();
+  const { error: deleteError } = await supabase.from(table as any).delete().eq('node_id', nodeId);
   if (deleteError) throw deleteError;
   if (docData.questions.length === 0) return;
   const rows = docData.questions.map((q, idx) => ({
@@ -97,7 +97,7 @@ async function replaceQuestions(table: string, nodeId: string, docData: Omit<Log
     updated_at: now,
     ...(publishedAt ? { published_at: publishedAt } : {}),
   }));
-  const { error } = await supabase.from(table).insert(rows);
+  const { error } = await supabase.from(table as any).insert(rows as any);
   if (error) throw error;
 }
 
@@ -110,10 +110,10 @@ export async function upsertPublishedLogicGameNode(node: LogicGameNode): Promise
 }
 
 export async function deletePublishedLogicGameNode(nodeId: string): Promise<void> {
-  const supabase = requireSupabase();
-  const { error: qError } = await supabase.from(QUESTIONS_PUBLIC_COL).delete().eq('node_id', nodeId);
+  const supabase = getAdminClient();
+  const { error: qError } = await supabase.from(QUESTIONS_PUBLIC_COL as any).delete().eq('node_id', nodeId);
   if (qError) throw qError;
-  const { error } = await supabase.from(NODES_PUBLIC_COL).delete().eq('id', nodeId);
+  const { error } = await supabase.from(NODES_PUBLIC_COL as any).delete().eq('id', nodeId);
   if (error) throw error;
 }
 
@@ -161,10 +161,10 @@ export async function upsertDraftLogicGameNode(node: LogicGameNode): Promise<voi
 }
 
 export async function deleteDraftLogicGameNode(nodeId: string): Promise<void> {
-  const supabase = requireSupabase();
-  const { error: qError } = await supabase.from(QUESTIONS_DRAFT_COL).delete().eq('node_id', nodeId);
+  const supabase = getAdminClient();
+  const { error: qError } = await supabase.from(QUESTIONS_DRAFT_COL as any).delete().eq('node_id', nodeId);
   if (qError) throw qError;
-  const { error } = await supabase.from(NODES_DRAFT_COL).delete().eq('id', nodeId);
+  const { error } = await supabase.from(NODES_DRAFT_COL as any).delete().eq('id', nodeId);
   if (error) throw error;
 }
 
@@ -197,4 +197,24 @@ export async function publishLogicGameQuestions(nodeId: string): Promise<void> {
 
 export async function upsertPublishedLogicGameQuestions(nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>): Promise<void> {
   await replaceQuestions(QUESTIONS_PUBLIC_COL, nodeId, docData);
+}
+
+
+export async function publishAllLogicGames(): Promise<void> {
+  const drafts = await listDraftLogicGameNodes();
+  const publicNodes = await listPublishedLogicGameNodes();
+  
+  // Delete public nodes that are no longer in drafts
+  const draftIds = new Set(drafts.map(d => d.id));
+  for (const pub of publicNodes) {
+    if (!draftIds.has(pub.id)) {
+      await deletePublishedLogicGameNode(pub.id);
+    }
+  }
+
+  // Publish remaining
+  for (const draft of drafts) {
+    await publishLogicGameNode(draft.id);
+    await publishLogicGameQuestions(draft.id);
+  }
 }
