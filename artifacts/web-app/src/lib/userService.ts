@@ -352,6 +352,19 @@ export async function updateUserData(uid: string, updates: Partial<UserData>): P
   }
 }
 
+export async function adminUpdateUserData(uid: string, updates: Partial<UserData>): Promise<void> {
+  const admin = getAdminClient();
+  const current = await getSupabaseUserData(uid);
+  const merged = mergeUserData(current ?? DEFAULT_USER, updates);
+  const { error } = await (admin.from('profiles') as any).upsert(toSupabaseProfile(uid, merged));
+  if (error) throw error;
+  const econ = toSupabaseEconomy(uid, merged);
+  if (econ) {
+    const { error: econError } = await (admin.from('user_economy') as any).upsert(econ);
+    if (econError) throw econError;
+  }
+}
+
 export async function deleteUserData(uid: string): Promise<void> {
   const supabase = requireSupabase();
 
@@ -608,7 +621,7 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
 
       // If friendship is stale / one-sided, clean it up before proceeding.
       if (friends.includes(fromUid) && !myFriends.includes(toUid)) {
-        await updateUserData(toUid, { friends: friends.filter(x => x !== fromUid) });
+        await adminUpdateUserData(toUid, { friends: friends.filter(x => x !== fromUid) });
       }
       if (myFriends.includes(toUid) && !friends.includes(fromUid)) {
         await updateUserData(fromUid, { friends: myFriends.filter(x => x !== toUid) });
@@ -624,7 +637,7 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
     const fromDataFresh = await getUserData(fromUid);
     const toIncoming = Array.from(new Set([...(toDataFresh?.incomingRequests ?? []), fromUid]));
     const fromOutgoing = Array.from(new Set([...(fromDataFresh?.outgoingRequests ?? []), toUid]));
-    await updateUserData(toUid, { incomingRequests: toIncoming });
+    await adminUpdateUserData(toUid, { incomingRequests: toIncoming });
     await updateUserData(fromUid, { outgoingRequests: fromOutgoing });
 
     // Deduplicate: one friendRequest notification per sender->receiver.
@@ -659,26 +672,37 @@ export async function respondToFriendRequest(uid: string, peerUid: string, accep
   const peerOutgoing = Array.isArray(peerData.outgoingRequests) ? peerData.outgoingRequests : [];
   const peerFriends = Array.isArray(peerData.friends) ? peerData.friends : [];
 
-  const nextMyIncoming = myIncoming.filter(x => x !== peerUid);
-  const nextPeerOutgoing = peerOutgoing.filter(x => x !== uid);
+  const myNewIncoming = myIncoming.filter(x => x !== peerUid);
+  const peerNewOutgoing = peerOutgoing.filter(x => x !== uid);
 
-  const nextMyFriends = accept
-    ? Array.from(new Set([...myFriends, peerUid]))
-    : myFriends;
+  if (accept) {
+    const myNewFriends = Array.from(new Set([...myFriends, peerUid]));
+    const peerNewFriends = Array.from(new Set([...peerFriends, uid]));
 
-  const nextPeerFriends = accept
-    ? Array.from(new Set([...peerFriends, uid]))
-    : peerFriends;
+    await updateUserData(uid, {
+      incomingRequests: myNewIncoming,
+      friends: myNewFriends
+    });
+    await adminUpdateUserData(peerUid, {
+      outgoingRequests: peerNewOutgoing,
+      friends: peerNewFriends
+    });
 
-  await updateUserData(uid, {
-    incomingRequests: nextMyIncoming,
-    ...(accept ? { friends: nextMyFriends } : {}),
-  });
-
-  await updateUserData(peerUid, {
-    outgoingRequests: nextPeerOutgoing,
-    ...(accept ? { friends: nextPeerFriends } : {}),
-  });
+    const notifId = `friendAccepted_${uid}`;
+    await setGlobalDoc(`notifications:${peerUid}`, notifId, {
+      id: notifId,
+      fromUid: uid,
+      fromUsername: myData.username,
+      type: 'system',
+      message: `${myData.username} accepted your friend request!`,
+      createdAt: new Date().toISOString(),
+      read: false,
+      resolved: false
+    } as any, true);
+  } else {
+    await updateUserData(uid, { incomingRequests: myNewIncoming });
+    await adminUpdateUserData(peerUid, { outgoingRequests: peerNewOutgoing });
+  }
 }
 
 export async function removeFriend(uid: string, peerUid: string): Promise<void> {
@@ -694,12 +718,11 @@ export async function removeFriend(uid: string, peerUid: string): Promise<void> 
 
   if (!myHadPeer && !peerHadMe) return;
 
-  if (myHadPeer) {
+  if (myFriends.includes(peerUid)) {
     await updateUserData(uid, { friends: myFriends.filter(x => x !== peerUid) });
   }
-
-  if (peerHadMe) {
-    await updateUserData(peerUid, { friends: peerFriends.filter(x => x !== uid) });
+  if (peerFriends.includes(uid)) {
+    await adminUpdateUserData(peerUid, { friends: peerFriends.filter(x => x !== uid) });
   }
 }
 
