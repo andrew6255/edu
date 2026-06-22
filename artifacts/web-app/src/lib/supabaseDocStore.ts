@@ -140,8 +140,9 @@ export async function queryGlobalDocs(
 
 export function listenGlobalDoc(col: string, docId: string, cb: (data: DocData) => void): () => void {
   const supabase = requireSupabase();
+  const channelId = `global:${col}:${docId}:${Math.random().toString(36).slice(2)}`;
   const channel = supabase
-    .channel(`global:${col}:${docId}`)
+    .channel(channelId)
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
@@ -167,8 +168,9 @@ export function listenGlobalCollection(
   queryGlobalDocs(col, filterArgs).then(cb).catch(err => console.warn('listenGlobalCollection initial fetch:', err));
 
   const supabase = requireSupabase();
+  const channelId = `global_col:${col}:${JSON.stringify(filters)}:${Math.random().toString(36).slice(2)}`;
   const channel = supabase
-    .channel(`global_col:${col}:${JSON.stringify(filters)}`)
+    .channel(channelId)
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
@@ -184,8 +186,9 @@ export function listenGlobalCollection(
 
 export function listenUserDoc(uid: string, col: string, docId: string, cb: (data: DocData) => void): () => void {
   const supabase = requireSupabase();
+  const channelId = `user:${uid}:${col}:${docId}:${Math.random().toString(36).slice(2)}`;
   const channel = supabase
-    .channel(`user:${uid}:${col}:${docId}`)
+    .channel(channelId)
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
