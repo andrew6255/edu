@@ -631,7 +631,7 @@ export default function LogicGamesView() {
 
     return (
       <div>
-        <div style={{ color: 'var(--ll-text)', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+        <div style={{ color: 'var(--ll-text)', fontSize: 18, lineHeight: 1.35, marginBottom: 12 }}>
           {props.renderPromptBlocks(q.promptBlocks, q.promptRawText ?? q.promptLatex ?? '—')}
         </div>
 
@@ -649,6 +649,7 @@ export default function LogicGamesView() {
                     props.setChoiceIndex(idx);
                   }}
                   style={{
+                    fontSize: 16,
                     textAlign: 'left',
                     padding: '10px 10px',
                     borderRadius: 12,
@@ -784,7 +785,7 @@ export default function LogicGamesView() {
                 </div>
               </div>
 
-              <div style={{ color: 'var(--ll-text)', fontSize: 13, lineHeight: 1.35, marginBottom: 12 }}>
+              <div style={{ color: 'var(--ll-text)', fontSize: 18, lineHeight: 1.35, marginBottom: 12 }}>
                 {renderPromptBlocks(rankedCurrent.promptBlocks, rankedCurrent.promptRawText ?? rankedCurrent.promptLatex ?? '—')}
               </div>
 
@@ -803,6 +804,7 @@ export default function LogicGamesView() {
                           setRankedChoiceIndex(idx);
                         }}
                         style={{
+                          fontSize: 16,
                           textAlign: 'left',
                           padding: '10px 10px',
                           borderRadius: 12,

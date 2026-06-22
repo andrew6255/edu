@@ -88,7 +88,7 @@ export interface AppNotification {
   id: string;
   fromUid: string;
   fromUsername: string;
-  type: 'friendRequest' | 'challenge' | 'system';
+  type: 'friendRequest' | 'challenge' | 'system' | 'lobbyInvite' | 'lobbyJoinRequest';
   message: string;
   createdAt: string;
   read: boolean;
@@ -97,6 +97,10 @@ export interface AppNotification {
   challengeId?: string;
   gameId?: string;
   gameLabel?: string;
+  /** Lobby ID - present for lobbyInvite and lobbyJoinRequest */
+  lobbyId?: string;
+  /** Emoji of the requester - present for lobbyJoinRequest */
+  fromEmoji?: string;
 }
 
 export const SUPER_ADMIN_UID = 'SUPERADMIN_0000';

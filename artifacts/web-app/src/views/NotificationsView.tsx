@@ -3,6 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { respondToFriendRequest, AppNotification } from '@/lib/userService';
 import { queryGlobalDocs, setGlobalDoc, listenGlobalCollection } from '@/lib/supabaseDocStore';
 import { listenChallengeState, respondToChallenge, respondToLogicGameChallenge } from '@/lib/gameSessionService';
+import { acceptJoinRequest } from '@/lib/lobbyService';
 
 interface Props {
   onClose?: () => void;
@@ -174,6 +175,38 @@ export default function NotificationsView({ onClose }: Props) {
     } as any, true);
   }
 
+  async function handleJoinRequest(n: AppNotification, accept: boolean) {
+    if (!user) return;
+    if (accept && n.lobbyId && n.fromUid) {
+      await acceptJoinRequest({
+        leaderUid: user.uid,
+        lobbyId: n.lobbyId,
+        requesterUid: n.fromUid,
+        requesterUsername: n.fromUsername,
+        requesterEmoji: (n as any).fromEmoji || '😎',
+      });
+    }
+    await setGlobalDoc(`notifications:${user.uid}`, n.id, {
+      resolved: true,
+      resolvedAt: new Date().toISOString(),
+      read: true,
+    } as any, true);
+  }
+
+  async function handleLobbyInvite(n: AppNotification, accept: boolean) {
+    if (!user) return;
+    if (accept && n.lobbyId) {
+      localStorage.setItem('ll:pendingLobbyId', n.lobbyId);
+      window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'lobby' } }));
+      onClose?.();
+    }
+    await setGlobalDoc(`notifications:${user.uid}`, n.id, {
+      resolved: true,
+      resolvedAt: new Date().toISOString(),
+      read: true,
+    } as any, true);
+  }
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f172a', padding: 20, overflowY: 'auto' }}>
       <h2 style={{ color: 'white', margin: '0 0 16px', fontSize: 22 }}>🔔 Notifications</h2>
@@ -194,6 +227,44 @@ export default function NotificationsView({ onClose }: Props) {
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={() => handleResponse(n, true)} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '8px' }}>Accept</button>
                   <button onClick={() => handleResponse(n, false)} className="ll-btn" style={{ flex: 1, padding: '8px', background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.3)', color: '#ef4444' }}>Decline</button>
+                </div>
+              )}
+
+              {n.type === 'lobbyJoinRequest' && !n.resolved && (
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => handleJoinRequest(n, true)}
+                    className="ll-btn ll-btn-primary"
+                    style={{ flex: 1, padding: '8px' }}
+                  >
+                    ✅ Accept
+                  </button>
+                  <button
+                    onClick={() => handleJoinRequest(n, false)}
+                    className="ll-btn"
+                    style={{ flex: 1, padding: '8px', background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.3)', color: '#ef4444' }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              )}
+
+              {n.type === 'lobbyInvite' && !n.resolved && (
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => handleLobbyInvite(n, true)}
+                    className="ll-btn ll-btn-primary"
+                    style={{ flex: 1, padding: '8px' }}
+                  >
+                    🏛️ Join Party
+                  </button>
+                  <button
+                    onClick={() => handleLobbyInvite(n, false)}
+                    className="ll-btn"
+                    style={{ flex: 1, padding: '8px', background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.3)', color: '#ef4444' }}
+                  >
+                    Decline
+                  </button>
                 </div>
               )}
 
