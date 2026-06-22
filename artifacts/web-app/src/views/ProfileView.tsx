@@ -181,7 +181,14 @@ export default function ProfileView() {
           }}>
             {initial}
           </div>
-          <div style={{ fontSize: 22, fontWeight: 'bold', color: 'var(--ll-text)' }}>{userData.username}</div>
+          <div style={{ fontSize: 22, fontWeight: 'bold', color: 'var(--ll-text)', display: 'flex', alignItems: 'baseline', gap: 4 }}>
+            <span>{userData.username}</span>
+            {userData.friendCode && (
+              <span style={{ fontSize: 16, color: 'var(--ll-text-muted)', fontWeight: 'normal' }}>
+                {userData.friendCode}
+              </span>
+            )}
+          </div>
           {inv?.equipped?.title && (
             <div style={{
               marginTop: 6,
@@ -197,7 +204,7 @@ export default function ProfileView() {
             </div>
           )}
           {(userData.firstName || userData.lastName) && (
-            <div style={{ color: 'var(--ll-text-soft)', fontSize: 13, marginTop: 2 }}>
+            <div style={{ color: 'var(--ll-text-soft)', fontSize: 13, marginTop: 4 }}>
               {userData.firstName} {userData.lastName}
             </div>
           )}

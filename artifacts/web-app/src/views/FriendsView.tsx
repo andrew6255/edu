@@ -7,7 +7,8 @@ export default function FriendsView() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [friends, setFriends] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [searchName, setSearchName] = useState('');
+  const [searchTag, setSearchTag] = useState('');
   const [msg, setMsg] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingUnfriend, setPendingUnfriend] = useState<{ uid: string; username: string } | null>(null);
@@ -51,13 +52,13 @@ export default function FriendsView() {
   }
 
   async function handleAdd() {
-    if (!search || !user || !userData) return;
-    if (search.toLowerCase() === userData.username?.toLowerCase()) {
+    if (!searchName || !searchTag || !user || !userData) return;
+    if (searchName.toLowerCase() === userData.username?.toLowerCase() && searchTag === userData.friendCode?.replace('#', '')) {
       setMsg("You can't add yourself!"); return;
     }
     setMsg('Sending request...');
     try {
-      const ok = await sendFriendRequest(user.uid, userData.username || user.uid, search);
+      const ok = await sendFriendRequest(user.uid, userData.username || user.uid, `${searchName}#${searchTag}`);
       setMsg(ok ? '✅ Friend request sent!' : '❌ User not found or request already sent.');
     } catch(e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -68,7 +69,8 @@ export default function FriendsView() {
       }
     }
     setTimeout(() => setMsg(''), 3000);
-    setSearch('');
+    setSearchName('');
+    setSearchTag('');
   }
 
   const today = new Date().toISOString().split('T')[0];
@@ -129,9 +131,17 @@ export default function FriendsView() {
       
       <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
         <input 
-          value={search} onChange={e => setSearch(e.target.value)} 
-          placeholder="Add friend by username..." 
+          value={searchName} onChange={e => setSearchName(e.target.value)} 
+          placeholder="Username" 
           style={{ flex: 1, padding: '12px 16px', borderRadius: 12, border: '1px solid #334155', background: '#1e293b', color: 'white', outline: 'none' }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', color: '#64748b', fontSize: 20, fontWeight: 'bold', padding: '0 4px' }}>
+          #
+        </div>
+        <input 
+          value={searchTag} onChange={e => setSearchTag(e.target.value.replace(/\D/g, '').slice(0, 4))} 
+          placeholder="1234" 
+          style={{ width: 80, padding: '12px 16px', borderRadius: 12, border: '1px solid #334155', background: '#1e293b', color: 'white', outline: 'none', textAlign: 'center' }}
         />
         <button onClick={handleAdd} className="ll-btn ll-btn-primary" style={{ padding: '0 20px' }}>Add</button>
       </div>
@@ -156,7 +166,12 @@ export default function FriendsView() {
                     <div style={{ position: 'absolute', bottom: -2, right: -2, width: 12, height: 12, borderRadius: '50%', background: isOnline ? '#10b981' : '#64748b', border: '2px solid #1e293b' }} />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ color: 'white', fontWeight: 'bold', fontSize: 15 }}>{f.username}</div>
+                    <div style={{ color: 'white', fontWeight: 'bold', fontSize: 15, display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                      <span>{f.username}</span>
+                      {f.friendCode && (
+                        <span style={{ color: '#64748b', fontSize: 13, fontWeight: 'normal' }}>{f.friendCode}</span>
+                      )}
+                    </div>
                     <div style={{ color: isOnline ? '#10b981' : '#64748b', fontSize: 12 }}>{isOnline ? 'Online' : 'Offline'}</div>
                   </div>
                   <button

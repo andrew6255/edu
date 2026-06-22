@@ -54,6 +54,7 @@ export interface UserData {
   firstName: string;
   lastName: string;
   username: string;
+  friendCode?: string;
   email: string;
   role: UserRole;
   classId?: string;
@@ -184,6 +185,7 @@ function mapSupabaseUserRow(profile: Record<string, unknown>, economy: Record<st
     firstName: typeof profile.first_name === 'string' ? profile.first_name : '',
     lastName: typeof profile.last_name === 'string' ? profile.last_name : '',
     username: typeof profile.username === 'string' ? profile.username : '',
+    friendCode: typeof state.friendCode === 'string' ? state.friendCode : undefined,
     email: typeof profile.email === 'string' ? profile.email : '',
     role: VALID_ROLES.includes(profile.role as UserRole) ? (profile.role as UserRole) : 'student',
     classId: typeof profile.class_id === 'string' ? profile.class_id : undefined,
@@ -595,18 +597,26 @@ export async function updateRankedStats(uid: string, gameId: string, result: 'wi
 
 export async function sendFriendRequest(fromUid: string, fromUsername: string, toUsername: string): Promise<boolean> {
   const trimmed = toUsername.trim();
-  const normalized = trimmed.toLowerCase();
+  const parts = trimmed.split('#');
+  const baseName = parts[0].trim().toLowerCase();
+  const searchTag = parts.length > 1 ? `#${parts[1].trim()}` : null;
 
   try {
     const supabase = requireSupabase();
-    let { data: rows } = await supabase.from('profiles').select('id').eq('username', normalized).limit(1);
-    if ((!rows || rows.length === 0) && trimmed !== normalized) {
-      const res = await supabase.from('profiles').select('id').eq('username', trimmed).limit(1);
-      rows = res.data;
-    }
+    let query = supabase.from('profiles').select('id, user_state').eq('username', baseName);
+    const { data: rows } = await query;
+    
     if (!rows || rows.length === 0) return false;
 
-    const toUid = String(rows[0].id);
+    let targetRow = rows[0];
+    if (searchTag && rows.length > 1) {
+      const match = rows.find(r => r.user_state?.friendCode === searchTag);
+      if (match) targetRow = match;
+    } else if (searchTag) {
+      if (targetRow.user_state?.friendCode !== searchTag) return false;
+    }
+
+    const toUid = String(targetRow.id);
     if (toUid === fromUid) return false;
 
     const toData = await getUserData(toUid);
@@ -620,8 +630,9 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
       if (mutualFriends) throw new Error('You are already friends');
 
       // If friendship is stale / one-sided, clean it up before proceeding.
+      // If friendship is stale / one-sided, clean it up before proceeding.
       if (friends.includes(fromUid) && !myFriends.includes(toUid)) {
-        await adminUpdateUserData(toUid, { friends: friends.filter(x => x !== fromUid) });
+        await supabase.rpc('remove_friend_rpc', { target_uid: toUid });
       }
       if (myFriends.includes(toUid) && !friends.includes(fromUid)) {
         await updateUserData(fromUid, { friends: myFriends.filter(x => x !== toUid) });
@@ -632,12 +643,13 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
       }
     }
 
-    // Add to incoming/outgoing arrays
-    const toDataFresh = await getUserData(toUid);
+    // Instead of admin update, use RPC to safely add to incomingRequests of the target
+    const { error: rpcError } = await supabase.rpc('send_friend_request_rpc', { target_uid: toUid });
+    if (rpcError) throw rpcError;
+
+    // We still update our own outgoingRequests manually (safe)
     const fromDataFresh = await getUserData(fromUid);
-    const toIncoming = Array.from(new Set([...(toDataFresh?.incomingRequests ?? []), fromUid]));
     const fromOutgoing = Array.from(new Set([...(fromDataFresh?.outgoingRequests ?? []), toUid]));
-    await adminUpdateUserData(toUid, { incomingRequests: toIncoming });
     await updateUserData(fromUid, { outgoingRequests: fromOutgoing });
 
     // Deduplicate: one friendRequest notification per sender->receiver.
@@ -675,18 +687,11 @@ export async function respondToFriendRequest(uid: string, peerUid: string, accep
   const myNewIncoming = myIncoming.filter(x => x !== peerUid);
   const peerNewOutgoing = peerOutgoing.filter(x => x !== uid);
 
-  if (accept) {
-    const myNewFriends = Array.from(new Set([...myFriends, peerUid]));
-    const peerNewFriends = Array.from(new Set([...peerFriends, uid]));
+  const supabase = requireSupabase();
 
-    await updateUserData(uid, {
-      incomingRequests: myNewIncoming,
-      friends: myNewFriends
-    });
-    await adminUpdateUserData(peerUid, {
-      outgoingRequests: peerNewOutgoing,
-      friends: peerNewFriends
-    });
+  if (accept) {
+    const { error: rpcError } = await supabase.rpc('accept_friend_request_rpc', { target_uid: peerUid });
+    if (rpcError) console.error('Error accepting friend request RPC:', rpcError);
 
     const notifId = `friendAccepted_${uid}`;
     await setGlobalDoc(`notifications:${peerUid}`, notifId, {
@@ -700,8 +705,8 @@ export async function respondToFriendRequest(uid: string, peerUid: string, accep
       resolved: false
     } as any, true);
   } else {
-    await updateUserData(uid, { incomingRequests: myNewIncoming });
-    await adminUpdateUserData(peerUid, { outgoingRequests: peerNewOutgoing });
+    const { error: rpcError } = await supabase.rpc('decline_friend_request_rpc', { target_uid: peerUid });
+    if (rpcError) console.error('Error declining friend request RPC:', rpcError);
   }
 }
 
@@ -722,7 +727,8 @@ export async function removeFriend(uid: string, peerUid: string): Promise<void> 
     await updateUserData(uid, { friends: myFriends.filter(x => x !== peerUid) });
   }
   if (peerFriends.includes(uid)) {
-    await adminUpdateUserData(peerUid, { friends: peerFriends.filter(x => x !== uid) });
+    const supabase = requireSupabase();
+    await supabase.rpc('remove_friend_rpc', { target_uid: peerUid });
   }
 }
 

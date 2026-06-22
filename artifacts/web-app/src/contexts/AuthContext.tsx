@@ -50,10 +50,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const emailPrefix = email.split('@')[0] || 'user';
     const role = email === SUPERADMIN_EMAIL ? 'superadmin' : 'student';
 
+    const baseName = (parts[0] || emailPrefix || 'Logic').replace(/[^a-zA-Z0-9]/g, '');
+    const tag = Math.floor(1000 + Math.random() * 9000);
+
     return {
       firstName: parts[0] || 'Logic',
       lastName: parts.slice(1).join(' ') || 'Lord',
-      username: role === 'superadmin' ? 'superadmin' : `${emailPrefix.replace(/[^a-zA-Z0-9_]/g, '_') || 'user'}_${authUser.id.slice(0, 6)}`,
+      username: role === 'superadmin' ? 'superadmin' : baseName.toLowerCase(),
+      friendCode: `#${tag}`,
       email,
       role,
       economy: { gold: 200, global_xp: 0, streak: 0, energy: 0, rankedEnergyStreak: 0 },
