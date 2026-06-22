@@ -44,11 +44,11 @@ import {
   type ProgramStepSpec,
 } from '@/lib/programQuestionBank';
 import {
-  deleteDraftLogicGameNode,
-  getDraftLogicGameQuestions,
-  listDraftLogicGameNodes,
-  upsertDraftLogicGameNode,
-  upsertDraftLogicGameQuestions,
+  deleteLogicGameNode,
+  getLogicGameQuestions,
+  listLogicGameNodes,
+  upsertLogicGameNode,
+  upsertLogicGameQuestions,
 } from '@/lib/logicGamesService';
 import ProgramMapView from '@/views/ProgramMapView';
 import { clearDraftProgram, setDraftProgram } from '@/lib/draftProgramStore';
@@ -948,13 +948,7 @@ function LogicGamesAdmin() {
 
   // Add Question Modal
   const [addModalOpen, setAddModalOpen] = useState(false);
-  const [addModalTab, setAddModalTab] = useState<'manual' | 'pdf'>('manual');
   
-  // Manual Question Form
-  const [manualPrompt, setManualPrompt] = useState('');
-  const [manualChoices, setManualChoices] = useState<string[]>(['', '', '', '']);
-  const [manualCorrectIndex, setManualCorrectIndex] = useState(0);
-
   // PDF Upload Flow
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfExtracting, setPdfExtracting] = useState(false);
@@ -966,9 +960,17 @@ function LogicGamesAdmin() {
     setErr(null);
     setStatus(null);
     try {
-      const pub = await listDraftLogicGameNodes();
-      setNodes(pub);
+      const pub = await listLogicGameNodes();
       
+      // Auto-create level 1 if empty
+      if (pub.length === 0) {
+         const id = `iq-80`;
+         const initialNode: LogicGameNode = { id, iq: 80, order: 0, label: `Level 1` };
+         await upsertLogicGameNode(initialNode);
+         setNodes([initialNode]);
+      } else {
+         setNodes(pub);
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -983,7 +985,7 @@ function LogicGamesAdmin() {
     }
     setQuestionsLoading(true);
     try {
-      const doc = await getDraftLogicGameQuestions(selectedNodeId);
+      const doc = await getLogicGameQuestions(selectedNodeId);
       setQuestions(doc ? doc.questions : []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -1000,6 +1002,59 @@ function LogicGamesAdmin() {
     loadQuestions();
   }, [selectedNodeId]);
 
+  
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editNodeLabel, setEditNodeLabel] = useState("");
+  const [editNodeIq, setEditNodeIq] = useState("");
+
+  async function saveNodeEdits(nodeId: string) {
+    const n = nodes.find(x => x.id === nodeId);
+    if (!n) return;
+    
+    const label = editNodeLabel.trim();
+    const iq = Number(editNodeIq.trim());
+    if (!label || !Number.isFinite(iq)) {
+       setEditingNodeId(null);
+       return;
+    }
+
+    setSaving(true);
+    try {
+      await upsertLogicGameNode({ ...n, label, iq });
+      setNodes((prev) =>
+        prev
+          .map((x) => (x.id === nodeId ? { ...x, label, iq } : x))
+          .slice()
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      );
+      setStatus('✅ Level updated');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+      setEditingNodeId(null);
+    }
+  }
+
+  const handlePasteImage = async (e: React.ClipboardEvent, onBase64: (b64: string) => void) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.indexOf("image") !== -1) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          if (ev.target?.result) onBase64(ev.target.result as string);
+        };
+        reader.readAsDataURL(file);
+        break;
+      }
+    }
+  };
+
+
   async function addNode() {
     setSaving(true);
     setErr(null);
@@ -1009,14 +1064,12 @@ function LogicGamesAdmin() {
       const nextIq = nodes.length > 0 ? (nodes[nodes.length - 1].iq ?? 80) + 10 : 80;
       const id = `iq-${nextIq}`;
       const node: LogicGameNode = { id, iq: nextIq, order: nextOrder, label: `Level ${nodes.length + 1}` };
-      await upsertDraftLogicGameNode(node);
-      await upsertDraftLogicGameQuestions(id, { questions: [], updatedAt: new Date().toISOString() });
+      await upsertLogicGameNode(node);
 
       setNodes((prev) => {
         const next = prev.some((n) => n.id === node.id) ? prev : [...prev, node];
         return next.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       });
-      setSelectedNodeId(id);
       setStatus('✅ Level added');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -1025,52 +1078,15 @@ function LogicGamesAdmin() {
     }
   }
 
-  async function renameNode(nodeId: string) {
-    const n = nodes.find((x) => x.id === nodeId);
-    if (!n) return;
-    const next = window.prompt('Enter level name', n.label ?? '') ?? '';
-    const label = next.trim();
-    if (!label) return;
+  
 
-    setSaving(true);
-    try {
-      await upsertDraftLogicGameNode({ ...n, label });
-      setNodes((prev) => prev.map((x) => (x.id === nodeId ? { ...x, label } : x)));
-      setStatus('✅ Renamed');
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function setNodeIq(nodeId: string, nextIqRaw: string) {
-    const nextIq = Number(nextIqRaw);
-    if (!Number.isFinite(nextIq)) return;
-    const n = nodes.find((x) => x.id === nodeId);
-    if (!n) return;
-    setSaving(true);
-    try {
-      await upsertDraftLogicGameNode({ ...n, iq: nextIq });
-      setNodes((prev) =>
-        prev
-          .map((x) => (x.id === nodeId ? { ...x, iq: nextIq } : x))
-          .slice()
-          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      );
-      setStatus('✅ IQ threshold saved');
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
+  
 
   async function deleteNode(nodeId: string) {
     if (!window.confirm('Delete this level and all its questions? This cannot be undone.')) return;
     setSaving(true);
     try {
-      await deleteDraftLogicGameNode(nodeId);
+      await deleteLogicGameNode(nodeId);
       if (selectedNodeId === nodeId) setSelectedNodeId(null);
       await load();
       setStatus('✅ Level deleted');
@@ -1085,12 +1101,12 @@ function LogicGamesAdmin() {
     if (!selectedNodeId) return;
     setSaving(true);
     try {
-      await upsertDraftLogicGameQuestions(selectedNodeId, {
+      await upsertLogicGameQuestions(selectedNodeId, {
         questions: newQuestions,
         updatedAt: new Date().toISOString()
       });
       setQuestions(newQuestions);
-      setStatus('✅ Questions saved');
+      setStatus('✅ Auto-saved');
     } catch(e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1098,49 +1114,20 @@ function LogicGamesAdmin() {
     }
   }
 
-  async function handleAddManualQuestion() {
-    if (!manualPrompt.trim() || manualChoices.some(c => !c.trim())) {
-      window.alert("Please fill in the prompt and all choices.");
-      return;
-    }
-    const newQ: LogicGameQuestion = {
-      id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      promptBlocks: [{ type: 'text', text: manualPrompt }],
-      promptRawText: manualPrompt,
-      interaction: {
-        type: 'mcq',
-        choices: [...manualChoices],
-        correctChoiceIndex: manualCorrectIndex
-      },
-      timeLimitSec: 60,
-      iqDeltaCorrect: 5,
-      iqDeltaWrong: -3
-    };
-    await saveQuestionsList([...questions, newQ]);
-    setAddModalOpen(false);
-    setManualPrompt('');
-    setManualChoices(['', '', '', '']);
-    setManualCorrectIndex(0);
-  }
-
   async function handleExtractFromPdf() {
     if (!pdfFile) return;
     setPdfExtracting(true);
     setPdfError(null);
     try {
-      // 1. Run local OCR
-      const ocrRes = await runPhase1Ocr(pdfFile, pdfFile.name, (msg) => {
-        setPdfError(msg); // Use pdfError state to temporarily show progress to user
-      });
+      setPdfError('Uploading PDF for extraction...');
 
-      setPdfError('OCR complete. Extracting questions using AI...');
-
-      // 2. Pass extracted text to our new endpoint
       const apiUrl = import.meta.env.VITE_API_SERVER_URL || '';
-      const aiRes = await fetch(`${apiUrl}/api/program-ingestion/extract-mcq`, {
+      const formData = new FormData();
+      formData.append('file', pdfFile);
+
+      const aiRes = await fetch(`${apiUrl}/api/program-ingestion/extract-iq-pdf`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: ocrRes.rawText })
+        body: formData,
       });
 
       if (!aiRes.ok) {
@@ -1148,238 +1135,521 @@ function LogicGamesAdmin() {
         throw new Error(`AI Extraction failed: ${errText}`);
       }
 
-      const aiData = await aiRes.json();
-      
-      if (!aiData.questions || !Array.isArray(aiData.questions)) {
-        throw new Error('Invalid response from AI extraction.');
+      const data = await aiRes.json();
+      if (!data.questions || data.questions.length === 0) {
+        throw new Error("No questions could be found in this PDF.");
       }
 
-      const formattedQuestions = aiData.questions.map((q: any) => ({
-        id: `q_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        promptBlocks: [{ type: 'text', text: q.promptRawText || '' }],
-        promptRawText: q.promptRawText || '',
-        interaction: q.interaction,
-        timeLimitSec: 60,
-        iqDeltaCorrect: 5,
-        iqDeltaWrong: -3
-      }));
+      const formatted = data.questions.map((q: any, i: number) => {
+        const blocks: any[] = [];
+        if (q.promptRawText) blocks.push({ type: 'text', text: q.promptRawText });
+        if (q.imageUrl) blocks.push({ type: 'image', url: q.imageUrl });
 
-      setExtractedQuestions(formattedQuestions);
-      setPdfError(null); // Clear progress message
-    } catch(e) {
+        return {
+          id: `q_${Date.now()}_${i}`,
+          promptBlocks: blocks,
+          promptRawText: q.promptRawText,
+          interaction: {
+            type: 'mcq',
+            choices: q.interaction?.choices || [],
+            // Default to no answer selected if -1 or missing
+            correctChoiceIndex: typeof q.interaction?.correctChoiceIndex === 'number' && q.interaction.correctChoiceIndex >= 0 
+                ? q.interaction.correctChoiceIndex 
+                : -1
+          },
+          timeLimitSec: 60,
+          iqDeltaCorrect: 5,
+          iqDeltaWrong: -3
+        };
+      });
+
+      setExtractedQuestions(formatted);
+      setPdfError(null);
+    } catch (e) {
       setPdfError(e instanceof Error ? e.message : String(e));
     } finally {
       setPdfExtracting(false);
     }
   }
 
-  if (!userData || userData.role !== 'superadmin') return null;
-
   return (
-    <div style={{ animation: 'fadeIn 0.3s ease', display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, flexShrink: 0 }}>
-        <h3 style={{ color: 'white', margin: 0, fontSize: 16 }}>🧠 IQ Games</h3>
-        <div style={{ display: 'flex', gap: 10 }}><button onClick={load} className="ll-btn" style={{ padding: '7px 14px', fontSize: 12 }}>↺ Refresh</button>
-          <button 
-            onClick={async () => {
-              if (!window.confirm('Publish all edits to all students now?')) return;
-              setSaving(true); setStatus(null); setErr(null);
-              try {
-                await import('@/lib/logicGamesService').then(m => m.publishAllLogicGames());
-                setStatus('✅ Published all questions successfully!');
-              } catch(e) {
-                setErr(e instanceof Error ? e.message : String(e));
-              } finally {
-                setSaving(false);
-              }
-            }} 
-            disabled={saving}
-            className="ll-btn ll-btn-primary" style={{ padding: '7px 14px', fontSize: 12, fontWeight: 'bold' }}>
-            🚀 Publish to Students
-          </button>
-</div>
-      </div>
-
-      {err && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10, flexShrink: 0 }}>{err}</div>}
-      {status && <div style={{ color: '#34d399', fontSize: 12, marginBottom: 10, flexShrink: 0 }}>{status}</div>}
-
-      {/* Main layout */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'center', flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 20px' }}>
         {!selectedNodeId ? (
-          <div style={{ width: '100%', maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', padding: 16, borderRadius: 12, border: '1px solid #334155' }}>
-              <div>
-                <h2 style={{ color: 'white', margin: 0, fontSize: 20 }}>Levels Management</h2>
-                <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>{nodes.length} total levels available.</div>
-              </div>
-              <button onClick={addNode} disabled={saving} className="ll-btn ll-btn-primary" style={{ padding: '10px 20px', fontSize: 14, fontWeight: 'bold' }}>
-                + Add New Level
-              </button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, paddingBottom: 40 }}>
-              {nodes.map((n) => (
-                <div key={n.id} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ color: 'white', fontWeight: 900, fontSize: 18 }}>{n.label}</div>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="ll-btn" title="Edit Name" onClick={(e) => { e.stopPropagation(); renameNode(n.id); }} style={{ padding: '6px 10px', borderRadius: 8, fontSize: 13, background: 'rgba(255,255,255,0.05)' }}>✎</button>
-                      <button className="ll-btn" title="Delete" onClick={(e) => { e.stopPropagation(); deleteNode(n.id); }} style={{ padding: '6px 10px', borderRadius: 8, fontSize: 13, color: '#fca5a5', background: 'rgba(239,68,68,0.1)' }}>🗑</button>
+          <div style={{ width: '100%', maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 40 }}>
+            <h1 style={{ textAlign: 'center', color: 'white', margin: '0 0 20px 0', fontSize: 32, fontWeight: 900 }}>IQ levels</h1>
+            {nodes.map((n) => (
+              <div key={n.id} 
+                   onClick={() => { if (editingNodeId !== n.id) setSelectedNodeId(n.id); }}
+                   style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.2)', cursor: editingNodeId === n.id ? 'default' : 'pointer', transition: 'all 0.2s' }}
+                   onMouseEnter={(e) => { if (editingNodeId !== n.id) e.currentTarget.style.borderColor = '#a855f7'; }}
+                   onMouseLeave={(e) => { if (editingNodeId !== n.id) e.currentTarget.style.borderColor = '#334155'; }}
+              >
+                {editingNodeId === n.id ? (
+                  <div style={{ display: 'flex', gap: 16, flex: 1, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                       <label style={{ fontSize: 12, color: '#94a3b8', fontWeight: 'bold' }}>Level Name</label>
+                       <input value={editNodeLabel} onChange={e => setEditNodeLabel(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', outline: 'none' }} />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 120 }}>
+                       <label style={{ fontSize: 12, color: '#94a3b8', fontWeight: 'bold' }}>IQ Threshold</label>
+                       <input type="number" value={editNodeIq} onChange={e => setEditNodeIq(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', outline: 'none' }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+                       <button onClick={() => saveNodeEdits(n.id)} className="ll-btn ll-btn-primary" style={{ padding: '8px 16px', fontWeight: 'bold' }}>Save</button>
+                       <button onClick={() => setEditingNodeId(null)} className="ll-btn" style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.1)' }}>Cancel</button>
                     </div>
                   </div>
-                  <div style={{ fontSize: 13, color: '#94a3b8', background: '#0f172a', padding: '8px 12px', borderRadius: 8, display: 'inline-block', alignSelf: 'flex-start' }}>
-                    IQ Threshold: <span style={{ color: '#d8b4fe', fontWeight: 'bold', marginLeft: 4 }}>{n.iq}</span>
-                  </div>
-                  <button onClick={() => setSelectedNodeId(n.id)} className="ll-btn" style={{ marginTop: 'auto', padding: '12px', background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.3)', color: '#d8b4fe', fontWeight: 'bold', fontSize: 14, borderRadius: 8 }}>
-                    Open Level ➔
-                  </button>
-                </div>
-              ))}
-            </div>
+                ) : (
+                  <>
+                    <div>
+                       <div style={{ color: 'white', fontWeight: 900, fontSize: 18 }}>{n.label}</div>
+                       <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 6 }}>
+                         IQ Threshold: <span style={{ color: '#d8b4fe', fontWeight: 'bold' }}>{n.iq}</span>
+                       </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="ll-btn" title="Edit Level" onClick={(e) => { e.stopPropagation(); setEditNodeLabel(n.label || ''); setEditNodeIq(n.iq?.toString() || '80'); setEditingNodeId(n.id); }} style={{ padding: '8px 12px', borderRadius: 8, fontSize: 13, background: 'rgba(255,255,255,0.05)', color: 'white' }}>✎ Edit</button>
+                      <button className="ll-btn" title="Delete" onClick={(e) => { e.stopPropagation(); deleteNode(n.id); }} style={{ padding: '8px 12px', borderRadius: 8, fontSize: 13, color: '#fca5a5', background: 'rgba(239,68,68,0.1)' }}>🗑 Delete</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+            
+            <button onClick={addNode} disabled={saving} className="ll-btn ll-btn-primary" style={{ padding: '16px', fontSize: 15, fontWeight: 'bold', alignSelf: 'center', marginTop: 10, borderRadius: 12 }}>
+                + Add New Level
+            </button>
           </div>
         ) : (
-          <div style={{ width: '100%', maxWidth: 1000, display: 'flex', flexDirection: 'column', background: '#0f172a', border: '1px solid #334155', borderRadius: 12, overflow: 'hidden', margin: '0 auto', height: '100%' }}>
-            <div style={{ padding: 16, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                <button onClick={() => setSelectedNodeId(null)} className="ll-btn" style={{ padding: '8px 14px', fontSize: 14, background: 'rgba(255,255,255,0.1)' }}>
-                  ← Back to Levels
-                </button>
-                <div>
-                  <div style={{ color: 'white', fontWeight: 900, fontSize: 18 }}>
-                    {nodes.find(n => n.id === selectedNodeId)?.label}
-                  </div>
-                  <div style={{ color: '#a855f7', fontSize: 13, fontWeight: 'bold' }}>{questions.length} questions</div>
-                </div>
+          <div style={{ width: '100%', maxWidth: 900, display: 'flex', flexDirection: 'column', margin: '0 auto', paddingBottom: 40 }}>
+            <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 24, padding: '10px 0' }}>
+              <button onClick={() => setSelectedNodeId(null)} className="ll-btn" style={{ position: 'absolute', left: 0, padding: '8px 14px', fontSize: 14, background: 'rgba(255,255,255,0.1)' }}>
+                ← Back to Levels
+              </button>
+              
+              <div style={{ textAlign: 'center' }}>
+                <h1 style={{ color: 'white', fontWeight: 900, fontSize: 28, margin: 0 }}>
+                  {nodes.find(n => n.id === selectedNodeId)?.label}
+                </h1>
+                <div style={{ color: '#a855f7', fontSize: 14, fontWeight: 'bold', marginTop: 4 }}>{questions.length} questions</div>
               </div>
-              <button onClick={() => setAddModalOpen(true)} className="ll-btn ll-btn-primary" style={{ padding: '10px 20px', fontSize: 14, fontWeight: 'bold' }}>
+
+              <button onClick={() => setAddModalOpen(true)} className="ll-btn ll-btn-primary" style={{ position: 'absolute', right: 0, padding: '10px 20px', fontSize: 14, fontWeight: 'bold' }}>
                 + Add Questions
               </button>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
-                 {questionsLoading ? (
-                   <div style={{ color: '#94a3b8' }}>Loading questions...</div>
-                 ) : questions.length === 0 ? (
-                   <div style={{ color: '#64748b', textAlign: 'center', marginTop: 40 }}>No questions in this level yet.</div>
-                 ) : (
-                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                     {questions.map((q, qIndex) => (
-                       <div key={q.id} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 16 }}>
-                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                           <div style={{ color: '#94a3b8', fontWeight: 'bold', fontSize: 12 }}>Question {qIndex + 1}</div>
-                           <button 
-                             onClick={() => {
-                               if(window.confirm('Delete question?')) {
-                                 saveQuestionsList(questions.filter(x => x.id !== q.id));
-                               }
-                             }}
-                             className="ll-btn" style={{ padding: '4px 8px', fontSize: 12, color: '#fca5a5' }}
-                           >
-                             🗑 Delete
-                           </button>
+            
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {questionsLoading ? (
+                <div style={{ color: '#94a3b8', textAlign: 'center' }}>Loading questions...</div>
+              ) : questions.length === 0 ? (
+                <div style={{ color: '#64748b', textAlign: 'center', marginTop: 40 }}>No questions in this level yet.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                  {questions.map((q, qIndex) => (
+                    <div key={q.id} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 20, boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                        <div style={{ color: '#94a3b8', fontWeight: 'bold', fontSize: 14 }}>Question {qIndex + 1}</div>
+                        <button 
+                          onClick={() => {
+                            if(window.confirm('Delete question?')) {
+                              saveQuestionsList(questions.filter(x => x.id !== q.id));
+                            }
+                          }}
+                          className="ll-btn" style={{ padding: '6px 10px', fontSize: 13, color: '#fca5a5', background: 'rgba(239,68,68,0.1)' }}
+                        >
+                          🗑 Delete
+                        </button>
+                      </div>
+                      
+                      <textarea
+                        value={q.promptRawText || (q.promptBlocks?.[0] as any)?.text || ''}
+                        onChange={(e) => {
+                          const newQ = [...questions];
+                          const newText = e.target.value;
+                          const existingImages = (q.promptBlocks || []).filter(b => b.type === 'image');
+                          newQ[qIndex] = { ...q, promptRawText: newText, promptBlocks: [{ type: 'text', text: newText }, ...existingImages] as any };
+                          setQuestions(newQ);
+                        }}
+                        onBlur={() => saveQuestionsList(questions)}
+                        onPaste={(e) => handlePasteImage(e, (b64) => {
+                          const newQ = [...questions];
+                          const blocks = newQ[qIndex].promptBlocks || [{ type: 'text', text: newQ[qIndex].promptRawText || '' }];
+                          blocks.push({ type: 'image', url: b64 } as any);
+                          newQ[qIndex] = { ...q, promptBlocks: blocks as any };
+                          setQuestions(newQ);
+                          saveQuestionsList(newQ);
+                        })}
+                        placeholder="Question Prompt... (Paste image to attach)"
+                        style={{ width: '100%', minHeight: 80, padding: 14, borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', marginBottom: 16, outline: 'none', fontSize: 15 }}
+                      />
+
+                      {/* Display images */}
+                      {q.promptBlocks?.filter(b => b.type === 'image').length > 0 && (
+                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                           {q.promptBlocks.filter(b => b.type === 'image').map((imgBlock: any, imgIdx: number) => (
+                              <div key={imgIdx} style={{ position: 'relative' }}>
+                                <img src={imgBlock.url} style={{ maxWidth: 300, maxHeight: 200, borderRadius: 8, border: '1px solid #475569' }} />
+                                <button 
+                                  onClick={() => {
+                                    const newQ = [...questions];
+                                    const blocks = (newQ[qIndex].promptBlocks || []).filter(b => b !== imgBlock);
+                                    newQ[qIndex] = { ...q, promptBlocks: blocks as any };
+                                    setQuestions(newQ);
+                                    saveQuestionsList(newQ);
+                                  }}
+                                  style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', color: 'white', border: 'none', borderRadius: '50%', width: 24, height: 24, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
+                                >✕</button>
+                              </div>
+                           ))}
                          </div>
-                         
-                         {/* Edit Prompt */}
-                         <textarea
-                           value={q.promptRawText || (q.promptBlocks?.[0] as any)?.text || ''}
-                           onChange={(e) => {
-                             const newQ = [...questions];
-                             newQ[qIndex] = { ...q, promptRawText: e.target.value, promptBlocks: [{ type: 'text', text: e.target.value }] };
-                             setQuestions(newQ);
-                           }}
-                           onBlur={() => saveQuestionsList(questions)}
-                           style={{ width: '100%', minHeight: 60, padding: 10, borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', marginBottom: 12, outline: 'none' }}
-                         />
-                         
-                         {/* Edit Choices & Correct Answer */}
-                         {q.interaction.type === 'mcq' && (
-                           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                             {q.interaction.choices.map((choice, cIndex) => (
+                      )}
+                      
+                      {q.interaction.type === 'mcq' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          {q.interaction.choices.map((choice, cIndex) => {
+                            const isImage = choice.startsWith('data:image/') || choice.startsWith('http');
+                            return (
+                              <div key={cIndex} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <button
+                                  onClick={() => {
+                                    const newQ = [...questions];
+                                    if (newQ[qIndex].interaction.type === 'mcq') {
+                                      (newQ[qIndex].interaction as any).correctChoiceIndex = cIndex;
+                                      saveQuestionsList(newQ);
+                                    }
+                                  }}
+                                  title="Click to mark as correct answer"
+                                  style={{
+                                    width: 36, height: 36, borderRadius: '50%', border: 'none', flexShrink: 0,
+                                    background: q.interaction.type === 'mcq' && q.interaction.correctChoiceIndex === cIndex ? '#22c55e' : '#334155',
+                                    color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: 14,
+                                    transition: 'background 0.2s'
+                                  }}
+                                >
+                                  {String.fromCharCode(65 + cIndex)}
+                                </button>
+                                
+                                {isImage ? (
+                                  <div style={{ position: 'relative', flex: 1, padding: 8, borderRadius: 8, background: '#0f172a', border: '1px solid #475569' }}>
+                                    <img src={choice} style={{ maxWidth: 200, maxHeight: 100, borderRadius: 4 }} />
+                                    <button 
+                                      onClick={() => {
+                                         const newQ = [...questions];
+                                         if (newQ[qIndex].interaction.type === 'mcq') {
+                                           (newQ[qIndex].interaction as any).choices[cIndex] = '';
+                                           setQuestions(newQ);
+                                           saveQuestionsList(newQ);
+                                         }
+                                      }}
+                                      style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', color: 'white', border: 'none', borderRadius: '50%', width: 24, height: 24, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
+                                    >✕</button>
+                                  </div>
+                                ) : (
+                                  <input
+                                    value={choice}
+                                    onChange={(e) => {
+                                       const newQ = [...questions];
+                                       if (newQ[qIndex].interaction.type === 'mcq') {
+                                         (newQ[qIndex].interaction as any).choices[cIndex] = e.target.value;
+                                         setQuestions(newQ);
+                                       }
+                                    }}
+                                    onBlur={() => saveQuestionsList(questions)}
+                                    onPaste={(e) => handlePasteImage(e, (b64) => {
+                                       const newQ = [...questions];
+                                       if (newQ[qIndex].interaction.type === 'mcq') {
+                                         (newQ[qIndex].interaction as any).choices[cIndex] = b64;
+                                         setQuestions(newQ);
+                                         saveQuestionsList(newQ);
+                                       }
+                                    })}
+                                    placeholder={`Option ${String.fromCharCode(65 + cIndex)} (Paste image here)`}
+                                    style={{ flex: 1, padding: '10px 14px', borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', outline: 'none', fontSize: 14 }}
+                                  />
+                                )}
+                                <button 
+                                  onClick={() => {
+                                     const newQ = [...questions];
+                                     if (newQ[qIndex].interaction.type === 'mcq') {
+                                        const arr = (newQ[qIndex].interaction as any).choices;
+                                        if (arr.length > 2) {
+                                          arr.splice(cIndex, 1);
+                                          if ((newQ[qIndex].interaction as any).correctChoiceIndex === cIndex) {
+                                             (newQ[qIndex].interaction as any).correctChoiceIndex = -1;
+                                          } else if ((newQ[qIndex].interaction as any).correctChoiceIndex > cIndex) {
+                                             (newQ[qIndex].interaction as any).correctChoiceIndex--;
+                                          }
+                                          saveQuestionsList(newQ);
+                                        }
+                                     }
+                                  }}
+                                  style={{ background: 'transparent', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 18, padding: '0 8px' }}
+                                  title="Remove Option"
+                                >×</button>
+                              </div>
+                            );
+                          })}
+                          <button 
+                             onClick={() => {
+                                const newQ = [...questions];
+                                if (newQ[qIndex].interaction.type === 'mcq') {
+                                   (newQ[qIndex].interaction as any).choices.push('');
+                                   setQuestions(newQ);
+                                }
+                             }}
+                             style={{ background: 'transparent', border: '1px dashed #475569', color: '#94a3b8', padding: '8px', borderRadius: 8, cursor: 'pointer', marginTop: 4, width: 'fit-content' }}
+                          >
+                            + Add Option
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Add Questions Modal */}
+      {addModalOpen && (
+        <>
+          <div onClick={() => !pdfExtracting && setAddModalOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: '#1e293b', borderRadius: 16, border: '1px solid #475569',
+            zIndex: 1001, width: 'min(800px, 95vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
+          }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ color: 'white', margin: 0, fontSize: 18 }}>Extract PDF Questions</h2>
+              <button onClick={() => !pdfExtracting && setAddModalOpen(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 24 }}>×</button>
+            </div>
+            
+            <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 24, alignItems: 'center' }}>
+                <input 
+                  type="file" accept=".pdf" 
+                  onChange={e => setPdfFile(e.target.files?.[0] || null)}
+                  style={{ flex: 1, padding: 12, background: '#0f172a', borderRadius: 8, border: '1px solid #334155', color: 'white' }}
+                />
+                <button 
+                  onClick={handleExtractFromPdf} 
+                  disabled={!pdfFile || pdfExtracting}
+                  className="ll-btn ll-btn-primary" 
+                  style={{ padding: '14px 24px', fontWeight: 'bold' }}
+                >
+                  {pdfExtracting ? 'Extracting...' : 'Extract MCQs'}
+                </button>
+              </div>
+
+              <div style={{ textAlign: 'center', margin: '20px 0' }}>
+                 <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>— OR —</div>
+                 <button onClick={() => {
+                    const newQ: any = {
+                       id: `manual_${Date.now()}`,
+                       promptRawText: '',
+                       promptBlocks: [{ type: 'text', text: '' }],
+                       interaction: { type: 'mcq', choices: ['', '', '', ''], correctChoiceIndex: 0 },
+                       timeLimitSec: 0, iqDeltaCorrect: 0, iqDeltaWrong: 0
+                    };
+                    setExtractedQuestions([...(extractedQuestions || []), newQ]);
+                 }} className="ll-btn" style={{ background: '#334155', color: 'white', padding: '10px 20px', borderRadius: 8, fontWeight: 'bold' }}>
+                    + Add Question Manually
+                 </button>
+              </div>
+
+              {pdfError && (
+                 <div style={{ padding: 16, background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', borderRadius: 8, marginBottom: 20, border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+                    {pdfError}
+                 </div>
+              )}
+
+              {extractedQuestions && extractedQuestions.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <h3 style={{ color: 'white', margin: '10px 0' }}>Review Questions</h3>
+                  <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 10 }}>
+                     ⚠️ Please review all questions and select the correct answer for each by clicking the letter circle.
+                  </div>
+                  
+                  {extractedQuestions.map((q, qIndex) => (
+                     <div key={qIndex} style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 12, padding: 16, position: 'relative' }}>
+                       <button 
+                          onClick={() => {
+                            if(window.confirm('Delete question?')) {
+                              setExtractedQuestions((extractedQuestions || []).filter((_, i) => i !== qIndex));
+                            }
+                          }}
+                          style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: 'none', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
+                       >🗑 Delete</button>
+                       <textarea
+                         value={q.promptRawText || (q.promptBlocks?.[0] as any)?.text || ''}
+                         onChange={(e) => {
+                            const nq = [...extractedQuestions];
+                            const newText = e.target.value;
+                            const existingImages = (q.promptBlocks || []).filter((b: any) => b.type === 'image');
+                            nq[qIndex].promptRawText = newText;
+                            nq[qIndex].promptBlocks = [{ type: 'text', text: newText }, ...existingImages] as any;
+                            setExtractedQuestions(nq);
+                         }}
+                         onPaste={(e) => handlePasteImage(e, (b64) => {
+                            const nq = [...extractedQuestions];
+                            const blocks = nq[qIndex].promptBlocks || [{ type: 'text', text: nq[qIndex].promptRawText || '' }];
+                            blocks.push({ type: 'image', url: b64 } as any);
+                            nq[qIndex].promptBlocks = blocks as any;
+                            setExtractedQuestions(nq);
+                         })}
+                         placeholder="Question Prompt... (Paste image to attach)"
+                         style={{ width: '100%', minHeight: 60, padding: 10, borderRadius: 8, background: '#1e293b', border: '1px solid #475569', color: 'white', marginBottom: 12, outline: 'none' }}
+                       />
+
+                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                         {q.imageUrl && (
+                           <div style={{ position: 'relative' }}>
+                             <img src={q.imageUrl} style={{ maxWidth: 300, maxHeight: 200, borderRadius: 8, border: '1px solid #475569' }} />
+                           </div>
+                         )}
+                         {q.promptBlocks?.filter((b: any) => b.type === 'image').map((imgBlock: any, imgIdx: number) => (
+                           <div key={imgIdx} style={{ position: 'relative' }}>
+                             <img src={imgBlock.url} style={{ maxWidth: 300, maxHeight: 200, borderRadius: 8, border: '1px solid #475569' }} />
+                             <button 
+                               onClick={() => {
+                                 const nq = [...extractedQuestions];
+                                 const blocks = (nq[qIndex].promptBlocks || []).filter((b: any) => b !== imgBlock);
+                                 nq[qIndex].promptBlocks = blocks as any;
+                                 setExtractedQuestions(nq);
+                               }}
+                               style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', color: 'white', border: 'none', borderRadius: '50%', width: 24, height: 24, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
+                             >✕</button>
+                           </div>
+                         ))}
+                       </div>
+
+                       {q.interaction.type === 'mcq' && (
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                           {q.interaction.choices.map((choice, cIndex) => {
+                             const isImage = choice.startsWith('data:image/') || choice.startsWith('http');
+                             return (
                                <div key={cIndex} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                  <button
                                    onClick={() => {
-                                     const newQ = [...questions];
-                                     if (newQ[qIndex].interaction.type === 'mcq') {
-                                       (newQ[qIndex].interaction as any).correctChoiceIndex = cIndex;
-                                       saveQuestionsList(newQ);
+                                     const nq = [...extractedQuestions];
+                                     if (nq[qIndex].interaction.type === 'mcq') {
+                                       (nq[qIndex].interaction as any).correctChoiceIndex = cIndex;
+                                       setExtractedQuestions(nq);
                                      }
                                    }}
                                    style={{
-                                     width: 32, height: 32, borderRadius: '50%', border: 'none',
+                                     width: 32, height: 32, borderRadius: '50%', border: 'none', flexShrink: 0,
                                      background: q.interaction.type === 'mcq' && q.interaction.correctChoiceIndex === cIndex ? '#22c55e' : '#334155',
                                      color: 'white', fontWeight: 'bold', cursor: 'pointer'
                                    }}
                                  >
                                    {String.fromCharCode(65 + cIndex)}
                                  </button>
-                                 <input
-                                   value={choice}
-                                   onChange={(e) => {
-                                      const newQ = [...questions];
-                                      if (newQ[qIndex].interaction.type === 'mcq') {
-                                        (newQ[qIndex].interaction as any).choices[cIndex] = e.target.value;
-                                        setQuestions(newQ);
+                                 {isImage ? (
+                                   <div style={{ position: 'relative', flex: 1, padding: 8, borderRadius: 8, background: '#1e293b', border: '1px solid #475569' }}>
+                                     <img src={choice} style={{ maxWidth: 200, maxHeight: 100, borderRadius: 4 }} />
+                                     <button 
+                                       onClick={() => {
+                                          const nq = [...extractedQuestions];
+                                          if (nq[qIndex].interaction.type === 'mcq') {
+                                            (nq[qIndex].interaction as any).choices[cIndex] = '';
+                                            setExtractedQuestions(nq);
+                                          }
+                                       }}
+                                       style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', color: 'white', border: 'none', borderRadius: '50%', width: 24, height: 24, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
+                                     >✕</button>
+                                   </div>
+                                 ) : (
+                                   <input
+                                     value={choice}
+                                     onChange={(e) => {
+                                        const nq = [...extractedQuestions];
+                                        if (nq[qIndex].interaction.type === 'mcq') {
+                                          (nq[qIndex].interaction as any).choices[cIndex] = e.target.value;
+                                          setExtractedQuestions(nq);
+                                        }
+                                     }}
+                                     onPaste={(e) => handlePasteImage(e, (b64) => {
+                                        const nq = [...extractedQuestions];
+                                        if (nq[qIndex].interaction.type === 'mcq') {
+                                          (nq[qIndex].interaction as any).choices[cIndex] = b64;
+                                          setExtractedQuestions(nq);
+                                        }
+                                     })}
+                                     placeholder={`Option ${String.fromCharCode(65 + cIndex)} (Paste image here)`}
+                                     style={{ flex: 1, padding: '8px 12px', borderRadius: 8, background: '#1e293b', border: '1px solid #475569', color: 'white', outline: 'none', fontSize: 13 }}
+                                   />
+                                 )}
+                                 <button 
+                                   onClick={() => {
+                                      const nq = [...extractedQuestions];
+                                      if (nq[qIndex].interaction.type === 'mcq') {
+                                         const arr = (nq[qIndex].interaction as any).choices;
+                                         if (arr.length > 2) {
+                                           arr.splice(cIndex, 1);
+                                           if ((nq[qIndex].interaction as any).correctChoiceIndex === cIndex) {
+                                              (nq[qIndex].interaction as any).correctChoiceIndex = -1;
+                                           } else if ((nq[qIndex].interaction as any).correctChoiceIndex > cIndex) {
+                                              (nq[qIndex].interaction as any).correctChoiceIndex--;
+                                           }
+                                           setExtractedQuestions(nq);
+                                         }
                                       }
                                    }}
-                                   onBlur={() => saveQuestionsList(questions)}
-                                   style={{ flex: 1, padding: '8px 12px', borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', outline: 'none' }}
-                                 />
+                                   style={{ background: 'transparent', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 18, padding: '0 8px' }}
+                                   title="Remove Option"
+                                 >×</button>
                                </div>
-                             ))}
-                           </div>
-                         )}
-                         
-                         <div style={{ display: 'flex', gap: 16, marginTop: 16, borderTop: '1px solid #334155', paddingTop: 12 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ color: '#94a3b8', fontSize: 12 }}>Time Limit (s):</span>
-                              <input 
-                                type="number" value={q.timeLimitSec}
-                                onChange={(e) => {
-                                  const newQ = [...questions];
-                                  newQ[qIndex].timeLimitSec = Number(e.target.value);
-                                  setQuestions(newQ);
-                                }}
-                                onBlur={() => saveQuestionsList(questions)}
-                                style={{ width: 60, padding: 4, borderRadius: 4, background: '#0f172a', border: '1px solid #475569', color: 'white' }}
-                              />
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ color: '#94a3b8', fontSize: 12 }}>IQ Correct:</span>
-                              <input 
-                                type="number" value={q.iqDeltaCorrect}
-                                onChange={(e) => {
-                                  const newQ = [...questions];
-                                  newQ[qIndex].iqDeltaCorrect = Number(e.target.value);
-                                  setQuestions(newQ);
-                                }}
-                                onBlur={() => saveQuestionsList(questions)}
-                                style={{ width: 60, padding: 4, borderRadius: 4, background: '#0f172a', border: '1px solid #475569', color: 'white' }}
-                              />
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ color: '#94a3b8', fontSize: 12 }}>IQ Wrong:</span>
-                              <input 
-                                type="number" value={q.iqDeltaWrong}
-                                onChange={(e) => {
-                                  const newQ = [...questions];
-                                  newQ[qIndex].iqDeltaWrong = Number(e.target.value);
-                                  setQuestions(newQ);
-                                }}
-                                onBlur={() => saveQuestionsList(questions)}
-                                style={{ width: 60, padding: 4, borderRadius: 4, background: '#0f172a', border: '1px solid #475569', color: 'white' }}
-                              />
-                            </div>
+                             );
+                           })}
+                           <button 
+                              onClick={() => {
+                                 const nq = [...extractedQuestions];
+                                 if (nq[qIndex].interaction.type === 'mcq') {
+                                    (nq[qIndex].interaction as any).choices.push('');
+                                    setExtractedQuestions(nq);
+                                 }
+                              }}
+                              style={{ background: 'transparent', border: '1px dashed #475569', color: '#94a3b8', padding: '8px', borderRadius: 8, cursor: 'pointer', marginTop: 4, width: 'fit-content', fontSize: 13 }}
+                           >
+                             + Add Option
+                           </button>
                          </div>
-                       </div>
-                     ))}
-                   </div>
-                 )}
-               </div>
-             
-          </div>
-        )}
-      </div>
-    </div>  );
-}
+                       )}
+                     </div>
+                  ))}
+                  <button 
+                    onClick={async () => {
+                      // Check if any question is missing a correct answer
+                      const missingAns = extractedQuestions.some(q => q.interaction.type === 'mcq' && q.interaction.correctChoiceIndex < 0);
+                      if (missingAns) {
+                         if (!window.confirm("Some questions do not have a correct answer selected. Add them anyway?")) return;
+                      }
 
+                      await saveQuestionsList([...questions, ...extractedQuestions]);
+                      setAddModalOpen(false);
+                      setExtractedQuestions(null);
+                      setPdfFile(null);
+                    }} 
+                    className="ll-btn ll-btn-primary" 
+                    style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', marginTop: 20 }}
+                  >
+                    Add All {extractedQuestions.length} Questions to Level
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function ProgramsAdmin() {
   const { user, userData } = useAuth();

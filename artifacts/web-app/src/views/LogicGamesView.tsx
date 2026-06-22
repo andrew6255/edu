@@ -3,8 +3,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { LogicGameNode, LogicGamePromptBlock, LogicGamesProgressDoc, LogicGameQuestion } from '@/types/logicGames';
 import {
   ensureLogicGamesProgress,
-  getPublishedLogicGameQuestions,
-  listPublishedLogicGameNodes,
+  getLogicGameQuestions,
+  listLogicGameNodes,
   setLogicGamesIq,
 } from '@/lib/logicGamesService';
 import { emitSolveEvent } from '@/lib/battlePassEvents';
@@ -77,7 +77,7 @@ export default function LogicGamesView() {
     if (!uid) return;
     setLoading(true);
     setErr(null);
-    Promise.all([listPublishedLogicGameNodes(), ensureLogicGamesProgress(uid)])
+    Promise.all([listLogicGameNodes(), ensureLogicGamesProgress(uid)])
       .then(([n, p]) => {
         if (!alive) return;
         setNodes(n);
@@ -330,7 +330,7 @@ export default function LogicGamesView() {
     setRankedError(null);
     setRankedApplyIq(!!opts.applyIq);
     try {
-      const qdoc = await getPublishedLogicGameQuestions(node.id);
+      const qdoc = await getLogicGameQuestions(node.id);
       const qs = Array.isArray(qdoc?.questions) ? qdoc!.questions : [];
       if (qs.length === 0) throw new Error('No questions found for this node');
       setRankedQuestions(qs);
@@ -574,7 +574,7 @@ export default function LogicGamesView() {
       return;
     }
 
-    const qdoc = await getPublishedLogicGameQuestions(activeNode.id);
+    const qdoc = await getLogicGameQuestions(activeNode.id);
     const qs = Array.isArray(qdoc?.questions) ? (qdoc!.questions as LogicGameQuestion[]) : [];
     const q = qs.find((x) => x.id === round.questionId) ?? null;
     if (!q) return;
@@ -609,7 +609,7 @@ export default function LogicGamesView() {
       let alive = true;
       setQ(null);
       setQErr(null);
-      getPublishedLogicGameQuestions(props.nodeId)
+      getLogicGameQuestions(props.nodeId)
         .then((doc0) => {
           if (!alive) return;
           const qs = Array.isArray(doc0?.questions) ? (doc0!.questions as LogicGameQuestion[]) : [];

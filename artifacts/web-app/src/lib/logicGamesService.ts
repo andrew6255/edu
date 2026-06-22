@@ -2,9 +2,7 @@ import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import type { LogicGameNode, LogicGameQuestionsDoc, LogicGamesProgressDoc } from '@/types/logicGames';
 
 const NODES_PUBLIC_COL = 'logic_game_nodes_public';
-const NODES_DRAFT_COL = 'logic_game_nodes_draft';
 const QUESTIONS_PUBLIC_COL = 'logic_game_questions_public';
-const QUESTIONS_DRAFT_COL = 'logic_game_questions_draft';
 
 function mapNodeRow(row: Record<string, unknown>): LogicGameNode | null {
   const id = typeof row.id === 'string' ? row.id : '';
@@ -101,15 +99,15 @@ async function replaceQuestions(table: string, nodeId: string, docData: Omit<Log
   if (error) throw error;
 }
 
-export async function listPublishedLogicGameNodes(): Promise<LogicGameNode[]> {
+export async function listLogicGameNodes(): Promise<LogicGameNode[]> {
   return listNodes(NODES_PUBLIC_COL);
 }
 
-export async function upsertPublishedLogicGameNode(node: LogicGameNode): Promise<void> {
-  await upsertNode(NODES_PUBLIC_COL, node);
+export async function upsertLogicGameNode(node: LogicGameNode): Promise<void> {
+  await upsertNode(NODES_PUBLIC_COL, node, new Date().toISOString());
 }
 
-export async function deletePublishedLogicGameNode(nodeId: string): Promise<void> {
+export async function deleteLogicGameNode(nodeId: string): Promise<void> {
   const supabase = getAdminClient();
   const { error: qError } = await supabase.from(QUESTIONS_PUBLIC_COL as any).delete().eq('node_id', nodeId);
   if (qError) throw qError;
@@ -152,69 +150,10 @@ export async function setLogicGamesIq(uid: string, nextIq: number, nextFloorIq: 
   if (error) throw error;
 }
 
-export async function listDraftLogicGameNodes(): Promise<LogicGameNode[]> {
-  return listNodes(NODES_DRAFT_COL);
-}
-
-export async function upsertDraftLogicGameNode(node: LogicGameNode): Promise<void> {
-  await upsertNode(NODES_DRAFT_COL, node);
-}
-
-export async function deleteDraftLogicGameNode(nodeId: string): Promise<void> {
-  const supabase = getAdminClient();
-  const { error: qError } = await supabase.from(QUESTIONS_DRAFT_COL as any).delete().eq('node_id', nodeId);
-  if (qError) throw qError;
-  const { error } = await supabase.from(NODES_DRAFT_COL as any).delete().eq('id', nodeId);
-  if (error) throw error;
-}
-
-export async function publishLogicGameNode(nodeId: string): Promise<void> {
-  const nodes = await listDraftLogicGameNodes();
-  const node = nodes.find((n) => n.id === nodeId);
-  if (!node) throw new Error('Draft node not found');
-  const now = new Date().toISOString();
-  await upsertNode(NODES_PUBLIC_COL, node, now);
-}
-
-export async function getDraftLogicGameQuestions(nodeId: string): Promise<LogicGameQuestionsDoc | null> {
-  return getQuestions(QUESTIONS_DRAFT_COL, nodeId);
-}
-
-export async function getPublishedLogicGameQuestions(nodeId: string): Promise<LogicGameQuestionsDoc | null> {
+export async function getLogicGameQuestions(nodeId: string): Promise<LogicGameQuestionsDoc | null> {
   return getQuestions(QUESTIONS_PUBLIC_COL, nodeId);
 }
 
-export async function upsertDraftLogicGameQuestions(nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>): Promise<void> {
-  await replaceQuestions(QUESTIONS_DRAFT_COL, nodeId, docData);
-}
-
-export async function publishLogicGameQuestions(nodeId: string): Promise<void> {
-  const data = await getDraftLogicGameQuestions(nodeId);
-  if (!data) throw new Error('Draft questions not found');
-  const now = new Date().toISOString();
-  await replaceQuestions(QUESTIONS_PUBLIC_COL, nodeId, data, now);
-}
-
-export async function upsertPublishedLogicGameQuestions(nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>): Promise<void> {
-  await replaceQuestions(QUESTIONS_PUBLIC_COL, nodeId, docData);
-}
-
-
-export async function publishAllLogicGames(): Promise<void> {
-  const drafts = await listDraftLogicGameNodes();
-  const publicNodes = await listPublishedLogicGameNodes();
-  
-  // Delete public nodes that are no longer in drafts
-  const draftIds = new Set(drafts.map(d => d.id));
-  for (const pub of publicNodes) {
-    if (!draftIds.has(pub.id)) {
-      await deletePublishedLogicGameNode(pub.id);
-    }
-  }
-
-  // Publish remaining
-  for (const draft of drafts) {
-    await publishLogicGameNode(draft.id);
-    await publishLogicGameQuestions(draft.id);
-  }
+export async function upsertLogicGameQuestions(nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>): Promise<void> {
+  await replaceQuestions(QUESTIONS_PUBLIC_COL, nodeId, docData, new Date().toISOString());
 }

@@ -1,7 +1,7 @@
 import { getGlobalDoc, setGlobalDoc, updateGlobalDoc, listenGlobalDoc } from '@/lib/supabaseDocStore';
 import type { LogicGameFriendMatch } from '@/types/logicGameFriend';
 import type { LogicGameQuestion } from '@/types/logicGames';
-import { getPublishedLogicGameQuestions } from '@/lib/logicGamesService';
+import { getLogicGameQuestions } from '@/lib/logicGamesService';
 import { sendChallenge } from '@/lib/gameSessionService';
 
 function nowIso() {
@@ -50,7 +50,7 @@ export async function createLogicGameFriendMatch(args: {
 }): Promise<LogicGameFriendMatch> {
   const matchId = args.matchId ?? makeId();
 
-  const qdoc = await getPublishedLogicGameQuestions(args.nodeId);
+  const qdoc = await getLogicGameQuestions(args.nodeId);
   const questions = Array.isArray(qdoc?.questions) ? (qdoc!.questions as LogicGameQuestion[]) : [];
   if (questions.length === 0) throw new Error('No published questions for this node');
 

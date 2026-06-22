@@ -1,4 +1,9 @@
 import { Router, type IRouter } from "express";
+import multer from "multer";
+import path from "node:path";
+import os from "node:os";
+
+const upload = multer({ dest: path.join(os.tmpdir(), "iq-games-uploads") });
 import {
   attachProgramIngestionSourceFile,
   createProgramIngestionJob,
@@ -11,6 +16,7 @@ import {
   getPersonalProgramStatus,
   getPersonalProgramDebug,
   extractMcqFromText,
+  extractIqPdf,
 } from "./controller";
 
 const router: IRouter = Router();
@@ -30,5 +36,6 @@ router.get("/program-ingestion/personal/:jobId/debug", getPersonalProgramDebug);
 
 // IQ Games API endpoints
 router.post("/program-ingestion/extract-mcq", extractMcqFromText);
+router.post("/program-ingestion/extract-iq-pdf", upload.single("file"), extractIqPdf);
 
 export default router;
