@@ -107,6 +107,15 @@ export default function NotificationsView({ onClose }: Props) {
 
   async function handleResponse(n: AppNotification, accept: boolean) {
     if (!user) return;
+    
+    // Optimistic UI update
+    setNotifs(prev => prev.map(x => x.id === n.id ? { 
+      ...x, 
+      resolved: true, 
+      read: true, 
+      ...(accept ? { message: `You are now friends with ${n.fromUsername}.`, type: 'system' } : {}) 
+    } as any : x));
+
     await respondToFriendRequest(user.uid, n.fromUid, accept);
     await setGlobalDoc(`notifications:${user.uid}`, n.id, {
       ...(accept ? { message: `You are now friends with ${n.fromUsername}.`, type: 'system' } : {}),
@@ -168,6 +177,8 @@ export default function NotificationsView({ onClose }: Props) {
       }
     }
 
+    setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, resolved: true, read: true } as any : x));
+
     await setGlobalDoc(`notifications:${user.uid}`, n.id, {
       resolved: true,
       resolvedAt: new Date().toISOString(),
@@ -177,6 +188,10 @@ export default function NotificationsView({ onClose }: Props) {
 
   async function handleJoinRequest(n: AppNotification, accept: boolean) {
     if (!user) return;
+
+    // Optimistic UI update
+    setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, resolved: true, read: true } as any : x));
+
     if (accept && n.lobbyId && n.fromUid) {
       await acceptJoinRequest({
         leaderUid: user.uid,
@@ -195,6 +210,10 @@ export default function NotificationsView({ onClose }: Props) {
 
   async function handleLobbyInvite(n: AppNotification, accept: boolean) {
     if (!user) return;
+    
+    // Optimistic UI update
+    setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, resolved: true, read: true } as any : x));
+
     if (accept && n.lobbyId) {
       localStorage.setItem('ll:pendingLobbyId', n.lobbyId);
       window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'lobby' } }));

@@ -164,6 +164,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    const supabase = requireSupabase();
+    const channelId = `auth_profile:${user.uid}:${Math.random().toString(36).slice(2)}`;
+    const channel = supabase.channel(channelId)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${user.uid}`
+      }, () => {
+        refreshUserData();
+      })
+      .subscribe();
+      
+    return () => { supabase.removeChannel(channel); };
+  }, [user, refreshUserData]);
+
   return (
     <AuthContext.Provider value={{ user, userData, loading, refreshUserData }}>
       {children}
