@@ -93,7 +93,7 @@ async function replaceQuestions(table: string, nodeId: string, docData: Omit<Log
     iq_delta_wrong: q.iqDeltaWrong,
     sort_order: idx,
     updated_at: now,
-    ...(publishedAt ? { published_at: publishedAt } : {}),
+    
   }));
   const { error } = await supabase.from(table as any).insert(rows as any);
   if (error) throw error;

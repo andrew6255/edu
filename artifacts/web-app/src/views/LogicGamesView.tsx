@@ -658,7 +658,11 @@ export default function LogicGamesView() {
                     opacity: props.disabled && !chosen ? 0.75 : 1,
                   }}
                 >
-                  {c}
+                  {c.toLowerCase().startsWith('data:image/') || c.toLowerCase().startsWith('http') ? (
+                    <img src={c} alt="choice" style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 4 }} />
+                  ) : (
+                    <>{c}</>
+                  )}
                 </button>
               );
             })}
@@ -808,7 +812,11 @@ export default function LogicGamesView() {
                           opacity: disabled && !chosen ? 0.75 : 1,
                         }}
                       >
-                        {c}
+                        {c.toLowerCase().startsWith('data:image/') || c.toLowerCase().startsWith('http') ? (
+                          <img src={c} alt="choice" style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 4 }} />
+                        ) : (
+                          <>{c}</>
+                        )}
                       </button>
                     );
                   })}
