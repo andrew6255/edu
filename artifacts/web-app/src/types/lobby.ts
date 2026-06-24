@@ -1,7 +1,5 @@
 // ─── Lobby System Types ────────────────────────────────────────────────────────
 
-export type LobbyPlayMode = 'live' | 'freePace';
-
 export type LobbyGameModeKind = 'warmup' | 'iqGame' | 'program';
 
 export interface LobbyGameMode {
@@ -37,7 +35,6 @@ export interface LobbyDoc {
   leaderUid: string;
   players: LobbyPlayer[];
   gameMode: LobbyGameMode | null;
-  playMode: LobbyPlayMode;
   state: LobbyState;
   countdownStartedAt: string | null;
   chat: LobbyMessage[];

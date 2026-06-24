@@ -129,6 +129,22 @@ export default function WarmupView() {
     }
   }, [pendingSession]);
 
+  // Launch solo warmup game from lobby if ll:warmupGameId is present
+  useEffect(() => {
+    const warmupId = typeof window !== 'undefined' ? localStorage.getItem('ll:warmupGameId') : null;
+    if (warmupId) {
+      localStorage.removeItem('ll:warmupGameId');
+      const baseId = warmupId.replace(/_(10s|60s)$/i, '');
+      const game = GAMES.find(g => g.id === baseId);
+      if (game) {
+        setSelectedGame(game);
+        setSelectedVariant(warmupId.endsWith('_60s') ? '60s' : '10s');
+        setSelectedMode('solo');
+        setPhase('playing_solo');
+      }
+    }
+  }, []);
+
   function selectGame(game: GameConfig) {
     if (activeSession || ongoingWarmup) return;
     setSelectedGame(game);

@@ -17,6 +17,7 @@ import {
   getPersonalProgramDebug,
   extractMcqFromText,
   extractIqPdf,
+  generateIqQuestionDetails,
 } from "./controller";
 
 const router: IRouter = Router();
@@ -37,5 +38,6 @@ router.get("/program-ingestion/personal/:jobId/debug", getPersonalProgramDebug);
 // IQ Games API endpoints
 router.post("/program-ingestion/extract-mcq", extractMcqFromText);
 router.post("/program-ingestion/extract-iq-pdf", upload.single("file"), extractIqPdf);
+router.post("/program-ingestion/iq-question-details", generateIqQuestionDetails);
 
 export default router;

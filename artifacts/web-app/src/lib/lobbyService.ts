@@ -16,7 +16,7 @@ import {
   listenGlobalDoc,
 } from '@/lib/supabaseDocStore';
 import { requireSupabase } from '@/lib/supabase';
-import type { LobbyDoc, LobbyPlayer, LobbyGameMode, LobbyPlayMode, FriendPresence } from '@/types/lobby';
+import type { LobbyDoc, LobbyPlayer, LobbyGameMode, FriendPresence } from '@/types/lobby';
 
 export const LOBBY_MAX_PLAYERS = 5;
 /** A user is "online" if their last_active is within this many milliseconds */
@@ -70,7 +70,6 @@ export async function createLobby(args: {
     leaderUid: args.uid,
     players: [leader],
     gameMode: null,
-    playMode: 'freePace',
     state: 'waiting',
     countdownStartedAt: null,
     chat: [],
@@ -201,19 +200,22 @@ export async function setLobbyGameMode(
   });
 }
 
-export async function setLobbyPlayMode(
+
+export async function setLobbyState(
   lobbyId: string,
-  leaderUid: string,
-  playMode: LobbyPlayMode
+  state: import('@/types/lobby').LobbyState
 ): Promise<void> {
   const raw = await getGlobalDoc('lobbies', lobbyId);
   if (!raw) return;
   const doc = getLobby(raw);
-  if (doc.leaderUid !== leaderUid) return;
 
-  const updatedPlayers = doc.players.map(p => ({ ...p, ready: false }));
+  let updatedPlayers = doc.players;
+  if (state === 'waiting') {
+    updatedPlayers = doc.players.map(p => ({ ...p, ready: false }));
+  }
+
   await updateGlobalDoc('lobbies', lobbyId, {
-    playMode,
+    state,
     players: updatedPlayers as unknown as Record<string, unknown>[],
     updatedAt: nowIso(),
   });
@@ -368,7 +370,6 @@ export async function pingPresence(uid: string): Promise<void> {
     .update({ updated_at: nowIso() })
     .eq('id', uid);
 }
-
 // ─── User Presence Doc (tracks current lobbyId) ───────────────────────────────
 
 export async function setUserLobby(uid: string, lobbyId: string | null): Promise<void> {
@@ -385,7 +386,8 @@ export async function getUserLobbyId(uid: string): Promise<string | null> {
 }
 
 export async function getFriendsWithPresence(
-  friendUids: string[]
+  friendUids: string[],
+  thresholdMs: number = 3 * 60 * 1000
 ): Promise<(import('@/types/lobby').FriendPresence & { lobbyId: string | null })[]> {
   if (friendUids.length === 0) return [];
   const supabase = requireSupabase();
@@ -395,7 +397,6 @@ export async function getFriendsWithPresence(
     .in('id', friendUids);
 
   const now = Date.now();
-  const ONLINE_MS = 3 * 60 * 1000;
   const profileMap = new Map((data ?? []).map((row: Record<string, unknown>) => [row.id as string, row]));
 
   const presences = await Promise.all(
@@ -409,7 +410,7 @@ export async function getFriendsWithPresence(
         uid,
         username: (row?.username as string) ?? uid,
         lastActive,
-        isOnline: ms < ONLINE_MS,
+        isOnline: ms < thresholdMs,
         lobbyId,
       };
     })

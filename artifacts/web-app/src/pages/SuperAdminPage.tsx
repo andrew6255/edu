@@ -949,6 +949,10 @@ function LogicGamesAdmin() {
   // Add Question Modal
   const [addModalOpen, setAddModalOpen] = useState(false);
   
+  // Details popup state
+  const [detailsQIndex, setDetailsQIndex] = useState<number | null>(null);
+  const [detailsGroqLoading, setDetailsGroqLoading] = useState(false);
+
   // PDF Upload Flow
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfExtracting, setPdfExtracting] = useState(false);
@@ -1251,16 +1255,24 @@ function LogicGamesAdmin() {
                     <div key={q.id} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 20, boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                         <div style={{ color: '#94a3b8', fontWeight: 'bold', fontSize: 14 }}>Question {qIndex + 1}</div>
-                        <button 
-                          onClick={() => {
-                            if(window.confirm('Delete question?')) {
-                              saveQuestionsList(questions.filter(x => x.id !== q.id));
-                            }
-                          }}
-                          className="ll-btn" style={{ padding: '6px 10px', fontSize: 13, color: '#fca5a5', background: 'rgba(239,68,68,0.1)' }}
-                        >
-                          🗑 Delete
-                        </button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button 
+                            onClick={() => setDetailsQIndex(qIndex)}
+                            className="ll-btn" style={{ padding: '6px 10px', fontSize: 13, color: '#a78bfa', background: 'rgba(167,139,250,0.1)' }}
+                          >
+                            📊 Details
+                          </button>
+                          <button 
+                            onClick={() => {
+                              if(window.confirm('Delete question?')) {
+                                saveQuestionsList(questions.filter(x => x.id !== q.id));
+                              }
+                            }}
+                            className="ll-btn" style={{ padding: '6px 10px', fontSize: 13, color: '#fca5a5', background: 'rgba(239,68,68,0.1)' }}
+                          >
+                            🗑 Delete
+                          </button>
+                        </div>
                       </div>
                       
                       <textarea
@@ -1413,6 +1425,152 @@ function LogicGamesAdmin() {
           </div>
         )}
       </div>
+
+      {/* Question Details Popup */}
+      {detailsQIndex !== null && detailsQIndex < questions.length && (() => {
+        const dq = questions[detailsQIndex];
+        const nodeIq = nodes.find(n => n.id === selectedNodeId)?.iq ?? 80;
+        const inputStyle: React.CSSProperties = { padding: '8px 12px', borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', outline: 'none', width: '100%', fontSize: 13 };
+        const labelStyle: React.CSSProperties = { fontSize: 11, color: '#94a3b8', fontWeight: 'bold', marginBottom: 4 };
+        const updateField = (field: string, value: any) => {
+          const newQ = [...questions];
+          (newQ[detailsQIndex] as any)[field] = value;
+          setQuestions(newQ);
+        };
+        const saveAndClose = () => { saveQuestionsList(questions); setDetailsQIndex(null); };
+
+        const askGroq = async () => {
+          setDetailsGroqLoading(true);
+          try {
+            const apiUrl = import.meta.env.VITE_API_SERVER_URL || '';
+            const promptText = dq.promptRawText || (dq.promptBlocks?.[0] as any)?.text || '';
+            const choices = dq.interaction.type === 'mcq' ? dq.interaction.choices : [];
+            const correctIdx = dq.interaction.type === 'mcq' ? dq.interaction.correctChoiceIndex : -1;
+            const res = await fetch(`${apiUrl}/api/program-ingestion/iq-question-details`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ promptText, choices, correctChoiceIndex: correctIdx, nodeIq }),
+            });
+            if (!res.ok) throw new Error(`Failed: ${await res.text()}`);
+            const data = await res.json();
+            const newQ = [...questions];
+            if (data.questionIq != null) (newQ[detailsQIndex] as any).questionIq = data.questionIq;
+            if (data.maxIqGain != null) (newQ[detailsQIndex] as any).maxIqGain = data.maxIqGain;
+            if (data.iqGainDecayRate != null) (newQ[detailsQIndex] as any).iqGainDecayRate = data.iqGainDecayRate;
+            if (data.iqGainDecayIntervalSec != null) (newQ[detailsQIndex] as any).iqGainDecayIntervalSec = data.iqGainDecayIntervalSec;
+            if (data.iqLossBase != null) (newQ[detailsQIndex] as any).iqLossBase = data.iqLossBase;
+            if (data.iqLossScaleFactor != null) (newQ[detailsQIndex] as any).iqLossScaleFactor = data.iqLossScaleFactor;
+            if (data.explanation) (newQ[detailsQIndex] as any).explanation = data.explanation;
+            setQuestions(newQ);
+            setStatus('✅ Groq values applied');
+          } catch (e) {
+            setErr(e instanceof Error ? e.message : String(e));
+          } finally {
+            setDetailsGroqLoading(false);
+          }
+        };
+
+        return (
+          <>
+            <div onClick={() => saveAndClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1100 }} />
+            <div style={{
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+              background: '#1e293b', borderRadius: 16, border: '1px solid #475569',
+              zIndex: 1101, width: 'min(600px, 95vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
+            }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2 style={{ color: 'white', margin: 0, fontSize: 16 }}>📊 Question {detailsQIndex + 1} — Details</h2>
+                <button onClick={() => saveAndClose()} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 24 }}>×</button>
+              </div>
+              <div style={{ padding: 20, overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {/* Question IQ Level */}
+                <div>
+                  <div style={labelStyle}>Question IQ Level</div>
+                  <input type="number" value={dq.questionIq ?? nodeIq} onChange={e => updateField('questionIq', Number(e.target.value))} style={inputStyle} />
+                </div>
+
+                {/* IQ Gain Settings */}
+                <div style={{ background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: 10, padding: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: '#34d399', marginBottom: 10 }}>📈 IQ Gain (Correct Answer)</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <div style={labelStyle}>Max IQ Gain</div>
+                      <input type="number" step="0.1" value={dq.maxIqGain ?? 2} onChange={e => updateField('maxIqGain', Number(e.target.value))} style={inputStyle} />
+                    </div>
+                    <div>
+                      <div style={labelStyle}>Decay Rate (per interval)</div>
+                      <input type="number" step="0.01" value={dq.iqGainDecayRate ?? 0.1} onChange={e => updateField('iqGainDecayRate', Number(e.target.value))} style={inputStyle} />
+                    </div>
+                    <div>
+                      <div style={labelStyle}>Decay Interval (seconds)</div>
+                      <input type="number" value={dq.iqGainDecayIntervalSec ?? 10} onChange={e => updateField('iqGainDecayIntervalSec', Number(e.target.value))} style={inputStyle} />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.5 }}>
+                    Example: Max gain {dq.maxIqGain ?? 2}, decay {dq.iqGainDecayRate ?? 0.1}/interval ({dq.iqGainDecayIntervalSec ?? 10}s).
+                    Solve in 0-{dq.iqGainDecayIntervalSec ?? 10}s → +{dq.maxIqGain ?? 2},
+                    in {dq.iqGainDecayIntervalSec ?? 10}-{(dq.iqGainDecayIntervalSec ?? 10) * 2}s → +{Math.max(0, (dq.maxIqGain ?? 2) - (dq.iqGainDecayRate ?? 0.1)).toFixed(2)}, etc.
+                  </div>
+                </div>
+
+                {/* IQ Loss Settings */}
+                <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: '#fca5a5', marginBottom: 10 }}>📉 IQ Loss (Incorrect Answer)</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <div style={labelStyle}>Base IQ Loss</div>
+                      <input type="number" step="0.1" value={dq.iqLossBase ?? 3} onChange={e => updateField('iqLossBase', Number(e.target.value))} style={inputStyle} />
+                    </div>
+                    <div>
+                      <div style={labelStyle}>Scale Factor (per IQ diff)</div>
+                      <input type="number" step="0.01" value={dq.iqLossScaleFactor ?? 0.05} onChange={e => updateField('iqLossScaleFactor', Number(e.target.value))} style={inputStyle} />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.5 }}>
+                    Loss = base × (1 + max(0, studentIQ - questionIQ) × scale).
+                    E.g. student IQ 100, question IQ {dq.questionIq ?? nodeIq}: loss = {((dq.iqLossBase ?? 3) * (1 + Math.max(0, 100 - (dq.questionIq ?? nodeIq)) * (dq.iqLossScaleFactor ?? 0.05))).toFixed(2)}
+                  </div>
+                </div>
+
+                {/* Explanation */}
+                <div>
+                  <div style={labelStyle}>💡 Explanation (shown in chill mode)</div>
+                  <textarea
+                    value={dq.explanation || ''}
+                    onChange={e => updateField('explanation', e.target.value)}
+                    placeholder="Concise explanation of why the correct answer is correct..."
+                    style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }}
+                  />
+                </div>
+
+                {/* Ask Groq Button */}
+                <button
+                  onClick={() => void askGroq()}
+                  disabled={detailsGroqLoading}
+                  className="ll-btn"
+                  style={{
+                    padding: '12px 16px', fontSize: 14, fontWeight: 'bold', width: '100%',
+                    background: 'linear-gradient(135deg, rgba(168,85,247,0.2), rgba(59,130,246,0.2))',
+                    border: '1px solid rgba(168,85,247,0.4)', color: '#c084fc', borderRadius: 10,
+                  }}
+                >
+                  {detailsGroqLoading ? '🔄 Asking Groq...' : '🤖 Ask Groq to Auto-Fill All Values'}
+                </button>
+
+                {/* Save & Close */}
+                <button
+                  onClick={() => saveAndClose()}
+                  className="ll-btn ll-btn-primary"
+                  style={{ padding: '12px', fontSize: 14, fontWeight: 'bold', width: '100%', borderRadius: 10 }}
+                >
+                  Save & Close
+                </button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* Add Questions Modal */}
       {addModalOpen && (

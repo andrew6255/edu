@@ -130,6 +130,15 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const { toast } = useToast();
   const prevUnreadIdsRef = useRef<Set<string>>(new Set());
 
+  // Global presence ping (every 15s)
+  useEffect(() => {
+    if (!user?.uid) return;
+    const { pingPresence } = require('@/lib/lobbyService');
+    pingPresence(user.uid).catch(() => {});
+    const id = setInterval(() => pingPresence(user.uid).catch(() => {}), 15_000);
+    return () => clearInterval(id);
+  }, [user?.uid]);
+
   useEffect(() => {
     const uid = user?.uid;
     if (!uid) return;
@@ -228,10 +237,11 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
   const battery = Math.max(0, Math.min(3, Math.floor(rankedEnergyStreak)));
 
-  async function handleLogout() {
-    await requireSupabase().auth.signOut();
+  function handleLogout() {
     localStorage.clear();
-    setLocation('/');
+    // Fire-and-forget signOut — redirect immediately so user isn't waiting
+    requireSupabase().auth.signOut().catch(() => {});
+    window.location.href = '/auth';
   }
 
 

@@ -25,8 +25,24 @@ export type LogicGameQuestion = {
   promptLatex?: string;
   interaction: LogicGameInteraction;
   timeLimitSec: number;
+  /** @deprecated Use time-based gain system instead */
   iqDeltaCorrect: number;
+  /** @deprecated Use IQ-relative loss system instead */
   iqDeltaWrong: number;
+  /** IQ level of this question */
+  questionIq?: number;
+  /** Maximum IQ gain when answered correctly (e.g. 2.0) */
+  maxIqGain?: number;
+  /** IQ gain lost per time interval (e.g. 0.1 means -0.1 per interval) */
+  iqGainDecayRate?: number;
+  /** Time interval in seconds for gain decay (e.g. 10) */
+  iqGainDecayIntervalSec?: number;
+  /** Base IQ loss for incorrect answer (positive number, e.g. 3) */
+  iqLossBase?: number;
+  /** Scale factor for extra loss when question IQ << student IQ (e.g. 0.05) */
+  iqLossScaleFactor?: number;
+  /** Explanation shown in chill mode after answering */
+  explanation?: string;
 };
 
 export type LogicGameQuestionsDoc = {

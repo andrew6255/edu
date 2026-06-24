@@ -213,7 +213,7 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
           {game.icon} {game.label}
         </span>
         <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: 11, background: '#1e293b', padding: '3px 8px', borderRadius: 6, border: '1px solid #334155' }}>
-          ⚔️ {mode === 'friend' ? 'Play a Friend' : 'Ranked'}
+          ⚔️ {mode === 'friend' ? 'Play vs a Friend' : 'Ranked'}
         </span>
       </div>
     );

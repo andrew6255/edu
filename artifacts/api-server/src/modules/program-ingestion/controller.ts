@@ -393,3 +393,91 @@ ${allText}
     res.status(500).json({ error: message });
   }
 }
+
+/**
+ * POST /api/program-ingestion/iq-question-details
+ * Uses Groq to analyze a question and return IQ parameters + explanation.
+ */
+export async function generateIqQuestionDetails(req: Request, res: Response): Promise<void> {
+  try {
+    const { promptText, choices, correctChoiceIndex, nodeIq } = req.body;
+    if (!promptText) {
+      res.status(400).json({ error: "promptText is required" });
+      return;
+    }
+
+    const apiKey = process.env["GROQ_API_KEY"];
+    if (!apiKey) {
+      throw new Error("GROQ_API_KEY is not configured.");
+    }
+
+    const choicesText = Array.isArray(choices) && choices.length > 0
+      ? choices.map((c: string, i: number) => `${String.fromCharCode(65 + i)}) ${c}${i === correctChoiceIndex ? ' (CORRECT)' : ''}`).join('\n')
+      : '';
+
+    const prompt = `You are an educational assessment expert. Analyze this question and provide IQ-related parameters.
+
+Question: ${promptText}
+${choicesText ? `Choices:\n${choicesText}` : ''}
+Node IQ Level: ${nodeIq || 80}
+
+Respond with a JSON object (no markdown, no code fences) containing:
+- "questionIq": number - The IQ level of this question (how difficult it is, usually between 70-150)
+- "maxIqGain": number - Maximum IQ gain for correct answer (max 2.0, usually between 0.5-2.0 based on difficulty)
+- "iqGainDecayRate": number - How much IQ gain decreases per time interval (usually 0.05-0.2)
+- "iqGainDecayIntervalSec": number - Time interval for decay in seconds (usually 10)
+- "iqLossBase": number - Base IQ loss for wrong answer (usually 1-5 based on difficulty)
+- "iqLossScaleFactor": number - Scale factor for IQ-relative loss (usually 0.03-0.08)
+- "explanation": string - A concise 1-2 sentence explanation of why the correct answer is correct and why other answers are wrong. Be direct and to the point.
+
+Return ONLY valid JSON.`;
+
+    const url = "https://api.groq.com/openai/v1/chat/completions";
+    const groqRes = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+        max_tokens: 500,
+      }),
+    });
+
+    if (!groqRes.ok) {
+      const errorText = await groqRes.text();
+      throw new Error(`Groq request failed: ${errorText}`);
+    }
+
+    const groqData = await groqRes.json();
+    const responseText = groqData.choices?.[0]?.message?.content?.trim();
+    if (!responseText) {
+      throw new Error("Groq response empty");
+    }
+
+    // Parse JSON from response (strip markdown fences if present)
+    let cleaned = responseText;
+    if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    }
+    const parsed = JSON.parse(cleaned);
+
+    res.json({
+      questionIq: typeof parsed.questionIq === 'number' ? parsed.questionIq : nodeIq || 80,
+      maxIqGain: typeof parsed.maxIqGain === 'number' ? Math.min(2, parsed.maxIqGain) : 2,
+      iqGainDecayRate: typeof parsed.iqGainDecayRate === 'number' ? parsed.iqGainDecayRate : 0.1,
+      iqGainDecayIntervalSec: typeof parsed.iqGainDecayIntervalSec === 'number' ? parsed.iqGainDecayIntervalSec : 10,
+      iqLossBase: typeof parsed.iqLossBase === 'number' ? parsed.iqLossBase : 3,
+      iqLossScaleFactor: typeof parsed.iqLossScaleFactor === 'number' ? parsed.iqLossScaleFactor : 0.05,
+      explanation: typeof parsed.explanation === 'string' ? parsed.explanation : '',
+    });
+
+  } catch (error) {
+    console.error("generateIqQuestionDetails error:", error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    res.status(500).json({ error: message });
+  }
+}

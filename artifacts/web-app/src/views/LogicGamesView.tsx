@@ -19,8 +19,29 @@ import {
 import type { LogicGameFriendMatch } from '@/types/logicGameFriend';
 import { listenChallengeState } from '@/lib/gameSessionService';
 
-type Mode = 'solo' | 'ranked' | 'friend';
-type Screen = 'map' | 'ranked' | 'friend_waiting' | 'friend_match';
+type GamePlayMode = 'chill' | 'iq';
+type Screen = 'map' | 'playing' | 'friend_waiting' | 'friend_match';
+
+// ── IQ Gain/Loss Calculations ───────────────────────────────────────────────
+
+function computeIqGain(q: LogicGameQuestion, timeTakenSec: number): number {
+  const maxGain = q.maxIqGain ?? q.iqDeltaCorrect ?? 2;
+  const decayRate = q.iqGainDecayRate ?? 0.1;
+  const decayInterval = q.iqGainDecayIntervalSec ?? 10;
+  const intervalsElapsed = Math.floor(timeTakenSec / decayInterval);
+  const gain = maxGain - (decayRate * intervalsElapsed);
+  return Math.max(0, Math.round(gain * 100) / 100);
+}
+
+function computeIqLoss(q: LogicGameQuestion, currentIq: number): number {
+  const baseLoss = q.iqLossBase ?? Math.abs(q.iqDeltaWrong ?? 3);
+  const scaleFactor = q.iqLossScaleFactor ?? 0.05;
+  const questionIq = q.questionIq ?? 80;
+  // If student IQ is much higher than question IQ, they lose more
+  const iqDiff = Math.max(0, currentIq - questionIq);
+  const loss = baseLoss * (1 + iqDiff * scaleFactor);
+  return -Math.round(loss * 100) / 100;
+}
 
 export default function LogicGamesView() {
   const { user, userData } = useAuth();
@@ -35,8 +56,8 @@ export default function LogicGamesView() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const [openNode, setOpenNode] = useState<LogicGameNode | null>(null);
-  const [mode, setMode] = useState<Mode>('ranked');
+  // Chill / IQ mode toggle
+  const [gamePlayMode, setGamePlayMode] = useState<GamePlayMode>('iq');
 
   const [screen, setScreen] = useState<Screen>('map');
   const [activeNode, setActiveNode] = useState<LogicGameNode | null>(null);
@@ -46,12 +67,13 @@ export default function LogicGamesView() {
   const [rankedCurrent, setRankedCurrent] = useState<LogicGameQuestion | null>(null);
   const [rankedAnswerText, setRankedAnswerText] = useState('');
   const [rankedChoiceIndex, setRankedChoiceIndex] = useState<number | null>(null);
-  const [rankedFeedback, setRankedFeedback] = useState<null | { correct: boolean; timedOut?: boolean }>(null);
-  const [rankedSecondsLeft, setRankedSecondsLeft] = useState<number>(0);
-  const rankedTimerRef = useRef<number | null>(null);
+  const [rankedFeedback, setRankedFeedback] = useState<null | { correct: boolean; timedOut?: boolean; explanation?: string }>(null);
 
-  const [rankedApplyIq, setRankedApplyIq] = useState(true);
+  // IQ mode: upward timer (stopwatch)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const elapsedTimerRef = useRef<number | null>(null);
 
+  // Friend match state (kept for friend match acceptance from notifications)
   const [friendBusy, setFriendBusy] = useState(false);
   const [friendErr, setFriendErr] = useState<string | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -151,24 +173,32 @@ export default function LogicGamesView() {
     localStorage.removeItem('ll:logicGamePreviewNodeId');
     const node = sorted.find((n) => n.id === pid) ?? null;
     if (node) {
-      setOpenNode(node);
-      setMode('ranked');
+      // Direct start in IQ mode
+      void startPlaying(node);
     }
   }, [sorted]);
 
-  // Resume a match accepted via NotificationsView
+  // Resume a match accepted via NotificationsView or Lobby launch
   useEffect(() => {
-    if (!uid) return;
+    if (!uid || nodes.length === 0) return;
     const mid = typeof window !== 'undefined' ? localStorage.getItem('ll:logicGameFriendMatchId') : null;
     const nid = typeof window !== 'undefined' ? localStorage.getItem('ll:logicGameNodeId') : null;
-    if (!mid) return;
-    localStorage.removeItem('ll:logicGameFriendMatchId');
+    if (!mid && !nid) return;
+    
+    if (mid) localStorage.removeItem('ll:logicGameFriendMatchId');
     if (nid) localStorage.removeItem('ll:logicGameNodeId');
 
-    const node = nid ? nodes.find((n) => n.id === nid) ?? null : null;
-    setActiveNode(node);
-    setFriendMatchId(mid);
-    setScreen('friend_match');
+    if (mid) {
+      const node = nid ? nodes.find((n) => n.id === nid) ?? null : null;
+      setActiveNode(node);
+      setFriendMatchId(mid);
+      setScreen('friend_match');
+    } else if (nid) {
+      const node = nodes.find((n) => n.id === nid) ?? null;
+      if (node) {
+        void startPlaying(node);
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid, nodes.length]);
 
@@ -201,56 +231,73 @@ export default function LogicGamesView() {
 
   const canOpen = (n: LogicGameNode) => {
     if (previewUnlockAll) return true;
+    if (gamePlayMode === 'chill') {
+      // In chill mode, can play any level up to floor (already unlocked levels)
+      const iq = n.iq ?? 0;
+      return iq <= floorIq;
+    }
     const iq = n.iq ?? 0;
     return iq <= floorIq;
   };
 
-  function stopRankedTimer() {
-    if (rankedTimerRef.current != null) {
-      window.clearInterval(rankedTimerRef.current);
-      rankedTimerRef.current = null;
-    }
-  }
+  // ── Upward Timer (Stopwatch for IQ mode) ──────────────────────────────────
 
-  function startRankedTimer(seconds: number) {
-    stopRankedTimer();
-    const initial = Math.max(0, Math.floor(seconds));
-    setRankedSecondsLeft(initial);
-    rankedTimerRef.current = window.setInterval(() => {
-      setRankedSecondsLeft((s) => {
-        const next = Math.max(0, s - 1);
-        return next;
-      });
+  function startElapsedTimer() {
+    stopElapsedTimer();
+    setElapsedSeconds(0);
+    elapsedTimerRef.current = window.setInterval(() => {
+      setElapsedSeconds((s) => s + 1);
     }, 1000);
   }
 
-  useEffect(() => {
-    if (screen !== 'ranked') return;
-    if (!rankedCurrent) return;
-    if (rankedFeedback) return;
-    if (rankedSecondsLeft > 0) return;
-    // Timeout -> wrong
-    void submitRankedTimeout();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen, rankedSecondsLeft, rankedCurrent, rankedFeedback]);
+  function stopElapsedTimer() {
+    if (elapsedTimerRef.current != null) {
+      window.clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+  }
 
   useEffect(() => {
-    return () => stopRankedTimer();
+    return () => stopElapsedTimer();
   }, []);
 
-  function pickNextRankedQuestion(all: LogicGameQuestion[], prevId?: string | null) {
+  // ── Pick Question Closest to Student IQ ───────────────────────────────────
+
+  function pickQuestionClosestToIq(allQuestions: LogicGameQuestion[], studentIq: number): LogicGameQuestion | null {
+    if (allQuestions.length === 0) return null;
+    // If questions have questionIq set, pick the closest to studentIq
+    const withIq = allQuestions.filter(q => typeof q.questionIq === 'number');
+    if (withIq.length > 0) {
+      withIq.sort((a, b) => Math.abs((a.questionIq ?? 0) - studentIq) - Math.abs((b.questionIq ?? 0) - studentIq));
+      return withIq[0];
+    }
+    // Fallback: random question
+    return allQuestions[Math.floor(Math.random() * allQuestions.length)];
+  }
+
+  function pickNextQuestion(all: LogicGameQuestion[], prevId?: string | null) {
     if (all.length === 0) {
       setRankedCurrent(null);
       return;
     }
     const pool = prevId ? all.filter((q) => q.id !== prevId) : all;
     const list = pool.length > 0 ? pool : all;
-    const next = list[Math.floor(Math.random() * list.length)];
-    setRankedCurrent(next);
+
+    if (gamePlayMode === 'iq') {
+      // In IQ mode, pick closest to current IQ
+      const picked = pickQuestionClosestToIq(list, currentIq);
+      setRankedCurrent(picked);
+    } else {
+      // In chill mode, random
+      setRankedCurrent(list[Math.floor(Math.random() * list.length)]);
+    }
     setRankedFeedback(null);
     setRankedAnswerText('');
     setRankedChoiceIndex(null);
-    startRankedTimer(next.timeLimitSec);
+
+    if (gamePlayMode === 'iq') {
+      startElapsedTimer();
+    }
   }
 
   function computeNextFloorIq(nextIq: number) {
@@ -268,37 +315,16 @@ export default function LogicGamesView() {
     const nextFloor = computeNextFloorIq(raw);
     const nextIq = Math.max(nextFloor, raw);
     await setLogicGamesIq(uid, nextIq, nextFloor);
-    setProgress((p) => {
+    setProgress(() => {
       const now = new Date().toISOString();
       return { id: 'global', iq: nextIq, floorIq: nextFloor, updatedAt: now };
     });
   }
 
-  async function submitRankedTimeout() {
+  async function submitAnswer() {
     if (!rankedCurrent) return;
     if (rankedFeedback) return;
-    stopRankedTimer();
-    setRankedFeedback({ correct: false, timedOut: true });
-    if (uid) {
-      try {
-        await emitSolveEvent(uid, { correct: false, kind: 'step', difficulty: 2 });
-      } catch {
-        // ignore battle pass errors
-      }
-    }
-    if (rankedApplyIq) await applyIqDelta(rankedCurrent.iqDeltaWrong);
-  }
-
-  async function submitRankedAnswer() {
-    if (!rankedCurrent) return;
-    if (rankedFeedback) return;
-    stopRankedTimer();
-
-    const secondsLeft = rankedSecondsLeft;
-    if (secondsLeft <= 0) {
-      await submitRankedTimeout();
-      return;
-    }
+    stopElapsedTimer();
 
     const interaction = rankedCurrent.interaction;
     const g = interaction.type === 'mcq'
@@ -307,7 +333,9 @@ export default function LogicGamesView() {
         ? gradeInteraction(interaction, { kind: 'numeric', valueText: rankedAnswerText })
         : gradeInteraction(interaction, { kind: 'text', valueText: rankedAnswerText });
 
-    setRankedFeedback({ correct: g.correct });
+    const explanation = rankedCurrent.explanation || undefined;
+
+    setRankedFeedback({ correct: g.correct, explanation });
     if (uid) {
       try {
         const k = interaction.type === 'mcq' ? 'mcq' : interaction.type === 'numeric' ? 'numeric' : 'text';
@@ -316,37 +344,57 @@ export default function LogicGamesView() {
         // ignore battle pass errors
       }
     }
-    if (rankedApplyIq) await applyIqDelta(g.correct ? rankedCurrent.iqDeltaCorrect : rankedCurrent.iqDeltaWrong);
+
+    if (gamePlayMode === 'iq') {
+      // IQ mode: apply time-based gain or IQ-relative loss
+      if (g.correct) {
+        const gain = computeIqGain(rankedCurrent, elapsedSeconds);
+        await applyIqDelta(gain);
+      } else {
+        const loss = computeIqLoss(rankedCurrent, currentIq);
+        await applyIqDelta(loss);
+      }
+    }
+    // Chill mode: no IQ changes
   }
 
-  function continueRanked() {
+  function continueGame() {
     if (!rankedCurrent) return;
-    pickNextRankedQuestion(rankedQuestions, rankedCurrent.id);
+    pickNextQuestion(rankedQuestions, rankedCurrent.id);
   }
 
-  async function startRanked(node: LogicGameNode, opts: { applyIq: boolean }) {
+  async function startPlaying(node: LogicGameNode) {
     if (!uid) return;
     setRankedLoading(true);
     setRankedError(null);
-    setRankedApplyIq(!!opts.applyIq);
     try {
       const qdoc = await getLogicGameQuestions(node.id);
       const qs = Array.isArray(qdoc?.questions) ? qdoc!.questions : [];
       if (qs.length === 0) throw new Error('No questions found for this node');
       setRankedQuestions(qs);
       setActiveNode(node);
-      setScreen('ranked');
-      pickNextRankedQuestion(qs);
+      setScreen('playing');
+
+      // Pick the first question closest to student IQ
+      const firstQ = pickQuestionClosestToIq(qs, currentIq) || qs[0];
+      setRankedCurrent(firstQ);
+      setRankedFeedback(null);
+      setRankedAnswerText('');
+      setRankedChoiceIndex(null);
+
+      if (gamePlayMode === 'iq') {
+        startElapsedTimer();
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setRankedError(msg || 'Failed to start ranked');
+      setRankedError(msg || 'Failed to start');
     } finally {
       setRankedLoading(false);
     }
   }
 
-  function exitRanked() {
-    stopRankedTimer();
+  function exitPlaying() {
+    stopElapsedTimer();
     setScreen('map');
     setActiveNode(null);
     setRankedQuestions([]);
@@ -422,27 +470,7 @@ export default function LogicGamesView() {
     );
   }
 
-  function handleStart() {
-    if (!openNode) return;
-    if (mode === 'solo') {
-      setOpenNode(null);
-      void startRanked(openNode, { applyIq: false });
-      return;
-    }
-    if (mode === 'ranked') {
-      setOpenNode(null);
-      void startRanked(openNode, { applyIq: true });
-      return;
-    }
-    if (mode === 'friend') {
-      setActiveNode(openNode);
-      setFriendErr(null);
-      setFriendPickUid(null);
-      setOpenNode(null);
-      setScreen('friend_waiting');
-      return;
-    }
-  }
+  // ── Friend match logic (kept for notification-based match acceptance) ────
 
   function cleanupFriendListeners() {
     friendChallengeUnsubRef.current?.();
@@ -508,56 +536,6 @@ export default function LogicGamesView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, friendMatchId]);
-
-  async function sendFriendInvite() {
-    if (!uid || !userData || !activeNode) return;
-    const pick = friends.find((f) => f.uid === friendPickUid) ?? null;
-    if (!pick || !pick.username) {
-      setFriendErr('Pick a friend');
-      return;
-    }
-
-    setFriendBusy(true);
-    setFriendErr(null);
-    try {
-      const res = await sendLogicGameFriendChallenge({
-        fromUid: uid,
-        fromUsername: userData.username || uid,
-        toUsername: String(pick.username),
-        nodeId: activeNode.id,
-        nodeLabel: activeNode.label,
-      });
-      if (!res.success || !res.challengeId) {
-        setFriendErr(res.error || 'Failed to send');
-        return;
-      }
-      setFriendChallengeId(res.challengeId);
-      friendChallengeUnsubRef.current?.();
-      const unsub = listenChallengeState(res.challengeId, (c) => {
-        if (c.state === 'accepted' && c.sessionId) {
-          setFriendMatchId(c.sessionId);
-          setScreen('friend_match');
-          friendChallengeUnsubRef.current?.();
-          friendChallengeUnsubRef.current = null;
-        }
-        if (c.state === 'declined') {
-          setFriendErr('Friend declined the request.');
-          setFriendChallengeId(null);
-          friendChallengeUnsubRef.current?.();
-          friendChallengeUnsubRef.current = null;
-        }
-        if (c.state === 'canceled') {
-          setFriendErr('Request was canceled.');
-          setFriendChallengeId(null);
-          friendChallengeUnsubRef.current?.();
-          friendChallengeUnsubRef.current = null;
-        }
-      });
-      friendChallengeUnsubRef.current = unsub;
-    } finally {
-      setFriendBusy(false);
-    }
-  }
 
   async function submitFriendAnswer(kind: 'mcq' | 'numeric' | 'text') {
     if (!uid || !friendMatch || !activeNode) return;
@@ -740,27 +718,72 @@ export default function LogicGamesView() {
     );
   }
 
+  // ── Format elapsed time as mm:ss ──────────────────────────────────────────
+  function formatTime(sec: number) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}>
-      <div style={{ padding: 16, borderBottom: '1px solid var(--ll-border)', background: 'var(--ll-overlay)' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 16 }}>🧠 IQ Games</div>
-          <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900 }}>
-            IQ: <span style={{ color: '#fbbf24' }}>{currentIq.toFixed(2).replace(/\.00$/, '')}</span>
-            <span style={{ color: 'var(--ll-text-muted)' }}> · Floor: </span>
-            <span style={{ color: 'var(--ll-text)' }}>{floorIq}</span>
+      {/* ── Header: Left=IQ Games, Center=IQ, Right=Chill/IQ toggle ── */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--ll-border)', background: 'var(--ll-overlay)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          {/* Left: Title */}
+          <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 16, minWidth: 120 }}>🧠 IQ Games</div>
+
+          {/* Center: IQ display */}
+          <div style={{ color: 'var(--ll-text-soft)', fontSize: 13, fontWeight: 900, textAlign: 'center' }}>
+            IQ: <span style={{ color: '#fbbf24', fontSize: 15 }}>{currentIq.toFixed(2).replace(/\.00$/, '')}</span>
+          </div>
+
+          {/* Right: Chill/IQ mode toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 120, justifyContent: 'flex-end' }}>
+            <span style={{
+              fontSize: 11, fontWeight: 800,
+              color: gamePlayMode === 'chill' ? '#34d399' : 'var(--ll-text-muted)',
+              transition: 'color 0.2s',
+            }}>Chill</span>
+            <button
+              onClick={() => setGamePlayMode(gamePlayMode === 'chill' ? 'iq' : 'chill')}
+              style={{
+                width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+                background: gamePlayMode === 'iq'
+                  ? 'linear-gradient(135deg, #6366f1, #a78bfa)'
+                  : 'linear-gradient(135deg, #059669, #34d399)',
+                position: 'relative', transition: 'background 0.3s',
+                boxShadow: gamePlayMode === 'iq'
+                  ? '0 0 12px rgba(99,102,241,0.4)'
+                  : '0 0 12px rgba(52,211,153,0.4)',
+              }}
+            >
+              <div style={{
+                width: 18, height: 18, borderRadius: '50%', background: 'white',
+                position: 'absolute', top: 3,
+                left: gamePlayMode === 'iq' ? 23 : 3,
+                transition: 'left 0.2s ease',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+              }} />
+            </button>
+            <span style={{
+              fontSize: 11, fontWeight: 800,
+              color: gamePlayMode === 'iq' ? '#a78bfa' : 'var(--ll-text-muted)',
+              transition: 'color 0.2s',
+            }}>IQ</span>
           </div>
         </div>
         {err && <div style={{ marginTop: 10, color: '#fca5a5', fontSize: 12 }}>{err}</div>}
       </div>
 
-      {screen === 'ranked' ? (
+      {/* ── Playing Screen ── */}
+      {screen === 'playing' ? (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
             <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 13 }}>
-              Ranked · {activeNode?.label ?? '—'}
+              {gamePlayMode === 'iq' ? '🧠 IQ Mode' : '😌 Chill Mode'} · {activeNode?.label ?? '—'}
             </div>
-            <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={exitRanked}>
+            <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={exitPlaying}>
               Exit
             </button>
           </div>
@@ -775,25 +798,41 @@ export default function LogicGamesView() {
             <div style={{ color: 'var(--ll-text-soft)' }}>No question available.</div>
           ) : (
             <div style={{ border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)', borderRadius: 14, padding: 12 }}>
+              {/* Timer / Mode indicator bar */}
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900 }}>
-                  Time: <span style={{ color: rankedSecondsLeft <= 5 ? '#fca5a5' : 'var(--ll-text)' }}>{rankedSecondsLeft}s</span>
-                </div>
-                <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900 }}>
-                  IQ Δ: <span style={{ color: '#34d399' }}>+{rankedCurrent.iqDeltaCorrect}</span>{' '}
-                  <span style={{ color: '#fca5a5' }}>{rankedCurrent.iqDeltaWrong}</span>
-                </div>
+                {gamePlayMode === 'iq' ? (
+                  <>
+                    <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      ⏱️ <span style={{ color: 'var(--ll-text)', fontFamily: 'monospace', fontSize: 14 }}>{formatTime(elapsedSeconds)}</span>
+                    </div>
+                    <div style={{
+                      fontSize: 11, padding: '3px 10px', borderRadius: 8,
+                      background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)',
+                      color: '#a78bfa', fontWeight: 800,
+                    }}>IQ Mode</div>
+                  </>
+                ) : (
+                  <div style={{
+                    fontSize: 11, padding: '3px 10px', borderRadius: 8,
+                    background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)',
+                    color: '#34d399', fontWeight: 800,
+                  }}>😌 Chill Mode — No IQ changes</div>
+                )}
               </div>
 
+              {/* Question prompt */}
               <div style={{ color: 'var(--ll-text)', fontSize: 18, lineHeight: 1.35, marginBottom: 12 }}>
                 {renderPromptBlocks(rankedCurrent.promptBlocks, rankedCurrent.promptRawText ?? rankedCurrent.promptLatex ?? '—')}
               </div>
 
+              {/* Answer choices */}
               {rankedCurrent.interaction.type === 'mcq' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {rankedCurrent.interaction.choices.map((c, idx) => {
                     const chosen = rankedChoiceIndex === idx;
                     const disabled = !!rankedFeedback;
+                    const isCorrect = rankedFeedback && rankedCurrent!.interaction.type === 'mcq' && (rankedCurrent!.interaction as any).correctChoiceIndex === idx;
+                    const isWrong = rankedFeedback && chosen && !rankedFeedback.correct;
                     return (
                       <button
                         key={idx}
@@ -808,10 +847,26 @@ export default function LogicGamesView() {
                           textAlign: 'left',
                           padding: '10px 10px',
                           borderRadius: 12,
-                          border: chosen ? '1px solid rgba(59,130,246,0.55)' : '1px solid var(--ll-border)',
-                          background: chosen ? 'rgba(59,130,246,0.10)' : 'var(--ll-surface-2)',
+                          border: rankedFeedback
+                            ? isCorrect
+                              ? '2px solid #34d399'
+                              : isWrong
+                                ? '2px solid #ef4444'
+                                : chosen
+                                  ? '1px solid rgba(59,130,246,0.55)'
+                                  : '1px solid var(--ll-border)'
+                            : chosen ? '1px solid rgba(59,130,246,0.55)' : '1px solid var(--ll-border)',
+                          background: rankedFeedback
+                            ? isCorrect
+                              ? 'rgba(52,211,153,0.1)'
+                              : isWrong
+                                ? 'rgba(239,68,68,0.1)'
+                                : chosen
+                                  ? 'rgba(59,130,246,0.10)'
+                                  : 'var(--ll-surface-2)'
+                            : chosen ? 'rgba(59,130,246,0.10)' : 'var(--ll-surface-2)',
                           color: 'var(--ll-text)',
-                          opacity: disabled && !chosen ? 0.75 : 1,
+                          opacity: disabled && !chosen && !isCorrect ? 0.75 : 1,
                         }}
                       >
                         {c.toLowerCase().startsWith('data:image/') || c.toLowerCase().startsWith('http') ? (
@@ -825,7 +880,7 @@ export default function LogicGamesView() {
                   <button
                     className="ll-btn ll-btn-primary"
                     disabled={!!rankedFeedback || rankedChoiceIndex == null}
-                    onClick={() => void submitRankedAnswer()}
+                    onClick={() => void submitAnswer()}
                     style={{ padding: '10px 12px', fontSize: 13, width: '100%', marginTop: 8 }}
                   >
                     Submit
@@ -853,7 +908,7 @@ export default function LogicGamesView() {
                   <button
                     className="ll-btn ll-btn-primary"
                     disabled={!!rankedFeedback || !rankedAnswerText.trim()}
-                    onClick={() => void submitRankedAnswer()}
+                    onClick={() => void submitAnswer()}
                     style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
                   >
                     Submit
@@ -878,13 +933,13 @@ export default function LogicGamesView() {
                       fontWeight: 900,
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') void submitRankedAnswer();
+                      if (e.key === 'Enter') void submitAnswer();
                     }}
                   />
                   <button
                     className="ll-btn ll-btn-primary"
                     disabled={!!rankedFeedback || !rankedAnswerText.trim()}
-                    onClick={() => void submitRankedAnswer()}
+                    onClick={() => void submitAnswer()}
                     style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
                   >
                     Submit
@@ -892,14 +947,40 @@ export default function LogicGamesView() {
                 </div>
               )}
 
+              {/* Feedback + Explanation */}
               {rankedFeedback && (
                 <div style={{ marginTop: 12 }}>
-                  <div style={{ color: rankedFeedback.correct ? '#34d399' : '#fca5a5', fontWeight: 1000, marginBottom: 10 }}>
-                    {rankedFeedback.correct ? 'Correct' : rankedFeedback.timedOut ? 'Time ran out' : 'Wrong'}
+                  <div style={{ color: rankedFeedback.correct ? '#34d399' : '#fca5a5', fontWeight: 1000, marginBottom: 6 }}>
+                    {rankedFeedback.correct ? '✅ Correct!' : '❌ Incorrect'}
                   </div>
+
+                  {/* IQ mode: show IQ delta */}
+                  {gamePlayMode === 'iq' && (
+                    <div style={{ fontSize: 12, color: 'var(--ll-text-soft)', marginBottom: 8 }}>
+                      {rankedFeedback.correct ? (
+                        <span style={{ color: '#34d399' }}>+{computeIqGain(rankedCurrent!, elapsedSeconds).toFixed(2)} IQ (solved in {formatTime(elapsedSeconds)})</span>
+                      ) : (
+                        <span style={{ color: '#fca5a5' }}>{computeIqLoss(rankedCurrent!, currentIq).toFixed(2)} IQ</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Chill mode OR always: show explanation if available */}
+                  {rankedFeedback.explanation && (
+                    <div style={{
+                      padding: '10px 14px', borderRadius: 10, marginBottom: 10,
+                      background: rankedFeedback.correct ? 'rgba(52,211,153,0.08)' : 'rgba(239,68,68,0.08)',
+                      border: `1px solid ${rankedFeedback.correct ? 'rgba(52,211,153,0.2)' : 'rgba(239,68,68,0.2)'}`,
+                      color: 'var(--ll-text)', fontSize: 13, lineHeight: 1.5,
+                    }}>
+                      <div style={{ fontWeight: 800, fontSize: 11, color: 'var(--ll-text-soft)', marginBottom: 4 }}>💡 Explanation</div>
+                      {rankedFeedback.explanation}
+                    </div>
+                  )}
+
                   <button
                     className="ll-btn ll-btn-primary"
-                    onClick={continueRanked}
+                    onClick={continueGame}
                     style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
                   >
                     Next
@@ -908,70 +989,6 @@ export default function LogicGamesView() {
               )}
             </div>
           )}
-        </div>
-      ) : screen === 'friend_waiting' ? (
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
-            <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 13 }}>
-              Play a Friend · {activeNode?.label ?? '—'}
-            </div>
-            <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => { cleanupFriendListeners(); setScreen('map'); }}>
-              Back
-            </button>
-          </div>
-
-          {friendErr && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10 }}>{friendErr}</div>}
-
-          <div style={{ border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)', borderRadius: 14, padding: 12 }}>
-            <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900, marginBottom: 10 }}>Choose a friend</div>
-
-            {friends.length === 0 ? (
-              <div style={{ color: 'var(--ll-text-muted)', fontSize: 12 }}>
-                No friends yet. Add friends from the Friends tab.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-                {friends.slice(0, 12).map((f) => {
-                  const active = friendPickUid === f.uid;
-                  return (
-                    <button
-                      key={f.uid}
-                      className="ll-btn"
-                      onClick={() => setFriendPickUid(f.uid)}
-                      style={{
-                        textAlign: 'left',
-                        padding: '10px 10px',
-                        borderRadius: 12,
-                        border: active ? '1px solid rgba(59,130,246,0.55)' : '1px solid var(--ll-border)',
-                        background: active ? 'rgba(59,130,246,0.10)' : 'var(--ll-surface-2)',
-                        color: 'var(--ll-text)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                      }}
-                    >
-                      <div style={{ width: 30, height: 30, borderRadius: 999, background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 1000 }}>
-                        {(String(f.username || 'F').slice(0, 1) || '?').toUpperCase()}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 1000, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(f.username || 'Unknown')}</div>
-                        <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>Tap to select</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            <button
-              className="ll-btn ll-btn-primary"
-              disabled={friendBusy || !friendPickUid || !!friendChallengeId}
-              onClick={() => void sendFriendInvite()}
-              style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
-            >
-              {friendChallengeId ? 'Waiting for response…' : friendBusy ? 'Sending…' : 'Send request'}
-            </button>
-          </div>
         </div>
       ) : screen === 'friend_match' ? (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }}>
@@ -1041,6 +1058,7 @@ export default function LogicGamesView() {
           )}
         </div>
       ) : (
+        /* ── Map Screen ── */
         <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14, position: 'relative' }}>
           {loading ? (
             <div style={{ color: 'var(--ll-text-soft)', padding: 10 }}>Loading…</div>
@@ -1080,7 +1098,7 @@ export default function LogicGamesView() {
                     <button
                       className="ll-btn"
                       disabled={!unlocked}
-                      onClick={() => setOpenNode(n)}
+                      onClick={() => void startPlaying(n)}
                       style={{
                         width: 'min(420px, 92vw)',
                         textAlign: 'center',
@@ -1094,7 +1112,7 @@ export default function LogicGamesView() {
                         boxShadow: glow,
                         position: 'relative',
                       }}
-                      title={unlocked ? 'Open node' : 'Locked — reach the previous IQ milestone to unlock'}
+                      title={unlocked ? 'Start playing' : 'Locked — reach the previous IQ milestone to unlock'}
                     >
                       <div style={{ fontSize: 18 }}>{n.label}</div>
                       {isCurrent && (
@@ -1113,68 +1131,6 @@ export default function LogicGamesView() {
             </div>
           )}
         </div>
-      )}
-
-      {openNode && (
-        <>
-          <div
-            onClick={() => setOpenNode(null)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 2200 }}
-          />
-          <div
-            style={{
-              position: 'fixed',
-              left: '50%',
-              top: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: 'min(520px, 94vw)',
-              background: 'var(--ll-surface-0)',
-              border: '1px solid var(--ll-border)',
-              borderRadius: 16,
-              zIndex: 2201,
-              boxShadow: '0 30px 80px rgba(0,0,0,0.6)',
-              overflow: 'hidden',
-            }}
-          >
-            <div style={{ padding: 14, borderBottom: '1px solid var(--ll-border)', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--ll-surface-1)' }}>
-              <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 14, flex: 1 }}>{openNode.label}</div>
-              <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setOpenNode(null)}>
-                Close
-              </button>
-            </div>
-            <div style={{ padding: 14 }}>
-              <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900, marginBottom: 10 }}>Choose a mode</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
-                {([
-                  { id: 'solo' as const, label: 'Solo' },
-                  { id: 'ranked' as const, label: 'Ranked' },
-                  { id: 'friend' as const, label: 'Play a Friend' },
-                ]).map((m) => {
-                  const active = mode === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      className={active ? 'll-btn ll-btn-primary' : 'll-btn'}
-                      onClick={() => setMode(m.id)}
-                      style={{ padding: '10px 10px', fontSize: 12, fontWeight: 1000 }}
-                    >
-                      {m.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <button
-                className="ll-btn ll-btn-primary"
-                onClick={handleStart}
-                disabled={!uid || !userData}
-                style={{ padding: '10px 12px', fontSize: 13, width: '100%', fontWeight: 1000 }}
-              >
-                Start
-              </button>
-              {!uid && <div style={{ marginTop: 10, color: '#fca5a5', fontSize: 12 }}>Not logged in.</div>}
-            </div>
-          </div>
-        </>
       )}
     </div>
   );

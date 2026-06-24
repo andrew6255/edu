@@ -7,7 +7,6 @@ import {
   setPlayerReady,
   setPlayerEmoji,
   setLobbyGameMode,
-  setLobbyPlayMode,
   startLobbyGame,
   sendLobbyChat,
   sendLobbyInvite,
@@ -18,12 +17,14 @@ import {
   setUserLobby,
   getUserLobbyId,
   getLobbyDoc,
+  setLobbyState,
   DEFAULT_EMOJI_LIST,
   LOBBY_MAX_PLAYERS,
 } from '@/lib/lobbyService';
 import { listLogicGameNodes } from '@/lib/logicGamesService';
-import type { LobbyDoc, LobbyGameMode, LobbyPlayMode } from '@/types/lobby';
+import type { LobbyDoc, LobbyGameMode } from '@/types/lobby';
 import type { LogicGameNode } from '@/types/logicGames';
+import { listMyPersonalPrograms, type PersonalProgramMeta } from '@/lib/personalProgramService';
 
 // ─── Warmup Games catalog ─────────────────────────────────────────────────────
 const WARMUP_GAMES = [
@@ -195,6 +196,7 @@ export default function LobbyView() {
 
   const [modeKind, setModeKind] = useState<'warmup' | 'iqGame' | 'program'>('warmup');
   const [iqNodes, setIqNodes] = useState<LogicGameNode[]>([]);
+  const [personalPrograms, setPersonalPrograms] = useState<PersonalProgramMeta[]>([]);
 
   const [friends, setFriends] = useState<(
     { uid: string; username: string; isOnline: boolean; lobbyId: string | null; lastActive: string }
@@ -267,18 +269,38 @@ export default function LobbyView() {
     init().catch(() => setInitializing(false));
   }, [myUid]);
 
-  // ── Load IQ nodes ──────────────────────────────────────────────────────────
+  // ── Load game modes ────────────────────────────────────────────────────────
   useEffect(() => {
     listLogicGameNodes().then(nodes => setIqNodes(nodes.filter(n => !!n.publishedAt))).catch(() => {});
-  }, []);
-
-  // ── Presence ping ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!myUid) return;
-    pingPresence(myUid).catch(() => {});
-    const id = setInterval(() => pingPresence(myUid).catch(() => {}), 60_000);
-    return () => clearInterval(id);
+    if (myUid) {
+      listMyPersonalPrograms(myUid).then(setPersonalPrograms).catch(() => {});
+    }
   }, [myUid]);
+
+  // ── Auto-kick offline players (leader only) ────────────────────────────────
+  useEffect(() => {
+    if (!lobbyId || !isLeader || lobby?.state !== 'waiting') return;
+    
+    const id = setInterval(async () => {
+      if (!lobby) return;
+      const otherUids = lobby.players.map(p => p.uid).filter(u => u !== myUid);
+      if (otherUids.length === 0) return;
+      
+      try {
+        // Use a short 35-second threshold for auto-kick in the lobby
+        const presences = await getFriendsWithPresence(otherUids, 35_000);
+        for (const p of presences) {
+          if (!p.isOnline) {
+            await leaveLobby(lobbyId, p.uid);
+          }
+        }
+      } catch {
+        // ignore errors
+      }
+    }, 10_000);
+    
+    return () => clearInterval(id);
+  }, [lobbyId, isLeader, lobby?.state, lobby, myUid]);
 
   // ── Load friends with their lobby presence ─────────────────────────────────
   useEffect(() => {
@@ -310,15 +332,19 @@ export default function LobbyView() {
     const delay = Math.max(0, 3000 - elapsed);
     const timer = setTimeout(() => {
       setLaunchHandled(true);
+      if (isLeader) {
+        setLobbyState(lobbyId, 'inGame').catch(() => {});
+      }
       launchGame();
     }, delay);
     return () => clearTimeout(timer);
-  }, [lobby?.state, lobby?.countdownStartedAt, launchHandled]);
+  }, [lobby?.state, lobby?.countdownStartedAt, launchHandled, isLeader, lobbyId]);
 
   function launchGame() {
     if (!lobby?.gameMode) return;
     const { kind, id } = lobby.gameMode;
     if (kind === 'warmup') {
+      localStorage.setItem('ll:warmupGameId', id);
       window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'warmup' } }));
     } else if (kind === 'iqGame') {
       localStorage.setItem('ll:logicGameNodeId', id);
@@ -357,10 +383,7 @@ export default function LobbyView() {
     await setLobbyGameMode(lobbyId, myUid, mode);
   }
 
-  async function handleSetPlayMode(pm: LobbyPlayMode) {
-    if (!lobbyId || !myUid) return;
-    await setLobbyPlayMode(lobbyId, myUid, pm);
-  }
+
 
   async function handleStartGame() {
     if (!lobbyId || !myUid) return;
@@ -438,6 +461,27 @@ export default function LobbyView() {
       }}>
         <div style={{ fontSize: 48, animation: 'll-pulse 1.5s infinite' }}>🏛️</div>
         <div>Setting up your party…</div>
+      </div>
+    );
+  }
+
+  // ─── In Game state ────────────────────────────────────────────────────────
+  if (lobby.state === 'inGame') {
+    return (
+      <div style={{ padding: 24, textAlign: 'center', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a' }}>
+        <div style={{ fontSize: 48, animation: 'll-pulse 1.5s infinite' }}>🎮</div>
+        <h2 style={{ color: 'var(--ll-text)', marginBottom: 12, marginTop: 16 }}>Match in Progress</h2>
+        <div style={{ color: 'var(--ll-text-muted)', marginBottom: 32 }}>Your party is currently playing <strong>{lobby.gameMode?.label}</strong>.</div>
+        
+        <button onClick={launchGame} className="ll-btn ll-btn-primary" style={{ padding: '14px 28px', fontSize: 16, fontWeight: 900, marginBottom: 16, width: '100%', maxWidth: 300 }}>
+          Rejoin Game
+        </button>
+        
+        {isLeader && (
+          <button onClick={() => setLobbyState(lobbyId, 'waiting')} className="ll-btn" style={{ borderColor: '#ef4444', color: '#ef4444', padding: '10px 20px', fontSize: 14, width: '100%', maxWidth: 300 }}>
+            End Game for Party
+          </button>
+        )}
       </div>
     );
   }
@@ -550,8 +594,24 @@ export default function LobbyView() {
                 {modeKind === 'iqGame' && iqNodes.length === 0 && (
                   <div style={{ color: '#64748b', fontSize: 12, padding: 8 }}>No IQ levels available</div>
                 )}
-                {modeKind === 'program' && (
-                  <div style={{ color: '#64748b', fontSize: 12, padding: 8 }}>Program mode coming soon!</div>
+                {modeKind === 'program' && personalPrograms.map(p => (
+                  <button key={p.programId} disabled={!isLeader}
+                    onClick={() => handleSetGameMode({ kind: 'program', id: p.programId, label: p.title })}
+                    style={{
+                      padding: '8px 10px', borderRadius: 8, fontSize: 12, textAlign: 'left',
+                      border: `1px solid ${lobby.gameMode?.id === p.programId ? '#6366f1' : '#334155'}`,
+                      background: lobby.gameMode?.id === p.programId ? 'rgba(99,102,241,0.2)' : 'transparent',
+                      color: lobby.gameMode?.id === p.programId ? '#a5b4fc' : 'var(--ll-text)',
+                      cursor: isLeader ? 'pointer' : 'not-allowed',
+                      display: 'flex', alignItems: 'center', gap: 8,
+                    }}
+                  >
+                    <span style={{ fontSize: 14 }}>{p.coverEmoji || '📄'}</span>
+                    <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</span>
+                  </button>
+                ))}
+                {modeKind === 'program' && personalPrograms.length === 0 && (
+                  <div style={{ color: '#64748b', fontSize: 12, padding: 8 }}>No programs available. Import some PDFs first!</div>
                 )}
               </div>
 
@@ -565,31 +625,6 @@ export default function LobbyView() {
                   {lobby.gameMode.subtitle && <span style={{ color: '#64748b', fontWeight: 400, marginLeft: 4 }}>({lobby.gameMode.subtitle})</span>}
                 </div>
               )}
-            </div>
-
-            {/* Play mode toggle */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 10, color: '#64748b', fontWeight: 800, letterSpacing: 2, marginBottom: 8, textTransform: 'uppercase' }}>
-                🔀 Play Mode
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {(['freePace', 'live'] as LobbyPlayMode[]).map(pm => (
-                  <button key={pm} onClick={() => isLeader && handleSetPlayMode(pm)}
-                    style={{
-                      flex: 1, padding: '8px 6px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-                      border: `1px solid ${lobby.playMode === pm ? '#f472b6' : '#334155'}`,
-                      background: lobby.playMode === pm ? 'rgba(244,114,182,0.15)' : 'transparent',
-                      color: lobby.playMode === pm ? '#f9a8d4' : '#64748b',
-                      cursor: isLeader ? 'pointer' : 'not-allowed',
-                    }}
-                  >{pm === 'freePace' ? '🏃 Free Pace' : '⚡ Live Sync'}</button>
-                ))}
-              </div>
-              <div style={{ fontSize: 10, color: '#475569', marginTop: 6, lineHeight: 1.4 }}>
-                {lobby.playMode === 'live'
-                  ? '⚡ All players see the same question simultaneously.'
-                  : '🏃 Each player plays at their own pace. Best score wins!'}
-              </div>
             </div>
 
             {/* Ready / Start button */}
@@ -682,14 +717,6 @@ export default function LobbyView() {
               <div style={{ fontSize: 14, fontWeight: 700, color: '#a5b4fc' }}>
                 {lobby.gameMode.kind === 'iqGame' ? '🧠' : lobby.gameMode.kind === 'warmup' ? '⚡' : '📖'}{' '}
                 {lobby.gameMode.label}
-                <span style={{
-                  marginLeft: 8, fontSize: 11, padding: '2px 8px', borderRadius: 10,
-                  background: lobby.playMode === 'live' ? 'rgba(244,114,182,0.15)' : 'rgba(52,211,153,0.1)',
-                  color: lobby.playMode === 'live' ? '#f9a8d4' : '#86efac',
-                  border: `1px solid ${lobby.playMode === 'live' ? 'rgba(244,114,182,0.3)' : 'rgba(52,211,153,0.2)'}`,
-                }}>
-                  {lobby.playMode === 'live' ? '⚡ Live Sync' : '🏃 Free Pace'}
-                </span>
               </div>
             )}
           </div>
