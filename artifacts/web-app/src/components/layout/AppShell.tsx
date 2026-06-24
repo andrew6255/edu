@@ -14,6 +14,7 @@ import type { AppNotification } from '@/lib/userService';
 import { createLinkingCode, getMyLinkingCode, getLinkedParent } from '@/lib/linkingService';
 import ProfileView from '@/views/ProfileView';
 import { useToast } from '@/hooks/use-toast';
+import { pingPresence } from '@/lib/lobbyService';
 
 type View =
   | 'emporium'
@@ -133,7 +134,6 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   // Global presence ping (every 15s)
   useEffect(() => {
     if (!user?.uid) return;
-    const { pingPresence } = require('@/lib/lobbyService');
     pingPresence(user.uid).catch(() => {});
     const id = setInterval(() => pingPresence(user.uid).catch(() => {}), 15_000);
     return () => clearInterval(id);
