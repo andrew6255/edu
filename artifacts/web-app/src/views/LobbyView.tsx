@@ -23,6 +23,7 @@ import {
   DEFAULT_EMOJI_LIST,
   LOBBY_MAX_PLAYERS,
 } from '@/lib/lobbyService';
+import { createPartyMatch } from '@/lib/partyMatchService';
 import { listLogicGameNodes } from '@/lib/logicGamesService';
 import type { LobbyDoc, LobbyGameMode } from '@/types/lobby';
 import type { LogicGameNode } from '@/types/logicGames';
@@ -352,6 +353,14 @@ export default function LobbyView() {
       setLaunchHandled(true);
       if (isLeader) {
         setLobbyState(lobbyId, 'inGame').catch(() => {});
+        if (lobby.gameMode?.kind === 'warmup' && lobby.players.length > 1) {
+          createPartyMatch({
+            lobbyId,
+            gameId: lobby.gameMode.id,
+            hostUid: myUid,
+            players: lobby.players.map(p => ({ uid: p.uid, username: p.username, emoji: p.emoji, score: 0 }))
+          }).catch(() => {});
+        }
       }
       launchGame();
     }, delay);
@@ -362,8 +371,13 @@ export default function LobbyView() {
     if (!lobby?.gameMode) return;
     const { kind, id } = lobby.gameMode;
     if (kind === 'warmup') {
-      localStorage.setItem('ll:warmupGameId', id);
-      window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'warmup' } }));
+      if (lobby.players.length > 1) {
+        localStorage.setItem('ll:partyMatchId', lobbyId);
+        window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'partyMatch' } }));
+      } else {
+        localStorage.setItem('ll:warmupGameId', id);
+        window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'warmup' } }));
+      }
     } else if (kind === 'iqGame') {
       localStorage.setItem('ll:logicGameNodeId', id);
       window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'logic' } }));
@@ -548,22 +562,9 @@ export default function LobbyView() {
         background: 'rgba(15,23,42,0.8)', backdropFilter: 'blur(8px)',
         position: 'relative'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-          {/* Only show "Leave Party" if you are in someone else's party */}
-          {!inOwnLobby && (
-            <button
-              onClick={handleLeaveLobby}
-              className="ll-btn"
-              style={{ padding: '6px 14px', fontSize: 12, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}
-            >
-              ← Leave Party
-            </button>
-          )}
-        </div>
         <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', fontSize: 14, fontWeight: 800, color: '#f472b6', letterSpacing: 1 }}>
           🏛️ THE LOBBY
         </div>
-        <div style={{ flex: 1 }} />
       </div>
 
       {/* Main 3-col layout */}
@@ -687,14 +688,24 @@ export default function LobbyView() {
             )}
 
             {!lobby.gameMode ? (
-              <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', lineHeight: 1.4 }}>
+              <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', lineHeight: 1.4, marginBottom: 8 }}>
                 {isLeader ? 'Select a game mode above' : 'Waiting for leader to select game mode'}
               </div>
-            ) : lobby.players.length < 2 ? (
-              <div style={{ fontSize: 11, color: '#ef4444', textAlign: 'center', lineHeight: 1.4, fontWeight: 700 }}>
-                Need at least 2 players to ready up
-              </div>
             ) : null}
+
+            {/* Leave Party Button */}
+            <button
+              onClick={handleLeaveLobby}
+              className="ll-btn"
+              style={{
+                width: '100%', padding: '10px', fontSize: 13, fontWeight: 700,
+                borderRadius: 10, marginTop: 4,
+                borderColor: '#ef4444', color: '#ef4444',
+                background: 'rgba(239,68,68,0.05)',
+              }}
+            >
+              ← Leave Party
+            </button>
           </div>
 
           {/* Chat */}
@@ -909,34 +920,37 @@ export default function LobbyView() {
                       {/* Action button */}
                       {alreadyInParty ? (
                         <span style={{ fontSize: 9, color: '#6366f1', fontWeight: 700, whiteSpace: 'nowrap' }}>IN PARTY</span>
-                      ) : inOtherLobby ? (
-                        <button
-                          onClick={() => handleJoinRequest(friend)}
-                          disabled={!!reqStatus}
-                          style={{
-                            padding: '4px 7px', borderRadius: 6, fontSize: 9, fontWeight: 700,
-                            border: `1px solid ${reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f472b6'}`,
-                            background: reqStatus === 'sent' ? 'rgba(34,197,94,0.1)' : reqStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(244,114,182,0.1)',
-                            color: reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f9a8d4',
-                            cursor: reqStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {reqStatus === 'sending' ? '…' : reqStatus === 'sent' ? '✓ Sent' : reqStatus === 'error' ? 'Error' : '🚪 Join'}
-                        </button>
                       ) : (
-                        <button
-                          onClick={() => handleInvite(friend.uid, friend.username)}
-                          disabled={!!invStatus}
-                          style={{
-                            padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
-                            border: `1px solid ${invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#334155'}`,
-                            background: invStatus === 'sent' ? 'rgba(34,197,94,0.1)' : invStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'transparent',
-                            color: invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#94a3b8',
-                            cursor: invStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {invStatus === 'sending' ? '…' : invStatus === 'sent' ? '✓ Sent' : invStatus === 'error' ? 'Error' : 'Invite'}
-                        </button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {inOtherLobby && (
+                            <button
+                              onClick={() => handleJoinRequest(friend)}
+                              disabled={!!reqStatus}
+                              style={{
+                                padding: '4px 7px', borderRadius: 6, fontSize: 9, fontWeight: 700,
+                                border: `1px solid ${reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f472b6'}`,
+                                background: reqStatus === 'sent' ? 'rgba(34,197,94,0.1)' : reqStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(244,114,182,0.1)',
+                                color: reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f9a8d4',
+                                cursor: reqStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {reqStatus === 'sending' ? '…' : reqStatus === 'sent' ? '✓ Sent' : reqStatus === 'error' ? 'Error' : '🚪 Request to Join'}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleInvite(friend.uid, friend.username)}
+                            disabled={!!invStatus}
+                            style={{
+                              padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+                              border: `1px solid ${invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#334155'}`,
+                              background: invStatus === 'sent' ? 'rgba(34,197,94,0.1)' : invStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'transparent',
+                              color: invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#94a3b8',
+                              cursor: invStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {invStatus === 'sending' ? '…' : invStatus === 'sent' ? '✓ Sent' : invStatus === 'error' ? 'Error' : 'Invite'}
+                          </button>
+                        </div>
                       )}
                     </div>
                   );
@@ -944,9 +958,6 @@ export default function LobbyView() {
               </>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>
-                  Invite a player directly using their Username and 4-digit Tag.
-                </div>
                 <div>
                   <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase' }}>Username</label>
                   <input

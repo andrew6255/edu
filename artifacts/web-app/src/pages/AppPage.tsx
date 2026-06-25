@@ -13,6 +13,7 @@ import ProgramMapView from '@/views/ProgramMapView';
 import StudySessionsView from '@/views/StudySessionsView';
 import ClassesView from '@/views/ClassesView';
 import LobbyView from '@/views/LobbyView';
+import PartyMatchView from '@/views/PartyMatchView';
 
 const PersonalProgramView = lazy(() => import('@/views/PersonalProgramView'));
 
@@ -28,7 +29,8 @@ export type View =
   | 'classes'
   | 'notifications'
   | 'friends'
-  | 'lobby';
+  | 'lobby'
+  | 'partyMatch';
 
 export default function AppPage() {
   const { user, userData, loading, refreshUserData } = useAuth();
@@ -163,6 +165,8 @@ export default function AppPage() {
         return <ClassesView pendingContentId={pendingContentId} pendingContentType={pendingContentType} onPendingHandled={() => { setPendingContentId(null); setPendingContentType(null); }} />;
       case 'lobby':
         return <LobbyView />;
+      case 'partyMatch':
+        return <PartyMatchView />;
       default:
         return <HexUniverseView />;
     }
