@@ -323,38 +323,42 @@ export function listenLobby(
 export async function sendLobbyInvite(args: {
   fromUid: string;
   fromUsername: string;
-  toUsername: string;
-  toTag: string;
+  toUsername?: string;
+  toTag?: string;
+  toUid?: string;
   lobbyId: string;
 }): Promise<{ success: boolean; error?: string }> {
   const supabase = requireSupabase();
-  const trimmed = args.toUsername.trim();
-  const normalized = trimmed.toLowerCase();
+  let toUid = args.toUid;
 
   try {
-    // Look up target user
-    let { data: profileRows } = await supabase
-      .from('profiles')
-      .select('id, user_state')
-      .eq('username', normalized);
+    if (!toUid) {
+      if (!args.toUsername || !args.toTag) return { success: false, error: 'Username and tag required' };
+      const trimmed = args.toUsername.trim();
+      const normalized = trimmed.toLowerCase();
+      // Look up target user
+      let { data: profileRows } = await supabase
+        .from('profiles')
+        .select('id, user_state')
+        .eq('username', normalized);
 
-    if (!profileRows || profileRows.length === 0) {
-      const { data: rows2 } = await supabase.from('profiles').select('id, user_state').eq('username', trimmed);
-      profileRows = rows2;
+      if (!profileRows || profileRows.length === 0) {
+        const { data: rows2 } = await supabase.from('profiles').select('id, user_state').eq('username', trimmed);
+        profileRows = rows2;
+      }
+
+      if (!profileRows || profileRows.length === 0) return { success: false, error: 'Username not found' };
+
+      let targetRow = profileRows[0];
+      const formattedTag = args.toTag.startsWith('#') ? args.toTag : `#${args.toTag}`;
+      const match = profileRows.find((r: any) => r.user_state?.friendCode === formattedTag);
+      if (match) {
+        targetRow = match;
+      } else {
+        return { success: false, error: 'Username and tag combination not found' };
+      }
+      toUid = targetRow.id;
     }
-
-    if (!profileRows || profileRows.length === 0) return { success: false, error: 'Username not found' };
-
-    let targetRow = profileRows[0];
-    const formattedTag = args.toTag.startsWith('#') ? args.toTag : `#${args.toTag}`;
-    const match = profileRows.find((r: any) => r.user_state?.friendCode === formattedTag);
-    if (match) {
-      targetRow = match;
-    } else {
-      return { success: false, error: 'Username and tag combination not found' };
-    }
-
-    const toUid = targetRow.id;
 
     if (!toUid) return { success: false, error: 'Username not found' };
     if (toUid === args.fromUid) return { success: false, error: 'Cannot invite yourself' };
@@ -433,7 +437,7 @@ export async function getUserLobbyId(uid: string): Promise<string | null> {
 export async function getFriendsWithPresence(
   friendUids: string[],
   thresholdMs: number = 3 * 60 * 1000
-): Promise<(import('@/types/lobby').FriendPresence & { lobbyId: string | null })[]> {
+): Promise<(import('@/types/lobby').FriendPresence & { lobbyId: string | null; lobbyPlayerCount: number })[]> {
   if (friendUids.length === 0) return [];
   const supabase = requireSupabase();
   const { data } = await supabase
@@ -450,13 +454,21 @@ export async function getFriendsWithPresence(
       const lastActive = (row?.updated_at as string) ?? '';
       const ms = lastActive ? now - new Date(lastActive).getTime() : Infinity;
       let lobbyId: string | null = null;
-      try { lobbyId = await getUserLobbyId(uid); } catch { /* ignore */ }
+      let lobbyPlayerCount = 1;
+      try { 
+        lobbyId = await getUserLobbyId(uid); 
+        if (lobbyId) {
+          const lobbyDoc = await getLobbyDoc(lobbyId);
+          if (lobbyDoc) lobbyPlayerCount = lobbyDoc.players.length;
+        }
+      } catch { /* ignore */ }
       return {
         uid,
         username: (row?.username as string) ?? uid,
         lastActive,
         isOnline: ms < thresholdMs,
         lobbyId,
+        lobbyPlayerCount,
       };
     })
   );

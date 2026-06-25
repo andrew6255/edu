@@ -8,7 +8,6 @@ import {
   setPlayerEmoji,
   setLobbyGameMode,
   setLobbyLeader,
-  startLobbyGame,
   sendLobbyChat,
   sendLobbyInvite,
   sendJoinRequest,
@@ -212,7 +211,7 @@ export default function LobbyView() {
   const [personalPrograms, setPersonalPrograms] = useState<PersonalProgramMeta[]>([]);
 
   const [friends, setFriends] = useState<(
-    { uid: string; username: string; isOnline: boolean; lobbyId: string | null; lastActive: string }
+    { uid: string; username: string; isOnline: boolean; lobbyId: string | null; lastActive: string; lobbyPlayerCount: number }
   )[]>([]);
   const [inviteStatus, setInviteStatus] = useState<Record<string, string>>({});
   const [joinReqStatus, setJoinReqStatus] = useState<Record<string, string>>({});
@@ -345,7 +344,7 @@ export default function LobbyView() {
 
   // ── Handle game launch countdown ──────────────────────────────────────────
   useEffect(() => {
-    if (!lobby || lobby.state !== 'countdown' || launchHandled) return;
+    if (!lobby || lobby.state !== 'countdown' || launchHandled || !lobbyId) return;
     if (!lobby.countdownStartedAt) return;
     const elapsed = Date.now() - new Date(lobby.countdownStartedAt).getTime();
     const delay = Math.max(0, 3000 - elapsed);
@@ -368,8 +367,8 @@ export default function LobbyView() {
   }, [lobby?.state, lobby?.countdownStartedAt, launchHandled, isLeader, lobbyId]);
 
   function launchGame() {
-    if (!lobby?.gameMode) return;
-    const { kind, id } = lobby.gameMode;
+    if (!lobby || !lobbyId) return;
+    const { kind, id } = lobby.gameMode || {};
     if (kind === 'warmup') {
       if (lobby.players.length > 1) {
         localStorage.setItem('ll:partyMatchId', lobbyId);
@@ -450,7 +449,7 @@ export default function LobbyView() {
     setInviteStatus(s => ({ ...s, [friendUid]: 'sending' }));
     const result = await sendLobbyInvite({
       fromUid: myUid, fromUsername: myUsername,
-      toUsername: friendUsername, lobbyId,
+      toUsername: friendUsername, toUid: friendUid, lobbyId,
     });
     setInviteStatus(s => ({ ...s, [friendUid]: result.success ? 'sent' : 'error' }));
     setTimeout(() => setInviteStatus(s => { const n = { ...s }; delete n[friendUid]; return n; }), 3000);
@@ -471,7 +470,7 @@ export default function LobbyView() {
     setTimeout(() => setManualInviteStatus(null), 3000);
   }
 
-  async function handleJoinRequest(friend: { uid: string; username: string; lobbyId: string | null }) {
+  async function handleJoinRequest(friend: { uid: string; username: string; lobbyId: string | null; lobbyPlayerCount: number }) {
     if (!myUid || !friend.lobbyId) return;
 
     // First we need the leader's uid — we get it from the lobby doc
@@ -887,71 +886,77 @@ export default function LobbyView() {
 
                 {sortedFriends.map(friend => {
                   const alreadyInParty = lobby.players.some(p => p.uid === friend.uid);
-                  const inOtherLobby = !alreadyInParty && !!friend.lobbyId && friend.lobbyId !== lobbyId;
+                  const inOtherParty = !alreadyInParty && !!friend.lobbyId && friend.lobbyId !== lobbyId && friend.lobbyPlayerCount > 1;
                   const invStatus = inviteStatus[friend.uid];
                   const reqStatus = joinReqStatus[friend.uid];
 
                   return (
                     <div key={friend.uid} style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
+                      display: 'flex', flexDirection: 'column', gap: 6,
                       padding: '8px 6px', borderRadius: 8,
                       background: alreadyInParty ? 'rgba(99,102,241,0.08)' : 'transparent',
                       marginBottom: 4,
                     }}>
-                      {/* Online dot */}
-                      <div style={{
-                        width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                        background: friend.isOnline ? '#22c55e' : '#475569',
-                        boxShadow: friend.isOnline ? '0 0 6px #22c55e' : 'none',
-                      }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {/* Online dot */}
+                        <div style={{
+                          width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                          background: friend.isOnline ? '#22c55e' : '#475569',
+                          boxShadow: friend.isOnline ? '0 0 6px #22c55e' : 'none',
+                        }} />
 
-                      {/* Name */}
-                      <div style={{
-                        flex: 1, fontSize: 12, fontWeight: 600,
-                        color: alreadyInParty ? '#a5b4fc' : friend.isOnline ? 'var(--ll-text)' : '#64748b',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>
-                        {friend.username}
-                        {inOtherLobby && (
-                          <div style={{ fontSize: 9, color: '#f472b6', fontWeight: 700 }}>In a party</div>
-                        )}
+                        {/* Name */}
+                        <div style={{
+                          flex: 1, fontSize: 12, fontWeight: 600,
+                          color: alreadyInParty ? '#a5b4fc' : friend.isOnline ? 'var(--ll-text)' : '#64748b',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {friend.username}
+                          {inOtherParty && (
+                            <span style={{ fontSize: 10, color: '#f472b6', fontWeight: 700, marginLeft: 6 }}>
+                              +{friend.lobbyPlayerCount}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Action button */}
-                      {alreadyInParty ? (
-                        <span style={{ fontSize: 9, color: '#6366f1', fontWeight: 700, whiteSpace: 'nowrap' }}>IN PARTY</span>
-                      ) : (
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          {inOtherLobby && (
+                      {/* Action buttons */}
+                      <div style={{ paddingLeft: 16 }}>
+                        {alreadyInParty ? (
+                          <span style={{ fontSize: 9, color: '#6366f1', fontWeight: 700, whiteSpace: 'nowrap' }}>IN PARTY</span>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            {inOtherParty && (
+                              <button
+                                onClick={() => handleJoinRequest(friend)}
+                                disabled={!!reqStatus}
+                                style={{
+                                  padding: '4px 7px', borderRadius: 6, fontSize: 9, fontWeight: 700,
+                                  border: `1px solid ${reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f472b6'}`,
+                                  background: reqStatus === 'sent' ? 'rgba(34,197,94,0.1)' : reqStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(244,114,182,0.1)',
+                                  color: reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f9a8d4',
+                                  cursor: reqStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {reqStatus === 'sending' ? '…' : reqStatus === 'sent' ? '✓ Sent' : reqStatus === 'error' ? 'Error' : '🚪 Request to Join'}
+                              </button>
+                            )}
                             <button
-                              onClick={() => handleJoinRequest(friend)}
-                              disabled={!!reqStatus}
+                              onClick={() => handleInvite(friend.uid, friend.username)}
+                              disabled={!!invStatus}
                               style={{
-                                padding: '4px 7px', borderRadius: 6, fontSize: 9, fontWeight: 700,
-                                border: `1px solid ${reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f472b6'}`,
-                                background: reqStatus === 'sent' ? 'rgba(34,197,94,0.1)' : reqStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(244,114,182,0.1)',
-                                color: reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f9a8d4',
-                                cursor: reqStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
+                                padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+                                border: `1px solid ${invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#334155'}`,
+                                background: invStatus === 'sent' ? 'rgba(34,197,94,0.1)' : invStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'transparent',
+                                color: invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#94a3b8',
+                                cursor: invStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
                               }}
                             >
-                              {reqStatus === 'sending' ? '…' : reqStatus === 'sent' ? '✓ Sent' : reqStatus === 'error' ? 'Error' : '🚪 Request to Join'}
+                              {invStatus === 'sending' ? '…' : invStatus === 'sent' ? '✓ Sent' : invStatus === 'error' ? 'Error' : 'Invite'}
                             </button>
-                          )}
-                          <button
-                            onClick={() => handleInvite(friend.uid, friend.username)}
-                            disabled={!!invStatus}
-                            style={{
-                              padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
-                              border: `1px solid ${invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#334155'}`,
-                              background: invStatus === 'sent' ? 'rgba(34,197,94,0.1)' : invStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'transparent',
-                              color: invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#94a3b8',
-                              cursor: invStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {invStatus === 'sending' ? '…' : invStatus === 'sent' ? '✓ Sent' : invStatus === 'error' ? 'Error' : 'Invite'}
-                          </button>
-                        </div>
-                      )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
