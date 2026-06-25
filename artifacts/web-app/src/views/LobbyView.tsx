@@ -641,29 +641,41 @@ export default function LobbyView() {
             </div>
 
             {/* Ready / Start button */}
-            <button
-              onClick={handleReady}
-              className={`ll-btn ${myPlayer?.ready ? '' : 'll-btn-primary'}`}
-              style={{
-                width: '100%', padding: '14px', fontSize: 15, fontWeight: 900,
-                borderRadius: 12, marginBottom: 12,
-                background: myPlayer?.ready ? 'rgba(52,211,153,0.2)' : undefined,
-                borderColor: myPlayer?.ready ? '#34d399' : undefined,
-                color: myPlayer?.ready ? '#34d399' : undefined,
-                boxShadow: myPlayer?.ready ? '0 0 20px rgba(52,211,153,0.3)' : '0 0 20px rgba(99,102,241,0.3)',
-                transition: 'all 0.3s',
-              }}
-            >{myPlayer?.ready ? '✅ READY!' : '⬜ READY UP'}</button>
+            {(() => {
+              const cannotReady = !myPlayer?.ready && (!lobby.gameMode || lobby.players.length < 2);
+              return (
+                <button
+                  onClick={handleReady}
+                  disabled={cannotReady}
+                  className={`ll-btn ${myPlayer?.ready ? '' : 'll-btn-primary'}`}
+                  style={{
+                    width: '100%', padding: '14px', fontSize: 15, fontWeight: 900,
+                    borderRadius: 12, marginBottom: 12,
+                    background: myPlayer?.ready ? 'rgba(52,211,153,0.2)' : undefined,
+                    borderColor: myPlayer?.ready ? '#34d399' : undefined,
+                    color: myPlayer?.ready ? '#34d399' : undefined,
+                    boxShadow: myPlayer?.ready ? '0 0 20px rgba(52,211,153,0.3)' : '0 0 20px rgba(99,102,241,0.3)',
+                    opacity: cannotReady ? 0.5 : 1,
+                    cursor: cannotReady ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.3s',
+                  }}
+                >{myPlayer?.ready ? '✅ READY!' : '⬜ READY UP'}</button>
+              );
+            })()}
 
             {lobby.state === 'countdown' && lobby.countdownStartedAt && (
               <InlineCountdown startedAt={lobby.countdownStartedAt} />
             )}
 
-            {!lobby.gameMode && (
+            {!lobby.gameMode ? (
               <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', lineHeight: 1.4 }}>
                 {isLeader ? 'Select a game mode above' : 'Waiting for leader to select game mode'}
               </div>
-            )}
+            ) : lobby.players.length < 2 ? (
+              <div style={{ fontSize: 11, color: '#ef4444', textAlign: 'center', lineHeight: 1.4, fontWeight: 700 }}>
+                Need at least 2 players to ready up
+              </div>
+            ) : null}
           </div>
 
           {/* Chat */}

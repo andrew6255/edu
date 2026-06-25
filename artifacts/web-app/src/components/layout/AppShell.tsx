@@ -15,6 +15,8 @@ import { createLinkingCode, getMyLinkingCode, getLinkedParent } from '@/lib/link
 import ProfileView from '@/views/ProfileView';
 import { useToast } from '@/hooks/use-toast';
 import { pingPresence } from '@/lib/lobbyService';
+import TopNotificationToast from './TopNotificationToast';
+import { acceptAppNotification, dismissAppNotification } from '@/lib/notificationService';
 
 type View =
   | 'emporium'
@@ -130,6 +132,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
   const { toast } = useToast();
   const prevUnreadIdsRef = useRef<Set<string>>(new Set());
+  const [toastQueue, setToastQueue] = useState<AppNotification[]>([]);
 
   // Global presence ping (every 15s)
   useEffect(() => {
@@ -153,13 +156,10 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
         for (const doc of unreadDocs) {
           if (!prevUnreadIdsRef.current.has(doc.id)) {
             // New unread notification!
-            const data = doc.data as any;
-            toast({
-              title: data.type === 'friendRequest' ? 'Friend Request' : 
-                     data.type === 'lobbyJoinRequest' ? 'Party Request' :
-                     data.type === 'lobbyInvite' ? 'Party Invite' : 'Notification',
-              description: data.message,
-              duration: 4000,
+            const data = doc.data as AppNotification;
+            setToastQueue(q => {
+              if (q.some(n => n.id === data.id)) return q;
+              return [...q, data];
             });
           }
         }
@@ -659,6 +659,21 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
           uid={user.uid}
           userData={userData}
           onSaved={refreshUserData}
+        />
+      )}
+      {/* Top Notification Toast */}
+      {toastQueue.length > 0 && user && (
+        <TopNotificationToast
+          key={toastQueue[0].id}
+          notification={toastQueue[0]}
+          onAccept={async (n) => {
+            setToastQueue(q => q.filter(item => item.id !== n.id));
+            await acceptAppNotification(n, user.uid);
+          }}
+          onDismiss={async (n) => {
+            setToastQueue(q => q.filter(item => item.id !== n.id));
+            await dismissAppNotification(n, user.uid);
+          }}
         />
       )}
     </div>
