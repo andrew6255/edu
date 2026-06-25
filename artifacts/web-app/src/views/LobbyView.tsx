@@ -926,7 +926,7 @@ export default function LobbyView() {
                           <span style={{ fontSize: 9, color: '#6366f1', fontWeight: 700, whiteSpace: 'nowrap' }}>IN PARTY</span>
                         ) : (
                           <div style={{ display: 'flex', gap: 6 }}>
-                            {inOtherParty && (
+                            {friend.isOnline && friend.lobbyId && friend.lobbyId !== lobbyId && (
                               <button
                                 onClick={() => handleJoinRequest(friend)}
                                 disabled={!!reqStatus}
