@@ -453,23 +453,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                 </button>
               ))}
 
-              <button
-                onClick={() => {
-                  setView('studySessions');
-                  setMenuOpen(false);
-                }}
-                style={{
-                  textAlign: 'left', width: '100%', padding: '11px 14px', fontSize: 14,
-                  background: 'rgba(16,185,129,0.08)',
-                  border: '1px solid rgba(16,185,129,0.25)',
-                  borderRadius: 10, color: 'var(--ll-text)', cursor: 'pointer', fontFamily: 'inherit', transition: '0.15s'
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>👨‍👩‍👧‍👦 Study Sessions</span>
-                  <span style={{ marginLeft: 'auto', color: '#34d399', fontWeight: 'bold' }}>→</span>
-                </span>
-              </button>
+
 
               <QuizzesButton onOpen={() => { setView('classes'); setMenuOpen(false); }} />
 

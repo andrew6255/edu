@@ -419,16 +419,17 @@ export async function generateIqQuestionDetails(req: Request, res: Response): Pr
 
 Question: ${promptText}
 ${choicesText ? `Choices:\n${choicesText}` : ''}
-Node IQ Level: ${nodeIq || 80}
+Base Node IQ Level: ${nodeIq || 80}
 
 Respond with a JSON object (no markdown, no code fences) containing:
-- "questionIq": number - The IQ level of this question (how difficult it is, usually between 70-150)
+- "questionIq": number - Precise decimal estimate of the question's IQ difficulty (MUST be a number between ${nodeIq || 80} and ${(nodeIq || 80) + 10})
 - "maxIqGain": number - Maximum IQ gain for correct answer (max 2.0, usually between 0.5-2.0 based on difficulty)
 - "iqGainDecayRate": number - How much IQ gain decreases per time interval (usually 0.05-0.2)
 - "iqGainDecayIntervalSec": number - Time interval for decay in seconds (usually 10)
 - "iqLossBase": number - Base IQ loss for wrong answer (usually 1-5 based on difficulty)
 - "iqLossScaleFactor": number - Scale factor for IQ-relative loss (usually 0.03-0.08)
 - "explanation": string - A concise 1-2 sentence explanation of why the correct answer is correct and why other answers are wrong. Be direct and to the point.
+- "category": string - MUST be exactly one of: "Fluid Reasoning", "Quantitative Reasoning", "Verbal Reasoning", "Working Memory".
 
 Return ONLY valid JSON.`;
 
@@ -473,6 +474,7 @@ Return ONLY valid JSON.`;
       iqLossBase: typeof parsed.iqLossBase === 'number' ? parsed.iqLossBase : 3,
       iqLossScaleFactor: typeof parsed.iqLossScaleFactor === 'number' ? parsed.iqLossScaleFactor : 0.05,
       explanation: typeof parsed.explanation === 'string' ? parsed.explanation : '',
+      category: typeof parsed.category === 'string' ? parsed.category : 'Fluid Reasoning',
     });
 
   } catch (error) {

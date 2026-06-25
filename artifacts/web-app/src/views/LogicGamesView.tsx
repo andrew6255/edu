@@ -261,36 +261,57 @@ export default function LogicGamesView() {
     return () => stopElapsedTimer();
   }, []);
 
-  // ── Pick Question Closest to Student IQ ───────────────────────────────────
-
-  function pickQuestionClosestToIq(allQuestions: LogicGameQuestion[], studentIq: number): LogicGameQuestion | null {
-    if (allQuestions.length === 0) return null;
-    // If questions have questionIq set, pick the closest to studentIq
-    const withIq = allQuestions.filter(q => typeof q.questionIq === 'number');
-    if (withIq.length > 0) {
-      withIq.sort((a, b) => Math.abs((a.questionIq ?? 0) - studentIq) - Math.abs((b.questionIq ?? 0) - studentIq));
-      return withIq[0];
-    }
-    // Fallback: random question
-    return allQuestions[Math.floor(Math.random() * allQuestions.length)];
+  function getQueueState(nodeId: string): LogicGameNodeQueue | null {
+    if (!uid) return null;
+    const str = localStorage.getItem(`logic_game_queue_${uid}_${nodeId}`);
+    return str ? JSON.parse(str) : null;
   }
 
-  function pickNextQuestion(all: LogicGameQuestion[], prevId?: string | null) {
-    if (all.length === 0) {
+  function saveQueueState(nodeId: string, queue: LogicGameNodeQueue) {
+    if (!uid) return;
+    localStorage.setItem(`logic_game_queue_${uid}_${nodeId}`, JSON.stringify(queue));
+  }
+
+  function initializeOrAdvanceQueue(nodeId: string, all: LogicGameQuestion[]): LogicGameNodeQueue {
+    let queue = getQueueState(nodeId);
+    const validIds = new Set(all.map(q => q.id));
+
+    if (queue) {
+      queue.currentQueue = queue.currentQueue.filter(id => validIds.has(id));
+      queue.nextRoundWrong = queue.nextRoundWrong.filter(id => validIds.has(id));
+      queue.nextRoundRight = queue.nextRoundRight.filter(id => validIds.has(id));
+
+      const known = new Set([...queue.currentQueue, ...queue.nextRoundWrong, ...queue.nextRoundRight]);
+      const newQs = all.filter(q => !known.has(q.id)).map(q => q.id);
+      queue.currentQueue.push(...newQs);
+    } else {
+      queue = {
+        currentQueue: all.map(q => q.id).sort(() => Math.random() - 0.5),
+        nextRoundWrong: [],
+        nextRoundRight: []
+      };
+    }
+
+    if (queue.currentQueue.length === 0) {
+      queue.currentQueue = [...queue.nextRoundWrong, ...queue.nextRoundRight];
+      queue.nextRoundWrong = [];
+      queue.nextRoundRight = [];
+    }
+
+    saveQueueState(nodeId, queue);
+    return queue;
+  }
+
+  function pickNextQuestion(all: LogicGameQuestion[]) {
+    if (all.length === 0 || !activeNode) {
       setRankedCurrent(null);
       return;
     }
-    const pool = prevId ? all.filter((q) => q.id !== prevId) : all;
-    const list = pool.length > 0 ? pool : all;
 
-    if (gamePlayMode === 'iq') {
-      // In IQ mode, pick closest to current IQ
-      const picked = pickQuestionClosestToIq(list, currentIq);
-      setRankedCurrent(picked);
-    } else {
-      // In chill mode, random
-      setRankedCurrent(list[Math.floor(Math.random() * list.length)]);
-    }
+    const queue = initializeOrAdvanceQueue(activeNode.id, all);
+    const nextId = queue.currentQueue[0];
+    const picked = all.find(q => q.id === nextId) || all[0];
+    setRankedCurrent(picked);
     setRankedFeedback(null);
     setRankedAnswerText('');
     setRankedChoiceIndex(null);
@@ -301,11 +322,11 @@ export default function LogicGamesView() {
   }
 
   function computeNextFloorIq(nextIq: number) {
-    // Floor can only increase to an unlocked node's IQ and never decrease.
-    const candidates = sorted.map((n) => n.iq).filter((v) => typeof v === 'number');
-    const reached = candidates.filter((v) => v <= nextIq);
-    const best = reached.length > 0 ? Math.max(...reached) : 80;
-    return Math.max(floorIq, best);
+    let best = floorIq;
+    if (nextIq >= 90) {
+      best = Math.max(best, Math.floor(nextIq / 10) * 10);
+    }
+    return best;
   }
 
   async function applyIqDelta(delta: number) {
@@ -313,7 +334,7 @@ export default function LogicGamesView() {
     const cur = progress?.iq ?? 80;
     const raw = cur + delta;
     const nextFloor = computeNextFloorIq(raw);
-    const nextIq = Math.max(nextFloor, raw);
+    const nextIq = nextFloor >= 90 ? Math.max(nextFloor, raw) : raw;
     await setLogicGamesIq(uid, nextIq, nextFloor);
     setProgress(() => {
       const now = new Date().toISOString();
@@ -345,6 +366,19 @@ export default function LogicGamesView() {
       }
     }
 
+    if (activeNode) {
+      const queue = getQueueState(activeNode.id);
+      if (queue && queue.currentQueue.length > 0 && queue.currentQueue[0] === rankedCurrent.id) {
+        queue.currentQueue.shift();
+        if (g.correct) {
+          queue.nextRoundRight.push(rankedCurrent.id);
+        } else {
+          queue.nextRoundWrong.push(rankedCurrent.id);
+        }
+        saveQueueState(activeNode.id, queue);
+      }
+    }
+
     if (gamePlayMode === 'iq') {
       // IQ mode: apply time-based gain or IQ-relative loss
       if (g.correct) {
@@ -360,7 +394,7 @@ export default function LogicGamesView() {
 
   function continueGame() {
     if (!rankedCurrent) return;
-    pickNextQuestion(rankedQuestions, rankedCurrent.id);
+    pickNextQuestion(rankedQuestions);
   }
 
   async function startPlaying(node: LogicGameNode) {
@@ -375,8 +409,9 @@ export default function LogicGamesView() {
       setActiveNode(node);
       setScreen('playing');
 
-      // Pick the first question closest to student IQ
-      const firstQ = pickQuestionClosestToIq(qs, currentIq) || qs[0];
+      const queue = initializeOrAdvanceQueue(node.id, qs);
+      const firstId = queue.currentQueue[0];
+      const firstQ = qs.find(q => q.id === firstId) || qs[0];
       setRankedCurrent(firstQ);
       setRankedFeedback(null);
       setRankedAnswerText('');
@@ -735,7 +770,7 @@ export default function LogicGamesView() {
 
           {/* Center: IQ display */}
           <div style={{ color: 'var(--ll-text-soft)', fontSize: 13, fontWeight: 900, textAlign: 'center' }}>
-            IQ: <span style={{ color: '#fbbf24', fontSize: 15 }}>{currentIq.toFixed(2).replace(/\.00$/, '')}</span>
+            IQ: <span style={{ color: '#fbbf24', fontSize: 15 }}>{currentIq.toFixed(1)}</span>
           </div>
 
           {/* Right: Chill/IQ mode toggle */}
@@ -958,9 +993,9 @@ export default function LogicGamesView() {
                   {gamePlayMode === 'iq' && (
                     <div style={{ fontSize: 12, color: 'var(--ll-text-soft)', marginBottom: 8 }}>
                       {rankedFeedback.correct ? (
-                        <span style={{ color: '#34d399' }}>+{computeIqGain(rankedCurrent!, elapsedSeconds).toFixed(2)} IQ (solved in {formatTime(elapsedSeconds)})</span>
+                        <span style={{ color: '#34d399' }}>+{computeIqGain(rankedCurrent!, elapsedSeconds).toFixed(1)} IQ (solved in {formatTime(elapsedSeconds)})</span>
                       ) : (
-                        <span style={{ color: '#fca5a5' }}>{computeIqLoss(rankedCurrent!, currentIq).toFixed(2)} IQ</span>
+                        <span style={{ color: '#fca5a5' }}>{computeIqLoss(rankedCurrent!, currentIq).toFixed(1)} IQ</span>
                       )}
                     </div>
                   )}

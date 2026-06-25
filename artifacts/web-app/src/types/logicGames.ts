@@ -43,6 +43,8 @@ export type LogicGameQuestion = {
   iqLossScaleFactor?: number;
   /** Explanation shown in chill mode after answering */
   explanation?: string;
+  /** Broad category classification for the question */
+  category?: 'Fluid Reasoning' | 'Quantitative Reasoning' | 'Verbal Reasoning' | 'Working Memory';
 };
 
 export type LogicGameQuestionsDoc = {
@@ -52,10 +54,17 @@ export type LogicGameQuestionsDoc = {
   publishedAt?: string;
 };
 
+export type LogicGameNodeQueue = {
+  currentQueue: string[];
+  nextRoundWrong: string[];
+  nextRoundRight: string[];
+};
+
 export type LogicGamesProgressDoc = {
   id: 'global';
   iq: number;
   // Highest unlocked milestone (e.g. 80, 90, 100). IQ cannot drop below this.
   floorIq: number;
+  nodeQueues?: Record<string, LogicGameNodeQueue>;
   updatedAt: string;
 };

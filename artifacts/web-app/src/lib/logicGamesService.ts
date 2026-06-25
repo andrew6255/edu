@@ -124,6 +124,7 @@ export async function getLogicGamesProgress(uid: string): Promise<LogicGamesProg
     id: 'global',
     iq: typeof data.iq === 'number' ? data.iq : 80,
     floorIq: typeof data.floor_iq === 'number' ? data.floor_iq : 80,
+    nodeQueues: data.node_queues || {},
     updatedAt: typeof data.updated_at === 'string' ? data.updated_at : new Date().toISOString(),
   };
 }
@@ -132,9 +133,9 @@ export async function ensureLogicGamesProgress(uid: string): Promise<LogicGamesP
   const existing = await getLogicGamesProgress(uid);
   if (existing) return existing;
   const now = new Date().toISOString();
-  const init: LogicGamesProgressDoc = { id: 'global', iq: 80, floorIq: 80, updatedAt: now };
+  const init: LogicGamesProgressDoc = { id: 'global', iq: 80, floorIq: 80, nodeQueues: {}, updatedAt: now };
   const supabase = requireSupabase();
-  const { error } = await supabase.from('logic_game_progress').upsert({ user_id: uid, iq: 80, floor_iq: 80, updated_at: now });
+  const { error } = await supabase.from('logic_game_progress').upsert({ user_id: uid, iq: 80, floor_iq: 80, node_queues: {}, updated_at: now });
   if (error) throw error;
   return init;
 }

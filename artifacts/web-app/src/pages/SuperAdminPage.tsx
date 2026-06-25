@@ -1461,6 +1461,7 @@ function LogicGamesAdmin() {
             if (data.iqLossBase != null) (newQ[detailsQIndex] as any).iqLossBase = data.iqLossBase;
             if (data.iqLossScaleFactor != null) (newQ[detailsQIndex] as any).iqLossScaleFactor = data.iqLossScaleFactor;
             if (data.explanation) (newQ[detailsQIndex] as any).explanation = data.explanation;
+            if (data.category) (newQ[detailsQIndex] as any).category = data.category;
             setQuestions(newQ);
             setStatus('✅ Groq values applied');
           } catch (e) {
@@ -1542,6 +1543,21 @@ function LogicGamesAdmin() {
                     placeholder="Concise explanation of why the correct answer is correct..."
                     style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }}
                   />
+                </div>
+
+                {/* Category */}
+                <div>
+                  <div style={labelStyle}>🏷️ Category</div>
+                  <select
+                    value={dq.category || 'Fluid Reasoning'}
+                    onChange={e => updateField('category', e.target.value)}
+                    style={{ ...inputStyle, padding: '10px 14px' }}
+                  >
+                    <option value="Fluid Reasoning">Fluid Reasoning (Logic & Patterns)</option>
+                    <option value="Quantitative Reasoning">Quantitative Reasoning (Math Logic)</option>
+                    <option value="Verbal Reasoning">Verbal Reasoning (Language Logic)</option>
+                    <option value="Working Memory">Working Memory (Mental Manipulation)</option>
+                  </select>
                 </div>
 
                 {/* Ask Groq Button */}

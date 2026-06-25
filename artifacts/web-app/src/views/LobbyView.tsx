@@ -7,6 +7,7 @@ import {
   setPlayerReady,
   setPlayerEmoji,
   setLobbyGameMode,
+  setLobbyLeader,
   startLobbyGame,
   sendLobbyChat,
   sendLobbyInvite,
@@ -47,8 +48,8 @@ const WARMUP_GAMES = [
   { id: 'chessMemory',   label: 'Chess Memory',        icon: '♟️' },
 ];
 
-// ─── Countdown overlay ────────────────────────────────────────────────────────
-function CountdownOverlay({ startedAt }: { startedAt: string }) {
+// ─── Inline Countdown ────────────────────────────────────────────────────────
+function InlineCountdown({ startedAt }: { startedAt: string }) {
   const [secs, setSecs] = useState(3);
   useEffect(() => {
     const tick = () => {
@@ -62,20 +63,17 @@ function CountdownOverlay({ startedAt }: { startedAt: string }) {
 
   return (
     <div style={{
-      position: 'absolute', inset: 0, zIndex: 50,
-      background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      textAlign: 'center', padding: '12px', background: 'rgba(0,0,0,0.3)',
+      borderRadius: 12, border: `1px solid ${secs === 0 ? '#34d399' : '#f472b6'}`,
+      marginTop: 8, transition: 'all 0.3s'
     }}>
+      <div style={{ color: '#94a3b8', fontSize: 12, fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>Starting in</div>
       <div style={{
-        fontSize: secs === 0 ? 72 : 120, fontWeight: 900, lineHeight: 1,
+        fontSize: secs === 0 ? 32 : 48, fontWeight: 900, lineHeight: 1,
         color: secs === 0 ? '#34d399' : '#f472b6',
-        textShadow: `0 0 60px ${secs === 0 ? '#34d399' : '#f472b6'}`,
-        transition: 'all 0.3s',
+        textShadow: `0 0 20px ${secs === 0 ? '#34d399' : '#f472b6'}`,
       }}>
         {secs === 0 ? 'GO!' : secs}
-      </div>
-      <div style={{ color: '#94a3b8', fontSize: 18, marginTop: 16, fontWeight: 600 }}>
-        Get ready…
       </div>
     </div>
   );
@@ -119,9 +117,9 @@ const V_OFFSETS: { x: number; y: number }[] = [
 ];
 
 // ─── Player Slot ──────────────────────────────────────────────────────────────
-function PlayerSlot({ player, isMe, onEmojiClick, isEmpty }: {
+function PlayerSlot({ player, isMe, amILeader, onEmojiClick, onPlayerClick, isEmpty }: {
   player?: { uid: string; username: string; emoji: string; ready: boolean; isLeader: boolean };
-  isMe: boolean; onEmojiClick?: () => void; isEmpty?: boolean;
+  isMe: boolean; amILeader: boolean; onEmojiClick?: () => void; onPlayerClick?: () => void; isEmpty?: boolean;
 }) {
   if (isEmpty || !player) {
     return (
@@ -148,17 +146,25 @@ function PlayerSlot({ player, isMe, onEmojiClick, isEmpty }: {
             : 'radial-gradient(circle, rgba(99,102,241,0.3), rgba(99,102,241,0.06))',
           border: `3px solid ${player.ready ? '#34d399' : isMe ? '#a78bfa' : '#475569'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: isMe ? 'pointer' : 'default', transition: 'all 0.3s',
+          cursor: isMe || (amILeader && !player.isLeader) ? 'pointer' : 'default', transition: 'all 0.3s',
           boxShadow: player.ready
             ? '0 0 28px rgba(52,211,153,0.5)'
             : isMe ? '0 0 28px rgba(167,139,250,0.4)' : 'none',
           position: 'relative',
         }}
-        onClick={isMe ? onEmojiClick : undefined}
-        title={isMe ? 'Click to change emoji' : undefined}
+        onClick={isMe ? onEmojiClick : onPlayerClick}
+        title={isMe ? 'Click to change emoji' : amILeader && !player.isLeader ? 'Click to promote to Leader' : undefined}
       >
         {player.emoji}
-        {isMe && (
+        {player.ready && (
+          <div style={{
+            position: 'absolute', top: -5, right: -5, background: '#34d399',
+            borderRadius: '50%', width: 28, height: 28,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 14, border: '2px solid #0f172a',
+          }}>✅</div>
+        )}
+        {isMe && !player.ready && (
           <div style={{
             position: 'absolute', bottom: -2, right: -2, background: '#a78bfa',
             borderRadius: '50%', width: 24, height: 24,
@@ -208,6 +214,11 @@ export default function LobbyView() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [launchHandled, setLaunchHandled] = useState(false);
+
+  const [rightTab, setRightTab] = useState<'friends' | 'invite'>('friends');
+  const [inviteUsername, setInviteUsername] = useState('');
+  const [inviteTag, setInviteTag] = useState('');
+  const [manualInviteStatus, setManualInviteStatus] = useState<{ type: 'sending' | 'sent' | 'error', msg?: string } | null>(null);
 
   const myUid = user?.uid ?? '';
   const myUsername = userData?.username ?? myUid;
@@ -380,16 +391,21 @@ export default function LobbyView() {
 
   async function handleSetGameMode(mode: LobbyGameMode | null) {
     if (!lobbyId || !myUid) return;
+    setLobby(prev => prev ? { ...prev, gameMode: mode, players: prev.players.map(p => ({ ...p, ready: false })) } : prev);
     await setLobbyGameMode(lobbyId, myUid, mode);
   }
 
-
-
-  async function handleStartGame() {
+  function handlePlayerClick(player: { uid: string; username: string; isLeader: boolean }) {
     if (!lobbyId || !myUid) return;
-    const result = await startLobbyGame(lobbyId, myUid);
-    if (!result.success) alert(result.error ?? 'Cannot start game');
+    if (isLeader && !player.isLeader) {
+      if (window.confirm(`Promote ${player.username} to Party Leader?`)) {
+        setLobbyLeader(lobbyId, myUid, player.uid).catch(e => alert(e.message ?? 'Failed to promote'));
+      }
+    }
   }
+
+
+
 
   async function handleSendChat() {
     if (!lobbyId || !myUid || !chatInput.trim()) return;
@@ -407,6 +423,21 @@ export default function LobbyView() {
     });
     setInviteStatus(s => ({ ...s, [friendUid]: result.success ? 'sent' : 'error' }));
     setTimeout(() => setInviteStatus(s => { const n = { ...s }; delete n[friendUid]; return n; }), 3000);
+  }
+
+  async function handleManualInvite() {
+    if (!lobbyId || !myUid || !inviteUsername.trim() || !inviteTag.trim()) return;
+    setManualInviteStatus({ type: 'sending' });
+    const result = await sendLobbyInvite({
+      fromUid: myUid, fromUsername: myUsername,
+      toUsername: inviteUsername, toTag: inviteTag.trim(), lobbyId,
+    });
+    setManualInviteStatus({ type: result.success ? 'sent' : 'error', msg: result.error });
+    if (result.success) {
+      setInviteUsername('');
+      setInviteTag('');
+    }
+    setTimeout(() => setManualInviteStatus(null), 3000);
   }
 
   async function handleJoinRequest(friend: { uid: string; username: string; lobbyId: string | null }) {
@@ -428,10 +459,6 @@ export default function LobbyView() {
     setTimeout(() => setJoinReqStatus(s => { const n = { ...s }; delete n[friend.uid]; return n; }), 3000);
   }
 
-  // ── Ready state ──────────────────────────────────────────────────────────
-  const nonLeaderPlayers = lobby?.players.filter(p => !p.isLeader) ?? [];
-  const allNonLeadersReady = nonLeaderPlayers.length > 0 && nonLeaderPlayers.every(p => p.ready);
-  const canStart = isLeader && !!lobby?.gameMode && (lobby?.players.length ?? 0) >= 2 && allNonLeadersReady;
 
   const sortedFriends = [...friends].sort((a, b) => {
     if (a.isOnline && !b.isOnline) return -1;
@@ -496,9 +523,6 @@ export default function LobbyView() {
       background: 'radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.12) 0%, transparent 60%), #0f172a',
       color: 'var(--ll-text)', overflow: 'hidden', position: 'relative',
     }}>
-      {lobby.state === 'countdown' && lobby.countdownStartedAt && (
-        <CountdownOverlay startedAt={lobby.countdownStartedAt} />
-      )}
 
       {/* Top bar */}
       <div style={{
@@ -520,17 +544,6 @@ export default function LobbyView() {
           <div style={{ fontSize: 14, fontWeight: 800, color: '#f472b6', letterSpacing: 1 }}>
             🏛️ THE LOBBY
           </div>
-        </div>
-        <div style={{
-          fontSize: 11, color: '#64748b', background: '#1e293b',
-          padding: '4px 10px', borderRadius: 8, border: '1px solid #334155',
-          fontFamily: 'monospace', letterSpacing: 1, cursor: 'pointer',
-          userSelect: 'all',
-        }}
-          title="Click to copy code"
-          onClick={() => navigator.clipboard?.writeText(lobby.id).catch(() => {})}
-        >
-          📋 CODE: {lobby.id.toUpperCase()}
         </div>
       </div>
 
@@ -628,37 +641,27 @@ export default function LobbyView() {
             </div>
 
             {/* Ready / Start button */}
-            {isLeader ? (
-              <button
-                onClick={handleStartGame} disabled={!canStart}
-                className="ll-btn ll-btn-primary"
-                style={{
-                  width: '100%', padding: '14px', fontSize: 15, fontWeight: 900,
-                  borderRadius: 12, marginBottom: 12, opacity: canStart ? 1 : 0.4,
-                  boxShadow: canStart ? '0 0 24px rgba(99,102,241,0.5)' : 'none', transition: 'all 0.3s',
-                }}
-              >🚀 START GAME</button>
-            ) : (
-              <button
-                onClick={handleReady}
-                className={`ll-btn ${myPlayer?.ready ? '' : 'll-btn-primary'}`}
-                style={{
-                  width: '100%', padding: '14px', fontSize: 15, fontWeight: 900,
-                  borderRadius: 12, marginBottom: 12,
-                  background: myPlayer?.ready ? 'rgba(52,211,153,0.2)' : undefined,
-                  borderColor: myPlayer?.ready ? '#34d399' : undefined,
-                  color: myPlayer?.ready ? '#34d399' : undefined,
-                  boxShadow: myPlayer?.ready ? '0 0 20px rgba(52,211,153,0.3)' : '0 0 20px rgba(99,102,241,0.3)',
-                  transition: 'all 0.3s',
-                }}
-              >{myPlayer?.ready ? '✅ READY!' : '⬜ READY UP'}</button>
+            <button
+              onClick={handleReady}
+              className={`ll-btn ${myPlayer?.ready ? '' : 'll-btn-primary'}`}
+              style={{
+                width: '100%', padding: '14px', fontSize: 15, fontWeight: 900,
+                borderRadius: 12, marginBottom: 12,
+                background: myPlayer?.ready ? 'rgba(52,211,153,0.2)' : undefined,
+                borderColor: myPlayer?.ready ? '#34d399' : undefined,
+                color: myPlayer?.ready ? '#34d399' : undefined,
+                boxShadow: myPlayer?.ready ? '0 0 20px rgba(52,211,153,0.3)' : '0 0 20px rgba(99,102,241,0.3)',
+                transition: 'all 0.3s',
+              }}
+            >{myPlayer?.ready ? '✅ READY!' : '⬜ READY UP'}</button>
+
+            {lobby.state === 'countdown' && lobby.countdownStartedAt && (
+              <InlineCountdown startedAt={lobby.countdownStartedAt} />
             )}
 
-            {isLeader && !canStart && (
+            {!lobby.gameMode && (
               <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', lineHeight: 1.4 }}>
-                {!lobby.gameMode ? 'Select a game mode above'
-                  : lobby.players.length < 2 ? 'Need at least 2 players'
-                  : 'Waiting for all players to ready up'}
+                {isLeader ? 'Select a game mode above' : 'Waiting for leader to select game mode'}
               </div>
             )}
           </div>
@@ -669,16 +672,24 @@ export default function LobbyView() {
               💬 Party Chat
             </div>
             <div style={{ height: 140, overflowY: 'auto', padding: '0 12px 6px' }}>
-              {(lobby.chat ?? []).length === 0 && (
-                <div style={{ color: '#475569', fontSize: 11, textAlign: 'center', paddingTop: 20 }}>Say hi to your party! 👋</div>
-              )}
-              {(lobby.chat ?? []).map((msg, i) => (
-                <div key={i} style={{ marginBottom: 4 }}>
-                  <span style={{ color: msg.uid === myUid ? '#a78bfa' : '#94a3b8', fontWeight: 700, fontSize: 11 }}>{msg.username}: </span>
-                  <span style={{ color: '#cbd5e1', fontSize: 12 }}>{msg.text}</span>
+              {lobby.players.length <= 1 ? (
+                <div style={{ color: '#475569', fontSize: 11, textAlign: 'center', paddingTop: 20 }}>
+                  Waiting for players to join your party...
                 </div>
-              ))}
-              <div ref={chatEndRef} />
+              ) : (
+                <>
+                  {(lobby.chat ?? []).length === 0 && (
+                    <div style={{ color: '#475569', fontSize: 11, textAlign: 'center', paddingTop: 20 }}>Say hi to your party! 👋</div>
+                  )}
+                  {(lobby.chat ?? []).map((msg, i) => (
+                    <div key={i} style={{ marginBottom: 4 }}>
+                      <span style={{ color: msg.uid === myUid ? '#a78bfa' : '#94a3b8', fontWeight: 700, fontSize: 11 }}>{msg.username}: </span>
+                      <span style={{ color: '#cbd5e1', fontSize: 12 }}>{msg.text}</span>
+                    </div>
+                  ))}
+                  <div ref={chatEndRef} />
+                </>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 6, padding: '6px 12px 10px' }}>
               <input
@@ -749,8 +760,10 @@ export default function LobbyView() {
                   <PlayerSlot
                     player={player}
                     isMe={isMe}
+                    amILeader={isLeader}
                     isEmpty={!player}
                     onEmojiClick={() => isMe && setShowEmojiPicker(v => !v)}
+                    onPlayerClick={() => player && handlePlayerClick(player)}
                   />
                   {isMe && showEmojiPicker && (
                     <EmojiPicker
@@ -781,86 +794,167 @@ export default function LobbyView() {
           width: 240, flexShrink: 0, borderLeft: '1px solid #1e293b',
           background: 'rgba(15,23,42,0.5)', display: 'flex', flexDirection: 'column', overflowY: 'auto',
         }}>
-          <div style={{ padding: '16px 14px 8px' }}>
-            <div style={{ fontSize: 10, color: '#64748b', fontWeight: 800, letterSpacing: 2, marginBottom: 12, textTransform: 'uppercase' }}>
+          <div style={{ display: 'flex', borderBottom: '1px solid #1e293b' }}>
+            <button
+              onClick={() => setRightTab('friends')}
+              style={{
+                flex: 1, padding: '12px 0', fontSize: 11, fontWeight: 800, letterSpacing: 1,
+                textTransform: 'uppercase', background: 'transparent', border: 'none', cursor: 'pointer',
+                color: rightTab === 'friends' ? '#a78bfa' : '#64748b',
+                borderBottom: `2px solid ${rightTab === 'friends' ? '#a78bfa' : 'transparent'}`,
+              }}
+            >
               👥 Friends
-            </div>
+            </button>
+            <button
+              onClick={() => setRightTab('invite')}
+              style={{
+                flex: 1, padding: '12px 0', fontSize: 11, fontWeight: 800, letterSpacing: 1,
+                textTransform: 'uppercase', background: 'transparent', border: 'none', cursor: 'pointer',
+                color: rightTab === 'invite' ? '#34d399' : '#64748b',
+                borderBottom: `2px solid ${rightTab === 'invite' ? '#34d399' : 'transparent'}`,
+              }}
+            >
+              ✉️ Invite
+            </button>
+          </div>
 
-            {sortedFriends.length === 0 && (
-              <div style={{ color: '#475569', fontSize: 12, textAlign: 'center', paddingTop: 20 }}>
-                No friends yet.<br />Add friends to invite them!
+          <div style={{ padding: '16px 14px 8px' }}>
+            {rightTab === 'friends' ? (
+              <>
+                {sortedFriends.length === 0 && (
+                  <div style={{ color: '#475569', fontSize: 12, textAlign: 'center', paddingTop: 20 }}>
+                    No friends yet.<br />Add friends to invite them!
+                  </div>
+                )}
+
+                {sortedFriends.map(friend => {
+                  const alreadyInParty = lobby.players.some(p => p.uid === friend.uid);
+                  const inOtherLobby = !alreadyInParty && !!friend.lobbyId && friend.lobbyId !== lobbyId;
+                  const invStatus = inviteStatus[friend.uid];
+                  const reqStatus = joinReqStatus[friend.uid];
+
+                  return (
+                    <div key={friend.uid} style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '8px 6px', borderRadius: 8,
+                      background: alreadyInParty ? 'rgba(99,102,241,0.08)' : 'transparent',
+                      marginBottom: 4,
+                    }}>
+                      {/* Online dot */}
+                      <div style={{
+                        width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                        background: friend.isOnline ? '#22c55e' : '#475569',
+                        boxShadow: friend.isOnline ? '0 0 6px #22c55e' : 'none',
+                      }} />
+
+                      {/* Name */}
+                      <div style={{
+                        flex: 1, fontSize: 12, fontWeight: 600,
+                        color: alreadyInParty ? '#a5b4fc' : friend.isOnline ? 'var(--ll-text)' : '#64748b',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {friend.username}
+                        {inOtherLobby && (
+                          <div style={{ fontSize: 9, color: '#f472b6', fontWeight: 700 }}>In a party</div>
+                        )}
+                      </div>
+
+                      {/* Action button */}
+                      {alreadyInParty ? (
+                        <span style={{ fontSize: 9, color: '#6366f1', fontWeight: 700, whiteSpace: 'nowrap' }}>IN PARTY</span>
+                      ) : inOtherLobby ? (
+                        <button
+                          onClick={() => handleJoinRequest(friend)}
+                          disabled={!!reqStatus}
+                          style={{
+                            padding: '4px 7px', borderRadius: 6, fontSize: 9, fontWeight: 700,
+                            border: `1px solid ${reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f472b6'}`,
+                            background: reqStatus === 'sent' ? 'rgba(34,197,94,0.1)' : reqStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(244,114,182,0.1)',
+                            color: reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f9a8d4',
+                            cursor: reqStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {reqStatus === 'sending' ? '…' : reqStatus === 'sent' ? '✓ Sent' : reqStatus === 'error' ? 'Error' : '🚪 Join'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleInvite(friend.uid, friend.username)}
+                          disabled={!!invStatus}
+                          style={{
+                            padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+                            border: `1px solid ${invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#334155'}`,
+                            background: invStatus === 'sent' ? 'rgba(34,197,94,0.1)' : invStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'transparent',
+                            color: invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#94a3b8',
+                            cursor: invStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {invStatus === 'sending' ? '…' : invStatus === 'sent' ? '✓ Sent' : invStatus === 'error' ? 'Error' : 'Invite'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>
+                  Invite a player directly using their Username and 4-digit Tag.
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase' }}>Username</label>
+                  <input
+                    type="text"
+                    value={inviteUsername}
+                    onChange={e => setInviteUsername(e.target.value)}
+                    placeholder="Enter username"
+                    style={{
+                      width: '100%', padding: '8px 12px', borderRadius: 8,
+                      background: '#1e293b', border: '1px solid #334155',
+                      color: 'white', fontSize: 13, outline: 'none',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase' }}>Tag</label>
+                  <div style={{ display: 'flex', alignItems: 'center', background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}>
+                    <span style={{ padding: '8px 4px 8px 12px', color: '#64748b', fontSize: 13 }}>#</span>
+                    <input
+                      type="text"
+                      value={inviteTag}
+                      onChange={e => setInviteTag(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      placeholder="1234"
+                      style={{
+                        flex: 1, padding: '8px 12px 8px 4px', background: 'transparent',
+                        border: 'none', color: 'white', fontSize: 13, outline: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {manualInviteStatus && (
+                  <div style={{
+                    fontSize: 12, fontWeight: 600, marginTop: 4,
+                    color: manualInviteStatus.type === 'error' ? '#ef4444' : manualInviteStatus.type === 'sent' ? '#22c55e' : '#f472b6',
+                  }}>
+                    {manualInviteStatus.type === 'sending' ? 'Sending...' : manualInviteStatus.type === 'sent' ? 'Invite sent successfully!' : `Error: ${manualInviteStatus.msg}`}
+                  </div>
+                )}
+
+                <button
+                  onClick={handleManualInvite}
+                  disabled={!inviteUsername.trim() || !inviteTag.trim() || manualInviteStatus?.type === 'sending'}
+                  className="ll-btn ll-btn-primary"
+                  style={{
+                    width: '100%', padding: '10px', fontSize: 13, fontWeight: 700,
+                    borderRadius: 8, marginTop: 8,
+                    opacity: !inviteUsername.trim() || !inviteTag.trim() || manualInviteStatus?.type === 'sending' ? 0.5 : 1,
+                  }}
+                >
+                  Send Invite
+                </button>
               </div>
             )}
-
-            {sortedFriends.map(friend => {
-              const alreadyInParty = lobby.players.some(p => p.uid === friend.uid);
-              const inOtherLobby = !alreadyInParty && !!friend.lobbyId && friend.lobbyId !== lobbyId;
-              const invStatus = inviteStatus[friend.uid];
-              const reqStatus = joinReqStatus[friend.uid];
-
-              return (
-                <div key={friend.uid} style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '8px 6px', borderRadius: 8,
-                  background: alreadyInParty ? 'rgba(99,102,241,0.08)' : 'transparent',
-                  marginBottom: 4,
-                }}>
-                  {/* Online dot */}
-                  <div style={{
-                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                    background: friend.isOnline ? '#22c55e' : '#475569',
-                    boxShadow: friend.isOnline ? '0 0 6px #22c55e' : 'none',
-                  }} />
-
-                  {/* Name */}
-                  <div style={{
-                    flex: 1, fontSize: 12, fontWeight: 600,
-                    color: alreadyInParty ? '#a5b4fc' : friend.isOnline ? 'var(--ll-text)' : '#64748b',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>
-                    {friend.username}
-                    {inOtherLobby && (
-                      <div style={{ fontSize: 9, color: '#f472b6', fontWeight: 700 }}>In a party</div>
-                    )}
-                  </div>
-
-                  {/* Action button */}
-                  {alreadyInParty ? (
-                    <span style={{ fontSize: 9, color: '#6366f1', fontWeight: 700, whiteSpace: 'nowrap' }}>IN PARTY</span>
-                  ) : inOtherLobby ? (
-                    // Request to join their party
-                    <button
-                      onClick={() => handleJoinRequest(friend)}
-                      disabled={!!reqStatus}
-                      style={{
-                        padding: '4px 7px', borderRadius: 6, fontSize: 9, fontWeight: 700,
-                        border: `1px solid ${reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f472b6'}`,
-                        background: reqStatus === 'sent' ? 'rgba(34,197,94,0.1)' : reqStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(244,114,182,0.1)',
-                        color: reqStatus === 'sent' ? '#22c55e' : reqStatus === 'error' ? '#ef4444' : '#f9a8d4',
-                        cursor: reqStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {reqStatus === 'sending' ? '…' : reqStatus === 'sent' ? '✓ Sent' : reqStatus === 'error' ? 'Error' : '🚪 Join'}
-                    </button>
-                  ) : (
-                    // Invite to your party
-                    <button
-                      onClick={() => handleInvite(friend.uid, friend.username)}
-                      disabled={!!invStatus}
-                      style={{
-                        padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
-                        border: `1px solid ${invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#334155'}`,
-                        background: invStatus === 'sent' ? 'rgba(34,197,94,0.1)' : invStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'transparent',
-                        color: invStatus === 'sent' ? '#22c55e' : invStatus === 'error' ? '#ef4444' : '#94a3b8',
-                        cursor: invStatus ? 'default' : 'pointer', whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {invStatus === 'sending' ? '…' : invStatus === 'sent' ? '✓ Sent' : invStatus === 'error' ? 'Error' : 'Invite'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
           </div>
         </div>
       </div>

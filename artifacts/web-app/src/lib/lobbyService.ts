@@ -147,6 +147,32 @@ export async function leaveLobby(lobbyId: string, uid: string): Promise<void> {
   });
 }
 
+export async function setLobbyLeader(
+  lobbyId: string,
+  currentLeaderUid: string,
+  newLeaderUid: string
+): Promise<{ success: boolean; error?: string }> {
+  const raw = await getGlobalDoc('lobbies', lobbyId);
+  if (!raw) return { success: false, error: 'Lobby not found' };
+  const doc = getLobby(raw);
+
+  if (doc.leaderUid !== currentLeaderUid) return { success: false, error: 'Only leader can promote' };
+  if (!doc.players.some(p => p.uid === newLeaderUid)) return { success: false, error: 'Player not in lobby' };
+
+  const updatedPlayers = doc.players.map(p => ({
+    ...p,
+    isLeader: p.uid === newLeaderUid,
+  }));
+
+  await updateGlobalDoc('lobbies', lobbyId, {
+    leaderUid: newLeaderUid,
+    players: updatedPlayers as unknown as Record<string, unknown>[],
+    updatedAt: nowIso(),
+  });
+
+  return { success: true };
+}
+
 export async function setPlayerReady(
   lobbyId: string,
   uid: string,
@@ -158,10 +184,24 @@ export async function setPlayerReady(
   const updatedPlayers = doc.players.map(p =>
     p.uid === uid ? { ...p, ready } : p
   );
-  await updateGlobalDoc('lobbies', lobbyId, {
+
+  const allReady = updatedPlayers.every(p => p.ready);
+  const shouldStart = allReady && updatedPlayers.length >= 2 && doc.gameMode;
+
+  const updates: Record<string, unknown> = {
     players: updatedPlayers as unknown as Record<string, unknown>[],
     updatedAt: nowIso(),
-  });
+  };
+
+  if (shouldStart && doc.state === 'waiting') {
+    updates.state = 'countdown';
+    updates.countdownStartedAt = nowIso();
+  } else if (!allReady && doc.state === 'countdown') {
+    updates.state = 'waiting';
+    updates.countdownStartedAt = null;
+  }
+
+  await updateGlobalDoc('lobbies', lobbyId, updates);
 }
 
 export async function setPlayerEmoji(
@@ -221,31 +261,7 @@ export async function setLobbyState(
   });
 }
 
-export async function startLobbyGame(
-  lobbyId: string,
-  leaderUid: string
-): Promise<{ success: boolean; error?: string }> {
-  const raw = await getGlobalDoc('lobbies', lobbyId);
-  if (!raw) return { success: false, error: 'Lobby not found' };
-  const doc = getLobby(raw);
-  if (doc.leaderUid !== leaderUid) return { success: false, error: 'Only the leader can start' };
-  if (!doc.gameMode) return { success: false, error: 'No game mode selected' };
-  if (doc.players.length < 2) return { success: false, error: 'Need at least 2 players' };
-
-  // Check everyone except leader is ready (leader starts by pressing the button)
-  const nonLeader = doc.players.filter(p => !p.isLeader);
-  const allReady = nonLeader.every(p => p.ready);
-  if (!allReady) return { success: false, error: 'Not all players are ready' };
-
-  await updateGlobalDoc('lobbies', lobbyId, {
-    state: 'countdown',
-    countdownStartedAt: nowIso(),
-    updatedAt: nowIso(),
-  });
-
-  return { success: true };
-}
-
+// startLobbyGame removed because readying up automatically starts the countdown
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
 export async function sendLobbyChat(args: {
@@ -292,6 +308,7 @@ export async function sendLobbyInvite(args: {
   fromUid: string;
   fromUsername: string;
   toUsername: string;
+  toTag: string;
   lobbyId: string;
 }): Promise<{ success: boolean; error?: string }> {
   const supabase = requireSupabase();
@@ -302,15 +319,27 @@ export async function sendLobbyInvite(args: {
     // Look up target user
     let { data: profileRows } = await supabase
       .from('profiles')
-      .select('id')
-      .eq('username', normalized)
-      .limit(1);
+      .select('id, user_state')
+      .eq('username', normalized);
 
-    let toUid: string | undefined = profileRows?.[0]?.id;
-    if (!toUid) {
-      const { data: rows2 } = await supabase.from('profiles').select('id').eq('username', trimmed).limit(1);
-      toUid = rows2?.[0]?.id;
+    if (!profileRows || profileRows.length === 0) {
+      const { data: rows2 } = await supabase.from('profiles').select('id, user_state').eq('username', trimmed);
+      profileRows = rows2;
     }
+
+    if (!profileRows || profileRows.length === 0) return { success: false, error: 'Username not found' };
+
+    let targetRow = profileRows[0];
+    const formattedTag = args.toTag.startsWith('#') ? args.toTag : `#${args.toTag}`;
+    const match = profileRows.find((r: any) => r.user_state?.friendCode === formattedTag);
+    if (match) {
+      targetRow = match;
+    } else {
+      return { success: false, error: 'Username and tag combination not found' };
+    }
+
+    const toUid = targetRow.id;
+
     if (!toUid) return { success: false, error: 'Username not found' };
     if (toUid === args.fromUid) return { success: false, error: 'Cannot invite yourself' };
 

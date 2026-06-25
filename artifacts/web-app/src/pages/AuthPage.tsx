@@ -173,6 +173,7 @@ export default function AuthPage() {
 
     // Hardcoded Super Admin Login Bypass (Maps 0000/0000 to internal admin account)
     if (loginId === '0000' && loginPass === '0000') {
+      let saSuccess = false;
       try {
         const supabase = requireSupabase();
         const { error } = await supabase.auth.signInWithPassword({
@@ -192,14 +193,17 @@ export default function AuthPage() {
             throw error;
           }
         }
+        saSuccess = true;
+        window.location.href = '/superadmin';
         return;
       } catch (e: unknown) {
         setError('Super Admin login failed: ' + formatAuthError(e, 'Unknown error'));
         return;
       } finally {
-        setSubmitting(false);
+        if (!saSuccess) setSubmitting(false);
       }
     }
+    let success = false;
     try {
       const supabase = requireSupabase();
       let loginEmail = loginId.trim();
@@ -210,6 +214,10 @@ export default function AuthPage() {
       }
       const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password: loginPass });
       if (error) throw error;
+      
+      success = true;
+      // Immediately redirect to universe page instead of waiting for context to refresh
+      window.location.href = '/app';
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
       if (code === 'invalid_credentials' || code === 'user_not_found' || code === 'invalid_grant') {
@@ -218,7 +226,7 @@ export default function AuthPage() {
         setError(formatAuthError(e, 'Login failed'));
       }
     } finally {
-      setSubmitting(false);
+      if (!success) setSubmitting(false);
     }
   }
 
