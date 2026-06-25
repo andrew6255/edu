@@ -803,7 +803,7 @@ export default function LobbyView() {
                       onClose={() => setShowEmojiPicker(false)}
                     />
                   )}
-                  {playerMenuTarget?.uid === player?.uid && (
+                  {playerMenuTarget && player && playerMenuTarget.uid === player.uid && (
                     <div style={{
                       position: 'absolute', top: 110, left: '50%', transform: 'translateX(-50%)',
                       background: '#1e293b', border: '1px solid #334155', borderRadius: 8,
