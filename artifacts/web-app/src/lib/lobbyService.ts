@@ -147,6 +147,22 @@ export async function leaveLobby(lobbyId: string, uid: string): Promise<void> {
   });
 }
 
+export async function kickPlayerFromLobby(lobbyId: string, leaderUid: string, targetUid: string): Promise<{success: boolean; error?: string}> {
+  const raw = await getGlobalDoc('lobbies', lobbyId);
+  if (!raw) return { success: false, error: 'Lobby not found' };
+  const doc = getLobby(raw);
+
+  if (doc.leaderUid !== leaderUid) return { success: false, error: 'Only leader can kick' };
+  
+  const remaining = doc.players.filter(p => p.uid !== targetUid);
+  
+  await updateGlobalDoc('lobbies', lobbyId, {
+    players: remaining as unknown as Record<string, unknown>[],
+    updatedAt: nowIso(),
+  });
+  return { success: true };
+}
+
 export async function setLobbyLeader(
   lobbyId: string,
   currentLeaderUid: string,

@@ -19,6 +19,7 @@ import {
   getUserLobbyId,
   getLobbyDoc,
   setLobbyState,
+  kickPlayerFromLobby,
   DEFAULT_EMOJI_LIST,
   LOBBY_MAX_PLAYERS,
 } from '@/lib/lobbyService';
@@ -119,7 +120,7 @@ const V_OFFSETS: { x: number; y: number }[] = [
 // ─── Player Slot ──────────────────────────────────────────────────────────────
 function PlayerSlot({ player, isMe, amILeader, onEmojiClick, onPlayerClick, isEmpty }: {
   player?: { uid: string; username: string; emoji: string; ready: boolean; isLeader: boolean };
-  isMe: boolean; amILeader: boolean; onEmojiClick?: () => void; onPlayerClick?: () => void; isEmpty?: boolean;
+  isMe: boolean; amILeader: boolean; onEmojiClick?: () => void; onPlayerClick?: (e: React.MouseEvent) => void; isEmpty?: boolean;
 }) {
   if (isEmpty || !player) {
     return (
@@ -134,7 +135,14 @@ function PlayerSlot({ player, isMe, amILeader, onEmojiClick, onPlayerClick, isEm
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+    <div 
+      style={{ 
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+        cursor: isMe || (amILeader && !player.isLeader) ? 'pointer' : 'default',
+      }}
+      onClick={e => isMe ? onEmojiClick?.() : onPlayerClick?.(e)}
+      title={isMe ? 'Click to change emoji' : amILeader && !player.isLeader ? 'Click to manage player' : undefined}
+    >
       <div style={{ height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {player.isLeader && <span style={{ fontSize: 20 }}>👑</span>}
       </div>
@@ -146,14 +154,12 @@ function PlayerSlot({ player, isMe, amILeader, onEmojiClick, onPlayerClick, isEm
             : 'radial-gradient(circle, rgba(99,102,241,0.3), rgba(99,102,241,0.06))',
           border: `3px solid ${player.ready ? '#34d399' : isMe ? '#a78bfa' : '#475569'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: isMe || (amILeader && !player.isLeader) ? 'pointer' : 'default', transition: 'all 0.3s',
+          transition: 'all 0.3s',
           boxShadow: player.ready
             ? '0 0 28px rgba(52,211,153,0.5)'
             : isMe ? '0 0 28px rgba(167,139,250,0.4)' : 'none',
           position: 'relative',
         }}
-        onClick={isMe ? onEmojiClick : onPlayerClick}
-        title={isMe ? 'Click to change emoji' : amILeader && !player.isLeader ? 'Click to promote to Leader' : undefined}
       >
         {player.emoji}
         {player.ready && (
@@ -213,6 +219,7 @@ export default function LobbyView() {
   const [chatInput, setChatInput] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [playerMenuTarget, setPlayerMenuTarget] = useState<{ uid: string; username: string; isLeader: boolean } | null>(null);
   const [launchHandled, setLaunchHandled] = useState(false);
 
   const [rightTab, setRightTab] = useState<'friends' | 'invite'>('friends');
@@ -348,7 +355,7 @@ export default function LobbyView() {
       }
       launchGame();
     }, delay);
-    return () => clearTimeout(timer);
+    return () => clearInterval(timer);
   }, [lobby?.state, lobby?.countdownStartedAt, launchHandled, isLeader, lobbyId]);
 
   function launchGame() {
@@ -395,17 +402,27 @@ export default function LobbyView() {
     await setLobbyGameMode(lobbyId, myUid, mode);
   }
 
-  function handlePlayerClick(player: { uid: string; username: string; isLeader: boolean }) {
+  function handlePlayerClick(player: { uid: string; username: string; isLeader: boolean }, e?: React.MouseEvent) {
     if (!lobbyId || !myUid) return;
     if (isLeader && !player.isLeader) {
-      if (window.confirm(`Promote ${player.username} to Party Leader?`)) {
-        setLobbyLeader(lobbyId, myUid, player.uid).catch(e => alert(e.message ?? 'Failed to promote'));
+      if (e) {
+        e.stopPropagation();
       }
+      setPlayerMenuTarget(player);
     }
   }
 
+  function handlePromotePlayer() {
+    if (!lobbyId || !myUid || !playerMenuTarget) return;
+    setLobbyLeader(lobbyId, myUid, playerMenuTarget.uid).catch(e => alert(e.message ?? 'Failed to promote'));
+    setPlayerMenuTarget(null);
+  }
 
-
+  function handleKickPlayer() {
+    if (!lobbyId || !myUid || !playerMenuTarget) return;
+    kickPlayerFromLobby(lobbyId, myUid, playerMenuTarget.uid).catch(e => alert(e.message ?? 'Failed to kick'));
+    setPlayerMenuTarget(null);
+  }
 
   async function handleSendChat() {
     if (!lobbyId || !myUid || !chatInput.trim()) return;
@@ -529,8 +546,9 @@ export default function LobbyView() {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '10px 16px', borderBottom: '1px solid #1e293b', flexShrink: 0,
         background: 'rgba(15,23,42,0.8)', backdropFilter: 'blur(8px)',
+        position: 'relative'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
           {/* Only show "Leave Party" if you are in someone else's party */}
           {!inOwnLobby && (
             <button
@@ -541,10 +559,11 @@ export default function LobbyView() {
               ← Leave Party
             </button>
           )}
-          <div style={{ fontSize: 14, fontWeight: 800, color: '#f472b6', letterSpacing: 1 }}>
-            🏛️ THE LOBBY
-          </div>
         </div>
+        <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', fontSize: 14, fontWeight: 800, color: '#f472b6', letterSpacing: 1 }}>
+          🏛️ THE LOBBY
+        </div>
+        <div style={{ flex: 1 }} />
       </div>
 
       {/* Main 3-col layout */}
@@ -775,7 +794,7 @@ export default function LobbyView() {
                     amILeader={isLeader}
                     isEmpty={!player}
                     onEmojiClick={() => isMe && setShowEmojiPicker(v => !v)}
-                    onPlayerClick={() => player && handlePlayerClick(player)}
+                    onPlayerClick={(e) => player && handlePlayerClick(player, e as unknown as React.MouseEvent)}
                   />
                   {isMe && showEmojiPicker && (
                     <EmojiPicker
@@ -784,13 +803,28 @@ export default function LobbyView() {
                       onClose={() => setShowEmojiPicker(false)}
                     />
                   )}
+                  {playerMenuTarget?.uid === player?.uid && (
+                    <div style={{
+                      position: 'absolute', top: 110, left: '50%', transform: 'translateX(-50%)',
+                      background: '#1e293b', border: '1px solid #334155', borderRadius: 8,
+                      padding: 4, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 4,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.5)', width: 160
+                    }}>
+                      <button onClick={(e) => { e.stopPropagation(); handlePromotePlayer(); }} className="ll-btn" style={{ padding: '8px', fontSize: 11, width: '100%' }}>
+                        Promote to Party Leader
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); handleKickPlayer(); }} className="ll-btn" style={{ padding: '8px', fontSize: 11, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', width: '100%' }}>
+                        Remove from Party
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
 
-          {showEmojiPicker && (
-            <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setShowEmojiPicker(false)} />
+          {(showEmojiPicker || playerMenuTarget) && (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => { setShowEmojiPicker(false); setPlayerMenuTarget(null); }} />
           )}
 
           <div style={{
