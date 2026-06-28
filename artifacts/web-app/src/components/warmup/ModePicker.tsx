@@ -22,7 +22,7 @@ interface ModePickerProps {
 const MODES = [
   { id: 'solo' as GameMode,   label: 'Solo Practice', icon: '🎯', desc: 'Play alone to set high scores', cost: null, color: '#10b981' },
   { id: 'ranked' as GameMode, label: 'Ranked Match',  icon: '⚔️', desc: 'Face a random opponent. Best of 5', cost: 25,   color: '#f97316' },
-  { id: 'friend' as GameMode, label: 'Play vs a Friend', icon: '👥', desc: 'Challenge a friend directly.', cost: null, color: '#3b82f6' }
+  { id: 'friend' as GameMode, label: 'Play vs Friend', icon: '👥', desc: 'Challenge a friend directly.', cost: null, color: '#3b82f6' }
 ];
 
 export default function ModePicker({ game, gameId, supportsVariants, variant, onVariantChange, onSelect, onBack }: ModePickerProps) {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { getPublicProgram, purgeProgramFromUser } from '@/lib/programMaps';
 import { getProgramProgress } from '@/lib/programProgress';
+import { useGlobalData } from '@/contexts/GlobalDataContext';
 import MyProgramsModal from '@/components/universe/MyProgramsModal';
 import { listMyPersonalPrograms, refreshPersonalProgramStatus, deletePersonalProgram, type PersonalProgramMeta } from '@/lib/personalProgramService';
 import { type PersonalSubject, listPersonalSubjects } from '@/lib/personalSubjectService';
@@ -119,80 +119,38 @@ export default function HexUniverseView() {
   const [programPctById, setProgramPctById] = useState<Record<string, number>>({});
   const [myProgramsOpen, setMyProgramsOpen] = useState(false);
 
-  const [personalPrograms, setPersonalPrograms] = useState<PersonalProgramMeta[]>([]);
-  const [subjects, setSubjects] = useState<PersonalSubject[]>([]);
+  const { personalPrograms, setPersonalPrograms, subjects, setSubjects } = useGlobalData();
+  
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
   const [manageSubjectsOpen, setManageSubjectsOpen] = useState(false);
   
   const [selectedProcessingJobId, setSelectedProcessingJobId] = useState<string | null>(null);
   const selectedProcessingProgram = personalPrograms.find(p => p.jobId === selectedProcessingJobId) || null;
 
+  // Migrate uncategorized programs
   useEffect(() => {
-    if (!user) return;
-
-    let alive = true;
+    if (!user || subjects.length === 0 || personalPrograms.length === 0) return;
+    const uncatProgs = personalPrograms.filter(p => !p.subjectId);
+    if (uncatProgs.length === 0) return;
     
-    const loadAndMigrate = async () => {
-      const [progs, subs] = await Promise.all([
-        listMyPersonalPrograms(user.uid),
-        listPersonalSubjects(user.uid)
-      ]);
-      if (!alive) return;
-      
-      let mathSubject = subs.find(s => s.name.toLowerCase().includes('math'));
-      const uncatProgs = progs.filter(p => !p.subjectId);
-      
-      if (uncatProgs.length > 0) {
+    let cancelled = false;
+    import('@/lib/personalSubjectService').then(({ createPersonalSubject }) => {
+      let mathSubject = subjects.find(s => s.name.toLowerCase().includes('math'));
+      (async () => {
+        let newSubs = [...subjects];
         if (!mathSubject) {
-          const { createPersonalSubject } = await import('@/lib/personalSubjectService');
           mathSubject = await createPersonalSubject(user.uid, 'Mathematics', '📐');
-          subs.push(mathSubject);
+          newSubs.push(mathSubject);
+          if (!cancelled) setSubjects(newSubs);
         }
-        
         const { updateProgramSubject } = await import('@/lib/personalProgramService');
         await Promise.all(uncatProgs.map(p => updateProgramSubject(user.uid, p.jobId, mathSubject!.id)));
-        
+        const { listMyPersonalPrograms } = await import('@/lib/personalProgramService');
         const newProgs = await listMyPersonalPrograms(user.uid);
-        if (alive) {
-          setPersonalPrograms(newProgs);
-          setSubjects(subs);
-        }
-      } else {
-        setPersonalPrograms(progs);
-        setSubjects(subs);
-      }
-    };
-    
-    loadAndMigrate();
-
-    const fetchSubjects = () => {
-      listPersonalSubjects(user.uid).then(list => {
-        if (alive) setSubjects(list);
-      });
-    };
-    window.addEventListener('ll:subjectsUpdated', fetchSubjects);
-
-    // Listen for new ones created in modal
-    const onCreated = (e: Event) => {
-      const ce = e as CustomEvent<{ program: PersonalProgramMeta }>;
-      setPersonalPrograms(prev => [ce.detail.program, ...prev.filter(p => p.programId !== ce.detail.program.programId)]);
-    };
-    
-    // Listen for deleted ones
-    const onDeleted = (e: Event) => {
-      const ce = e as CustomEvent<{ jobId: string }>;
-      setPersonalPrograms(prev => prev.filter(p => p.jobId !== ce.detail.jobId));
-    };
-
-    window.addEventListener('ll:personalProgramCreated', onCreated);
-    window.addEventListener('ll:personalProgramDeleted', onDeleted);
-
-    return () => { 
-      alive = false; 
-      window.removeEventListener('ll:subjectsUpdated', fetchSubjects);
-      window.removeEventListener('ll:personalProgramCreated', onCreated);
-      window.removeEventListener('ll:personalProgramDeleted', onDeleted);
-    };
+        if (!cancelled) setPersonalPrograms(newProgs);
+      })();
+    });
+    return () => { cancelled = true; };
   }, [user]);
 
   // Poll processing personal programs
@@ -246,7 +204,7 @@ export default function HexUniverseView() {
         setActivePrograms([]);
         return;
       }
-
+      const { getPublicProgram, purgeProgramFromUser } = await import('@/lib/programMaps');
       const progs = await Promise.all(ids.map((pid) => getPublicProgram(pid).then((p) => ({ pid, p }))));
       if (cancelled) return;
 
@@ -536,6 +494,8 @@ export default function HexUniverseView() {
           </div>
         </div>
       )}
+
+
 
       {/* Decorative orbs */}
       <div style={{

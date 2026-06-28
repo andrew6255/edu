@@ -411,12 +411,13 @@ export async function getFriendsPresence(
   });
 }
 
-/** Touch the user's updated_at so presence shows as online */
+/** Touch the user's updated_at and last_active so presence shows as online everywhere */
 export async function pingPresence(uid: string): Promise<void> {
   const supabase = requireSupabase();
+  const today = new Date().toISOString().split('T')[0];
   await supabase
     .from('profiles')
-    .update({ updated_at: nowIso() })
+    .update({ updated_at: nowIso(), last_active: today })
     .eq('id', uid);
 }
 // ─── User Presence Doc (tracks current lobbyId) ───────────────────────────────

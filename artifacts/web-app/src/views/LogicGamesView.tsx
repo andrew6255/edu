@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import type { LogicGameNode, LogicGamePromptBlock, LogicGamesProgressDoc, LogicGameQuestion } from '@/types/logicGames';
+import type { LogicGameNode, LogicGamePromptBlock, LogicGamesProgressDoc, LogicGameQuestion, LogicGameNodeQueue } from '@/types/logicGames';
 import {
   ensureLogicGamesProgress,
   getLogicGameQuestions,
@@ -18,6 +18,7 @@ import {
 } from '@/lib/logicGameFriendService';
 import type { LogicGameFriendMatch } from '@/types/logicGameFriend';
 import { listenChallengeState } from '@/lib/gameSessionService';
+import { useGlobalData } from '@/contexts/GlobalDataContext';
 
 type GamePlayMode = 'chill' | 'iq';
 type Screen = 'map' | 'playing' | 'friend_waiting' | 'friend_match';
@@ -47,10 +48,8 @@ export default function LogicGamesView() {
   const { user, userData } = useAuth();
   const uid = user?.uid ?? null;
 
-  const [loading, setLoading] = useState(true);
+  const { iqNodes: nodes, logicGamesProgress: progress, setLogicGamesProgress: setProgress } = useGlobalData();
   const [err, setErr] = useState<string | null>(null);
-  const [nodes, setNodes] = useState<LogicGameNode[]>([]);
-  const [progress, setProgress] = useState<LogicGamesProgressDoc | null>(null);
 
   const [previewUnlockAll, setPreviewUnlockAll] = useState(false);
 
@@ -94,30 +93,7 @@ export default function LogicGamesView() {
   const [friendChoiceIndex, setFriendChoiceIndex] = useState<number | null>(null);
   const [friendLocalFeedback, setFriendLocalFeedback] = useState<null | { status: 'correct' | 'wrong' | 'timeout' }>(null);
 
-  useEffect(() => {
-    let alive = true;
-    if (!uid) return;
-    setLoading(true);
-    setErr(null);
-    Promise.all([listLogicGameNodes(), ensureLogicGamesProgress(uid)])
-      .then(([n, p]) => {
-        if (!alive) return;
-        setNodes(n);
-        setProgress(p);
-      })
-      .catch((e) => {
-        if (!alive) return;
-        const msg = e instanceof Error ? e.message : String(e);
-        setErr(msg || 'Failed to load logic games');
-      })
-      .finally(() => {
-        if (!alive) return;
-        setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [uid]);
+
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1095,9 +1071,7 @@ export default function LogicGamesView() {
       ) : (
         /* ── Map Screen ── */
         <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14, position: 'relative' }}>
-          {loading ? (
-            <div style={{ color: 'var(--ll-text-soft)', padding: 10 }}>Loading…</div>
-          ) : sorted.length === 0 ? (
+          {sorted.length === 0 ? (
             <div style={{ color: 'var(--ll-text-soft)', padding: 10 }}>No nodes published yet.</div>
           ) : (
             <div style={{ position: 'relative', padding: '10px 0 30px' }}>

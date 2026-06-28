@@ -1,6 +1,8 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useLocation } from 'wouter';
+import GlobalLoadingScreen from '@/components/layout/GlobalLoadingScreen';
 import { useAuth } from '@/contexts/AuthContext';
+import { GlobalDataProvider } from '@/contexts/GlobalDataContext';
 import AppShell from '@/components/layout/AppShell';
 import HexUniverseView from '@/views/HexUniverseView';
 import WarmupView from '@/views/WarmupView';
@@ -100,45 +102,13 @@ export default function AppPage() {
   }, [user, userData, loading]);
 
   if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
-        <div style={{ textAlign: 'center', animation: 'fadeIn 0.3s ease' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>⚔️</div>
-          <div style={{ color: '#94a3b8', fontSize: 16 }}>Loading your realm...</div>
-          {showRefresh && (
-            <div style={{ marginTop: 24, animation: 'fadeIn 0.5s ease' }}>
-              <div style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>Taking too long?</div>
-              <button className="ll-btn" onClick={() => window.location.reload()} style={{ padding: '8px 16px' }}>
-                Refresh Page
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
+    return <GlobalLoadingScreen progress={10} />;
   }
 
   if (!user) return null;
 
   if (!userData) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a' }}>
-        <div style={{ textAlign: 'center', animation: 'fadeIn 0.3s ease', maxWidth: 420, padding: 20 }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>⚔️</div>
-          <div style={{ color: '#94a3b8', fontSize: 16, marginBottom: 10 }}>Loading your realm...</div>
-          <div style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
-            Your account is signed in, but your profile is still being prepared.
-          </div>
-          <button
-            className="ll-btn"
-            onClick={refreshUserData}
-            style={{ padding: '10px 16px' }}
-          >
-            Retry profile load
-          </button>
-        </div>
-      </div>
-    );
+    return <GlobalLoadingScreen progress={20} />;
   }
 
   function renderView() {
@@ -173,15 +143,17 @@ export default function AppPage() {
   }
 
   return (
-    <AppShell view={view} setView={v => { setView(v); }}>
-      <div style={{ height: '100%', overflow: 'hidden' }}>
-        <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'block' : 'none' }}>
-          <WarmupView />
+    <GlobalDataProvider>
+      <AppShell view={view} setView={v => { setView(v); }}>
+        <div style={{ height: '100%', overflow: 'hidden' }}>
+          <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'block' : 'none' }}>
+            <WarmupView />
+          </div>
+          <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'none' : 'block', animation: 'fadeIn 0.3s ease' }} key={view}>
+            {renderView()}
+          </div>
         </div>
-        <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'none' : 'block', animation: 'fadeIn 0.3s ease' }} key={view}>
-          {renderView()}
-        </div>
-      </div>
-    </AppShell>
+      </AppShell>
+    </GlobalDataProvider>
   );
 }

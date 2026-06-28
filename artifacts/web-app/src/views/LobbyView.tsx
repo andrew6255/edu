@@ -27,7 +27,7 @@ import { listLogicGameNodes } from '@/lib/logicGamesService';
 import type { LobbyDoc, LobbyGameMode } from '@/types/lobby';
 import type { LogicGameNode } from '@/types/logicGames';
 import { listMyPersonalPrograms, type PersonalProgramMeta } from '@/lib/personalProgramService';
-
+import { useGlobalData } from '@/contexts/GlobalDataContext';
 // ─── Warmup Games catalog ─────────────────────────────────────────────────────
 const WARMUP_GAMES = [
   { id: 'quickMath',     label: 'Quick Math',          icon: '🧮' },
@@ -202,13 +202,20 @@ function PlayerSlot({ player, isMe, amILeader, onEmojiClick, onPlayerClick, isEm
 export default function LobbyView() {
   const { user, userData } = useAuth();
 
-  const [lobby, setLobby] = useState<LobbyDoc | null>(null);
-  const [lobbyId, setLobbyId] = useState<string | null>(null);
-  const [initializing, setInitializing] = useState(true);
+  const { globalLobby: lobby, globalLobbyId: lobbyId, globalInitializingLobby: initializing, setGlobalLobby: setLobby, setGlobalLobbyId: setLobbyId } = useGlobalData();
+
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileTab, setMobileTab] = useState<'players' | 'game' | 'friends'>('players');
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const [modeKind, setModeKind] = useState<'warmup' | 'iqGame' | 'program'>('warmup');
-  const [iqNodes, setIqNodes] = useState<LogicGameNode[]>([]);
-  const [personalPrograms, setPersonalPrograms] = useState<PersonalProgramMeta[]>([]);
+  const { iqNodes, personalPrograms } = useGlobalData();
 
   const [friends, setFriends] = useState<(
     { uid: string; username: string; isOnline: boolean; lobbyId: string | null; lastActive: string; lobbyPlayerCount: number }
@@ -233,67 +240,7 @@ export default function LobbyView() {
   const isLeader = lobby?.leaderUid === myUid;
   const myPlayer = lobby?.players.find(p => p.uid === myUid);
 
-  // ── On mount: restore or create lobby ────────────────────────────────────
-  useEffect(() => {
-    if (!myUid) return;
-
-    async function init() {
-      setInitializing(true);
-
-      // 1. Check for a pending join from a notification
-      const pendingLobbyId = localStorage.getItem('ll:pendingLobbyId');
-      if (pendingLobbyId) {
-        localStorage.removeItem('ll:pendingLobbyId');
-        const doc = await getLobbyDoc(pendingLobbyId);
-        if (doc && doc.state === 'waiting' && doc.players.length < LOBBY_MAX_PLAYERS) {
-          // Leave current solo lobby first
-          const currentId = await getUserLobbyId(myUid);
-          if (currentId && currentId !== pendingLobbyId) {
-            await leaveLobby(currentId, myUid).catch(() => {});
-          }
-          const emoji = DEFAULT_EMOJI_LIST[Math.floor(Math.random() * DEFAULT_EMOJI_LIST.length)];
-          const result = await joinLobby({ lobbyId: pendingLobbyId, uid: myUid, username: myUsername, emoji });
-          if (result.success) {
-            await setUserLobby(myUid, pendingLobbyId);
-            setLobbyId(pendingLobbyId);
-            setLaunchHandled(false);
-            setInitializing(false);
-            return;
-          }
-        }
-      }
-
-      // 2. Check if user is already in a lobby (from userPresence)
-      const existingId = await getUserLobbyId(myUid);
-      if (existingId) {
-        const doc = await getLobbyDoc(existingId);
-        if (doc && doc.players.some(p => p.uid === myUid)) {
-          setLobbyId(existingId);
-          setLaunchHandled(false);
-          setInitializing(false);
-          return;
-        }
-      }
-
-      // 3. Create a fresh personal lobby
-      const emoji = DEFAULT_EMOJI_LIST[0];
-      const doc = await createLobby({ uid: myUid, username: myUsername, emoji });
-      await setUserLobby(myUid, doc.id);
-      setLobbyId(doc.id);
-      setLaunchHandled(false);
-      setInitializing(false);
-    }
-
-    init().catch(() => setInitializing(false));
-  }, [myUid]);
-
-  // ── Load game modes ────────────────────────────────────────────────────────
-  useEffect(() => {
-    listLogicGameNodes().then(nodes => setIqNodes(nodes.filter(n => !!n.publishedAt))).catch(() => {});
-    if (myUid) {
-      listMyPersonalPrograms(myUid).then(setPersonalPrograms).catch(() => {});
-    }
-  }, [myUid]);
+  
 
   // ── Auto-kick offline players (leader only) ────────────────────────────────
   useEffect(() => {
@@ -330,12 +277,7 @@ export default function LobbyView() {
     return () => clearInterval(id);
   }, [userData?.friends]);
 
-  // ── Listen to lobby changes ────────────────────────────────────────────────
-  useEffect(() => {
-    if (!lobbyId) return;
-    const unsub = listenLobby(lobbyId, setLobby);
-    return unsub;
-  }, [lobbyId]);
+
 
   // ── Auto-scroll chat ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -374,14 +316,14 @@ export default function LobbyView() {
         localStorage.setItem('ll:partyMatchId', lobbyId);
         window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'partyMatch' } }));
       } else {
-        localStorage.setItem('ll:warmupGameId', id);
+        if (id) localStorage.setItem('ll:warmupGameId', id);
         window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'warmup' } }));
       }
     } else if (kind === 'iqGame') {
-      localStorage.setItem('ll:logicGameNodeId', id);
+      if (id) localStorage.setItem('ll:logicGameNodeId', id);
       window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'logic' } }));
     } else if (kind === 'program') {
-      localStorage.setItem('ll:selectedProgramId', id);
+      if (id) localStorage.setItem('ll:selectedProgramId', id);
       window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'programMap' } }));
     }
   }
@@ -535,7 +477,7 @@ export default function LobbyView() {
         </button>
         
         {isLeader && (
-          <button onClick={() => setLobbyState(lobbyId, 'waiting')} className="ll-btn" style={{ borderColor: '#ef4444', color: '#ef4444', padding: '10px 20px', fontSize: 14, width: '100%', maxWidth: 300 }}>
+          <button onClick={() => { if (lobbyId) setLobbyState(lobbyId, 'waiting') }} className="ll-btn" style={{ borderColor: '#ef4444', color: '#ef4444', padding: '10px 20px', fontSize: 14, width: '100%', maxWidth: 300 }}>
             End Game for Party
           </button>
         )}
@@ -566,14 +508,35 @@ export default function LobbyView() {
         </div>
       </div>
 
+      {/* Mobile Tabs */}
+      {isMobile && (
+        <div style={{ display: 'flex', borderBottom: '1px solid #1e293b', flexShrink: 0, background: 'rgba(15,23,42,0.9)' }}>
+          {(['players', 'game', 'friends'] as const).map(tab => (
+            <button key={tab} onClick={() => setMobileTab(tab)}
+              style={{
+                flex: 1, padding: '11px 4px', fontSize: 10, fontWeight: 800,
+                textTransform: 'uppercase', letterSpacing: 1,
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: mobileTab === tab ? '#a78bfa' : '#64748b',
+                borderBottom: `2px solid ${mobileTab === tab ? '#a78bfa' : 'transparent'}`,
+              }}
+            >
+              {tab === 'players' ? '👥 Players' : tab === 'game' ? '🎮 Game' : '🤝 Friends'}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Main 3-col layout */}
-      <div style={{ flex: 1, display: 'flex', gap: 0, overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', gap: 0, overflow: 'hidden', flexDirection: isMobile ? 'column' : 'row' }}>
 
         {/* ── LEFT PANEL ───────────────────────────────────────────────────── */}
-        <div style={{
-          width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column',
-          borderRight: '1px solid #1e293b', background: 'rgba(15,23,42,0.5)', overflowY: 'auto',
-        }}>
+        {(!isMobile || mobileTab === 'game') && (
+          <div style={{
+            width: isMobile ? '100%' : 280, flexShrink: 0, display: 'flex', flexDirection: 'column',
+            borderRight: isMobile ? 'none' : '1px solid #1e293b', background: 'rgba(15,23,42,0.5)', overflowY: 'auto',
+            flex: isMobile ? 1 : 'none',
+          }}>
           <div style={{ padding: '16px 16px 12px', flex: 1 }}>
             {/* Game mode selector */}
             <div style={{ marginBottom: 12 }}>
@@ -755,8 +718,10 @@ export default function LobbyView() {
             </div>
           </div>
         </div>
+        )}
 
         {/* ── CENTER PANEL ─────────────────────────────────────────────────── */}
+        {(!isMobile || mobileTab === 'players') && (
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center', padding: '24px 16px', position: 'relative',
@@ -775,10 +740,14 @@ export default function LobbyView() {
 
           {/* V-shape player slots — absolute positioned around center */}
           <div style={{
-            position: 'relative',
-            width: 600,
-            height: 280,
+            position: isMobile ? 'static' : 'relative',
+            width: isMobile ? '100%' : 600,
+            height: isMobile ? 'auto' : 280,
             flexShrink: 0,
+            display: isMobile ? 'flex' : 'block',
+            flexWrap: isMobile ? 'wrap' : 'nowrap',
+            justifyContent: isMobile ? 'center' : 'initial',
+            gap: isMobile ? 16 : 0,
           }}>
             {vSlots.map((player, i) => {
               const off = V_OFFSETS[i];
@@ -790,9 +759,9 @@ export default function LobbyView() {
                 <div
                   key={i}
                   style={{
-                    position: 'absolute',
-                    left,
-                    top,
+                    position: isMobile ? 'relative' : 'absolute',
+                    left: isMobile ? 'auto' : left,
+                    top: isMobile ? 'auto' : top,
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
@@ -844,11 +813,15 @@ export default function LobbyView() {
             pointerEvents: 'none',
           }} />
         </div>
+        )}
 
         {/* ── RIGHT PANEL ──────────────────────────────────────────────────── */}
+        {(!isMobile || mobileTab === 'friends') && (
         <div style={{
-          width: 240, flexShrink: 0, borderLeft: '1px solid #1e293b',
+          width: isMobile ? '100%' : 240, flexShrink: 0, 
+          borderLeft: isMobile ? 'none' : '1px solid #1e293b',
           background: 'rgba(15,23,42,0.5)', display: 'flex', flexDirection: 'column', overflowY: 'auto',
+          flex: isMobile ? 1 : 'none',
         }}>
           <div style={{ display: 'flex', borderBottom: '1px solid #1e293b' }}>
             <button
@@ -1019,6 +992,8 @@ export default function LobbyView() {
             )}
           </div>
         </div>
+        )}
+
       </div>
     </div>
   );

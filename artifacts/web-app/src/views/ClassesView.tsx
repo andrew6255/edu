@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useGlobalData } from '@/contexts/GlobalDataContext';
 import {
   getMyClasses,
   getClassContent,
@@ -37,8 +38,7 @@ interface ClassesViewProps {
 
 export default function ClassesView({ pendingContentId, pendingContentType, onPendingHandled }: ClassesViewProps = {}) {
   const { user, userData } = useAuth();
-  const [classes, setClasses] = useState<StudentClass[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { globalClasses: classes } = useGlobalData();
   const [selectedClass, setSelectedClass] = useState<StudentClass | null>(null);
   const [content, setContent] = useState<StudentContentItem[]>([]);
   const [loadingContent, setLoadingContent] = useState(false);
@@ -58,13 +58,10 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
   // stats
   const [myStats, setMyStats] = useState<MyClassStats | null>(null);
 
-  useEffect(() => {
-    loadClasses();
-  }, []);
 
   // Handle pending content from universe deep-link
   useEffect(() => {
-    if (!pendingContentId || !pendingContentType || loading) return;
+    if (!pendingContentId || !pendingContentType) return;
     // Find the content item across all classes
     async function openPending() {
       try {
@@ -96,13 +93,9 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
       finally { onPendingHandled?.(); }
     }
     openPending();
-  }, [pendingContentId, pendingContentType, loading]);
+  }, [pendingContentId, pendingContentType]);
 
-  async function loadClasses() {
-    setLoading(true);
-    try { setClasses(await getMyClasses()); } catch (e) { console.error(e); }
-    finally { setLoading(false); }
-  }
+
 
   async function openClass(cls: StudentClass) {
     setSelectedClass(cls);
@@ -431,9 +424,7 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
-        {loading ? (
-          <div style={{ color: '#64748b', textAlign: 'center', marginTop: 30 }}>Loading classes...</div>
-        ) : classes.length === 0 ? (
+        {classes.length === 0 ? (
           <div style={{ textAlign: 'center', color: '#64748b', marginTop: 40 }}>
             <div style={{ fontSize: 40, marginBottom: 10 }}>🏫</div>
             <div>You're not enrolled in any classes yet.</div>

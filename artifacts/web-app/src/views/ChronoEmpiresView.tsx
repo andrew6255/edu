@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
+import { useGlobalData } from '@/contexts/GlobalDataContext';
 import { ensureChronoEmpiresState, getChronoEmpiresState, type ChronoEmpiresStateDoc } from '@/lib/chronoEmpiresService';
 import { BOARDS, boardToClass, gemsToClass, ALL_CATEGORY_CARDS, ALL_TRANSPORT_CARDS, CARD_UPGRADE_LEVELS, WHEEL_SEGMENTS, spinWheel, type CardCategory, type CategoryCard } from '@/lib/chronoCards';
 import { getInventory, ensureInventory, addCardCopies, upgradeCard, addToDeck, removeFromDeck, addTransportCard, addCombatCard, type ChronoInventoryDoc, type OwnedCard } from '@/lib/chronoInventoryService';
@@ -65,22 +66,32 @@ export default function ChronoEmpiresView() {
   const uid = user?.uid ?? null;
   const [, setLocation] = useLocation();
 
+  const { globalChrono, setGlobalChrono } = useGlobalData();
+
   const [section, setSection] = useState<Section>('road');
-  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [state, setState] = useState<ChronoEmpiresStateDoc | null>(null);
-  const [idleVault, setIdleVault] = useState<ChronoIdleVaultStatus | null>(null);
+  
+  const state = globalChrono?.state ?? null;
+  const setState = (s: any) => setGlobalChrono(p => p ? { ...p, state: s } : null);
+  
+  const idleVault = globalChrono?.idleVault ?? null;
+  const setIdleVault = (v: any) => setGlobalChrono(p => p ? { ...p, idleVault: v } : null);
   const [idleVaultBusy, setIdleVaultBusy] = useState(false);
   const [idleVaultMsg, setIdleVaultMsg] = useState<string | null>(null);
-  const [rewardChest, setRewardChest] = useState<ChronoRewardChestStatus | null>(null);
+  
+  const rewardChest = globalChrono?.rewardChest ?? null;
+  const setRewardChest = (v: any) => setGlobalChrono(p => p ? { ...p, rewardChest: v } : null);
   const [rewardChestBusy, setRewardChestBusy] = useState(false);
   const [rewardChestMsg, setRewardChestMsg] = useState<string | null>(null);
-  const [prestige, setPrestige] = useState<ChronoPrestigeViewModel | null>(null);
+  
+  const prestige = globalChrono?.prestige ?? null;
+  const setPrestige = (v: any) => setGlobalChrono(p => p ? { ...p, prestige: v } : null);
   const [prestigeBusy, setPrestigeBusy] = useState(false);
   const [prestigeMsg, setPrestigeMsg] = useState<string | null>(null);
 
   const roadRef = useRef<HTMLDivElement | null>(null);
-  const [inventory, setInventory] = useState<ChronoInventoryDoc | null>(null);
+  const inventory = globalChrono?.inventory ?? null;
+  const setInventory = (v: any) => setGlobalChrono(p => p ? { ...p, inventory: v } : null);
 
   const loadInventory = useCallback(async () => {
     if (!uid) return;
@@ -91,7 +102,6 @@ export default function ChronoEmpiresView() {
 
   async function load() {
     if (!uid) return;
-    setLoading(true);
     setErr(null);
     try {
       await ensureChronoEmpiresState(uid);
@@ -109,7 +119,7 @@ export default function ChronoEmpiresView() {
       const msg = e instanceof Error ? e.message : String(e);
       setErr(msg || 'Failed to load Chrono Empires');
     } finally {
-      setLoading(false);
+      // Done loading local copy if any error
     }
   }
 
@@ -174,7 +184,8 @@ export default function ChronoEmpiresView() {
     }
   }
 
-  useEffect(() => { void load(); }, [uid]);
+  // Remove loading use effect since it's loaded globally, but still allow `load` to be called to refresh
+  // No initial fetch since global handles it!
 
   if (!uid || !userData) return null;
 
@@ -238,9 +249,7 @@ export default function ChronoEmpiresView() {
 
       {/* ── Content area ───────────────────────────── */}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '0 12px 12px' }}>
-        {loading ? (
-          <div style={{ color: 'var(--ll-text-soft)', padding: 20, textAlign: 'center' }}>Loading…</div>
-        ) : section === 'road' ? (
+        {section === 'road' ? (
           <RoadSection
             currentBoard={currentBoard}
             currentClass={currentClass}

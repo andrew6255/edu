@@ -1,4 +1,4 @@
-import { getGlobalDoc, setGlobalDoc, updateGlobalDoc, deleteGlobalDoc, queryGlobalDocs, setUserDoc, listenGlobalDoc, listenGlobalCollection } from '@/lib/supabaseDocStore';
+import { getGlobalDoc, setGlobalDoc, updateGlobalDoc, deleteGlobalDoc, queryGlobalDocs, listenGlobalDoc, listenGlobalCollection } from '@/lib/supabaseDocStore';
 import { requireSupabase } from '@/lib/supabase';
 import { GameSession, Challenge, RoundResult, SessionPlayer } from '@/types/warmup';
 import { createLogicGameFriendMatch } from '@/lib/logicGameFriendService';
@@ -284,7 +284,7 @@ export async function sendChallenge(
     await setGlobalDoc('challenges', challengeId, challenge as any);
 
     const notifId = makeId();
-    await setUserDoc(toUid, 'notifications', notifId, {
+    await setGlobalDoc(`notifications:${toUid}`, notifId, {
       id: notifId,
       fromUid,
       fromUsername,
