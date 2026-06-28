@@ -166,6 +166,15 @@ export default function SettingsModal({
           display: flex;
           flex-direction: column;
           gap: 10px;
+          min-width: 0;
+          min-height: 0;
+        }
+        .settings-modal-content {
+          padding: 22px;
+          overflow-y: auto;
+          background: rgba(2,6,23,0.92);
+          min-width: 0;
+          min-height: 0;
         }
         .settings-modal-tabs {
           display: flex;
@@ -192,6 +201,12 @@ export default function SettingsModal({
             flex-direction: row;
             overflow-x: auto;
             padding-bottom: 4px;
+            /* Hide scrollbar for cleaner look */
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+          }
+          .settings-modal-tabs::-webkit-scrollbar {
+            display: none;
           }
           .settings-modal-tabs button {
             white-space: nowrap;
@@ -251,7 +266,7 @@ export default function SettingsModal({
           </div>
         </div>
 
-        <div style={{ padding: 22, overflowY: 'auto', background: 'rgba(2,6,23,0.92)' }}>
+        <div className="settings-modal-content">
           {section === 'account' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
               <div>
