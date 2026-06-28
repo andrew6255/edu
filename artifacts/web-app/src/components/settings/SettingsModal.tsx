@@ -154,7 +154,55 @@ export default function SettingsModal({
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1600 }} />
-      <div style={{
+      <style>{`
+        .settings-modal-grid {
+          display: grid;
+          grid-template-columns: 240px 1fr;
+        }
+        .settings-modal-sidebar {
+          background: rgba(15,23,42,0.92);
+          border-right: 1px solid #334155;
+          padding: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .settings-modal-tabs {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .settings-modal-actions {
+          margin-top: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        @media (max-width: 768px) {
+          .settings-modal-grid {
+            grid-template-columns: 1fr;
+            grid-template-rows: auto 1fr;
+          }
+          .settings-modal-sidebar {
+            border-right: none;
+            border-bottom: 1px solid #334155;
+            padding: 12px;
+          }
+          .settings-modal-tabs {
+            flex-direction: row;
+            overflow-x: auto;
+            padding-bottom: 4px;
+          }
+          .settings-modal-tabs button {
+            white-space: nowrap;
+          }
+          .settings-modal-actions {
+            margin-top: 10px;
+            flex-direction: row;
+          }
+        }
+      `}</style>
+      <div className="settings-modal-grid" style={{
         position: 'fixed',
         top: '50%',
         left: '50%',
@@ -167,14 +215,13 @@ export default function SettingsModal({
         overflow: 'hidden',
         zIndex: 1601,
         boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
-        display: 'grid',
-        gridTemplateColumns: '240px 1fr',
       }}>
-        <div style={{ background: 'rgba(15,23,42,0.92)', borderRight: '1px solid #334155', padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="settings-modal-sidebar">
           <div>
             <div style={{ color: 'white', fontSize: 18, fontWeight: 1000 }}>⚙️ Settings</div>
             <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>{roleLabel(userData.role)} controls and personalization</div>
           </div>
+          <div className="settings-modal-tabs">
           {[
             { id: 'account' as const, label: 'Account & Security', icon: '🔐' },
             ...(userData.role === 'student' ? [{ id: 'appearance' as const, label: 'Design Preview', icon: '🎨' }] : []),
@@ -194,7 +241,8 @@ export default function SettingsModal({
               {item.icon} {item.label}
             </button>
           ))}
-          <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          </div>
+          <div className="settings-modal-actions">
             {saveMsg && <div style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 800 }}>{saveMsg}</div>}
             <button onClick={() => void handleSaveSettings()} disabled={saving} className="ll-btn ll-btn-primary" style={{ width: '100%', padding: '11px 12px' }}>
               {saving ? 'Saving...' : 'Save Settings'}

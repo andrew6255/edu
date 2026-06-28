@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 
 export default function GlobalLoadingScreen({ progress }: { progress?: number }) {
-  const [showRefresh, setShowRefresh] = useState(false);
-
   useEffect(() => {
-    const timeout = setTimeout(() => setShowRefresh(true), 10000); // 10s wait before showing refresh
+    // If it gets stuck for 12 seconds, automatically fix it by reloading
+    const timeout = setTimeout(() => {
+      window.location.reload();
+    }, 12000); 
     return () => clearTimeout(timeout);
   }, []);
 
@@ -81,40 +82,26 @@ export default function GlobalLoadingScreen({ progress }: { progress?: number })
         Synchronizing your data...
       </div>
 
-      {/* Progress Bar */}
-      <div style={{ width: 240, height: 6, background: '#1e293b', borderRadius: 3, overflow: 'hidden', animation: 'fadeInSlide 0.5s ease-out forwards', animationDelay: '0.3s', opacity: 0 }}>
-        <div style={{
-          width: progress !== undefined ? `${progress}%` : '100%',
-          height: '100%',
-          background: 'linear-gradient(90deg, #818cf8, #c084fc, #818cf8)',
-          backgroundSize: '200% 100%',
-          animation: progress === undefined ? 'shimmer 2s infinite linear' : 'none',
-          transition: 'width 0.4s ease-out',
-          borderRadius: 3,
-        }} />
+      {/* Progress Bar and Percentage */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, animation: 'fadeInSlide 0.5s ease-out forwards', animationDelay: '0.3s', opacity: 0 }}>
+        <div style={{ width: 240, height: 6, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{
+            width: progress !== undefined ? `${progress}%` : '100%',
+            height: '100%',
+            background: 'linear-gradient(90deg, #818cf8, #c084fc, #818cf8)',
+            backgroundSize: '200% 100%',
+            animation: progress === undefined ? 'shimmer 2s infinite linear' : 'none',
+            transition: 'width 0.4s ease-out',
+            borderRadius: 3,
+          }} />
+        </div>
+        {progress !== undefined && (
+          <div style={{ color: '#94a3b8', fontSize: 13, fontWeight: 700, width: 35, textAlign: 'right' }}>
+            {progress}%
+          </div>
+        )}
       </div>
 
-      {showRefresh && (
-        <div style={{
-          marginTop: 40, animation: 'fadeInSlide 0.5s ease-out forwards',
-          display: 'flex', flexDirection: 'column', alignItems: 'center'
-        }}>
-          <div style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>Taking longer than expected...</div>
-          <button
-            onClick={() => window.location.reload()}
-            style={{
-              padding: '10px 24px', borderRadius: 12, fontSize: 13, fontWeight: 700,
-              background: 'rgba(99,102,241,0.1)', color: '#a5b4fc',
-              border: '1px solid rgba(99,102,241,0.3)', cursor: 'pointer',
-              transition: 'all 0.2s',
-            }}
-            onMouseOver={(e) => e.currentTarget.style.background = 'rgba(99,102,241,0.2)'}
-            onMouseOut={(e) => e.currentTarget.style.background = 'rgba(99,102,241,0.1)'}
-          >
-            Reload App
-          </button>
-        </div>
-      )}
     </div>
   );
 }
