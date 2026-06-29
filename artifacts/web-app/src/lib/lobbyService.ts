@@ -417,7 +417,7 @@ export async function pingPresence(uid: string): Promise<void> {
   const today = new Date().toISOString().split('T')[0];
   await supabase
     .from('profiles')
-    .update({ updated_at: nowIso(), last_active: today })
+    .update({ updated_at: new Date().toISOString() })
     .eq('id', uid);
 }
 // ─── User Presence Doc (tracks current lobbyId) ───────────────────────────────
