@@ -8,20 +8,20 @@ import CryptoJS from 'crypto-js';
    DATA MODEL — Completely isolated from MyScript state
    ═══════════════════════════════════════════════════════════════ */
 
-interface StrokePoint {
+export interface StrokePoint {
   x: number;
   y: number;
   pressure: number;
 }
 
-interface Stroke {
+export interface Stroke {
   id: string;
   points: StrokePoint[];
   color: string;
   width: number;
 }
 
-interface TextAnnotation {
+export interface TextAnnotation {
   id: string;
   x: number;
   y: number;
@@ -30,7 +30,7 @@ interface TextAnnotation {
   height: number;
 }
 
-interface PageData {
+export interface PageData {
   id: string;
   strokes: Stroke[];
   annotations: TextAnnotation[];

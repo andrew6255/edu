@@ -34,7 +34,7 @@ interface Props {
 
 export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
   const { user, userData, refreshUserData } = useAuth();
-  const [tab, setTab] = useState<'create' | 'current'>('create');
+  const [tab, setTab] = useState<'create' | 'current' | 'search'>('create');
   const [loading, setLoading] = useState(false);
   const [programs, setPrograms] = useState<PublicProgram[]>([]);
   const [query, setQuery] = useState('');

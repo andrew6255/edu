@@ -120,13 +120,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  async function resolveAuthState(sessionUser: SupabaseUser | null, active: boolean) {
+  async function resolveAuthState(sessionUser: SupabaseUser | null, active: boolean, existingUserId?: string) {
     try {
       const currentUser = mapAuthUser(sessionUser);
       if (!active) return;
-      setUser(currentUser);
+
+      // Stabilise the user reference: if the same user is already set, keep
+      // the existing object so downstream useEffect([user]) hooks don't re-fire.
+      setUser(prev => {
+        if (!currentUser) return null;
+        if (prev?.id === currentUser.id) return prev;
+        return currentUser;
+      });
 
       if (sessionUser) {
+        // Skip expensive DB round-trip when the same user is already authenticated
+        // (e.g. TOKEN_REFRESHED fired when the tab regains focus).
+        if (existingUserId && existingUserId === sessionUser.id) {
+          if (active) setLoading(false);
+          return;
+        }
         const profile = await ensureProfileForAuthUser(sessionUser);
         if (!active) return;
         setUserData(profile);
@@ -155,7 +168,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      await resolveAuthState(session?.user ?? null, active);
+      // Pass the current user ID so resolveAuthState can skip the DB
+      // round-trip if the same user is still signed in (e.g. TOKEN_REFRESHED).
+      const currentUserId = session?.user?.id;
+      const storedUserId = (await supabase.auth.getUser()).data.user?.id;
+      await resolveAuthState(session?.user ?? null, active, storedUserId === currentUserId ? currentUserId : undefined);
     });
 
     return () => {

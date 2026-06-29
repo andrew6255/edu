@@ -17,7 +17,7 @@ function PersonalProgramCard({
   i: number;
   onOpenDetails: (p: PersonalProgramMeta) => void;
 }) {
-  const isReady = p.status === 'ready' || p.status === 'published';
+  const isReady = p.status === 'ready' || (p.status as string) === 'published';
   const isFailed = p.status === 'failed';
   const targetPct = getProgressPercentage(p.status, p.processingStage);
   const pct = useSmoothProgress(targetPct, isFailed, p.stageUpdatedAt);
@@ -126,6 +126,13 @@ export default function HexUniverseView() {
   
   const [selectedProcessingJobId, setSelectedProcessingJobId] = useState<string | null>(null);
   const selectedProcessingProgram = personalPrograms.find(p => p.jobId === selectedProcessingJobId) || null;
+
+  // Re-open My Programs modal when navigating back from a personal program
+  useEffect(() => {
+    const handler = () => setMyProgramsOpen(true);
+    window.addEventListener('ll:openMyPrograms', handler);
+    return () => window.removeEventListener('ll:openMyPrograms', handler);
+  }, []);
 
   // Migrate uncategorized programs
   useEffect(() => {

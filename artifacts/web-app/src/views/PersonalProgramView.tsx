@@ -21,6 +21,8 @@ import {
 import { getUserDoc } from '@/lib/supabaseDocStore';
 import { getProgramProgress, toggleQuestionSolved } from '@/lib/programProgress';
 import FullScreenWorkspace from '@/components/FullScreenWorkspace';
+import AiStudyPanel, { type AiStudyMode } from '@/components/universe/AiStudyPanel';
+import TestMeModal from '@/components/universe/TestMeModal';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
@@ -81,6 +83,11 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
   const [loadingWhiteboard, setLoadingWhiteboard] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [showRefresh, setShowRefresh] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiPanelMode, setAiPanelMode] = useState<AiStudyMode>('study_sheet');
+  const [aiPanelTitle, setAiPanelTitle] = useState('');
+  const [aiPanelContent, setAiPanelContent] = useState('');
+  const [testMeOpen, setTestMeOpen] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestPagesRef = useRef<WhiteboardPageData[] | null>(null);
 
@@ -288,8 +295,8 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
             <FullScreenWorkspace
               currentQuestion={activeQuestion}
               onClose={closeWhiteboard}
-              initialPages={whiteboardPages ?? undefined}
-              onPagesChange={handleWhiteboardPagesChange}
+              initialPages={(whiteboardPages as any) ?? undefined}
+              onPagesChange={handleWhiteboardPagesChange as any}
             />
           )}
         </div>
@@ -405,7 +412,10 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
         background: 'var(--ll-surface-1)', borderBottom: '1px solid var(--ll-border)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <button onClick={onBack} className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }}>← Back</button>
+          <button onClick={() => {
+            window.dispatchEvent(new CustomEvent('ll:openMyPrograms'));
+            onBack();
+          }} className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }}>← Back</button>
           <span style={{ fontSize: 24 }}>{meta?.coverEmoji || '📄'}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 'bold', color: 'var(--ll-text)', fontSize: 16 }}>{programData.title}</div>
@@ -432,6 +442,71 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 40px' }}>
         {!selectedTopicId ? (
           <>
+            {/* ── AI Study Tools: Test Me + Feynman ── */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+              {(
+                [
+                  {
+                    key: 'test_me',
+                    emoji: '🎯',
+                    label: 'Test Me',
+                    sub: 'Based on your answered questions',
+                    accent: '#f59e0b',
+                    action: () => setTestMeOpen(true),
+                  },
+                  {
+                    key: 'feynman',
+                    emoji: '🌀',
+                    label: 'Feynman',
+                    sub: 'Conceptual understanding check',
+                    accent: '#a78bfa',
+                    action: () => {
+                      if (!programData) return;
+                      const topicLines = programData.chapters.flatMap(ch => ch.topics || []).map(t => `Topic: ${t.questionTypeTitle || t.title}`);
+                      const questionLines = programData.questions.slice(0, 80).map((q, i) => `Q${i + 1}: ${q.rawText}`);
+                      setAiPanelTitle(programData.title);
+                      setAiPanelContent([...topicLines, '', ...questionLines].join('\n'));
+                      setAiPanelMode('feynman');
+                      setAiPanelOpen(true);
+                    },
+                  },
+                ] as const
+              ).map(({ key, emoji, label, sub, accent, action }) => (
+                <button
+                  key={key}
+                  onClick={action}
+                  style={{
+                    flex: 1, background: `${accent}10`,
+                    border: `1px solid ${accent}30`,
+                    borderRadius: 14, padding: '16px 10px',
+                    cursor: 'pointer', fontFamily: 'inherit',
+                    display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', gap: 4,
+                    transition: 'all 0.2s',
+                    color: 'inherit',
+                  }}
+                  onMouseEnter={e => {
+                    const el = e.currentTarget as HTMLButtonElement;
+                    el.style.background = `${accent}20`;
+                    el.style.borderColor = `${accent}60`;
+                    el.style.transform = 'translateY(-2px)';
+                    el.style.boxShadow = `0 8px 20px ${accent}20`;
+                  }}
+                  onMouseLeave={e => {
+                    const el = e.currentTarget as HTMLButtonElement;
+                    el.style.background = `${accent}10`;
+                    el.style.borderColor = `${accent}30`;
+                    el.style.transform = '';
+                    el.style.boxShadow = '';
+                  }}
+                >
+                  <span style={{ fontSize: 24 }}>{emoji}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: accent }}>{label}</span>
+                  <span style={{ fontSize: 10, color: 'var(--ll-text-muted)', textAlign: 'center' }}>{sub}</span>
+                </button>
+              ))}
+            </div>
+
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24,
               padding: '8px 12px', background: 'var(--ll-surface-1)', borderRadius: 10,
@@ -493,7 +568,7 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
               
               return (
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                     <button 
                       onClick={() => setSelectedTopicId(null)}
                       className="ll-btn"
@@ -506,6 +581,46 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
                     </h3>
                   </div>
 
+                  {/* Learn How to Solve button */}
+                  <button
+                    onClick={() => {
+                      const topicQuestions = (selectedTopic.questionIds || [])
+                        .map(qId => questionMap.get(qId))
+                        .filter((q): q is PersonalProgramQuestion => !!q);
+                      const topicContent = topicQuestions.map((q, i) => `Q${i + 1}: ${q.rawText}`).join('\n\n');
+                      setAiPanelTitle(selectedTopic.questionTypeTitle || selectedTopic.title);
+                      setAiPanelContent(topicContent);
+                      setAiPanelMode('study_sheet');
+                      setAiPanelOpen(true);
+                    }}
+                    style={{
+                      width: '100%', background: '#10b98110',
+                      border: '1px solid #10b98130',
+                      borderRadius: 12, padding: '13px 16px',
+                      cursor: 'pointer', fontFamily: 'inherit',
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      marginBottom: 16, transition: 'all 0.2s', color: 'inherit',
+                    }}
+                    onMouseEnter={e => {
+                      const el = e.currentTarget as HTMLButtonElement;
+                      el.style.background = '#10b98120';
+                      el.style.borderColor = '#10b98160';
+                      el.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={e => {
+                      const el = e.currentTarget as HTMLButtonElement;
+                      el.style.background = '#10b98110';
+                      el.style.borderColor = '#10b98130';
+                      el.style.transform = '';
+                    }}
+                  >
+                    <span style={{ fontSize: 20 }}>📚</span>
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981' }}>Learn How to Solve</div>
+                      <div style={{ fontSize: 11, color: 'var(--ll-text-muted)' }}>Step-by-step example for this question type</div>
+                    </div>
+                  </button>
+
                   {/* Question cards vertical list */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {(selectedTopic.questionIds || []).map((qId, qIdx) => {
@@ -513,10 +628,6 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
                       if (!question) return null;
 
                       const isAnswered = answeredIds.has(qId);
-                      const difficultyColors: Record<string, string> = {
-                        easy: '#10b981', medium: '#f59e0b', hard: '#ef4444',
-                      };
-                      const diffColor = difficultyColors[question.difficulty || 'medium'] || '#64748b';
 
                       const previewText = question.rawText.length > 200
                         ? question.rawText.slice(0, 200) + '...'
@@ -569,19 +680,6 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
                             </span>
                             <span style={{ fontSize: 13, color: 'var(--ll-text-muted)', flex: 1 }}>
                               Question {question.questionLabel || (qIdx + 1)}
-                            </span>
-                            {question.difficulty && (
-                              <span style={{
-                                fontSize: 10, fontWeight: 'bold', padding: '4px 8px',
-                                borderRadius: 6, background: `${diffColor}15`,
-                                color: diffColor, border: `1px solid ${diffColor}33`,
-                                textTransform: 'uppercase',
-                              }}>
-                                {question.difficulty}
-                              </span>
-                            )}
-                            <span style={{ fontSize: 16 }}>
-                              {isAnswered ? '📝' : '✏️'}
                             </span>
                           </div>
                           <div style={{
@@ -649,6 +747,26 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
           100% { transform: translateX(200%); }
         }
       `}</style>
+
+      {/* AI Study Panel (Feynman + Learn How to Solve) */}
+      <AiStudyPanel
+        open={aiPanelOpen}
+        onClose={() => setAiPanelOpen(false)}
+        mode={aiPanelMode}
+        programTitle={aiPanelTitle}
+        contentSummary={aiPanelContent}
+      />
+
+      {/* Test Me Modal */}
+      <TestMeModal
+        open={testMeOpen}
+        onClose={() => setTestMeOpen(false)}
+        programTitle={programData?.title ?? ''}
+        answeredQuestions={programData
+          ? programData.questions.filter(q => answeredIds.has(q.id))
+          : []
+        }
+      />
     </div>
   );
 }

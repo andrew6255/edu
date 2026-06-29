@@ -194,7 +194,7 @@ export default function AuthPage() {
           }
         }
         saSuccess = true;
-        window.location.href = '/superadmin';
+        // The useEffect listener will handle the routing to /superadmin based on role
         return;
       } catch (e: unknown) {
         setError('Super Admin login failed: ' + formatAuthError(e, 'Unknown error'));
@@ -216,8 +216,7 @@ export default function AuthPage() {
       if (error) throw error;
       
       success = true;
-      // Immediately redirect to universe page instead of waiting for context to refresh
-      window.location.href = '/app';
+      // The useEffect listener on user and userData will handle the client-side routing.
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
       if (code === 'invalid_credentials' || code === 'user_not_found' || code === 'invalid_grant') {

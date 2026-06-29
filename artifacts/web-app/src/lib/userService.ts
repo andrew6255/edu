@@ -203,7 +203,7 @@ function mapSupabaseUserRow(profile: Record<string, unknown>, economy: Record<st
 }
 
 function toSupabaseProfile(uid: string, data: Partial<UserData>): Record<string, unknown> {
-  return {
+  const raw: Record<string, unknown> = {
     id: uid,
     email: data.email,
     username: data.username,
@@ -217,6 +217,8 @@ function toSupabaseProfile(uid: string, data: Partial<UserData>): Record<string,
     user_state: data,
     updated_at: new Date().toISOString(),
   };
+  // Strip undefined values — Supabase returns 400 when they appear in PATCH/upsert
+  return Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined));
 }
 
 function toSupabaseEconomy(uid: string, data: Partial<UserData>): Record<string, unknown> | null {

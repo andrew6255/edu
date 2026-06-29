@@ -24,13 +24,14 @@ type View =
   | 'universe'
   | 'logic'
   | 'profile'
-  | 'curriculum'
   | 'programMap'
+  | 'personalProgram'
   | 'studySessions'
   | 'classes'
   | 'notifications'
   | 'friends'
-  | 'lobby';
+  | 'lobby'
+  | 'partyMatch';
 
 function QuizzesButton({ onOpen }: { onOpen: () => void }) {
   const [runningCount, setRunningCount] = useState(0);

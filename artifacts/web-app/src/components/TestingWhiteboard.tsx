@@ -95,11 +95,10 @@ export default function TestingWhiteboard() {
       </div>
 
       {/* Full-Screen Workspace Overlay */}
-      {workspaceEverOpened && (
+      {showWorkspace && (
         <FullScreenWorkspace
-          visible={showWorkspace}
           onClose={() => setShowWorkspace(false)}
-          activeQuestion={activeQuestion}
+          currentQuestion={activeQuestion ?? undefined}
         />
       )}
     </div>

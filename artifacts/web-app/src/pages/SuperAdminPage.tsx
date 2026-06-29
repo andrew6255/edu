@@ -1298,9 +1298,9 @@ function LogicGamesAdmin() {
                       />
 
                       {/* Display images */}
-                      {q.promptBlocks?.filter(b => b.type === 'image').length > 0 && (
+                      {(q.promptBlocks?.filter(b => b.type === 'image').length || 0) > 0 && (
                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-                           {q.promptBlocks.filter(b => b.type === 'image').map((imgBlock: any, imgIdx: number) => (
+                           {q.promptBlocks?.filter(b => b.type === 'image').map((imgBlock: any, imgIdx: number) => (
                               <div key={imgIdx} style={{ position: 'relative' }}>
                                 <img src={imgBlock.url} style={{ maxWidth: 300, maxHeight: 200, borderRadius: 8, border: '1px solid #475569' }} />
                                 <button 
@@ -1681,9 +1681,9 @@ function LogicGamesAdmin() {
                        />
 
                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-                         {q.imageUrl && (
+                         {(q as any).imageUrl && (
                            <div style={{ position: 'relative' }}>
-                             <img src={q.imageUrl} style={{ maxWidth: 300, maxHeight: 200, borderRadius: 8, border: '1px solid #475569' }} />
+                             <img src={(q as any).imageUrl} style={{ maxWidth: 300, maxHeight: 200, borderRadius: 8, border: '1px solid #475569' }} />
                            </div>
                          )}
                          {q.promptBlocks?.filter((b: any) => b.type === 'image').map((imgBlock: any, imgIdx: number) => (
