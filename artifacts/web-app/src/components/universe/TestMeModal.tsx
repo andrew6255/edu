@@ -24,6 +24,8 @@ interface TestQuestion {
   displayChoices: string[];
   /** index within displayChoices that is the correct answer */
   correctIdx: number;
+  gradeScore?: number;
+  gradeText?: string;
 }
 
 type TestPhase =
@@ -179,6 +181,7 @@ function ChoiceButton({
 
 export default function TestMeModal({ open, onClose, answeredQuestions, programTitle }: TestMeModalProps) {
   const [phase, setPhase] = useState<TestPhase>({ name: 'picking' });
+  const [isGrading, setIsGrading] = useState(false);
 
   const n = Math.min(answeredQuestions.length, 5);
   const hasEnough = answeredQuestions.length > 0;
@@ -344,12 +347,109 @@ export default function TestMeModal({ open, onClose, answeredQuestions, programT
       page: 1,
     };
 
+    const handleGrade = async () => {
+      setIsGrading(true);
+      try {
+        const canvases = document.querySelectorAll('.fsw-page canvas');
+        const images: string[] = [];
+        canvases.forEach(c => images.push((c as HTMLCanvasElement).toDataURL('image/jpeg', 0.8)));
+        
+        if (images.length === 0) {
+          throw new Error("Couldn't capture handwriting.");
+        }
+
+        const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+        if (!apiKey) throw new Error('VITE_GROQ_API_KEY not set');
+
+        // We use llama-3.2-90b-vision-preview to read the canvas and grade it.
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: 'llama-3.2-90b-vision-preview',
+            messages: [
+              { 
+                role: 'system', 
+                content: `You are an expert math/physics grader. The student has provided a handwritten solution (see images). 
+Question: ${q.questionText}
+Correct Answer/Explanation: ${q.correctAnswer} ${q.explanation}
+
+Grade the student's handwritten work out of 10. Give a very brief feedback (1-2 sentences) and the final score.
+Return ONLY JSON: {"score": 8, "feedback": "Good attempt, but missing final unit."}`
+              },
+              { 
+                role: 'user', 
+                content: [
+                  { type: 'text', text: 'Grade my work.' },
+                  ...images.map(url => ({ type: 'image_url', image_url: { url } }))
+                ] 
+              }
+            ],
+            temperature: 0.2
+          })
+        });
+
+        if (!res.ok) throw new Error('Vision API error');
+        const data = await res.json();
+        const content = data.choices[0]?.message?.content;
+        const match = content.match(/\{[\s\S]*\}/) || [content];
+        const result = JSON.parse(match[0]);
+        
+        const newQuestions = [...p.questions];
+        newQuestions[p.idx] = { ...q, gradeScore: result.score, gradeText: result.feedback };
+        setPhase({ ...p, questions: newQuestions });
+      } catch (err: any) {
+        alert("Grading failed: " + err.message);
+      } finally {
+        setIsGrading(false);
+      }
+    };
+
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 6000 }}>
-        <FullScreenWorkspace
-          currentQuestion={mockQuestion as any}
-          onClose={() => setPhase({ name: 'full_question_review', questions: p.questions, idx: p.idx })}
-        />
+      <div style={{ position: 'fixed', inset: 0, zIndex: 6000, background: '#0a0a14' }}>
+        {/* TOP BAR */}
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, zIndex: 6001, height: 52,
+          padding: '0 20px', background: 'rgba(24,24,27,0.92)', backdropFilter: 'blur(20px)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#a855f7', background: 'rgba(168,85,247,0.15)', borderRadius: 8, padding: '5px 12px' }}>
+              Question {p.idx + 1} of {p.questions.length}
+            </div>
+            {q.gradeScore !== undefined && (
+              <span style={{ color: '#ef4444', fontWeight: 'bold' }}>Grade: {q.gradeScore}/10</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            {q.gradeText ? (
+              <button 
+                onClick={() => setPhase({ name: 'full_question_review', questions: p.questions, idx: p.idx })} 
+                style={{ background: 'linear-gradient(135deg, #10b981, #34d399)', color: 'white', fontWeight: 600, border: 'none', padding: '8px 20px', borderRadius: 10, cursor: 'pointer' }}
+              >
+                See Model Solution →
+              </button>
+            ) : (
+              <button 
+                onClick={handleGrade} 
+                disabled={isGrading}
+                style={{ background: 'linear-gradient(135deg, #10b981, #34d399)', color: 'white', fontWeight: 600, border: 'none', padding: '8px 20px', borderRadius: 10, cursor: isGrading ? 'not-allowed' : 'pointer', opacity: isGrading ? 0.7 : 1 }}
+              >
+                {isGrading ? 'Grading...' : '✅ Done'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div style={{ position: 'absolute', top: 52, left: 0, right: 0, bottom: 0 }}>
+          <FullScreenWorkspace
+            isTestMode={true}
+            showAiSwitch={!!q.gradeText}
+            testGrade={q.gradeText}
+            currentQuestion={mockQuestion as any}
+            onClose={() => setPhase({ name: 'full_question_review', questions: p.questions, idx: p.idx })}
+          />
+        </div>
       </div>
     );
   };

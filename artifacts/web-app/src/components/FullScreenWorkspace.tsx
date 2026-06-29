@@ -269,8 +269,8 @@ const LatexRenderer = ({ content }: { content: string }) => {
 
 const PageCanvas = memo(function PageCanvas({
   page, pageIndex, currentQuestion, activeTool, eraserMode, strokeColor, strokeWidth,
-  onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, scale, onToggleAI,
-}: PageCanvasProps) {
+  onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, scale, onToggleAI, testGrade
+}: PageCanvasProps & { testGrade?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
   // Calculate lowest point of content to position the AI box dynamically
@@ -473,6 +473,11 @@ const PageCanvas = memo(function PageCanvas({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, background: isMulti ? 'rgba(255,255,255,0.7)' : 'transparent', padding: isMulti ? '12px' : 0, borderRadius: 8 }}>
               <div style={{ flex: 1, paddingRight: 16 }}>
                 <strong style={{ color: '#4f46e5' }}>{isMulti ? 'Given:' : 'Question:'}</strong> <LatexRenderer content={mainText} />
+                {testGrade && (
+                  <div style={{ marginTop: 8, fontSize: 18, fontWeight: 'bold', color: '#ef4444' }}>
+                    {testGrade}
+                  </div>
+                )}
               </div>
               {onToggleAI && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--ll-surface-1)', padding: '6px 10px', borderRadius: 20, cursor: 'pointer', border: '1px solid var(--ll-border)', pointerEvents: 'auto' }} onClick={onToggleAI} onPointerDown={e => e.stopPropagation()}>
@@ -581,9 +586,13 @@ interface FullScreenWorkspaceProps {
   currentQuestion?: import('@/lib/personalProgramService').PersonalProgramQuestion | string;
   initialPages?: PageData[];
   onPagesChange?: (pages: PageData[]) => void;
+  isTestMode?: boolean;
+  onTestDone?: (pagesImages: string[]) => void;
+  testGrade?: string;
+  showAiSwitch?: boolean;
 }
 
-export default function FullScreenWorkspace({ onClose, currentQuestion, initialPages, onPagesChange }: FullScreenWorkspaceProps) {
+export default function FullScreenWorkspace({ onClose, currentQuestion, initialPages, onPagesChange, isTestMode, onTestDone, testGrade, showAiSwitch }: FullScreenWorkspaceProps) {
   // ── AI Panel State ──
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
 
@@ -1004,7 +1013,8 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
               onAnnotationAdd={handleAnnotationAdd}
               onAnnotationUpdate={handleAnnotationUpdate}
               scale={scale}
-              onToggleAI={() => setAiPanelOpen(true)}
+              onToggleAI={showAiSwitch || !isTestMode ? () => setAiPanelOpen(true) : undefined}
+              testGrade={testGrade}
             />
           ))}
           {/* Sentinel for infinite scroll */}
@@ -1207,6 +1217,14 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         currentQuestion={currentQuestion}
         pages={pages}
         fetchMyScriptBlocks={fetchMyScriptBlocks}
+        getCanvasImages={() => {
+          const container = scrollRef.current;
+          if (!container) return [];
+          const canvases = container.querySelectorAll('.fsw-page canvas');
+          const images: string[] = [];
+          canvases.forEach(c => images.push((c as HTMLCanvasElement).toDataURL('image/jpeg', 0.8)));
+          return images;
+        }}
         hasStrokes={totalStrokes > 0}
         isOpen={aiPanelOpen}
         onClose={() => setAiPanelOpen(false)}
@@ -1280,7 +1298,23 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           color: #e4e4e7;
           border-color: rgba(255,255,255,0.18);
         }
+        .fsw-btn-back { margin-right: 12px; }
         .fsw-btn-back:hover { border-color: rgba(239,68,68,0.4); color: #fca5a5; }
+        .fsw-btn-done {
+          background: linear-gradient(135deg, #10b981, #34d399);
+          color: white;
+          font-weight: 600;
+          border: none;
+          padding: 8px 20px;
+          border-radius: 10px;
+          box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+          margin-left: auto;
+        }
+        .fsw-btn-done:hover {
+          background: linear-gradient(135deg, #059669, #10b981);
+          box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+          transform: translateY(-1px);
+        }
         .fsw-btn-output {
           background: rgba(255,255,255,0.06);
           color: white;

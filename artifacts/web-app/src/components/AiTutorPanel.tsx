@@ -58,6 +58,7 @@ export interface AiTutorPanelProps {
   currentQuestion: PersonalProgramQuestion | string | undefined;
   pages: PageData[];
   fetchMyScriptBlocks: (strokes: any[]) => Promise<ConvertedBlock[]>;
+  getCanvasImages?: () => string[];
   hasStrokes: boolean;
   isOpen: boolean;
   onClose: () => void;
@@ -155,9 +156,7 @@ function Spin({ color = '#8b5cf6', size = 12 }: { color?: string; size?: number 
    Main Component
 ───────────────────────────────────────────────────────────────── */
 
-export default function AiTutorPanel({
-  currentQuestion, pages, fetchMyScriptBlocks, hasStrokes, isOpen, onClose,
-}: AiTutorPanelProps) {
+export default function AiTutorPanel({ currentQuestion, pages, fetchMyScriptBlocks, getCanvasImages, hasStrokes, isOpen, onClose }: AiTutorPanelProps) {
   const [expanded, setExpanded] = useState(true);
   const [activeMode, setActiveMode] = useState<AiMode>('plan');
 
@@ -274,9 +273,85 @@ CRITICAL: Double-escape all LaTeX backslashes. Output ONLY the raw JSON object, 
     setNoMistakesFound(false);
 
     try {
-      const studentWork = await getStudentWork();
-      if (!studentWork.trim()) {
-        setCorrectionsError('Please write something on the whiteboard first.');
+      let studentWork = '';
+      let useVisionFallback = false;
+      try {
+        studentWork = await getStudentWork();
+        if (!studentWork.trim()) {
+          setCorrectionsError('Please write something on the whiteboard first.');
+          return;
+        }
+      } catch (err: any) {
+        // Fallback to vision if MyScript API fails
+        if (getCanvasImages) {
+          useVisionFallback = true;
+        } else {
+          throw err;
+        }
+      }
+
+      if (useVisionFallback && getCanvasImages) {
+        const images = getCanvasImages();
+        if (images.length === 0) {
+          setCorrectionsError('Please write something on the whiteboard first.');
+          return;
+        }
+
+        const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+        if (!apiKey) throw new Error('VITE_GROQ_API_KEY not set');
+
+        const fullSolutionText = analysis?.fullSolution
+          .map((s, i) => `Step ${i + 1} — ${s.title}: ${s.body}`).join('\n') || '';
+
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: 'llama-3.2-90b-vision-preview',
+            messages: [
+              {
+                role: 'system',
+                content: `You are a math teacher reviewing a student's work. 
+IMPORTANT: If the student's work is entirely correct, you MUST return exactly:
+{ "corrections": [] }
+
+Do NOT invent corrections or return a "correction" that just explains why the student is right.
+If and ONLY if there are genuine mathematical errors, return them in this JSON format:
+{
+  "corrections": [
+    {
+      "label": "brief label like 'sign mistake', 'wrong formula', 'calculation error'",
+      "wrongText": "the exact snippet the student wrote that is wrong",
+      "correctedText": "the corrected version",
+      "briefNote": "one concise sentence naming the error",
+      "explanation": "detailed explanation of why this is wrong and the correct approach"
+    }
+  ]
+}
+CRITICAL: Double-escape LaTeX backslashes. Output ONLY raw JSON.`,
+              },
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: `Question: ${questionText}\n\nReference solution:\n${fullSolutionText}\n\nStudent's handwritten work is in the images below.` },
+                  ...images.map(url => ({ type: 'image_url', image_url: { url } }))
+                ],
+              },
+            ],
+            temperature: 0.2
+          })
+        });
+
+        if (!res.ok) throw new Error('Vision API error');
+        const data = await res.json();
+        const content = data.choices[0]?.message?.content;
+        const match = content.match(/\{[\s\S]*\}/) || [content];
+        const parsed = JSON.parse(match[0]);
+        if (!parsed.corrections?.length) {
+          setNoMistakesFound(true);
+        } else {
+          setCorrections(parsed.corrections.map((c: any) => ({ ...c, expanded: false })));
+        }
         return;
       }
 
