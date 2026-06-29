@@ -11,6 +11,8 @@
 
 import { useState, useCallback } from 'react';
 import type { PersonalProgramQuestion } from '@/lib/personalProgramService';
+import LatexMarkdown from '@/components/ui/LatexMarkdown';
+import FullScreenWorkspace from '@/components/FullScreenWorkspace';
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -28,7 +30,8 @@ type TestPhase =
   | { name: 'picking' }
   | { name: 'generating' }
   | { name: 'error'; message: string }
-  | { name: 'full_question'; questions: TestQuestion[]; idx: number; revealed: boolean }
+  | { name: 'full_question_workspace'; questions: TestQuestion[]; idx: number }
+  | { name: 'full_question_review'; questions: TestQuestion[]; idx: number }
   | { name: 'mcq'; questions: TestQuestion[]; idx: number; selected: number | null; correct: boolean[] }
   | { name: 'results_full'; questions: TestQuestion[] }
   | { name: 'results_mcq'; questions: TestQuestion[]; correct: boolean[] };
@@ -55,6 +58,7 @@ async function generateTestQuestions(
   answeredQuestions: PersonalProgramQuestion[],
   programTitle: string,
   count: number,
+  mode: 'full' | 'mcq'
 ): Promise<TestQuestion[]> {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY;
   if (!apiKey) throw new Error('VITE_GROQ_API_KEY not set');
@@ -63,7 +67,11 @@ async function generateTestQuestions(
     .map((q, i) => `Q${i + 1}: ${q.rawText}`)
     .join('\n\n');
 
-  const systemPrompt = `You are a test generator for the subject "${programTitle}". The student has answered the following questions from their worksheet:\n\n${questionList}\n\nGenerate exactly ${count} NEW test questions that are SIMILAR but DIFFERENT variations — change specific values (numbers, variables, names, scenarios) while keeping the same mathematical/conceptual structure and difficulty. Each question must be solvable with the same method as the original it is based on.\n\nFor each question ALSO generate 3 plausible but WRONG answer choices (so 4 total, first is always correct).\n\nReturn ONLY a JSON array with no other text:\n[\n  {\n    "questionText": "...",\n    "correctAnswer": "...",\n    "explanation": "Step-by-step: ...",\n    "choices": ["correct answer text", "wrong option 2", "wrong option 3", "wrong option 4"]\n  }\n]`;
+  const modeInstruction = mode === 'mcq'
+    ? 'CRITICAL: For multi-step math/physics problems, DO NOT ask for the final answer. Instead, present the problem, show the first step(s), and ask the student to identify the CORRECT NEXT STEP. Provide the next logical step as the correct choice.'
+    : 'CRITICAL: The student will solve this on a piece of paper. Ask the FULL question that requires the full final answer. Provide the full final answer as the correct choice.';
+
+  const systemPrompt = `You are a test generator for the subject "${programTitle}". The student has answered the following questions from their worksheet:\n\n${questionList}\n\nGenerate exactly ${count} NEW test questions that are SIMILAR but DIFFERENT variations — change specific values (numbers, variables, names, scenarios) while keeping the same mathematical/conceptual structure and difficulty. Each question must be solvable with the same method as the original it is based on.\n\n${modeInstruction}\n\nCRITICAL: Any math equations, expressions, variables, or notations in the questionText, correctAnswer, explanation, and choices MUST be formatted in proper LaTeX wrapped in $ (inline) or $$ (block). Fix any broken powers (e.g. e^{3x} instead of e3x).\n\nFor each question ALSO generate 3 plausible but WRONG answer choices (so 4 total, first is always correct).\n\nReturn ONLY a JSON array with no other text:\n[\n  {\n    "questionText": "...",\n    "correctAnswer": "...",\n    "explanation": "Step-by-step: ...",\n    "choices": ["correct answer text", "wrong option 2", "wrong option 3", "wrong option 4"]\n  }\n]`;
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -150,17 +158,19 @@ function ChoiceButton({
         display: 'flex', gap: 12, alignItems: 'flex-start', transition: 'all 0.2s',
       }}
     >
-      <span style={{
-        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-        background: state !== 'default' ? 'transparent' : 'rgba(255,255,255,0.05)',
-        border: `1px solid ${border}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 12, fontWeight: 700,
-        color: state === 'correct' ? '#10b981' : state === 'wrong' ? '#ef4444' : state === 'revealed-correct' ? '#10b981' : '#94a3b8',
-      }}>
-        {icon || label}
-      </span>
-      <span style={{ flex: 1 }}>{text}</span>
+        <div style={{
+          width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+          background: state === 'default' ? 'rgba(255,255,255,0.06)'
+            : state === 'correct' ? '#10b981'
+            : state === 'wrong' ? '#ef4444'
+            : '#10b981',
+          color: state === 'default' ? '#94a3b8' : '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontWeight: 700, fontSize: 13,
+        }}>
+          {icon || label}
+        </div>
+        <LatexMarkdown content={text} className="flex-1" />
     </button>
   );
 }
@@ -182,9 +192,9 @@ export default function TestMeModal({ open, onClose, answeredQuestions, programT
   const startTest = useCallback(async (mode: 'full' | 'mcq') => {
     setPhase({ name: 'generating' });
     try {
-      const questions = await generateTestQuestions(answeredQuestions, programTitle, n);
+      const questions = await generateTestQuestions(answeredQuestions, programTitle, n, mode);
       if (mode === 'full') {
-        setPhase({ name: 'full_question', questions, idx: 0, revealed: false });
+        setPhase({ name: 'full_question_workspace', questions, idx: 0 });
       } else {
         setPhase({ name: 'mcq', questions, idx: 0, selected: null, correct: [] });
       }
@@ -325,8 +335,27 @@ export default function TestMeModal({ open, onClose, answeredQuestions, programT
     );
   }
 
-  // ─── Full Question ─────────────────────────────────────────────────────────────
-  const renderFullQuestion = (p: Extract<TestPhase, { name: 'full_question' }>) => {
+  // ─── Full Question Workspace ─────────────────────────────────────────────────────────────
+  const renderFullWorkspace = (p: Extract<TestPhase, { name: 'full_question_workspace' }>) => {
+    const q = p.questions[p.idx];
+    const mockQuestion = {
+      id: `test_q_${p.idx}`,
+      rawText: q.questionText,
+      page: 1,
+    };
+
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 6000 }}>
+        <FullScreenWorkspace
+          currentQuestion={mockQuestion as any}
+          onClose={() => setPhase({ name: 'full_question_review', questions: p.questions, idx: p.idx })}
+        />
+      </div>
+    );
+  };
+
+  // ─── Full Question Review ─────────────────────────────────────────────────────────────
+  const renderFullReview = (p: Extract<TestPhase, { name: 'full_question_review' }>) => {
     const q = p.questions[p.idx];
     const isLast = p.idx === p.questions.length - 1;
 
@@ -348,21 +377,11 @@ export default function TestMeModal({ open, onClose, answeredQuestions, programT
             background: `${ACCENT}15`, border: `1px solid ${ACCENT}30`,
             borderRadius: 8, padding: '5px 12px',
           }}>
-            Question {p.idx + 1} of {p.questions.length}
+            Review {p.idx + 1} of {p.questions.length}
           </div>
           <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
             <div style={{ width: `${((p.idx + 1) / p.questions.length) * 100}%`, height: '100%', background: ACCENT, borderRadius: 2, transition: '0.4s' }} />
           </div>
-          <button
-            onClick={() => setPhase({ name: 'results_full', questions: p.questions })}
-            style={{
-              background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)',
-              borderRadius: 8, padding: '6px 14px', cursor: 'pointer',
-              fontFamily: 'inherit', color: '#fca5a5', fontSize: 12,
-            }}
-          >
-            Finish Test
-          </button>
         </div>
 
         {/* Question body */}
@@ -380,71 +399,48 @@ export default function TestMeModal({ open, onClose, answeredQuestions, programT
                 Test Question {p.idx + 1}
               </div>
               <div style={{ color: '#1e293b', fontSize: 16, lineHeight: 1.9 }}>
-                {q.questionText}
+                <LatexMarkdown content={q.questionText} />
               </div>
             </div>
 
-            {/* Show answer area */}
-            {!p.revealed ? (
-              <button
-                onClick={() => setPhase({ ...p, revealed: true })}
-                style={{
-                  marginTop: 20, width: '100%',
-                  background: `${ACCENT}15`, border: `1px solid ${ACCENT}40`,
-                  borderRadius: 14, padding: '16px',
-                  cursor: 'pointer', fontFamily: 'inherit',
-                  fontSize: 14, fontWeight: 700, color: ACCENT,
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={e => { const el = e.currentTarget as HTMLButtonElement; el.style.background = `${ACCENT}25`; }}
-                onMouseLeave={e => { const el = e.currentTarget as HTMLButtonElement; el.style.background = `${ACCENT}15`; }}
-              >
-                ✅ I'm done — Show Correct Answer
-              </button>
-            ) : (
-              <div style={{
-                marginTop: 20, background: '#10b98112',
-                border: '1px solid #10b98130', borderRadius: 14, padding: '20px 24px',
-                animation: 'testme-fade 0.3s ease',
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-                  ✓ Correct Answer
-                </div>
-                <div style={{ fontSize: 15, color: '#a7f3d0', fontWeight: 600, marginBottom: 14, lineHeight: 1.5 }}>
-                  {q.correctAnswer}
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#34d399', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Explanation
-                </div>
-                <div style={{ fontSize: 13, color: '#6ee7b7', lineHeight: 1.7 }}>
-                  {q.explanation}
-                </div>
+            {/* Answer & Explanation */}
+            <div style={{
+              marginTop: 20, background: '#10b98112',
+              border: '1px solid #10b98130', borderRadius: 14, padding: '20px 24px',
+              animation: 'testme-fade 0.3s ease',
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#34d399', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Model Solution
               </div>
-            )}
+              <div style={{ fontSize: 15, color: '#a7f3d0', fontWeight: 600, marginBottom: 14, lineHeight: 1.5 }}>
+                <LatexMarkdown content={q.correctAnswer} />
+              </div>
+              <div style={{ fontSize: 13, color: '#6ee7b7', lineHeight: 1.7 }}>
+                <LatexMarkdown content={q.explanation} />
+              </div>
+            </div>
 
-            {p.revealed && (
-              <button
-                onClick={() => {
-                  if (isLast) {
-                    setPhase({ name: 'results_full', questions: p.questions });
-                  } else {
-                    setPhase({ ...p, idx: p.idx + 1, revealed: false });
-                  }
-                }}
-                style={{
-                  marginTop: 12, width: '100%',
-                  background: isLast ? 'rgba(239,68,68,0.12)' : `${ACCENT}20`,
-                  border: `1px solid ${isLast ? 'rgba(239,68,68,0.3)' : `${ACCENT}50`}`,
-                  borderRadius: 14, padding: '14px',
-                  cursor: 'pointer', fontFamily: 'inherit',
-                  fontSize: 14, fontWeight: 700,
-                  color: isLast ? '#fca5a5' : ACCENT,
-                  transition: 'all 0.2s', animation: 'testme-fade 0.3s ease',
-                }}
-              >
-                {isLast ? '🏁 See Final Results' : 'Next Question →'}
-              </button>
-            )}
+            <button
+              onClick={() => {
+                if (isLast) {
+                  setPhase({ name: 'results_full', questions: p.questions });
+                } else {
+                  setPhase({ name: 'full_question_workspace', questions: p.questions, idx: p.idx + 1 });
+                }
+              }}
+              style={{
+                marginTop: 12, width: '100%',
+                background: isLast ? 'rgba(239,68,68,0.12)' : `${ACCENT}20`,
+                border: `1px solid ${isLast ? 'rgba(239,68,68,0.3)' : `${ACCENT}50`}`,
+                borderRadius: 14, padding: '14px',
+                cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 14, fontWeight: 700,
+                color: isLast ? '#fca5a5' : ACCENT,
+                transition: 'all 0.2s', animation: 'testme-fade 0.3s ease',
+              }}
+            >
+              {isLast ? '🏁 See Final Results' : 'Next Question →'}
+            </button>
           </div>
         </div>
         <TestMeStyles />
@@ -521,7 +517,7 @@ export default function TestMeModal({ open, onClose, answeredQuestions, programT
                 Multiple Choice
               </div>
               <div style={{ fontSize: 16, color: '#e2e8f0', lineHeight: 1.8 }}>
-                {q.questionText}
+                <LatexMarkdown content={q.questionText} />
               </div>
             </div>
 
@@ -555,7 +551,7 @@ export default function TestMeModal({ open, onClose, answeredQuestions, programT
                   {p.selected === q.correctIdx ? '✅ Correct!' : `❌ Incorrect — Correct: ${q.displayChoices[q.correctIdx]}`}
                 </div>
                 <div style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.7 }}>
-                  {q.explanation}
+                  <LatexMarkdown content={q.explanation} />
                 </div>
               </div>
             )}
@@ -732,7 +728,8 @@ export default function TestMeModal({ open, onClose, answeredQuestions, programT
   // ─── Router ───────────────────────────────────────────────────────────────────
   if (phase.name === 'picking') return renderPicking();
   if (phase.name === 'generating') return renderGenerating();
-  if (phase.name === 'full_question') return renderFullQuestion(phase);
+  if (phase.name === 'full_question_workspace') return renderFullWorkspace(phase);
+  if (phase.name === 'full_question_review') return renderFullReview(phase);
   if (phase.name === 'mcq') return renderMCQ(phase);
   if (phase.name === 'results_full') return renderResultsFull(phase);
   if (phase.name === 'results_mcq') return renderResultsMcq(phase);

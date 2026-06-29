@@ -23,8 +23,8 @@ import { getProgramProgress, toggleQuestionSolved } from '@/lib/programProgress'
 import FullScreenWorkspace from '@/components/FullScreenWorkspace';
 import AiStudyPanel, { type AiStudyMode } from '@/components/universe/AiStudyPanel';
 import TestMeModal from '@/components/universe/TestMeModal';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
+import FeynmanModal from '@/components/universe/FeynmanModal';
+import LatexMarkdown from '@/components/ui/LatexMarkdown';
 
 interface Props {
   programId: string | null;
@@ -33,41 +33,7 @@ interface Props {
 
 function renderWithMath(text: string) {
   if (!text) return null;
-  const parts = text.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/);
-  return (
-    <span>
-      {parts.map((part, i) => {
-        if (part.startsWith('$$') && part.endsWith('$$')) {
-          const math = part.slice(2, -2);
-          try {
-            return (
-              <span
-                key={i}
-                dangerouslySetInnerHTML={{
-                  __html: katex.renderToString(math, { displayMode: true, throwOnError: false }),
-                }}
-              />
-            );
-          } catch { return <span key={i}>{part}</span>; }
-        }
-        if (part.startsWith('$') && part.endsWith('$')) {
-          const math = part.slice(1, -1);
-          try {
-            return (
-              <span
-                key={i}
-                dangerouslySetInnerHTML={{
-                  __html: katex.renderToString(math, { displayMode: false, throwOnError: false }),
-                }}
-              />
-            );
-          } catch { return <span key={i}>{part}</span>; }
-        }
-        // Plain text — preserve newlines
-        return <span key={i} style={{ whiteSpace: 'pre-wrap' }}>{part}</span>;
-      })}
-    </span>
-  );
+  return <LatexMarkdown content={text} />;
 }
 
 export default function PersonalProgramView({ programId, onBack }: Props) {
@@ -88,6 +54,8 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
   const [aiPanelTitle, setAiPanelTitle] = useState('');
   const [aiPanelContent, setAiPanelContent] = useState('');
   const [testMeOpen, setTestMeOpen] = useState(false);
+  const [feynmanOpen, setFeynmanOpen] = useState(false);
+  const [formattedPreviews, setFormattedPreviews] = useState<Record<string, string>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestPagesRef = useRef<WhiteboardPageData[] | null>(null);
 
@@ -169,6 +137,48 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
       if (pollInterval) clearInterval(pollInterval);
     };
   }, [user, programId]);
+
+  // Format question previews via Groq dynamically
+  useEffect(() => {
+    if (!programData?.questions?.length) return;
+    const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+    if (!apiKey) return;
+
+    const toFormat = programData.questions.filter(q => !formattedPreviews[q.id]);
+    if (toFormat.length === 0) return;
+
+    // Process up to 30 at a time to keep it fast
+    const batch = toFormat.slice(0, 30);
+    const textMap = batch.reduce((acc, q) => { acc[q.id] = q.rawText; return acc; }, {} as Record<string, string>);
+
+    fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{
+          role: 'system',
+          content: 'You are a LaTeX formatter. You will receive a JSON object mapping IDs to raw OCR math text. Return a JSON object mapping those SAME IDs to properly formatted LaTeX ($ and $$) strings. Fix broken powers (e.g. e3x -> e^{3x}, dx, dy). DO NOT change meaning. Return ONLY JSON.'
+        }, {
+          role: 'user',
+          content: JSON.stringify(textMap)
+        }],
+        temperature: 0.1,
+        max_tokens: 3000,
+        response_format: { type: 'json_object' }
+      }),
+    })
+    .then(r => r.json())
+    .then(data => {
+      try {
+        const parsed = JSON.parse(data.choices[0].message.content);
+        setFormattedPreviews(prev => ({ ...prev, ...parsed }));
+      } catch (e) {
+        console.warn('Failed to parse formatted previews', e);
+      }
+    })
+    .catch(console.error);
+  }, [programData, formattedPreviews]);
 
   // Open question whiteboard
   const openQuestion = useCallback(async (questionId: string) => {
@@ -456,19 +466,11 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
                   },
                   {
                     key: 'feynman',
-                    emoji: '🌀',
-                    label: 'Feynman',
-                    sub: 'Conceptual understanding check',
-                    accent: '#a78bfa',
-                    action: () => {
-                      if (!programData) return;
-                      const topicLines = programData.chapters.flatMap(ch => ch.topics || []).map(t => `Topic: ${t.questionTypeTitle || t.title}`);
-                      const questionLines = programData.questions.slice(0, 80).map((q, i) => `Q${i + 1}: ${q.rawText}`);
-                      setAiPanelTitle(programData.title);
-                      setAiPanelContent([...topicLines, '', ...questionLines].join('\n'));
-                      setAiPanelMode('feynman');
-                      setAiPanelOpen(true);
-                    },
+                    emoji: '🧑‍🏫',
+                    label: 'Feynman Mode',
+                    sub: 'Explain it to learn it',
+                    accent: '#ec4899',
+                    action: () => setFeynmanOpen(true),
                   },
                 ] as const
               ).map(({ key, emoji, label, sub, accent, action }) => (
@@ -629,9 +631,10 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
 
                       const isAnswered = answeredIds.has(qId);
 
-                      const previewText = question.rawText.length > 200
-                        ? question.rawText.slice(0, 200) + '...'
-                        : question.rawText;
+                      const previewText = formattedPreviews[qId] || question.rawText;
+                      const displayPreview = previewText.length > 200
+                        ? previewText.slice(0, 200) + '...'
+                        : previewText;
 
                       return (
                         <div
@@ -686,7 +689,7 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
                             fontSize: 14, color: 'var(--ll-text-soft)', lineHeight: 1.6,
                             fontFamily: 'inherit',
                           }}>
-                            {renderWithMath(previewText)}
+                            {renderWithMath(displayPreview)}
                           </div>
                           <div style={{ marginTop: 12, fontSize: 11, color: 'var(--ll-text-muted)' }}>
                             Page {question.page}
@@ -706,6 +709,8 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
             {programData.questions.map((question, qIdx) => {
               const isAnswered = answeredIds.has(question.id);
+              const previewText = formattedPreviews[question.id] || question.rawText;
+              const displayPreview = previewText.length > 120 ? previewText.slice(0, 120) + '...' : previewText;
               return (
                 <div
                   key={question.id}
@@ -732,7 +737,7 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
                     <span style={{ fontSize: 14, marginLeft: 'auto' }}>{isAnswered ? '📝' : '✏️'}</span>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--ll-text-soft)', lineHeight: 1.5, maxHeight: 54, overflow: 'hidden' }}>
-                    {renderWithMath(question.rawText.length > 120 ? question.rawText.slice(0, 120) + '...' : question.rawText)}
+                    {renderWithMath(displayPreview)}
                   </div>
                 </div>
               );
@@ -761,6 +766,17 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
       <TestMeModal
         open={testMeOpen}
         onClose={() => setTestMeOpen(false)}
+        programTitle={programData?.title ?? ''}
+        answeredQuestions={programData
+          ? programData.questions.filter(q => answeredIds.has(q.id))
+          : []
+        }
+      />
+
+      {/* Feynman Modal */}
+      <FeynmanModal
+        open={feynmanOpen}
+        onClose={() => setFeynmanOpen(false)}
         programTitle={programData?.title ?? ''}
         answeredQuestions={programData
           ? programData.questions.filter(q => answeredIds.has(q.id))
