@@ -96,8 +96,9 @@ def get_pix2text():
 # Config
 # ---------------------------------------------------------------------------
 ROOT_DIR    = Path(__file__).resolve().parent.parent.parent
-OUTPUT_FILE = ROOT_DIR / "output_phase_1.json"
-OUTPUT_PHASE_2_FILE = ROOT_DIR / "output_phase_2.json"
+OUTPUT_DIR  = Path(os.environ.get('OCR_OUTPUT_DIR', ROOT_DIR))
+OUTPUT_FILE = OUTPUT_DIR / "output_phase_1.json"
+OUTPUT_PHASE_2_FILE = OUTPUT_DIR / "output_phase_2.json"
 
 def _load_groq_key() -> str:
     env_file = ROOT_DIR / "artifacts" / "web-app" / ".env.local"
