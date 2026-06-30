@@ -34,7 +34,7 @@ export default function FeynmanModal({ open, onClose, answeredQuestions, program
         model: 'llama-3.3-70b-versatile',
         messages: [{
           role: 'system',
-          content: 'You are a LaTeX formatter. Format the provided raw OCR text into a beautiful math problem using LaTeX ($ and $$). Fix any broken superscripts or math notation (e.g., e3x to e^{3x}, dx, dy). DO NOT solve the problem, DO NOT add any extra text, JUST output the formatted question.'
+          content: 'You are a LaTeX formatter. Format the provided raw OCR text into a beautiful math problem using LaTeX ($ and $$). Fix any broken superscripts or math notation (e.g., e3x to e^{3x}, dx, dy). CRITICAL: DO NOT TRANSLATE ANY TEXT. KEEP THE EXACT ORIGINAL LANGUAGE AND CHARACTERS. DO NOT solve the problem, DO NOT add any extra text, JUST output the formatted question.'
         }, {
           role: 'user',
           content: q.rawText

@@ -158,7 +158,7 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
         model: 'llama-3.3-70b-versatile',
         messages: [{
           role: 'system',
-          content: 'You are a LaTeX formatter. You will receive a JSON object mapping IDs to raw OCR math text. Return a JSON object mapping those SAME IDs to properly formatted LaTeX ($ and $$) strings. Fix broken powers (e.g. e3x -> e^{3x}, dx, dy). DO NOT change meaning. Return ONLY JSON.'
+          content: 'You are a LaTeX formatter. You will receive a JSON object mapping IDs to raw OCR math text. Return a JSON object mapping those SAME IDs to properly formatted LaTeX ($ and $$) strings. Fix broken powers (e.g. e3x -> e^{3x}, dx, dy). CRITICAL: DO NOT TRANSLATE ANY TEXT. KEEP THE EXACT ORIGINAL LANGUAGE AND CHARACTERS. Return ONLY JSON.'
         }, {
           role: 'user',
           content: JSON.stringify(textMap)

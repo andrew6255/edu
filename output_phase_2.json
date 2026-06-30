@@ -1,53 +1,50 @@
 {
   "phase": "phase2_questions",
-  "created_at": "2026-06-22T09:51:14.654242+00:00",
+  "created_at": "2026-06-30T08:18:46.925760+00:00",
   "result": {
     "topics": [
       {
         "id": "t1",
-        "title": "Addition with Regrouping",
+        "title": "Finding the value of money",
         "questions": [
           {
-            "rawText": "425 + 279"
+            "rawText": "Find the value of: 2 billets de 20 L.E. + 1 billet de 50 L.E................... 3 billets de 10 L.E. + 1 billet de 50 LE."
           },
           {
-            "rawText": "595 + 176"
-          },
-          {
-            "rawText": "595 + 478"
-          },
-          {
-            "rawText": "683 + 236"
-          },
-          {
-            "rawText": "304 + 483"
-          },
-          {
-            "rawText": "360 + 528"
-          },
-          {
-            "rawText": "149 + 198"
-          },
-          {
-            "rawText": "259 + 610"
-          },
-          {
-            "rawText": "435 + 500"
-          },
-          {
-            "rawText": "274 + 169"
-          },
-          {
-            "rawText": "382 + 239"
+            "rawText": "Find the value of: 1 billet de 100 L.E. \\star\\mathbf{2} billets de 50 L.E.................... 2 billets de 200 L.E."
           }
         ]
       },
       {
         "id": "t2",
-        "title": "Subtraction with Regrouping",
+        "title": "Identifying odd numbers",
         "questions": [
           {
-            "rawText": "702 / -\\frac{439}{}"
+            "rawText": "Entoure les nombres impairs ; 8 - 203 - 22 - 195 - 210 - 52 - 603 - 9999"
+          }
+        ]
+      },
+      {
+        "id": "t3",
+        "title": "Basic number properties",
+        "questions": [
+          {
+            "rawText": "Un nombre pair plus grand que 14 est......"
+          },
+          {
+            "rawText": "2 nombres impairs consécutifs .......... et..."
+          },
+          {
+            "rawText": "La somme de 34 et 59 est un nombre ........."
+          }
+        ]
+      },
+      {
+        "id": "t4",
+        "title": "Calculating total money",
+        "questions": [
+          {
+            "rawText": "Rami a 3 billets de 50 L.E. et 2 billets de 10 L.E. Mona a 1 billet de 200 L.E et 1 billet de 20 L.E. Combien ont-ils ensemble ?"
           }
         ]
       }

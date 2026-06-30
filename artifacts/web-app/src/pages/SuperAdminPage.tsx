@@ -51,6 +51,7 @@ import {
   upsertLogicGameQuestions,
 } from '@/lib/logicGamesService';
 import ProgramMapView from '@/views/ProgramMapView';
+import LatexMarkdown from '@/components/ui/LatexMarkdown';
 import { clearDraftProgram, setDraftProgram } from '@/lib/draftProgramStore';
 import { deleteProgramQuestionAsset, uploadProgramQuestionAsset } from '@/lib/programAssetService';
 import type { LogicGameNode, LogicGameQuestionsDoc, LogicGameQuestion } from '@/types/logicGames';
@@ -1275,6 +1276,13 @@ function LogicGamesAdmin() {
                         </div>
                       </div>
                       
+                      {/* Rendered Math Preview */}
+                      {(q.promptRawText || (q.promptBlocks?.[0] as any)?.text) && (
+                        <div style={{ marginBottom: 16, padding: 14, borderRadius: 8, background: '#1e293b', border: '1px solid #334155', color: '#f8fafc', fontSize: 15 }}>
+                          <LatexMarkdown content={q.promptRawText || (q.promptBlocks?.[0] as any)?.text || ''} />
+                        </div>
+                      )}
+
                       <textarea
                         value={q.promptRawText || (q.promptBlocks?.[0] as any)?.text || ''}
                         onChange={(e) => {
@@ -1537,6 +1545,11 @@ function LogicGamesAdmin() {
                 {/* Explanation */}
                 <div>
                   <div style={labelStyle}>💡 Explanation (shown in chill mode)</div>
+                  {dq.explanation && (
+                    <div style={{ marginBottom: 12, padding: 14, borderRadius: 8, background: '#1e293b', border: '1px solid #334155', color: '#f8fafc', fontSize: 14 }}>
+                      <LatexMarkdown content={dq.explanation} />
+                    </div>
+                  )}
                   <textarea
                     value={dq.explanation || ''}
                     onChange={e => updateField('explanation', e.target.value)}
@@ -1659,6 +1672,14 @@ function LogicGamesAdmin() {
                           }}
                           style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: 'none', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
                        >🗑 Delete</button>
+                       
+                       {/* Rendered Math Preview */}
+                       {(q.promptRawText || (q.promptBlocks?.[0] as any)?.text) && (
+                         <div style={{ marginBottom: 12, padding: 14, borderRadius: 8, background: '#1e293b', border: '1px solid #334155', color: '#f8fafc', fontSize: 14, marginTop: 24 }}>
+                           <LatexMarkdown content={q.promptRawText || (q.promptBlocks?.[0] as any)?.text || ''} />
+                         </div>
+                       )}
+
                        <textarea
                          value={q.promptRawText || (q.promptBlocks?.[0] as any)?.text || ''}
                          onChange={(e) => {

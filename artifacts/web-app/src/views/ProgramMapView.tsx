@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { useLocation } from 'wouter';
 import katex from 'katex';
 import { useAuth } from '@/contexts/AuthContext';
+import LatexMarkdown from '@/components/ui/LatexMarkdown';
 import { getPublicProgramOrDraft, setProgramCompletedForUser, type TocItem } from '@/lib/programMaps';
 import { applyRankedAnswer, claimRoadmapReward, getProgramProgress, markQuestionSolved, toggleUnitComplete } from '@/lib/programProgress';
 import { applyRankedEnergyProgress, getUserData, updateEconomy } from '@/lib/userService';
@@ -347,7 +348,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
 
   function renderBlocks(blocks: ProgramPromptBlock[] | null | undefined, fallback?: string | null) {
     if (!blocks || blocks.length === 0) {
-      return <div style={{ whiteSpace: 'pre-wrap' }}>{fallback ?? '—'}</div>;
+      return <LatexMarkdown content={fallback ?? '—'} />;
     }
 
     return (
@@ -355,7 +356,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
         {blocks.map((b: any, idx: number) => {
           if (!b || typeof b !== 'object') return null;
           if (b.type === 'text') {
-            return <div key={idx} style={{ whiteSpace: 'pre-wrap' }}>{String(b.text ?? '')}</div>;
+            return <div key={idx}><LatexMarkdown content={String(b.text ?? '')} /></div>;
           }
           if (b.type === 'math') {
             const latex = String(b.latex ?? '');
@@ -419,7 +420,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                 background: isHeader ? 'var(--ll-surface-2)' : 'transparent',
                               }}
                             >
-                              {c}
+                              <LatexMarkdown content={c} />
                             </Tag>
                           );
                         })}
@@ -3415,7 +3416,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                               opacity: disabledAll && !show ? 0.75 : 1,
                                             }}
                                           >
-                                            {c}
+                                            {(c.startsWith('data:image/') || c.startsWith('http')) ? <img src={c} alt="choice" style={{ maxHeight: 120, maxWidth: '100%', objectFit: 'contain', borderRadius: 4 }} /> : <LatexMarkdown content={c} />}
                                           </button>
                                         );
                                       })
@@ -3573,7 +3574,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                       opacity: disabled && !isCorrect && isChosenWrong ? 0.75 : 1,
                                     }}
                                   >
-                                    {c}
+                                    {(c.startsWith('data:image/') || c.startsWith('http')) ? <img src={c} alt="choice" style={{ maxHeight: 120, maxWidth: '100%', objectFit: 'contain', borderRadius: 4 }} /> : <LatexMarkdown content={c} />}
                                   </button>
                                 );
                               })}
@@ -3910,7 +3911,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                           opacity: !myAns ? 1 : (chosen || isCorrect ? 1 : 0.7),
                                         }}
                                       >
-                                        {c}
+                                        {(c.startsWith('data:image/') || c.startsWith('http')) ? <img src={c} alt="choice" style={{ maxHeight: 120, maxWidth: '100%', objectFit: 'contain', borderRadius: 4 }} /> : <LatexMarkdown content={c} />}
                                       </button>
                                     );
                                   })}
@@ -4107,7 +4108,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                       opacity: disabled && !isCorrect && isChosenWrong ? 0.75 : 1,
                                     }}
                                   >
-                                    {c}
+                                    {(c.startsWith('data:image/') || c.startsWith('http')) ? <img src={c} alt="choice" style={{ maxHeight: 120, maxWidth: '100%', objectFit: 'contain', borderRadius: 4 }} /> : <LatexMarkdown content={c} />}
                                   </button>
                                 );
                               })}
