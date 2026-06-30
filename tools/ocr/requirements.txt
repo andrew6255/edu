@@ -6,3 +6,4 @@ Pillow==10.3.0
 pdf2image==1.17.0
 gunicorn==22.0.0
 pix2text==1.1.2
+groq==0.8.0
