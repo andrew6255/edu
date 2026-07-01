@@ -367,20 +367,22 @@ export default function HexUniverseView() {
       {/* Custom Subjects / Worksheets View */}
       {selectedSubjectId ? (
         <div style={{ width: '100%', maxWidth: 800, zIndex: 2, marginBottom: 40 }}>
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 32 }}>
-            <button className="ll-btn" onClick={() => setSelectedSubjectId(null)} style={{ padding: '6px 12px', fontSize: 12, position: 'absolute', left: 0 }}>
-              ← Back
-            </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 32 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <button className="ll-btn" onClick={() => setSelectedSubjectId(null)} style={{ padding: '6px 12px', fontSize: 12 }}>
+                ← Back
+              </button>
+              <button
+                onClick={() => setMyProgramsOpen(true)}
+                className="ll-btn"
+                style={{ padding: '10px 16px', fontSize: 12 }}
+              >
+                📚 My Programs
+              </button>
+            </div>
             <h2 style={{ color: '#c4b5fd', fontSize: 'clamp(36px, 6vw, 56px)', margin: 0, textShadow: '0 0 32px rgba(139,92,246,0.6)', textAlign: 'center' }}>
               {`${subjects.find(s => s.id === selectedSubjectId)?.emoji || '📘'} ${subjects.find(s => s.id === selectedSubjectId)?.name || 'Worksheets'}`}
             </h2>
-            <button
-              onClick={() => setMyProgramsOpen(true)}
-              className="ll-btn"
-              style={{ padding: '10px 16px', fontSize: 12, position: 'absolute', right: 0 }}
-            >
-              📚 My Programs
-            </button>
           </div>
           
           {filteredPersonalPrograms.length > 0 ? (
