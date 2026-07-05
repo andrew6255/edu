@@ -257,53 +257,7 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
     setMeta(prev => prev ? { ...prev, programData: pData } : null);
   }, [publicProgramSpec, selectedSheetNode, isPublicProgram]);
 
-  // Format question previews via Groq dynamically
-  useEffect(() => {
-    if (!programData?.questions?.length) return;
-    const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-    if (!apiKey) return;
-
-    const toFormat = programData.questions.filter(q => !formattedPreviews[q.id]);
-    if (toFormat.length === 0) return;
-
-    // Process up to 30 at a time to keep it fast
-    const batch = toFormat.slice(0, 30);
-    const textMap = batch.reduce((acc, q) => { acc[q.id] = q.rawText; return acc; }, {} as Record<string, string>);
-
-    fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{
-          role: 'system',
-          content: 'You are a LaTeX formatter. You will receive a JSON object mapping IDs to raw OCR math text. Return a JSON object mapping those SAME IDs to properly formatted LaTeX ($ and $$) strings. Fix broken powers (e.g. e3x -> e^{3x}, dx, dy). CRITICAL: DO NOT TRANSLATE ANY TEXT. KEEP THE EXACT ORIGINAL LANGUAGE AND CHARACTERS. Return ONLY JSON.'
-        }, {
-          role: 'user',
-          content: JSON.stringify(textMap)
-        }],
-        temperature: 0.1,
-        max_tokens: 3000,
-        response_format: { type: 'json_object' }
-      }),
-    })
-    .then(r => r.json())
-    .then(data => {
-      try {
-        if (!data || !data.choices || !data.choices[0]) {
-          return; // Silently fallback
-        }
-        const parsed = JSON.parse(data.choices[0].message.content);
-        setFormattedPreviews(prev => ({ ...prev, ...parsed }));
-      } catch (e) {
-        // Silently ignore parse errors
-      }
-    })
-    .catch(() => {
-      // Silently ignore network errors
-    });
-  }, [programData, formattedPreviews]);
-
+  // Format question previews via Groq dynamically (Removed to prevent API rate limits and console noise)
   // Open question whiteboard
   const openQuestion = useCallback(async (questionId: string) => {
     setActiveQuestionId(questionId);
