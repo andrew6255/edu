@@ -403,7 +403,7 @@ export default function AdminPage() {
           <p style={{ fontSize: 13 }}>Ask the Super Admin to assign teachers to your account.</p>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
             <button onClick={loadTeachers} style={headerBtnStyle}>↺ Refresh</button>
-            <button onClick={async () => { await requireSupabase().auth.signOut(); localStorage.clear(); setLocation('/auth'); }} style={{ ...headerBtnStyle, border: '1px solid #ef4444', color: '#f87171' }}>Sign Out</button>
+            <button onClick={async () => { requireSupabase().auth.signOut().catch(()=>{}); localStorage.clear(); window.location.href = '/auth'; }} style={{ ...headerBtnStyle, border: '1px solid #ef4444', color: '#f87171' }}>Sign Out</button>
           </div>
         </div>
       </div>
@@ -427,7 +427,7 @@ export default function AdminPage() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={refreshTeacherData} style={headerBtnStyle}>↺ Refresh</button>
-            <button onClick={async () => { await requireSupabase().auth.signOut(); localStorage.clear(); setLocation('/auth'); }}
+            <button onClick={async () => { requireSupabase().auth.signOut().catch(()=>{}); localStorage.clear(); window.location.href = '/auth'; }}
               style={{ ...headerBtnStyle, border: '1px solid #ef4444', color: '#f87171' }}>Sign Out</button>
           </div>
         </div>

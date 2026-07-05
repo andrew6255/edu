@@ -248,7 +248,9 @@ def extract_page(page: fitz.Page, page_num: int) -> dict:
 
     # Step 1 — try embedded text layer
     raw_text = page.get_text("text").strip()
-    if len(raw_text) >= MIN_CHARS_PER_PAGE:
+    
+    # Bypass pymupdf text layer if pix2text is available because pymupdf ruins math formatting
+    if not PIX2TEXT_AVAILABLE and len(raw_text) >= MIN_CHARS_PER_PAGE:
         text = postprocess(raw_text)
         return {
             "page": page_num + 1,
@@ -443,6 +445,7 @@ def phase2_questions():
             "(e.g. 'Find the derivative: a) f(x)=cos(x) b) f(x)=sin(x)'), expand each into a "
             "fully self-contained question by prepending the instruction. Output 'Find the derivative of f(x)=cos(x)' "
             "AND 'Find the derivative of f(x)=sin(x)' as SEPARATE questions.\n"
+            "  • CRITICAL: Preserve ALL mathematical notation and LaTeX. You MUST wrap all math, equations, and symbols in $...$ (inline) or $$...$$ (display) delimiters if they are not already wrapped.\n"
             "  • Double-escape all LaTeX backslashes for valid JSON (e.g. '\\\\frac' not '\\frac').\n\n"
             "STEP 3 — Match each question to its answer:\n"
             "  • Use any Answer Key, inline answer, or worked solution found in the PDF.\n"

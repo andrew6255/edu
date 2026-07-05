@@ -45,7 +45,7 @@ export default function RolePanelPlaceholder({ role, label, icon, color }: Props
         This panel is under construction. It will be available in a future update.
       </p>
       <button
-        onClick={async () => { await requireSupabase().auth.signOut(); localStorage.clear(); setLocation('/auth'); }}
+        onClick={async () => { requireSupabase().auth.signOut().catch(()=>{}); localStorage.clear(); window.location.href = '/auth'; }}
         style={{ marginTop: 20, padding: '10px 24px', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}
       >
         Sign Out

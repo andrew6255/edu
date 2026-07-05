@@ -1431,10 +1431,18 @@ export default function ProgramsAdmin() {
                           </div>
                         )}
                         <div style={{ color: '#64748b', fontSize: 11, marginBottom: 12, textAlign: 'center' }}>
-                          {[
-                            folder.children.length > 0 && `${folder.children.length} folder${folder.children.length > 1 ? 's' : ''}`,
-                            folder.questionTypes.length > 0 && `${folder.questionTypes.length} question type${folder.questionTypes.length > 1 ? 's' : ''}`,
-                          ].filter(Boolean).join(' · ') || 'Empty'}
+                          {isWorksheetStack ? (
+                            `${folder.questionTypes.length} question type${folder.questionTypes.length !== 1 ? 's' : ''}`
+                          ) : (
+                            (() => {
+                              const subFoldersCount = folder.children.filter(c => !(c.questionTypes.length > 0 && c.children.length === 0)).length;
+                              const sheetsCount = folder.children.filter(c => c.questionTypes.length > 0 && c.children.length === 0).length + folder.questionTypes.length;
+                              return [
+                                subFoldersCount > 0 && `${subFoldersCount} folder${subFoldersCount > 1 ? 's' : ''}`,
+                                sheetsCount > 0 && `${sheetsCount} sheet${sheetsCount > 1 ? 's' : ''}`,
+                              ].filter(Boolean).join(' · ') || 'Empty';
+                            })()
+                          )}
                         </div>
                       </>
                     )}

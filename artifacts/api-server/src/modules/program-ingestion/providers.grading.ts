@@ -29,7 +29,8 @@ function buildPrompt(questionText: string, modelAnswer: string): string {
     "solution: Detailed step-by-step worked solution (min 3 steps).\n" +
     "solutionPlan: High-level bullet plan, NO details, 3-5 bullets.\n" +
     "hint: Single hint that nudges WITHOUT giving the answer.\n" +
-    "gradingSchema: array of 2-5 criteria objects, points must sum to 100."
+    "gradingSchema: array of 2-5 criteria objects, points must sum to 100.\n\n" +
+    "CRITICAL: You MUST wrap all math, equations, and symbols in $...$ (inline) or $$...$$ (display) delimiters."
   );
 }
 
