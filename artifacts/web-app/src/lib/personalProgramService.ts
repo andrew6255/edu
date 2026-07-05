@@ -13,7 +13,7 @@ import { getUserDoc, setUserDoc, listUserDocs, type DocData } from './supabaseDo
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
-export type PersonalProgramStatus = 'processing' | 'ready' | 'failed';
+export type PersonalProgramStatus = 'processing' | 'ready' | 'failed' | 'opened';
 
 /**
  * Granular stage written by the client pipeline at each real async milestone.
@@ -237,6 +237,15 @@ export async function updateProcessingStage(
     ...existing,
     processingStage: stage,
     stageUpdatedAt: new Date().toISOString(),
+  });
+}
+
+export async function markPersonalProgramOpened(uid: string, jobId: string): Promise<void> {
+  const existing = await getUserDoc(uid, COLLECTION_PERSONAL_PROGRAMS, jobId);
+  if (!existing || existing.status !== 'ready') return;
+  await setUserDoc(uid, COLLECTION_PERSONAL_PROGRAMS, jobId, {
+    ...existing,
+    status: 'opened',
   });
 }
 

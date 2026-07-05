@@ -12,21 +12,49 @@ function PersonalProgramCard({
   p,
   i,
   onOpenDetails,
+  onProgramOpened,
+  userUid,
 }: {
   p: PersonalProgramMeta;
   i: number;
   onOpenDetails: (p: PersonalProgramMeta) => void;
+  onProgramOpened?: (p: PersonalProgramMeta) => void;
+  userUid?: string;
 }) {
-  const isReady = p.status === 'ready' || (p.status as string) === 'published';
+  const isReady = p.status === 'ready' || (p.status as string) === 'published' || p.status === 'opened';
+  const isOpened = p.status === 'opened';
   const isFailed = p.status === 'failed';
   const targetPct = getProgressPercentage(p.status, p.processingStage);
   const pct = useSmoothProgress(targetPct, isFailed, p.stageUpdatedAt);
   const stageLabel = getStageLabel(p.status, p.processingStage);
 
+  const [solvedPct, setSolvedPct] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isOpened || !userUid) return;
+    let cancelled = false;
+    import('@/lib/programProgress').then(({ getProgramProgress }) => {
+      getProgramProgress(userUid, p.programId).then((pp) => {
+        if (cancelled) return;
+        const solved = pp?.rankedSolvedQuestionIds?.length ?? 0;
+        const total = p.programData?.totalQuestions ?? 0;
+        let percentage = 0;
+        if (total > 0) {
+          percentage = Math.round((solved / total) * 100);
+        }
+        setSolvedPct(percentage);
+      });
+    });
+    return () => { cancelled = true; };
+  }, [isOpened, userUid, p.programId, p.programData?.totalQuestions]);
+
   return (
     <div
       onClick={() => {
         if (isReady) {
+          if (p.status === 'ready' && onProgramOpened) {
+            onProgramOpened(p);
+          }
           window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'personalProgram', personalProgramId: p.programId } }));
         } else if (!isFailed) {
           onOpenDetails(p);
@@ -102,9 +130,18 @@ function PersonalProgramCard({
               {stageLabel}
             </div>
           </div>
+        ) : isOpened && solvedPct !== null ? (
+          <div style={{ width: '100%', marginTop: 'auto' }}>
+            <div style={{ height: 4, background: 'var(--ll-surface-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
+              <div style={{ width: `${solvedPct}%`, height: '100%', background: solvedPct >= 100 ? '#fbbf24' : '#60a5fa', transition: '0.5s' }} />
+            </div>
+            <div style={{ fontSize: 12, color: solvedPct >= 100 ? '#fbbf24' : '#60a5fa', fontWeight: 'bold' }}>
+              {solvedPct >= 100 ? 'Completed' : `${solvedPct}% In Progress`}
+            </div>
+          </div>
         ) : (
           <div style={{ fontSize: 13, color: isFailed ? '#ef4444' : '#34d399', fontWeight: 'bold' }}>
-            {isFailed ? 'Failed' : 'Ready'}
+            {isFailed ? 'Failed' : (p.status === 'ready' ? 'Ready' : '')}
           </div>
         )}
       </div>
@@ -115,13 +152,23 @@ function PersonalProgramCard({
 export default function HexUniverseView() {
   const { user, userData } = useAuth();
   const [activeProgramTitle, setActiveProgramTitle] = useState<string | null>(null);
-  const [activePrograms, setActivePrograms] = useState<Array<{ id: string; title: string; coverEmoji?: string }>>([]);
+  const [activePrograms, setActivePrograms] = useState<Array<{ id: string; title: string; coverEmoji?: string; subject?: string }>>([]);
   const [programPctById, setProgramPctById] = useState<Record<string, number>>({});
   const [myProgramsOpen, setMyProgramsOpen] = useState(false);
 
   const { personalPrograms, setPersonalPrograms, subjects, setSubjects } = useGlobalData();
   
-  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(
+    () => typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('ll:selectedSubjectId') : null
+  );
+
+  const handleSetSelectedSubjectId = (id: string | null) => {
+    setSelectedSubjectId(id);
+    if (typeof sessionStorage !== 'undefined') {
+      if (id) sessionStorage.setItem('ll:selectedSubjectId', id);
+      else sessionStorage.removeItem('ll:selectedSubjectId');
+    }
+  };
   const [manageSubjectsOpen, setManageSubjectsOpen] = useState(false);
   
   const [selectedProcessingJobId, setSelectedProcessingJobId] = useState<string | null>(null);
@@ -226,7 +273,7 @@ export default function HexUniverseView() {
       const visibleProgs = progs.filter(({ p }) => !!p);
 
       const items = visibleProgs
-        .map(({ pid, p }) => ({ id: pid, title: p?.title ?? pid, coverEmoji: p?.coverEmoji }))
+        .map(({ pid, p }) => ({ id: pid, title: p?.title ?? pid, coverEmoji: p?.coverEmoji, subject: p?.subject }))
         .filter((x) => !!x.id);
 
       setActiveProgramTitle(items[0]?.title ?? 'My Book');
@@ -271,6 +318,11 @@ export default function HexUniverseView() {
     ? personalPrograms.filter(p => p.subjectId === selectedSubjectId)
     : [];
 
+  const selectedSubjectName = subjects.find(s => s.id === selectedSubjectId)?.name?.toLowerCase() || '';
+  const filteredActivePrograms = selectedSubjectId
+    ? activePrograms.filter(p => p.subject?.toLowerCase() === selectedSubjectName)
+    : [];
+
   return (
     <div style={{
       height: '100%', overflow: 'auto',
@@ -299,77 +351,13 @@ export default function HexUniverseView() {
         </div>
       )}
 
-      {/* Active Programs (portal-style cards) */}
-      {activePrograms.length > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: 24,
-          width: '100%',
-          maxWidth: 800,
-          zIndex: 2,
-          marginBottom: 40,
-        }}>
-          {activePrograms.map((p, i) => (
-            <div
-              key={p.id}
-              onClick={() => {
-                window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'programMap', programId: p.id } }));
-              }}
-              style={{
-                background: 'rgba(59,130,246,0.10)',
-                border: '2px solid rgba(59,130,246,0.45)',
-                borderRadius: 20,
-                padding: '30px 20px',
-                textAlign: 'center',
-                cursor: 'pointer',
-                transition: 'all 0.3s',
-                boxShadow: '0 0 20px rgba(59,130,246,0.20)',
-                animation: `fadeIn ${0.3 + i * 0.08}s ease`,
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-              }}
-              onMouseEnter={(e) => {
-                const el = e.currentTarget as HTMLDivElement;
-                el.style.transform = 'scale(1.03) translateY(-6px)';
-                el.style.boxShadow = '0 15px 40px rgba(59,130,246,0.35)';
-              }}
-              onMouseLeave={(e) => {
-                const el = e.currentTarget as HTMLDivElement;
-                el.style.transform = '';
-                el.style.boxShadow = '0 0 20px rgba(59,130,246,0.20)';
-              }}
-            >
-              <div style={{ fontSize: 48, marginBottom: 12, color: '#60a5fa', textShadow: '0 0 20px rgba(96,165,250,0.55)' }}>
-                {p.coverEmoji || '📘'}
-              </div>
-              <div style={{ fontWeight: 'bold', fontSize: 20, color: 'var(--ll-text)', marginBottom: 6 }}>
-                {p.title}
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--ll-text-soft)', marginBottom: 16 }}>
-                Program Map
-              </div>
-              <div style={{ width: '100%', marginTop: 'auto' }}>
-                <div style={{ height: 4, background: 'var(--ll-surface-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
-                  <div style={{ width: `${programPctById[p.id] ?? 0}%`, height: '100%', background: (programPctById[p.id] ?? 0) >= 100 ? '#fbbf24' : '#60a5fa', transition: '0.5s' }} />
-                </div>
-                <div style={{ fontSize: 12, color: (programPctById[p.id] ?? 0) >= 100 ? '#fbbf24' : '#60a5fa', fontWeight: 'bold' }}>
-                  {(programPctById[p.id] ?? 0) >= 100 ? 'Completed' : `${programPctById[p.id] ?? 0}% In Progress`}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Custom Subjects / Worksheets View */}
       {selectedSubjectId ? (
         <div style={{ width: '100%', maxWidth: 800, zIndex: 2, marginBottom: 40 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 32 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <button className="ll-btn" onClick={() => setSelectedSubjectId(null)} style={{ padding: '6px 12px', fontSize: 12 }}>
+              <button className="ll-btn" onClick={() => handleSetSelectedSubjectId(null)} style={{ padding: '6px 12px', fontSize: 12 }}>
                 ← Back
               </button>
               <button
@@ -385,7 +373,68 @@ export default function HexUniverseView() {
             </h2>
           </div>
           
-          {filteredPersonalPrograms.length > 0 ? (
+          {filteredActivePrograms.length > 0 && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: 24,
+              marginBottom: 40,
+            }}>
+              {filteredActivePrograms.map((p, i) => (
+                <div
+                  key={p.id}
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'programMap', programId: p.id } }));
+                  }}
+                  style={{
+                    background: 'rgba(59,130,246,0.10)',
+                    border: '2px solid rgba(59,130,246,0.45)',
+                    borderRadius: 20,
+                    padding: '30px 20px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s',
+                    boxShadow: '0 0 20px rgba(59,130,246,0.20)',
+                    animation: `fadeIn ${0.3 + i * 0.08}s ease`,
+                    position: 'relative',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                  }}
+                  onMouseEnter={(e) => {
+                    const el = e.currentTarget as HTMLDivElement;
+                    el.style.transform = 'scale(1.03) translateY(-6px)';
+                    el.style.boxShadow = '0 15px 40px rgba(59,130,246,0.35)';
+                  }}
+                  onMouseLeave={(e) => {
+                    const el = e.currentTarget as HTMLDivElement;
+                    el.style.transform = '';
+                    el.style.boxShadow = '0 0 20px rgba(59,130,246,0.20)';
+                  }}
+                >
+                  <div style={{ fontSize: 48, marginBottom: 12, color: '#60a5fa', textShadow: '0 0 20px rgba(96,165,250,0.55)' }}>
+                    {p.coverEmoji || '📘'}
+                  </div>
+                  <div style={{ fontWeight: 'bold', fontSize: 20, color: 'var(--ll-text)', marginBottom: 6 }}>
+                    {p.title}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--ll-text-soft)', marginBottom: 16 }}>
+                    Program Map
+                  </div>
+                  <div style={{ width: '100%', marginTop: 'auto' }}>
+                    <div style={{ height: 4, background: 'var(--ll-surface-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
+                      <div style={{ width: `${programPctById[p.id] ?? 0}%`, height: '100%', background: (programPctById[p.id] ?? 0) >= 100 ? '#fbbf24' : '#60a5fa', transition: '0.5s' }} />
+                    </div>
+                    <div style={{ fontSize: 12, color: (programPctById[p.id] ?? 0) >= 100 ? '#fbbf24' : '#60a5fa', fontWeight: 'bold' }}>
+                      {(programPctById[p.id] ?? 0) >= 100 ? 'Completed' : `${programPctById[p.id] ?? 0}% In Progress`}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {filteredPersonalPrograms.length > 0 && (
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
@@ -397,12 +446,21 @@ export default function HexUniverseView() {
                   p={p}
                   i={i}
                   onOpenDetails={(prog) => setSelectedProcessingJobId(prog.jobId)}
+                  onProgramOpened={(prog) => {
+                    if (user) {
+                      import('@/lib/personalProgramService').then(m => m.markPersonalProgramOpened(user.uid, prog.jobId));
+                      setPersonalPrograms(prev => prev.map(p => p.jobId === prog.jobId ? { ...p, status: 'opened' } : p));
+                    }
+                  }}
+                  userUid={user?.uid}
                 />
               ))}
             </div>
-          ) : (
+          )}
+          
+          {filteredPersonalPrograms.length === 0 && filteredActivePrograms.length === 0 && (
             <div style={{ color: 'var(--ll-text-muted)', textAlign: 'center', padding: 40 }}>
-              No worksheets in this subject yet.
+              No programs or worksheets in this subject yet.
             </div>
           )}
         </div>
@@ -435,7 +493,7 @@ export default function HexUniverseView() {
                 return (
                     <div
                       key={s.id}
-                      onClick={() => setSelectedSubjectId(s.id)}
+                      onClick={() => handleSetSelectedSubjectId(s.id)}
                       style={{
                         background: `linear-gradient(135deg, rgba(${c},0.15) 0%, rgba(${c},0.05) 100%)`,
                         border: `1px solid rgba(${c},0.3)`,
