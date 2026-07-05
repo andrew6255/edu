@@ -47,7 +47,9 @@ jobs:
           VITE_OCR_SERVER_URL: ${{ secrets.VITE_OCR_SERVER_URL }}
 
       - name: Copy index to 404 for SPA routing
-        run: cp ./artifacts/web-app/dist/index.html ./artifacts/web-app/dist/404.html
+        run: |
+          cp ./artifacts/web-app/dist/index.html ./artifacts/web-app/dist/404.html
+          touch ./artifacts/web-app/dist/.nojekyll
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
