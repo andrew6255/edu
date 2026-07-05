@@ -1,4 +1,4 @@
-import type { Request, Response } from "express";
+import type { Request, Response, NextFunction } from "express";
 import { programIngestionService } from "./service";
 import {
   parseAttachIngestionSourceFileInput,
@@ -453,7 +453,7 @@ Return ONLY valid JSON.`;
       throw new Error(`Groq request failed: ${errorText}`);
     }
 
-    const groqData = await groqRes.json();
+    const groqData = await groqRes.json() as any;
     const responseText = groqData.choices?.[0]?.message?.content?.trim();
     if (!responseText) {
       throw new Error("Groq response empty");
@@ -479,6 +479,91 @@ Return ONLY valid JSON.`;
 
   } catch (error) {
     console.error("generateIqQuestionDetails error:", error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    res.status(500).json({ error: message });
+  }
+}
+
+export const generateEmoji = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, subject } = req.body;
+    
+    const apiKey = process.env["GROQ_API_KEY"];
+    if (!apiKey) {
+      throw new Error("GROQ_API_KEY is not configured.");
+    }
+
+    const url = "https://api.groq.com/openai/v1/chat/completions";
+    const prompt = `You are a helpful assistant. Provide exactly one single emoji that best represents an educational program or course with the name "${name}" and the subject "${subject}". Output ONLY the single emoji character. Do not output any other text, spaces, or quotes.`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.8,
+        messages: [
+          { role: "user", content: prompt }
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Groq request failed with status ${response.status}`);
+    }
+
+    const payload = await response.json() as any;
+    let emoji = payload.choices?.[0]?.message?.content?.trim();
+    if (!emoji || emoji.length === 0) {
+      emoji = "📚";
+    }
+
+    // Attempt to strip out any non-emoji characters just in case
+    const match = emoji.match(/\p{Emoji}/u);
+    if (match) {
+      emoji = match[0];
+    } else {
+      emoji = "📚";
+    }
+
+    res.status(200).json({ emoji });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── Phase 3: Question Enrichment ────────────────────────────────────────────
+
+import { enrichQuestionsBatch } from "./providers.grading";
+
+/**
+ * POST /api/program-ingestion/enrich-questions
+ * Body: { questions: Array<{ id, rawText, modelAnswer, answerFromPdf }> }
+ * Returns: { enriched: Record<questionId, EnrichedQuestionData> }
+ */
+export async function enrichQuestions(req: Request, res: Response): Promise<void> {
+  try {
+    const { questions } = req.body as {
+      questions?: Array<{ id: string; rawText: string; modelAnswer: string; answerFromPdf: boolean }>;
+    };
+
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+      res.status(400).json({ error: "questions array is required and must not be empty." });
+      return;
+    }
+
+    const apiKey = process.env["GROQ_API_KEY"];
+    if (!apiKey) {
+      res.status(500).json({ error: "GROQ_API_KEY is not configured on the server." });
+      return;
+    }
+
+    const enriched = await enrichQuestionsBatch(questions, apiKey, 3);
+    res.json({ enriched });
+  } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     res.status(500).json({ error: message });
   }

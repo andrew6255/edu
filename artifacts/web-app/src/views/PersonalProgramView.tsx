@@ -29,6 +29,8 @@ import LatexMarkdown from '@/components/ui/LatexMarkdown';
 interface Props {
   programId: string | null;
   onBack: () => void;
+  sandboxData?: PersonalProgramData;
+  sandboxMeta?: PersonalProgramMeta;
 }
 
 function renderWithMath(text: string) {
@@ -36,7 +38,7 @@ function renderWithMath(text: string) {
   return <LatexMarkdown content={text} />;
 }
 
-export default function PersonalProgramView({ programId, onBack }: Props) {
+export default function PersonalProgramView({ programId, onBack, sandboxData, sandboxMeta }: Props) {
   const { user } = useAuth();
   const [meta, setMeta] = useState<PersonalProgramMeta | null>(null);
   const [programData, setProgramData] = useState<PersonalProgramData | null>(null);
@@ -46,6 +48,7 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
   const [answeredIds, setAnsweredIds] = useState<Set<string>>(new Set());
   const [whiteboardPages, setWhiteboardPages] = useState<WhiteboardPageData[] | null>(null);
+  const [sandboxWhiteboards, setSandboxWhiteboards] = useState<Record<string, WhiteboardPageData[]>>({});
   const [loadingWhiteboard, setLoadingWhiteboard] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [showRefresh, setShowRefresh] = useState(false);
@@ -70,6 +73,12 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
 
   // Load program metadata and data
   useEffect(() => {
+    if (sandboxData && sandboxMeta) {
+      setProgramData(sandboxData);
+      setMeta(sandboxMeta);
+      setLoading(false);
+      return;
+    }
     if (!user || !programId) return;
     let cancelled = false;
 
@@ -182,8 +191,12 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
 
   // Open question whiteboard
   const openQuestion = useCallback(async (questionId: string) => {
-    if (!user || !programId) return;
     setActiveQuestionId(questionId);
+    if (sandboxData) {
+      setWhiteboardPages(sandboxWhiteboards[questionId] || null);
+      return;
+    }
+    if (!user || !programId) return;
     setLoadingWhiteboard(true);
     try {
       const pages = await loadQuestionWhiteboard(user.uid, programId, questionId);
@@ -197,7 +210,12 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
 
   // Auto-save whiteboard
   const handleWhiteboardPagesChange = useCallback((pages: any[]) => {
-    if (!user || !programId || !activeQuestionId) return;
+    if (!activeQuestionId) return;
+    if (sandboxData) {
+      setSandboxWhiteboards(prev => ({ ...prev, [activeQuestionId]: pages }));
+      return;
+    }
+    if (!user || !programId) return;
     latestPagesRef.current = pages as WhiteboardPageData[];
     setSaveStatus('saving');
     // Debounce save
@@ -215,6 +233,11 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
 
   // Close whiteboard and save
   const closeWhiteboard = useCallback(async () => {
+    if (sandboxData) {
+      setActiveQuestionId(null);
+      setWhiteboardPages(null);
+      return;
+    }
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -234,6 +257,15 @@ export default function PersonalProgramView({ programId, onBack }: Props) {
 
   const handleToggleSolved = async (e: React.MouseEvent, questionId: string) => {
     e.stopPropagation();
+    if (sandboxData) {
+      setAnsweredIds(prev => {
+        const next = new Set(prev);
+        if (next.has(questionId)) next.delete(questionId);
+        else next.add(questionId);
+        return next;
+      });
+      return;
+    }
     if (!user || !programId) return;
     try {
       const isSolved = await toggleQuestionSolved(user.uid, programId, questionId);

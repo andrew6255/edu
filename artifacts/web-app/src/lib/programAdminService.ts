@@ -12,6 +12,7 @@ export type ProgramAdminRecord = {
   programMeta?: unknown;
   questionBanksByChapter?: unknown;
   rankedTotalQuestionCount?: number;
+  adminWhiteboardData?: unknown;
   deletedAt?: string;
   updatedAt?: string;
 };
@@ -29,17 +30,20 @@ function parseJsonField(value: unknown): unknown {
 }
 
 function fromSupabaseRow(row: Record<string, unknown>): ProgramAdminRecord {
+  const builderSpec = parseJsonField(row.builder_spec) as Record<string, unknown> | undefined;
+  const adminWhiteboardData = builderSpec?._adminWhiteboardData;
   return {
     id: String(row.id ?? ''),
     title: typeof row.title === 'string' ? row.title : undefined,
     subject: typeof row.subject === 'string' ? row.subject : undefined,
     grade_band: typeof row.grade_band === 'string' ? row.grade_band : undefined,
     coverEmoji: typeof row.cover_emoji === 'string' ? row.cover_emoji : undefined,
-    builderSpec: parseJsonField(row.builder_spec),
+    builderSpec,
     toc: parseJsonField(row.toc),
     annotations: parseJsonField(row.annotations),
     programMeta: parseJsonField(row.program_meta),
     questionBanksByChapter: parseJsonField(row.question_banks_by_chapter),
+    adminWhiteboardData,
     rankedTotalQuestionCount: typeof row.ranked_total_question_count === 'number' ? row.ranked_total_question_count : undefined,
     deletedAt: typeof row.deleted_at === 'string' ? row.deleted_at : undefined,
     updatedAt: typeof row.updated_at === 'string' ? row.updated_at : undefined,
@@ -47,13 +51,17 @@ function fromSupabaseRow(row: Record<string, unknown>): ProgramAdminRecord {
 }
 
 function toSupabaseRow(id: string, payload: Record<string, unknown>, status: 'draft' | 'published'): Record<string, unknown> {
+  const builder_spec = payload.builderSpec && typeof payload.builderSpec === 'object'
+    ? { ...(payload.builderSpec as Record<string, unknown>), _adminWhiteboardData: payload.adminWhiteboardData }
+    : { _adminWhiteboardData: payload.adminWhiteboardData };
+
   return {
     id,
     title: payload.title,
     subject: payload.subject,
     grade_band: payload.grade_band,
     cover_emoji: payload.coverEmoji,
-    builder_spec: payload.builderSpec,
+    builder_spec,
     toc: payload.toc,
     annotations: payload.annotations,
     program_meta: payload.programMeta,

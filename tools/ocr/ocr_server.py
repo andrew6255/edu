@@ -423,30 +423,50 @@ def phase2_questions():
             return jsonify({"error": "GROQ_API_KEY not found in .env.local"}), 401
 
         client = groq.Groq(api_key=GROQ_API_KEY)
-        
-        system_prompt = (
-            "You are a strict data extraction assistant. Your job is to extract all the specific questions "
-            "from the OCR text provided and group them by their semantic question type.\n\n"
-            "RULES:\n"
-            "1. Output ONLY a valid JSON object containing a 'topics' array.\n"
-            "2. Group the extracted questions by their semantic question type (e.g., 'Finding equation of the line', 'Generating points from an equation'). Set this as the 'title' of the topic.\n"
-            "3. Each topic must have an 'id' (e.g., 't1', 't2') and a 'questions' array.\n"
-            "4. Distinguish between 'independent questions sharing an instruction' and 'multi-part questions sharing a scenario/given':\n"
-            "   - If a shared instruction applies to multiple independent questions (e.g., 'Find the derivatives:' followed by 'a) f(x)=cos(x)', 'b) f(x)=sin(x)'), output them as SEPARATE items in the 'questions' array. You MUST prepend the shared instruction to EVERY single item's 'rawText' so each question is fully independent. For example, output 'Find the derivative of f(x)=cos(x)' AND 'Find the derivative of f(x)=sin(x)'. Do NOT just output 'f(x)=sin(x)'. Do NOT use the 'context' or 'subQuestions' fields for this case.\n"
-            "   - If an exercise introduces a specific scenario or 'given' that has multi-step sub-questions analyzing that SAME scenario (e.g., 'Given f(x)=cos(x). a) Find its derivative. b) Evaluate f(2).'), output this as a SINGLE item in the 'questions' array.\n"
-            "     For this single multi-part item, provide:\n"
-            "       - 'rawText': The full exact text of the entire exercise.\n"
-            "       - 'context': The overarching scenario/given text (e.g., 'Given f(x)=cos(x).').\n"
-            "       - 'subQuestions': An array of objects, each containing 'label' (e.g., 'a)') and 'rawText' (the text of the sub-question).\n"
-            "5. Extract each question EXACTLY as written. Do NOT rephrase. Keep all LaTeX formatting intact.\n"
-            "6. CRITICAL: You MUST double-escape all backslashes in LaTeX formulas so they are valid JSON strings. For example, output '\\\\frac{3}{2}' instead of '\\frac{3}{2}'.\n"
-            "7. Do NOT output incomplete fragments as separate questions. If a question is fragmented or interrupted by a section header, ignore the header and seamlessly merge the question parts into a single string.\n"
+
+        # ── PASS 1 ─────────────────────────────────────────────────────────────
+        # Structural analysis + Q&A pairing.
+        # The LLM first understands the layout of the document (questions section,
+        # answer-key section, inline answers, etc.) and extracts every Q&A pair.
+        # If no answer exists in the PDF it generates a correct model answer.
+        # ────────────────────────────────────────────────────────────────────────
+        pass1_system = (
+            "You are a strict educational document parser. Your job is to extract every "
+            "question from a worksheet/exam and match it with its correct answer.\n\n"
+            "STEP 1 — Understand the document structure:\n"
+            "  • Look for an 'Answer Key', 'Answers', 'Solutions' section (often at the end).\n"
+            "  • Answers may also appear inline right after each question.\n"
+            "  • Irrelevant content (headers, student names, dates, instructions, page numbers) must be DROPPED.\n\n"
+            "STEP 2 — Extract every question:\n"
+            "  • Extract EXACTLY as written. Do NOT rephrase.\n"
+            "  • If a shared instruction applies to multiple independent sub-items "
+            "(e.g. 'Find the derivative: a) f(x)=cos(x) b) f(x)=sin(x)'), expand each into a "
+            "fully self-contained question by prepending the instruction. Output 'Find the derivative of f(x)=cos(x)' "
+            "AND 'Find the derivative of f(x)=sin(x)' as SEPARATE questions.\n"
+            "  • Double-escape all LaTeX backslashes for valid JSON (e.g. '\\\\frac' not '\\frac').\n\n"
+            "STEP 3 — Match each question to its answer:\n"
+            "  • Use any Answer Key, inline answer, or worked solution found in the PDF.\n"
+            "  • Set 'answerFromPdf': true when an answer was found in the document.\n"
+            "  • If no answer exists in the PDF, GENERATE a correct model answer yourself and set 'answerFromPdf': false.\n\n"
+            "OUTPUT FORMAT — Return ONLY a valid JSON object with this exact shape:\n"
+            "{\n"
+            "  \"questions\": [\n"
+            "    {\n"
+            "      \"id\": \"q_1\",\n"
+            "      \"label\": \"1.\",\n"
+            "      \"rawText\": \"Exact question text here\",\n"
+            "      \"answerFromPdf\": true,\n"
+            "      \"rawAnswerText\": \"Answer exactly as in PDF, or null\",\n"
+            "      \"modelAnswer\": \"Clean, correct final answer\"\n"
+            "    }\n"
+            "  ]\n"
+            "}\n"
         )
 
-        print("[OCR Server] Phase 2: Calling Groq API...", flush=True)
-        response = client.chat.completions.create(
+        print("[OCR Server] Phase 2 — Pass 1: Extracting Q&A pairs...", flush=True)
+        pass1_response = client.chat.completions.create(
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": pass1_system},
                 {"role": "user", "content": text}
             ],
             model="llama-3.3-70b-versatile",
@@ -454,8 +474,89 @@ def phase2_questions():
             response_format={"type": "json_object"}
         )
 
-        result_text = response.choices[0].message.content
-        result_json = json.loads(result_text)
+        pass1_json = json.loads(pass1_response.choices[0].message.content)
+        qa_pairs = pass1_json.get("questions", [])
+        print(f"[OCR Server] Phase 2 — Pass 1 done. Extracted {len(qa_pairs)} Q&A pair(s).", flush=True)
+
+        if not qa_pairs:
+            result_json = {"topics": []}
+        else:
+            # ── PASS 2 ─────────────────────────────────────────────────────────
+            # Classification into fine-grained question types.
+            # The LLM sees ALL questions together so it can reason holistically
+            # about what makes each cluster distinct.
+            # ──────────────────────────────────────────────────────────────────
+            pass2_system = (
+                "You are an expert curriculum designer. You are given a list of extracted math/science questions "
+                "from a single worksheet. Your job is to classify them into specific, descriptive question types.\n\n"
+                "RULES FOR QUESTION TYPE NAMES:\n"
+                "  • Names must be SPECIFIC and DESCRIPTIVE, not generic.\n"
+                "  • Good examples: 'Finding equation of line using two points', "
+                "'Expanding using Newton's Binomial Theorem', 'Solving quadratic by completing the square'.\n"
+                "  • Bad examples: 'Line questions', 'Algebra', 'Practice'.\n"
+                "  • If there are subtle differences between groups of questions, create separate types for each.\n"
+                "  • Analyze ALL questions together before deciding on types — don't classify one at a time.\n\n"
+                "OUTPUT FORMAT — Return ONLY a valid JSON object with this exact shape:\n"
+                "{\n"
+                "  \"topics\": [\n"
+                "    {\n"
+                "      \"id\": \"t1\",\n"
+                "      \"title\": \"Specific descriptive question type name\",\n"
+                "      \"questions\": [\n"
+                "        {\n"
+                "          \"id\": \"q_1\",\n"
+                "          \"label\": \"1.\",\n"
+                "          \"rawText\": \"Exact question text\",\n"
+                "          \"answerFromPdf\": true,\n"
+                "          \"rawAnswerText\": \"answer or null\",\n"
+                "          \"modelAnswer\": \"clean correct answer\"\n"
+                "        }\n"
+                "      ]\n"
+                "    }\n"
+                "  ]\n"
+                "}\n"
+                "IMPORTANT: Include ALL question IDs from the input. Do not drop any questions."
+            )
+
+            # Compact input for Pass 2 (summaries only — saves tokens)
+            pass2_input = json.dumps({
+                "questions": [
+                    {"id": q.get("id"), "rawText": q.get("rawText"), "modelAnswer": q.get("modelAnswer")}
+                    for q in qa_pairs
+                ]
+            }, ensure_ascii=False)
+
+            print("[OCR Server] Phase 2 — Pass 2: Classifying into question types...", flush=True)
+            pass2_response = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": pass2_system},
+                    {"role": "user", "content": pass2_input}
+                ],
+                model="llama-3.3-70b-versatile",
+                temperature=0.0,
+                response_format={"type": "json_object"}
+            )
+
+            pass2_json = json.loads(pass2_response.choices[0].message.content)
+            topics_raw = pass2_json.get("topics", [])
+
+            # Merge the full Q&A data (from Pass 1) back into the classified topics
+            qa_by_id = {q.get("id"): q for q in qa_pairs}
+            topics_merged = []
+            for topic in topics_raw:
+                merged_questions = []
+                for q in topic.get("questions", []):
+                    full_q = qa_by_id.get(q.get("id"), q)
+                    merged_questions.append(full_q)
+                topics_merged.append({
+                    "id": topic.get("id"),
+                    "title": topic.get("title"),
+                    "questions": merged_questions,
+                })
+
+            result_json = {"topics": topics_merged}
+
+        print(f"[OCR Server] Phase 2 Done — {len(result_json.get('topics', []))} topic(s).", flush=True)
 
         output = {
             "phase": "phase2_questions",
@@ -467,7 +568,6 @@ def phase2_questions():
             json.dumps(output, ensure_ascii=False, indent=2),
             encoding="utf-8"
         )
-        print(f"[OCR Server] Phase 2 Done — wrote {OUTPUT_PHASE_2_FILE}", flush=True)
 
         return jsonify(output)
 
@@ -494,12 +594,14 @@ def phase2_questions():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import logging
+    from waitress import serve
+    
     print(f"[OCR Server] PyMuPDF   : {fitz.__version__}", flush=True)
     print(f"[OCR Server] pix2text  : {'yes' if PIX2TEXT_AVAILABLE else 'no (install: pip install pix2text)'}", flush=True)
     print(f"[OCR Server] Tesseract : {'yes' if TESSERACT_AVAILABLE else 'no'}", flush=True)
     print(f"[OCR Server] Output    : {OUTPUT_FILE}", flush=True)
-    print(f"[OCR Server] Starting on http://localhost:5100 ...", flush=True)
-    # threaded=True keeps the server alive while a long OCR request runs —
-    # without it a single slow pix2text call blocks the entire process and
-    # the browser sees ERR_CONNECTION_RESET.
-    app.run(host="0.0.0.0", port=5100, debug=False, threaded=True)
+    print(f"[OCR Server] Starting on http://0.0.0.0:5100 ...", flush=True)
+    
+    # Use Waitress WSGI server for production
+    serve(app, host="0.0.0.0", port=5100, threads=8)

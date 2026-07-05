@@ -175,3 +175,13 @@ export async function publishIngestionJob(jobId: string): Promise<{ programId: s
   });
   return expectJson<{ programId: string }>(response);
 }
+
+export async function generateEmojiWithLlm(name: string, subject: string): Promise<string> {
+  const response = await fetch(`${getProgramIngestionApiBase()}/emoji`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, subject }),
+  });
+  const data = await expectJson<{ emoji: string }>(response);
+  return data.emoji;
+}

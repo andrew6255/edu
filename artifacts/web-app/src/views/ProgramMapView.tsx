@@ -2796,53 +2796,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
         <div style={{ color: 'white', fontWeight: 800, fontSize: 14, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {title}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 1 }}>
-          {(['solo', 'ranked', 'friend'] as const).map((m) => {
-            const active = headerMode === m;
-            const label = m === 'solo' ? 'Solo Practice' : m === 'ranked' ? 'Ranked' : 'Play a Friend';
-            const modeLocked = screen === 'practice' && !studyPickMode;
-            return (
-              <button
-                key={m}
-                onClick={() => {
-                  if (modeLocked) return;
-                  setHeaderMode(m);
-                }}
-                className={active ? 'll-btn ll-btn-primary' : 'll-btn'}
-                disabled={modeLocked}
-                style={{
-                  padding: '6px 10px',
-                  fontSize: 12,
-                  opacity: modeLocked ? 0.6 : 1,
-                  background: active
-                    ? (m === 'solo' ? '#10b981' : m === 'ranked' ? 'rgba(251,191,36,0.95)' : undefined)
-                    : undefined,
-                  borderColor: active
-                    ? (m === 'solo' ? '#059669' : m === 'ranked' ? 'rgba(217,119,6,1)' : undefined)
-                    : undefined,
-                  color: active && m === 'ranked' ? '#0b1220' : undefined,
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-        <div style={{ flex: 1, textAlign: 'right' }}>
-          <button
-            className="ll-btn"
-            style={{ padding: '6px 10px', fontSize: 12, fontWeight: 900, color: '#fbbf24', borderColor: 'rgba(251,191,36,0.35)' }}
-            onClick={() => setShowRankRoadmap(true)}
-            disabled={playableOverallTotal <= 0}
-            title={playableOverallTotal <= 0 ? 'No ranked progress available yet' : 'View ranks roadmap'}
-          >
-            {(() => {
-              if (playableOverallTotal <= 0) return '🏆 —';
-              const r = computeRankInfo({ trophies: rankedTrophies, totalQuestions: playableOverallTotal });
-              return `🏆 ${rankedTrophies} • ${r.name}`;
-            })()}
-          </button>
-        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flex: 1 }}></div>
+        <div style={{ flex: 1, textAlign: 'right' }}></div>
       </div>
 
       {!programId ? (

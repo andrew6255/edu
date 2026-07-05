@@ -246,7 +246,8 @@ interface PageCanvasProps {
   onToggleAI?: () => void;
 }
 
-const LatexRenderer = ({ content }: { content: string }) => {
+const LatexRenderer = ({ content }: { content?: string }) => {
+  if (!content) return null;
   const parts = content.split(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g);
   return (
     <span>
@@ -428,7 +429,9 @@ const PageCanvas = memo(function PageCanvas({
       {/* Static Question Overlay */}
       {pageIndex === 0 && currentQuestion && (() => {
         const isMulti = typeof currentQuestion !== 'string' && currentQuestion.subQuestions && currentQuestion.subQuestions.length > 0;
-        const mainText = typeof currentQuestion === 'string' ? currentQuestion : currentQuestion.context || currentQuestion.rawText;
+        const mainText = typeof currentQuestion === 'string' 
+          ? currentQuestion 
+          : currentQuestion.context || currentQuestion.rawText || currentQuestion.promptBlocks?.[0]?.text;
         const subQuestions = isMulti ? (currentQuestion as any).subQuestions : [];
 
         // Simple heuristic for dynamic Y positions: 
@@ -601,7 +604,7 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
     initialPages && initialPages.length > 0 ? (initialPages as PageData[]) : [{ id: uid(), strokes: [], annotations: [] }]
   );
 
-  // Reset pages whenever a new question (new initialPages) is loaded
+  // Reset pages whenever a new question is loaded
   useEffect(() => {
     setPages(
       initialPages && initialPages.length > 0
@@ -611,7 +614,7 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
     setUndoStack([]);
     setRedoStack([]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPages]);
+  }, [typeof currentQuestion === 'string' ? currentQuestion : currentQuestion?.id]);
 
   // ── Auto-save: fire onPagesChange on every pages mutation ──
   useEffect(() => {
@@ -995,6 +998,16 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
 
+      {/* ═══ BACK BUTTON ═══ */}
+      <button 
+        onClick={onClose} 
+        style={{ position: 'absolute', top: 16, left: 16, zIndex: 9999, padding: '8px 16px', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'white', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 6, backdropFilter: 'blur(10px)', boxShadow: '0 4px 12px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}
+        onMouseOver={e => e.currentTarget.style.background = 'rgba(30, 41, 59, 0.9)'}
+        onMouseOut={e => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.8)'}
+      >
+        <span>←</span> Back
+      </button>
+
       {/* ═══ SCROLLABLE PAGE CONTAINER ═══ */}
       <div className="fsw-scroll" ref={scrollRef} style={{ paddingBottom: aiPanelOpen ? 370 : 0 }}>
         <div className="fsw-pages-stack">
@@ -1228,6 +1241,11 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         hasStrokes={totalStrokes > 0}
         isOpen={aiPanelOpen}
         onClose={() => setAiPanelOpen(false)}
+        precomputedSolution={typeof currentQuestion !== 'string' ? (currentQuestion as any)?.solution : undefined}
+        precomputedSolutionPlan={typeof currentQuestion !== 'string' ? (currentQuestion as any)?.solutionPlan : undefined}
+        precomputedHint={typeof currentQuestion !== 'string' ? (currentQuestion as any)?.hint : undefined}
+        precomputedGradingSchema={typeof currentQuestion !== 'string' ? (currentQuestion as any)?.gradingSchema : undefined}
+        modelAnswer={typeof currentQuestion !== 'string' ? (currentQuestion as any)?.modelAnswer : undefined}
       />
 
       {/* ═══ STYLES ═══ */}

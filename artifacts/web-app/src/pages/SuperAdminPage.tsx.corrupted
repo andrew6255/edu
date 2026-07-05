@@ -1,4 +1,6 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import PersonalProgramView from '@/views/PersonalProgramView';
+import { PersonalProgramData, PersonalProgramMeta } from '@/lib/personalProgramService';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -20,7 +22,10 @@ import {
   AdminTeacherAssignment, 
   ParentStudentLink 
 } from '@/lib/userService';
-import ProgramsAdminComponent from '@/components/superadmin/ProgramsAdmin';
+import { 
+  convertNestedProgramToInternal, 
+  parseNestedProgramJson 
+} from '@/lib/programNestedImport';
 import {
   BUILDER_DIVISION_LABELS,
   FIXED_FIRST_DIVISION_NODE_ID,
@@ -52,6 +57,13 @@ import LatexMarkdown from '@/components/ui/LatexMarkdown';
 import { clearDraftProgram, setDraftProgram } from '@/lib/draftProgramStore';
 import { deleteProgramQuestionAsset, uploadProgramQuestionAsset } from '@/lib/programAssetService';
 import type { LogicGameNode, LogicGameQuestionsDoc, LogicGameQuestion } from '@/types/logicGames';
+import { runPhase1Ocr } from '@/lib/localOcrPipeline';
+import {
+  createProgramIngestionJob,
+  runProgramIngestionStage,
+  uploadProgramIngestionSource,
+  getProgramIngestionJob,
+} from '@/lib/programIngestionService';
 import {
   deleteDraftProgramAdmin,
   getDraftProgramAdmin,
@@ -62,6 +74,9 @@ import {
   savePublishedProgramAdmin,
   softDeletePublishedProgramAdmin,
 } from '@/lib/programAdminService';
+import { parseAIProgramImport } from '@/lib/aiProgramImport';
+import ProgramExplorerUploadModal from '@/components/superadmin/ProgramExplorerUploadModal';
+import { convertNotebookExerciseToBuilderQuestions, validateNotebookExerciseImport, type NotebookValidationResult } from '@/lib/notebookProgramImport';
 
 
 type Tab = 'overview' | 'users' | 'programs' | 'logicGames';
@@ -744,7 +759,7 @@ export default function SuperAdminPage() {
 
         {/* ── PROGRAMS ── */}
         <div style={{ display: tab === 'programs' ? 'block' : 'none' }}>
-          <ProgramsAdminComponent />
+          <ProgramsAdmin />
         </div>
 
         {/* ── LOGIC GAMES ── */}
@@ -907,7 +922,8 @@ export default function SuperAdminPage() {
           </>
         );
       })()}
-    </div>
+
+      }    </div>
   );
 }
 
@@ -1821,10 +1837,1201 @@ function LogicGamesAdmin() {
           </div>
         </>
       )}
-    </div>
+
+      }    </div>
   );
 }
 
-// ProgramsAdmin has been moved to @/components/superadmin/ProgramsAdmin.tsx
-// It is imported above as ProgramsAdminComponent.
+function ProgramsAdmin() {
+  const { user, userData } = useAuth();
+  const [items, setItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string }>>([]);
+  const [draftItems, setDraftItems] = useState<Array<{ id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+    const [sandboxWorksheet, setSandboxWorksheet] = useState<any | null>(null);
+const [view, setView] = useState<'list' | 'builder' | 'preview' | 'worksheet_sandbox'>('list');
+  const [previewReturnView, setPreviewReturnView] = useState<'list' | 'builder'>('list');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState('');
+  const [draftTitle, setDraftTitle] = useState('');
+  const [draftSubject, setDraftSubject] = useState('mathematics');
+  const [draftGradeBand, setDraftGradeBand] = useState('');
+  const [draftEmoji, setDraftEmoji] = useState('📘');
+  const [draftTocJson, setDraftTocJson] = useState('');
+  const [draftQuestionBankJson, setDraftQuestionBankJson] = useState('');
+  const [draftAnnotationsJson, setDraftAnnotationsJson] = useState('');
+  const [draftProgramMetaJson, setDraftProgramMetaJson] = useState('');
+  const [draftNestedJson, setDraftNestedJson] = useState('');
+  const [nestedGenStatus, setNestedGenStatus] = useState<string>('');
 
+  const [builder, setBuilder] = useState<BuilderSpec>(() => newBuilderSpec());
+  const [builderPathIds, setBuilderPathIds] = useState<string[]>(['root']);
+  const [explorerUploadOpen, setExplorerUploadOpen] = useState(false);
+  const [subjectPopupOpen, setSubjectPopupOpen] = useState(false);
+  const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null);
+  const [renamingValue, setRenamingValue] = useState('');
+  const [showNewDraftModal, setShowNewDraftModal] = useState(false);
+  const [newDraftData, setNewDraftData] = useState({ title: '', emoji: '', subject: '' });
+      const [customSubjects, setCustomSubjects] = useState<string[]>([]);
+  const [newSubjectText, setNewSubjectText] = useState('');
+
+
+  useEffect(() => {
+    if (!builder.coverEmoji && builder.subject) {
+      const s = builder.subject.toLowerCase();
+      const emojiMap: Record<string, string> = {
+        mathematics: '📐', math: '📐',
+        science: '🔬', physics: '🔬', chemistry: '🔬', biology: '🔬',
+        history: '📜', geography: '🌍',
+        language: '📚', english: '📚',
+        logic: '🧠', puzzles: '🧠',
+        art: '🎨', music: '🎵'
+      };
+      const found = Object.keys(emojiMap).find(k => s.includes(k));
+      if (found) {
+        setBuilder(b => ({ ...b, coverEmoji: emojiMap[found] }));
+      } else if (s.length > 2) {
+        setBuilder(b => ({ ...b, coverEmoji: '📘' }));
+      }
+    }
+  }, [builder.subject, builder.coverEmoji]);
+
+  const [builderSelectedQuestionTypeId, setBuilderSelectedQuestionTypeId] = useState<string | null>(null);
+  const [previewProgramId, setPreviewProgramId] = useState<string | null>(null);
+
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadedImageErr, setUploadedImageErr] = useState<string>('');
+
+  const [digitalizeFiles, setDigitalizeFiles] = useState<File[]>([]);
+  const [digitalizeBusy, setDigitalizeBusy] = useState(false);
+  const [digitalizeStatus, setDigitalizeStatus] = useState('');
+  const [digitalizeError, setDigitalizeError] = useState('');
+  const [digitalizePastedText, setDigitalizePastedText] = useState('');
+  const [aiImportJson, setAiImportJson] = useState('');
+  const [aiImportStatus, setAiImportStatus] = useState('');
+  const [aiImportError, setAiImportError] = useState('');
+  const [notebookImportJson, setNotebookImportJson] = useState('');
+  const [notebookValidation, setNotebookValidation] = useState<NotebookValidationResult | null>(null);
+
+  const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '10px 13px',
+    marginBottom: 12,
+    borderRadius: 8,
+    border: '1px solid #475569',
+    background: 'rgba(0,0,0,0.4)',
+    color: 'white',
+    boxSizing: 'border-box',
+    fontSize: 14,
+    fontFamily: 'inherit',
+    outline: 'none',
+  };
+
+  function cleanGeneratedTitle(raw: string | null | undefined, fallbackFileName?: string): string {
+    const source = (raw ?? '').trim() || (fallbackFileName ?? '').replace(/\.[^.]+$/, '');
+    const withoutPrefix = source.replace(/^[a-z0-9]{6,}(?:[-_\s]+|$)/i, '');
+    const normalized = withoutPrefix
+      .replace(/[_-]+/g, ' ')
+      .replace(/\bEquation\s*20a\b/i, 'Equation')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized || /^[a-z0-9]{6,}$/i.test(normalized) || /^worksheet$/i.test(normalized)) return 'Imported Worksheet';
+    return normalized;
+  }
+
+  function cleanFolderLabel(raw: string): string {
+    const cleaned = raw
+      .replace(/\.[^.]+$/, '')
+      .replace(/^[a-z0-9]{6,}[-_]+/i, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return cleaned || 'Topic 1';
+  }
+
+  function summarizeImportedTopic(text: string): string {
+    const joined = text.toLowerCase();
+    if (/equation of the line|line passes through|points .* line|y\s*=/.test(joined)) return 'Lines and Linear Equations';
+    if (/graph|coordinate/.test(joined)) return 'Graphs and Coordinates';
+    if (/fraction/.test(joined)) return 'Fractions';
+    if (/algebra/.test(joined)) return 'Algebra Practice';
+    return 'Worksheet Practice';
+  }
+
+  function chooseImportedQuestionTypeTitle(text: string): string {
+    if (/equation of the line|line passes through|points .* line|y\s*=/.test(text.toLowerCase())) return 'Line Questions';
+    return 'Practice Questions';
+  }
+
+  function normalizeOrganizationLabel(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  function extractQuestionPromptText(question: Record<string, unknown>): string {
+    const promptBlocks = Array.isArray(question.promptBlocks) ? question.promptBlocks as Array<Record<string, unknown>> : [];
+    return promptBlocks
+      .map((block) => (typeof block?.text === 'string' ? block.text : (typeof block?.latex === 'string' ? block.latex : '')))
+      .join('\n')
+      .trim() || (typeof question.question === 'string' ? question.question : '');
+  }
+
+  function buildImportedQuestionSignature(question: Record<string, unknown>): string {
+    const promptText = normalizeOrganizationLabel(extractQuestionPromptText(question));
+    const interaction = question.interaction as { type?: string; final?: { type?: string } } | null | undefined;
+    const interactionType = typeof interaction?.type === 'string'
+      ? (interaction.type === 'composite' ? `composite:${interaction.final?.type ?? 'unknown'}` : interaction.type)
+      : 'unknown';
+    return `${interactionType}::${promptText}`;
+  }
+
+  function classifyImportedQuestionType(
+    interaction: ProgramAtomicInteractionSpec | ({ type: 'composite'; final: ProgramAtomicInteractionSpec; steps: ProgramStepSpec[]; allowDirectFinalAnswer?: boolean; scoreStrategy?: 'final_only' | 'final_plus_steps' }) | null,
+    questionText: string,
+  ): string {
+    const lower = questionText.toLowerCase();
+    if (interaction?.type === 'composite') {
+      if (interaction.steps.some((step) => step.interaction.type === 'points_on_line')) return 'Find Equation and Other Points';
+      return 'Multi-Step Questions';
+    }
+    if (interaction?.type === 'point_list') return 'Generate Points from Equation';
+    if (interaction?.type === 'points_on_line') return 'Find Other Points on the Line';
+    if (interaction?.type === 'line_equation') return 'Find Equation from Two Points';
+    if (/find\s+3\s+other\s+points|other\s+points\s+.*line/.test(lower)) return 'Find Equation and Other Points';
+    if (/list\s+10\s+points|generate\s+10\s+points|points\s+that\s+(?:lie|satisfy)/.test(lower)) return 'Generate Points from Equation';
+    if (/equation of the line|passing through the points|passes through/.test(lower)) return 'Find Equation from Two Points';
+    return chooseImportedQuestionTypeTitle(questionText);
+  }
+
+  function collectBuilderQuestions(node: BuilderNode): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const qt of node.questionTypes) {
+      try {
+        const parsed = JSON.parse(qt.jsonText);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+              out.push(item as Record<string, unknown>);
+            }
+          }
+        }
+      } catch {
+        // ignore malformed builder question JSON during auto-organization
+      }
+    }
+    for (const child of node.children) {
+      out.push(...collectBuilderQuestions(child));
+    }
+    return out;
+  }
+
+  function collectExistingOrganizationTitles(chapters: BuilderNode[]): {
+    chapterTitlesByKey: Map<string, string>;
+    questionTypeTitlesByKey: Map<string, string>;
+  } {
+    const chapterTitlesByKey = new Map<string, string>();
+    const questionTypeTitlesByKey = new Map<string, string>();
+    for (const chapter of chapters) {
+      const chapterKey = normalizeOrganizationLabel(chapter.title);
+      if (chapterKey && !chapterTitlesByKey.has(chapterKey)) {
+        chapterTitlesByKey.set(chapterKey, chapter.title);
+      }
+      for (const qt of chapter.questionTypes) {
+        const qtKey = normalizeOrganizationLabel(qt.title);
+        if (qtKey && !questionTypeTitlesByKey.has(qtKey)) {
+          questionTypeTitlesByKey.set(qtKey, qt.title);
+        }
+      }
+    }
+    return { chapterTitlesByKey, questionTypeTitlesByKey };
+  }
+
+  function rebuildImportedOrganization(
+    prev: BuilderSpec,
+    importedQuestions: Array<Record<string, unknown>>,
+    fallbackChapterTitle: string,
+    fallbackProgramTitle: string,
+  ): { builder: BuilderSpec; selectedPathIds: string[]; selectedQuestionTypeId: string | null } {
+    const spec = ensureFixedFirstDivisionContainer({ ...prev, divisions: ['Chapters'] });
+    const fixedIdx = spec.root.children.findIndex((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID);
+    const fixed = fixedIdx >= 0 ? spec.root.children[fixedIdx]! : { id: FIXED_FIRST_DIVISION_NODE_ID, title: 'Chapters', children: [], questionTypes: [] };
+    const { chapterTitlesByKey, questionTypeTitlesByKey } = collectExistingOrganizationTitles(fixed.children);
+    const existingQuestions = fixed.children.flatMap((chapter) => collectBuilderQuestions(chapter));
+    const dedupedQuestions: Array<Record<string, unknown>> = [];
+    const seenQuestionSignatures = new Set<string>();
+    for (const question of [...existingQuestions, ...importedQuestions]) {
+      const signature = buildImportedQuestionSignature(question);
+      if (!signature || seenQuestionSignatures.has(signature)) continue;
+      seenQuestionSignatures.add(signature);
+      dedupedQuestions.push(question);
+    }
+    const chapterMap = new Map<string, { title: string; questionTypes: Map<string, Array<Record<string, unknown>>> }>();
+
+    for (const question of dedupedQuestions) {
+      const promptText = extractQuestionPromptText(question);
+      const classifiedChapterTitle = summarizeImportedTopic(promptText) || fallbackChapterTitle || 'Worksheet Practice';
+      const classifiedChapterKey = normalizeOrganizationLabel(classifiedChapterTitle);
+      const chapterTitle = chapterTitlesByKey.get(classifiedChapterKey) ?? classifiedChapterTitle;
+      const chapterKey = normalizeOrganizationLabel(chapterTitle);
+      const interaction = (question.interaction ?? null) as ProgramAtomicInteractionSpec | ({ type: 'composite'; final: ProgramAtomicInteractionSpec; steps: ProgramStepSpec[]; allowDirectFinalAnswer?: boolean; scoreStrategy?: 'final_only' | 'final_plus_steps' }) | null;
+      const classifiedQuestionTypeTitle = classifyImportedQuestionType(interaction, promptText);
+      const questionTypeTitle = questionTypeTitlesByKey.get(normalizeOrganizationLabel(classifiedQuestionTypeTitle)) ?? classifiedQuestionTypeTitle;
+      const questionTypeKey = normalizeOrganizationLabel(questionTypeTitle);
+      const existingChapter = chapterMap.get(chapterKey) ?? { title: chapterTitle, questionTypes: new Map<string, Array<Record<string, unknown>>>() };
+      const existingQuestionsForType = existingChapter.questionTypes.get(questionTypeKey) ?? [];
+      existingQuestionsForType.push(question);
+      existingChapter.questionTypes.set(questionTypeKey, existingQuestionsForType);
+      chapterMap.set(chapterKey, existingChapter);
+    }
+
+    const rebuiltChapters: BuilderNode[] = Array.from(chapterMap.values())
+      .sort((a, b) => a.title.localeCompare(b.title))
+      .map((chapter) => ({
+        id: makeStableId('node'),
+        title: cleanGeneratedTitle(chapter.title || fallbackChapterTitle || 'Imported Chapter'),
+        children: [],
+        questionTypes: Array.from(chapter.questionTypes.values())
+          .sort((a, b) => {
+            const aTitle = classifyImportedQuestionType((a[0]?.interaction ?? null) as any, typeof a[0]?.question === 'string' ? a[0]!.question as string : '');
+            const bTitle = classifyImportedQuestionType((b[0]?.interaction ?? null) as any, typeof b[0]?.question === 'string' ? b[0]!.question as string : '');
+            return aTitle.localeCompare(bTitle);
+          })
+          .map((questionsForType) => ({
+            id: makeStableId('qt'),
+            title: classifyImportedQuestionType((questionsForType[0]?.interaction ?? null) as any, typeof questionsForType[0]?.question === 'string' ? questionsForType[0]!.question as string : ''),
+            jsonText: JSON.stringify(questionsForType, null, 2),
+          })),
+      }));
+
+    const nextChildren = [...spec.root.children];
+    const updatedFixed = { ...fixed, title: 'Chapters', children: rebuiltChapters };
+    if (fixedIdx >= 0) {
+      nextChildren[fixedIdx] = updatedFixed;
+    } else {
+      nextChildren.unshift(updatedFixed);
+    }
+
+    const selectedChapter = rebuiltChapters.find((chapter) => {
+      const key = normalizeOrganizationLabel(chapter.title);
+      return key === normalizeOrganizationLabel(fallbackChapterTitle);
+    }) ?? rebuiltChapters[0] ?? null;
+    const selectedQuestionType = selectedChapter?.questionTypes[0] ?? null;
+
+    return {
+      builder: ensureFixedFirstDivisionContainer({
+        ...spec,
+        divisions: ['Chapters'],
+        programTitle: cleanGeneratedTitle(spec.programTitle || fallbackProgramTitle || selectedChapter?.title || 'Imported Worksheet'),
+        root: {
+          ...spec.root,
+          title: spec.root.title === 'Enter program title' ? cleanGeneratedTitle(fallbackProgramTitle || selectedChapter?.title || 'Imported Worksheet') : spec.root.title,
+          children: nextChildren,
+        },
+      }),
+      selectedPathIds: ['root', selectedChapter?.id ?? 'root'],
+      selectedQuestionTypeId: selectedQuestionType?.id ?? null,
+    };
+  }
+
+  function isPlaceholderExtractionText(text: string): boolean {
+    const trimmed = text.trim();
+    return trimmed.length === 0 || /no extractable text found/i.test(trimmed);
+  }
+
+  async function handleDigitalize() {
+    if (!userData || (userData.role !== 'superadmin' && userData.role !== 'admin')) {
+      setDigitalizeError('Only admins and superadmins can digitalize PDFs.');
+      return;
+    }
+    const trimmedPastedText = digitalizePastedText.trim();
+    const filesToProcess = digitalizeFiles.length > 0
+      ? digitalizeFiles
+      : (trimmedPastedText
+          ? [new File([
+              trimmedPastedText,
+            ], `${makeIdFromTitle(builder.programTitle || 'worksheet') || 'worksheet'}.txt`, { type: 'text/plain' })]
+          : []);
+    if (filesToProcess.length === 0) {
+      setDigitalizeError('Add at least one PDF file or paste worksheet text first.');
+      return;
+    }
+    const adminUserId = user?.id;
+    if (!adminUserId) {
+      setDigitalizeError('Authenticated user id is missing. Please sign in again.');
+      return;
+    }
+
+    setDigitalizeBusy(true);
+    setDigitalizeError('');
+    setDigitalizeStatus('Starting digitalization...');
+
+    try {
+      const allQuestions: Array<{
+        id: string;
+        rawText: string;
+        page: number;
+        kind: string;
+        prompt: ProgramPromptBlock[];
+        interaction: ProgramAtomicInteractionSpec | ({ type: 'composite'; final: ProgramAtomicInteractionSpec; steps: ProgramStepSpec[]; allowDirectFinalAnswer?: boolean; scoreStrategy?: 'final_only' | 'final_plus_steps' }) | null;
+        difficulty: 'easy' | 'medium' | 'hard';
+        hint: string[];
+        solution: string | null;
+        explanationScenes: ProgramExplanationScene[];
+        stepSolutions: ProgramStepSpec[];
+      }> = [];
+      let titleGuess = '';
+      let structuredHierarchy: Array<{ id: string; type: string; title: string; children: Array<{ id: string; type: string; title: string; children: unknown[]; questionRefs?: string[]; questionTypeTitle?: string }>; questionRefs?: string[]; questionTypeTitle?: string }> = [];
+
+      for (let fi = 0; fi < filesToProcess.length; fi++) {
+        const file = filesToProcess[fi]!;
+        setDigitalizeStatus(`[${fi + 1}/${filesToProcess.length}] Creating job for ${file.name}...`);
+
+        const created = await createProgramIngestionJob({
+          adminUserId,
+          visibility: 'public',
+          sourceFileName: file.name,
+          title: builder.programTitle.trim() || undefined,
+        });
+
+        setDigitalizeStatus(`[${fi + 1}/${filesToProcess.length}] Uploading ${file.name}...`);
+        await uploadProgramIngestionSource(created.jobId, file);
+
+        const stages = [
+          { stage: 'extractDocument' as const, label: 'Extracting text...' },
+          { stage: 'auditExtraction' as const, label: 'Auditing extraction...' },
+          { stage: 'segmentQuestions' as const, label: 'Segmenting questions...' },
+          { stage: 'normalizeQuestions' as const, label: 'Normalizing with AI...' },
+          { stage: 'structureDraft' as const, label: 'Structuring draft with AI...' },
+        ];
+
+        for (const step of stages) {
+          setDigitalizeStatus(`[${fi + 1}/${filesToProcess.length}] ${step.label}`);
+          await runProgramIngestionStage(created.jobId, step.stage);
+        }
+
+        setDigitalizeStatus(`[${fi + 1}/${filesToProcess.length}] Fetching results...`);
+        const state = await getProgramIngestionJob(created.jobId);
+
+        const extractedPages = ((state.draft as { extractedDocument?: { pages?: Array<{ fullText?: string | null }> } }).extractedDocument?.pages ?? []);
+        const hasReadableExtraction = extractedPages.some((page: { fullText?: string | null }) => !isPlaceholderExtractionText(page.fullText ?? ''));
+        if (!hasReadableExtraction) {
+          throw new Error(
+            `Could not extract readable text from ${file.name}. The PDF appears to be scanned/image-based and OCR did not return usable text. Try a text-based PDF, or we can next improve the OCR prompt/provider.`,
+          );
+        }
+
+        if (!titleGuess && state.draft.extractionReport?.titleGuess) {
+          titleGuess = cleanGeneratedTitle(state.draft.extractionReport.titleGuess, file.name);
+        }
+
+        if (Array.isArray(state.draft.hierarchy) && state.draft.hierarchy.length > 0) {
+          structuredHierarchy = state.draft.hierarchy;
+        }
+
+        for (const q of state.questions) {
+          const nq = q.normalizedQuestion as Record<string, unknown> | null;
+          const prompt = toPromptBlocks(nq?.prompt, q.rawExtractedBlock.rawText);
+          const promptText = prompt.map((b) => ('text' in b ? b.text : 'latex' in b ? b.latex : '')).join(' ').trim() || q.rawExtractedBlock.rawText;
+          if (isPlaceholderExtractionText(promptText)) {
+            continue;
+          }
+          const answerData = asRecord(nq?.answerData);
+          const finalInteraction = deterministicAnswerToInteraction(answerData?.final);
+          const stepSolutions = getNormalizedSolutionSteps(answerData?.steps);
+          const explanationScenes = getNormalizedExplanationScenes(answerData?.explanationScenes);
+          const scoreStrategy: 'final_only' | 'final_plus_steps' = (asRecord(nq?.grading)?.mode === 'step_based' || stepSolutions.length > 0)
+            ? 'final_plus_steps'
+            : 'final_only';
+          const fallbackGrading: 'ai' | 'manual' = asRecord(nq?.grading)?.mode === 'ai_rubric' ? 'ai' : 'manual';
+          const interaction = finalInteraction
+            ? (stepSolutions.length > 0
+              ? {
+                  type: 'composite' as const,
+                  final: finalInteraction,
+                  steps: stepSolutions,
+                  allowDirectFinalAnswer: answerData?.allowDirectFinalAnswer !== false,
+                  scoreStrategy,
+                }
+              : finalInteraction)
+            : { type: 'freeform' as const, grading: fallbackGrading, placeholder: 'Type your answer', rubricSummary: typeof nq?.explanation === 'string' ? nq.explanation : null, acceptSteps: true };
+          const difficulty = nq?.difficulty === 'easy' || nq?.difficulty === 'hard' ? nq.difficulty : 'medium';
+          allQuestions.push({
+            id: q.id,
+            rawText: q.rawExtractedBlock.rawText,
+            page: q.rawExtractedBlock.page,
+            kind: (nq?.kind ?? 'open_response_ai') as string,
+            prompt,
+            interaction,
+            difficulty,
+            hint: getStringArray(nq?.hints),
+            solution: typeof answerData?.solution === 'string'
+              ? answerData.solution
+              : (typeof nq?.explanation === 'string' ? nq.explanation : null),
+            explanationScenes,
+            stepSolutions,
+          });
+        }
+      }
+
+      if (allQuestions.length === 0) {
+        throw new Error('No usable questions were extracted from the selected PDF(s). The OCR/extraction output was empty or placeholder-only.');
+      }
+
+      setDigitalizeStatus('Populating builder...');
+
+      const groupedById: Record<string, Record<string, unknown>> = {};
+      const allQuestionText = allQuestions
+        .map((q) => q.prompt.map((b) => ('text' in b ? b.text : 'latex' in b ? b.latex : '')).join('\n').trim() || q.rawText)
+        .join('\n\n');
+      const inferredTopicTitle = summarizeImportedTopic(allQuestionText);
+      const cleanedTitleGuess = cleanGeneratedTitle(titleGuess);
+      const finalTitleGuess = cleanedTitleGuess !== 'Imported Worksheet'
+        ? cleanedTitleGuess
+        : cleanGeneratedTitle(inferredTopicTitle || 'Imported Worksheet');
+
+      for (const q of allQuestions) {
+        const questionText = q.prompt.map((b) => ('text' in b ? b.text : 'latex' in b ? b.latex : '')).join('\n').trim() || q.rawText;
+        groupedById[q.id] = {
+          id: q.id,
+          question: questionText,
+          promptBlocks: q.prompt,
+          interaction: q.interaction,
+          difficulty: q.difficulty,
+          hint: q.hint,
+          solution: q.solution,
+          stepSolutions: q.stepSolutions,
+        };
+      }
+
+      const importedQuestionDocs = Object.keys(groupedById).map((id) => groupedById[id]).filter(Boolean);
+      const reorganized = rebuildImportedOrganization(builder, importedQuestionDocs, inferredTopicTitle || finalTitleGuess, finalTitleGuess);
+      setBuilder(reorganized.builder);
+      setBuilderPathIds(reorganized.selectedPathIds);
+      setBuilderSelectedQuestionTypeId(reorganized.selectedQuestionTypeId);
+      setDigitalizeStatus(`✅ Imported ${allQuestions.length} question(s) from ${filesToProcess.length} source(s)`);
+    } catch (error) {
+      setDigitalizeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDigitalizeBusy(false);
+    }
+  }
+
+  async function load() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [next, dnext] = await Promise.all([
+        listProgramsAdmin('published'),
+        listProgramsAdmin('draft'),
+      ]);
+      setItems(next as typeof items);
+      setDraftItems(dnext as typeof draftItems);
+    } catch (error) {
+      console.error('Failed to load programs:', error);
+      setLoadError(error instanceof Error ? error.message : 'Failed to load programs.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  function resetDraft() {
+    setEditingId(null);
+    setEditingDraftId(null);
+    setView('list');
+    setDraftId('');
+    setDraftTitle('');
+    setDraftSubject('mathematics');
+    setDraftGradeBand('');
+    setDraftEmoji('📘');
+    setDraftTocJson('');
+    setDraftQuestionBankJson('');
+    setDraftAnnotationsJson('');
+    setDraftProgramMetaJson('');
+    setDraftNestedJson('');
+    setNestedGenStatus('');
+
+    setBuilder(newBuilderSpec());
+    setBuilderPathIds(['root']);
+    setBuilderSelectedQuestionTypeId(null);
+
+    setDigitalizeFiles([]);
+    setDigitalizeStatus('');
+    setDigitalizeError('');
+    setDigitalizePastedText('');
+  }
+
+  function startNewBuilder() {
+    setShowNewDraftModal(true);
+    setNewDraftData({ title: '', emoji: '', subject: '' });
+  }
+
+  async function startEditBuilder(p: (typeof items)[number]) {
+    setEditingId(p.id);
+    setEditingDraftId(null);
+    try {
+      const data = await getPublishedProgramAdmin(p.id);
+      if (!data) {
+        window.alert('Published program not found');
+        return;
+      }
+      const spec = data.builderSpec as BuilderSpec | undefined;
+      const next = spec && typeof spec === 'object' && (spec as BuilderSpec).version === '1.0'
+        ? spec
+        : (() => {
+            const b = newBuilderSpec();
+            b.programId = p.id;
+            b.programTitle = (data.title as string) ?? p.id;
+            b.subject = (data.subject as string) ?? 'mathematics';
+            b.gradeBand = (data.grade_band as string) ?? '';
+            b.coverEmoji = (data.coverEmoji as string) ?? '📘';
+            b.root.title = (data.title as string) ?? p.id;
+            return b;
+          })();
+      setBuilder(ensureFixedFirstDivisionContainer(next));
+      setBuilderPathIds(['root']);
+      setBuilderSelectedQuestionTypeId(null);
+      setView('builder');
+    } catch (e) {
+      window.alert(formatBuilderError(e));
+    }
+  }
+
+  async function startEditDraftBuilder(d: (typeof draftItems)[number]) {
+    setEditingId(null);
+    setEditingDraftId(d.id);
+    try {
+      const data = await getDraftProgramAdmin(d.id);
+      if (!data) {
+        window.alert('Draft not found');
+        return;
+      }
+      const spec = data?.builderSpec as BuilderSpec | undefined;
+      const next = spec && typeof spec === 'object' && spec.version === '1.0'
+        ? spec
+        : (() => {
+            const b = newBuilderSpec();
+            b.programId = d.id;
+            b.programTitle = (data?.title as string) ?? d.id;
+            b.subject = (data?.subject as string) ?? 'mathematics';
+            b.gradeBand = (data?.grade_band as string) ?? '';
+            b.coverEmoji = (data?.coverEmoji as string) ?? '📘';
+            b.root.title = (data?.title as string) ?? d.id;
+            return b;
+          })();
+      setBuilder(ensureFixedFirstDivisionContainer(next));
+      setBuilderPathIds(['root']);
+      setBuilderSelectedQuestionTypeId(null);
+      setView('builder');
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function setBuilderAtNode(nodeId: string, fn: (n: BuilderNode) => BuilderNode) {
+    setBuilder((prev) => {
+      function mapNode(n: BuilderNode): BuilderNode {
+        if (n.id === nodeId) return fn(n);
+        return { ...n, children: n.children.map(mapNode) };
+      }
+      return ensureFixedFirstDivisionContainer({ ...prev, root: mapNode(prev.root) });
+    });
+  }
+
+  function findNodeByPath(b: BuilderSpec, pathIds: string[]): BuilderNode | null {
+    const normalized = ensureFixedFirstDivisionContainer(b);
+    const fixed = normalized.root.children.find((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID) ?? null;
+
+    let cur: BuilderNode = normalized.root;
+    for (const id of pathIds.slice(1)) {
+      const pool = cur.id === 'root' && fixed ? fixed.children : cur.children;
+      const next = pool.find((c) => c.id === id);
+      if (!next) return null;
+      cur = next;
+    }
+    return cur;
+  }
+
+  function pathNodes(b: BuilderSpec, pathIds: string[]): BuilderNode[] {
+    const normalized = ensureFixedFirstDivisionContainer(b);
+    const fixed = normalized.root.children.find((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID) ?? null;
+
+    const nodes: BuilderNode[] = [];
+    let cur: BuilderNode = normalized.root;
+    nodes.push(cur);
+
+    for (const id of pathIds.slice(1)) {
+      const pool = cur.id === 'root' && fixed ? fixed.children : cur.children;
+      const next = pool.find((c) => c.id === id);
+      if (!next) break;
+      nodes.push(next);
+      cur = next;
+    }
+    return nodes;
+  }
+
+  function computeProgramIdAndTitle(): { id: string; title: string } {
+    const title = builder.programTitle.trim() || builder.root.title.trim();
+    const idBase = builder.programId.trim() || makeIdFromTitle(title) || 'program';
+    const id = String(editingId || editingDraftId || idBase).trim() || idBase;
+    return { id, title: title || id };
+  }
+
+  function assertBuilderHasContent(spec: BuilderSpec): void {
+    const normalized = ensureFixedFirstDivisionContainer(spec);
+    const fixedContainer = normalized.root.children.find((c) => c.id === FIXED_FIRST_DIVISION_NODE_ID) ?? null;
+    const topFolders = fixedContainer ? fixedContainer.children : normalized.root.children;
+    const hasAnyQuestions = topFolders.some((chapter) => {
+      const stack: BuilderNode[] = [chapter];
+      while (stack.length > 0) {
+        const node = stack.pop()!;
+        if (node.questionTypes.some((qt) => qt.jsonText.trim().length > 0)) return true;
+        stack.push(...node.children);
+      }
+      return false;
+    });
+
+    if (!hasAnyQuestions) {
+      throw new Error('This program has no question content yet. Add at least one chapter/question type with questions before saving or publishing.');
+    }
+  }
+
+  function formatBuilderError(error: unknown): string {
+    if (error instanceof Error && error.message.trim()) return error.message;
+    if (error && typeof error === 'object') {
+      const e = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+      const parts: string[] = [];
+      if (typeof e.message === 'string' && e.message.trim()) parts.push(e.message.trim());
+      if (typeof e.details === 'string' && e.details.trim()) parts.push(e.details.trim());
+      if (typeof e.hint === 'string' && e.hint.trim()) parts.push(`Hint: ${e.hint.trim()}`);
+      if (typeof e.code === 'string' && e.code.trim()) parts.push(`(${e.code.trim()})`);
+      if (parts.length > 0) return parts.join('\n');
+    }
+    return String(error);
+  }
+
+  function getQuestionPromptLabel(question: any): string {
+    if (typeof question?.question === 'string' && question.question.trim()) return question.question.trim().slice(0, 80);
+    if (Array.isArray(question?.promptBlocks)) {
+      const textBlock = question.promptBlocks.find((block: any) => block && typeof block.text === 'string' && block.text.trim());
+      if (textBlock) return String(textBlock.text).trim().slice(0, 80);
+    }
+    return '—';
+  }
+
+  async function handleQuestionImageUpload(nodeId: string, questionTypeId: string, questionTypeJsonText: string, questionIndex: number, questionId: string, file: File): Promise<void> {
+    if (!userData || userData.role !== 'superadmin') throw new Error('Only super admins can upload images.');
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) throw new Error('Unsupported file type. Please upload PNG, JPG/JPEG, WEBP, or GIF.');
+    if (typeof file.size === 'number' && file.size > MAX_IMAGE_BYTES) throw new Error('Image is too large. Max size is 5MB.');
+
+    setUploadingImage(true);
+    setUploadedImageErr('');
+    try {
+      const raw = questionTypeJsonText.trim() ? JSON.parse(questionTypeJsonText) : [];
+      if (!Array.isArray(raw)) throw new Error('Question Type JSON must be a JSON array');
+
+      const programId = (builder.programId || makeIdFromTitle(builder.programTitle) || 'program').trim() || 'program';
+      const uploaded = await uploadProgramQuestionAsset(file, programId);
+      const url = uploaded.url;
+
+      const next = [...raw];
+      const question = next[questionIndex] && typeof next[questionIndex] === 'object' ? { ...(next[questionIndex] as any) } : { id: questionId };
+      const promptBlocks = Array.isArray((question as any).promptBlocks) ? ([...(question as any).promptBlocks] as any[]) : [];
+      promptBlocks.push({ type: 'image', url, alt: 'diagram' });
+      (question as any).promptBlocks = promptBlocks;
+      next[questionIndex] = question;
+
+      const nextText = JSON.stringify(next, null, 2);
+      setBuilderAtNode(nodeId, (n) => ({
+        ...n,
+        questionTypes: n.questionTypes.map((x) => x.id === questionTypeId ? { ...x, jsonText: nextText } : x),
+      }));
+    } catch (err) {
+      setUploadedImageErr(formatBuilderError(err));
+      throw err;
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
+  async function handleQuestionImageDelete(nodeId: string, questionTypeId: string, questionTypeJsonText: string, questionIndex: number, imageIndex: number): Promise<void> {
+    if (!userData || userData.role !== 'superadmin') {
+      setUploadedImageErr('Only super admins can delete images.');
+      return;
+    }
+
+    setUploadingImage(true);
+    setUploadedImageErr('');
+    try {
+      const raw = questionTypeJsonText.trim() ? JSON.parse(questionTypeJsonText) : [];
+      if (!Array.isArray(raw)) throw new Error('Question Type JSON must be a JSON array');
+
+      const next = [...raw];
+      const question = next[questionIndex] && typeof next[questionIndex] === 'object' ? { ...(next[questionIndex] as any) } : null;
+      if (!question) throw new Error('Question not found.');
+
+      const promptBlocks = Array.isArray((question as any).promptBlocks) ? ([...(question as any).promptBlocks] as any[]) : [];
+      const imageBlocks = promptBlocks
+        .map((block, idx) => ({ block, idx }))
+        .filter(({ block }) => block && block.type === 'image' && typeof block.url === 'string' && block.url.trim());
+
+      const target = imageBlocks[imageIndex];
+      if (!target) throw new Error('Image not found.');
+
+      await deleteProgramQuestionAsset(String(target.block.url));
+      promptBlocks.splice(target.idx, 1);
+      (question as any).promptBlocks = promptBlocks;
+      next[questionIndex] = question;
+
+      const nextText = JSON.stringify(next, null, 2);
+      setBuilderAtNode(nodeId, (n) => ({
+        ...n,
+        questionTypes: n.questionTypes.map((x) => x.id === questionTypeId ? { ...x, jsonText: nextText } : x),
+      }));
+    } catch (err) {
+      setUploadedImageErr(formatBuilderError(err));
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
+  function handleImportAiJson() {
+    setAiImportError('');
+    setAiImportStatus('');
+    try {
+      const imported = parseAIProgramImport(aiImportJson);
+      setBuilder(imported);
+      setBuilderPathIds(['root']);
+      setBuilderSelectedQuestionTypeId(null);
+      setAiImportStatus('✅ AI JSON imported into the builder. Preview and save/publish when ready.');
+    } catch (error) {
+      setAiImportError(formatBuilderError(error));
+    }
+  }
+
+  function handleValidateNotebookJson() {
+    setNotebookValidation(validateNotebookExerciseImport(notebookImportJson));
+  }
+
+  function handleAddNotebookExerciseToBuilder() {
+    const validation = notebookValidation ?? validateNotebookExerciseImport(notebookImportJson);
+    setNotebookValidation(validation);
+    if (!validation.payload || !validation.summary) return;
+    if (validation.errorCount > 0) {
+      window.alert('Fix validation errors before adding this exercise to the builder.');
+      return;
+    }
+    const convertedQuestions = convertNotebookExerciseToBuilderQuestions(validation.payload);
+    const title = validation.summary.sourceExercise || 'NotebookLM Exercise';
+    const jsonText = JSON.stringify(convertedQuestions, null, 2);
+    let selectedQuestionTypeId: string | null = null;
+    let targetPathIds: string[] = ['root'];
+    setBuilder((prev) => {
+      const base = ensureFixedFirstDivisionContainer({
+        ...prev,
+        divisions: prev.divisions.length >= 2 ? prev.divisions : ['Chapters', 'Topics'],
+      });
+      const fixed = base.root.children.find((child) => child.id === FIXED_FIRST_DIVISION_NODE_ID);
+      if (!fixed) return base;
+
+      const chapterTitle = validation.payload?.chapterTitle || validation.payload?.chapterId || 'Imported Chapter';
+      const exerciseTitle = validation.payload?.sourceExercise || 'Imported Exercise';
+      let chapterNode = fixed.children.find((child) => child.title === chapterTitle);
+      if (!chapterNode) {
+        chapterNode = { id: makeStableId('node'), title: chapterTitle, children: [], questionTypes: [] };
+        fixed.children = [...fixed.children, chapterNode];
+      }
+
+      let targetNode = chapterNode;
+      if (base.divisions.length >= 2) {
+        let exerciseNode = chapterNode.children.find((child) => child.title === exerciseTitle);
+        if (!exerciseNode) {
+          exerciseNode = { id: makeStableId('node'), title: exerciseTitle, children: [], questionTypes: [] };
+          chapterNode.children = [...chapterNode.children, exerciseNode];
+        }
+        targetNode = exerciseNode;
+        targetPathIds = ['root', chapterNode.id, exerciseNode.id];
+      } else {
+        targetPathIds = ['root', chapterNode.id];
+      }
+
+      const existing = targetNode.questionTypes.find((qt) => qt.title === title);
+      const questionTypeId = existing?.id ?? makeStableId('qt');
+      selectedQuestionTypeId = questionTypeId;
+      targetNode.questionTypes = existing
+        ? targetNode.questionTypes.map((qt) => (qt.id === existing.id ? { ...qt, jsonText } : qt))
+        : [...targetNode.questionTypes, { id: questionTypeId, title, jsonText }];
+
+      return ensureFixedFirstDivisionContainer(base);
+    });
+    setBuilderPathIds(targetPathIds);
+    setBuilderSelectedQuestionTypeId(selectedQuestionTypeId);
+    window.alert(`Added ${convertedQuestions.length} builder questions from ${title}. Folders were created automatically when needed.`);
+  }
+
+  async function saveBuilderDraft() {
+    const { id: programId, title } = computeProgramIdAndTitle();
+    if (!programId) {
+      window.alert('Missing program id');
+      return;
+    }
+    setSaving(true);
+    try {
+      assertBuilderHasContent({ ...builder, programId, programTitle: title });
+      const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
+      const payload: Record<string, unknown> = stripUndefinedDeep({
+        title,
+        subject: builder.subject ?? 'mathematics',
+        coverEmoji: builder.coverEmoji ?? '📘',
+        toc: internal.toc,
+        annotations: internal.annotations,
+        programMeta: internal.programMeta,
+        questionBanksByChapter: internal.questionBanksByChapter,
+        rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+        builderSpec: { ...builder, programId, programTitle: title },
+        updatedAt: new Date().toISOString(),
+      });
+      const gb = (builder.gradeBand ?? '').trim();
+      if (gb) payload.grade_band = gb;
+
+      await saveDraftProgramAdmin(programId, payload);
+      setEditingDraftId(programId);
+      await load();
+      window.alert('Draft saved');
+    } catch (e) {
+      window.alert(formatBuilderError(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function publishBuilder() {
+    const { id: programId, title } = computeProgramIdAndTitle();
+    if (!programId) {
+      window.alert('Missing program id');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      assertBuilderHasContent({ ...builder, programId, programTitle: title });
+      const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
+      const payload: Record<string, unknown> = stripUndefinedDeep({
+        title,
+        subject: builder.subject ?? 'mathematics',
+        coverEmoji: builder.coverEmoji ?? '📘',
+        toc: internal.toc,
+        annotations: internal.annotations,
+        programMeta: internal.programMeta,
+        questionBanksByChapter: internal.questionBanksByChapter,
+        rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+        builderSpec: { ...builder, programId, programTitle: title },
+        updatedAt: new Date().toISOString(),
+      });
+      const gb = (builder.gradeBand ?? '').trim();
+      if (gb) payload.grade_band = gb;
+
+      await publishProgramAdmin(programId, payload, editingDraftId);
+      if (editingDraftId) setEditingDraftId(null);
+      await load();
+      setView('list');
+      setEditingId(programId);
+      window.alert('Published');
+    } catch (e) {
+      window.alert(formatBuilderError(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function previewBuilder() {
+    try {
+      const { id: programId, title } = computeProgramIdAndTitle();
+      const internal = convertBuilderToInternal({ ...builder, programId, programTitle: title });
+
+      const key = `${Date.now()}`;
+      setDraftProgram(key, {
+        id: programId,
+        title,
+        subject: builder.subject ?? 'mathematics',
+        grade_band: (builder.gradeBand ?? '').trim() || undefined,
+        coverEmoji: builder.coverEmoji ?? '📘',
+        toc: internal.toc,
+        questionBanksByChapter: internal.questionBanksByChapter,
+        annotations: internal.annotations,
+        programMeta: internal.programMeta,
+        rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+      });
+
+      const pid = `ll-draft:${key}`;
+      setPreviewProgramId(pid);
+      setPreviewReturnView('builder');
+      setView('preview');
+    } catch (e) {
+      window.alert(formatBuilderError(e));
+    }
+  }
+
+  async function previewSavedDraft(programId: string) {
+    setPreviewProgramId(`ll-draftdb:${programId}`);
+    setPreviewReturnView('list');
+    setView('preview');
+  }
+
+  async function removeDraft(programId: string) {
+    if (!window.confirm('Delete this draft?')) return;
+    await deleteDraftProgramAdmin(programId);
+    await load();
+    if (editingDraftId === programId) resetDraft();
+  }
+
+  function generateFromNested() {
+    const nested = parseNestedProgramJson(draftNestedJson);
+    const converted = convertNestedProgramToInternal(nested);
+    setDraftId(nested.program_id);
+    setDraftTitle(nested.book_name);
+    setDraftTocJson(JSON.stringify(converted.toc, null, 2));
+    const firstChapterId = Object.keys(converted.questionBanksByChapter)[0] ?? null;
+    if (firstChapterId) {
+      setDraftQuestionBankJson(JSON.stringify(converted.questionBanksByChapter[firstChapterId], null, 2));
+    }
+    setDraftAnnotationsJson(JSON.stringify(converted.annotations, null, 2));
+    setDraftProgramMetaJson(JSON.stringify(converted.programMeta, null, 2));
+  }
+
+  async function save() {
+    const id = draftId.trim();
+    if (!id) return;
+    setSaving(true);
+    try {
+      let toc: unknown = undefined;
+      if (draftTocJson.trim()) {
+        toc = JSON.parse(draftTocJson);
+      }
+
+      let questionBank: unknown = undefined;
+      if (draftQuestionBankJson.trim()) {
+        questionBank = JSON.parse(draftQuestionBankJson);
+      }
+
+      let annotations: unknown = undefined;
+      if (draftAnnotationsJson.trim()) {
+        annotations = JSON.parse(draftAnnotationsJson);
+      }
+
+      let programMeta: unknown = undefined;
+      if (draftProgramMetaJson.trim()) {
+        programMeta = JSON.parse(draftProgramMetaJson);
+      }
+
+      const payload: Record<string, unknown> = {
+        title: draftTitle.trim() || id,
+        subject: draftSubject.trim() || 'mathematics',
+        coverEmoji: draftEmoji.trim() || '📘',
+        toc,
+        questionBank,
+        annotations,
+        programMeta,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const gb = draftGradeBand.trim();
+      if (gb) payload.grade_band = gb;
+
+      if (draftNestedJson.trim()) {
+        const nested = parseNestedProgramJson(draftNestedJson);
+        const converted = convertNestedProgramToInternal(nested);
+        payload.questionBanksByChapter = converted.questionBanksByChapter;
+
+        let total = 0;
+        for (const ch of Object.values(converted.questionBanksByChapter)) {
+          const nodes = Array.isArray((ch as any)?.nodes) ? ((ch as any).nodes as any[]) : [];
+          for (const n of nodes) {
+            const qs = Array.isArray(n?.questions) ? (n.questions as any[]) : [];
+            total += qs.length;
+          }
+        }
+        payload.rankedTotalQuestionCount = total;
+      }
+
+      await savePublishedProgramAdmin(id, payload);
+
+      await load();
+      resetDraft();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!window.confirm('are you sure you want to delete this?')) return;
+    await softDeletePublishedProgramAdmin(id);
+    await load();
+    if (editingId === id) resetDraft();
+  }
+
+  async function previewProgram(programId: string) {
+    try {
+      const data = await getPublishedProgramAdmin(programId);
+      const spec = data?.builderSpec as BuilderSpec | undefined;
+      if (spec && spec.version === '1.0') {
+        const normalized = ensureFixedFirstDivisionContainer(spec);
+        const title = normalized.programTitle || normalized.root.title || data?.title || programId;
+        const internal = convertBuilderToInternal({ ...normalized, programId, programTitle: title });
+        const key = `published-preview:${programId}`;
+        setDraftProgram(key, {
+          id: programId,
+          title,
+          subject: normalized.subject ?? data?.subject ?? 'mathematics',
+          grade_band: normalized.gradeBand ?? data?.grade_band,
+          coverEmoji: normalized.coverEmoji ?? data?.coverEmoji ?? '📘',
+          toc: internal.toc,
+          questionBanksByChapter: internal.questionBanksByChapter,
+          annotations: internal.annotations,
+          programMeta: internal.programMeta,
+          rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+        });
+        setPreviewProgramId(`ll-draft:${key}`);
+      } else {
+        setPreviewProgramId(programId);
+      }
+      setPreviewReturnView('list');
+      setView('preview');
+    } catch (e) {
+      window.alert(formatBuilderError(e));
+    }
+  }
+
+  if (loading) return <div style={{ textAlign: 'center', color: '#64748b', padding: 40 }}>Loading programs...</div>;
+
+  if (loadError) {
+    return (
+      <div style={{ animation: 'fadeIn 0.3s ease' }}>
+        <div style={{ background: '#1e293b', borderRadius: 12, border: '1px solid #7f1d1d', padding: 16, color: '#fecaca' }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Failed to load programs</div>
+          <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 12 }}>{loadError}</div>
+          <button className="ll-btn" style={{ padding: '7px 12px', fontSize: 12 }} onClick={load}>Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      <ProgramExplorerUploadModal
+        open={explorerUploadOpen}
+        onClose={() => setExplorerUploadOpen(false)}
+        onSuccess={(questions, sourceFileName) => {
+          const currentId = builderPathIds[builderPathIds.length - 1];
+          const actualId = currentId === 'root' ? (builder.root.children.find(c => c.id === 'fixed_first_division')?.id || 'root') : currentId;
+          const newSheet = {
+            id: 'qt_' + Date.now(),
+            title: sourceFileName.replace(/\.[^/.]+$/, ''),
+            jsonText: JSON.stringify(questions, null, 2)
+          };
+          setBuilderAtNode(actualId, (n) => ({
+            ...n,
+            questionTypes: [...n.questionTypes, newSheet]
+          }));
+        }}
+      />
+      {view === 'preview' ? (
+        <div style={{ background: '#0f172a', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, borderBottom: '1px solid #1f2a44', background: '#1e293b' }}>
+            <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>👁️ Preview</div>
+            <button
+              className="ll-btn"
+              style={{ padding: '7px 12px', fontSize: 12 }}
+              onClick={() => {
+                if (previewProgramId && previewProgramId.startsWith('ll-draft:')) {
+                  const key = previewProgramId.slice('ll-draft:'.length);
+                  clearDraftProgram(key);
+                }
+                setView(previewReturnView);
+              }}
+            >
+              ← {previewReturnView === 'builder' ? 'Back to Builder' : 'Back'}
+            </button>
+          </div>
+          <div style={{ height: 'calc(100vh - 260px)', minHeight: 560 }}>
+            {previewProgramId ? (
+              <ProgramMapView onBack={() => setView(previewReturnView)} programId={previewProgramId} />
+            ) : (
+              <div style={{ padding: 18, color: '#64748b' }}>No preview loaded.</div>
+            )}
+          </div>
+        </div>
+      
+      ) : view === 'worksheet_sandbox' && sandboxWorksheet ? (
+        (() => {
+          let questions: any[] = [];
+          try {
+            questions = JSON.parse(sandboxWorksheet.jsonText || '[]');
+          } catch (e) {
+            console.error('Failed to parse worksheet questions', e);
+          }
+
+          const mockData: PersonalProgramData = {
+            id: 'sandbox_prog',
+            title: sandboxWorksheet.title || 'Worksheet Preview',
+            chapters: [{
+              id: 'ch_1',
+              title: 'Preview',
+              topics: [{
+                id: 't_1',
+                title: 'Questions',
+                questionTypeTitle: 'Questions',
+                questionIds: questions.map(q => q.id)
+              }]
+            }],
+            questions: questions,
+            totalQuestions: questions.length,
+          };
+
+          const mockMeta: PersonalProgramMeta = {
+            programId: 'sandbox_prog',
+            uid: 'admin',
+            createdAt: new Date().toISOString(),
+            status: 'completed',
+            jobId: 'sandbox',
+            originalFileUrl: '',
+            sourceFileName: sandboxWorksheet.title || 'Preview',
+            programData: mockData
+          };
+
+          return (
+            <div style={{ position: 'absolute', inset: 0, zIndex: 100 }}>
+              <PersonalProgramView 
+                programId={null} 
+                sandboxData={mockData}
+                sandboxMeta={mockMeta}
+                onBack={() => {
+                  setView('builder');
+                  setSandboxWorksheet(null);
+                }} 
+              />
+            </div>
+          );
+        })()
+
+            ) : view === 'builder' ? (
+        <div style={{ background: '#1e293b', borderRadius: 12, border: '1px solid #334155', padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>📂 Program File Explorer</div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+            <div style={{ width: 100 }}>
+              <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Emoji</label>
+              <input
+                type="text"
+                value={builder.coverEmoji || ''}
+                onChange={(e) => setBuilder({ ...builder, coverEmoji: e.target.value })}    </div>
+  );
+}

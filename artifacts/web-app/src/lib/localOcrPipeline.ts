@@ -61,6 +61,21 @@ export interface DetectedQuestion {
   label?: string;
   rawText: string;
   page?: number;
+  // Phase 2 additions
+  answerFromPdf?: boolean;
+  rawAnswerText?: string | null;
+  modelAnswer?: string;
+  // Phase 3 additions (set after enrichment)
+  solution?: string;
+  solutionPlan?: string;
+  hint?: string;
+  gradingSchema?: GradingCriterion[];
+}
+
+export interface GradingCriterion {
+  criterion: string;
+  points: number;
+  deductionOnError: string;
 }
 
 export interface Phase3OrganizedResult {
@@ -272,12 +287,83 @@ export async function runPhase2Questions(
   };
 
   const qCount = data.result.topics?.reduce((sum, t) => sum + (t.questions?.length || 0), 0) || 0;
-  onProgress?.(`✅ Phase 2 & 3 complete! Found ${qCount} question(s) across ${data.result.topics?.length || 0} topic(s).`);
+  onProgress?.(`✅ Phase 2 complete! Found ${qCount} question(s) across ${data.result.topics?.length || 0} topic(s).`);
 
   return {
     completedAt: data.created_at,
     topics: data.result.topics || [],
   };
+}
+
+// ─── Phase 3: Question Enrichment ────────────────────────────────────────────
+
+const API_SERVER_URL = import.meta.env.VITE_API_SERVER_URL || 'http://localhost:3000';
+
+/**
+ * Phase 3 – Question Enrichment
+ *
+ * For each question type topic, sends all questions to the api-server which
+ * calls Groq to generate: step-by-step solutions, grading schemas, and hints.
+ *
+ * @param topics       The topics+questions output from Phase 2
+ * @param onProgress   Optional progress callback
+ */
+export async function runPhase3Enrichment(
+  topics: Phase2QuestionsResult['topics'],
+  onProgress?: (msg: string) => void,
+): Promise<Phase2QuestionsResult['topics']> {
+  // Collect all questions across all topics
+  const allQuestions: Array<{ id: string; rawText: string; modelAnswer: string; answerFromPdf: boolean }> = [];
+  for (const topic of topics) {
+    for (const q of topic.questions) {
+      allQuestions.push({
+        id: q.id,
+        rawText: q.rawText,
+        modelAnswer: q.modelAnswer ?? '',
+        answerFromPdf: q.answerFromPdf ?? false,
+      });
+    }
+  }
+
+  if (allQuestions.length === 0) return topics;
+
+  onProgress?.(`⚙️ Phase 3: Generating solutions & grading schemas for ${allQuestions.length} question(s)...`);
+
+  const response = await fetch(`${API_SERVER_URL}/api/program-ingestion/enrich-questions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ questions: allQuestions }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.warn('[Phase 3] Enrichment failed:', errText, '— continuing without enrichment.');
+    return topics; // Non-fatal: return unenriched topics
+  }
+
+  const data = await response.json() as { enriched: Record<string, {
+    solution: string;
+    solutionPlan: string;
+    hint: string;
+    gradingSchema: GradingCriterion[];
+    modelAnswer: string;
+    answerFromPdf: boolean;
+  }> };
+
+  const enriched = data.enriched ?? {};
+
+  // Merge enrichment data back into each question
+  const enrichedTopics = topics.map((topic) => ({
+    ...topic,
+    questions: topic.questions.map((q) => {
+      const e = enriched[q.id];
+      if (!e) return q;
+      return { ...q, solution: e.solution, solutionPlan: e.solutionPlan, hint: e.hint, gradingSchema: e.gradingSchema };
+    }),
+  }));
+
+  onProgress?.(`✅ Phase 3 complete! Solutions and grading schemas generated.`);
+  return enrichedTopics;
 }
 
 // ─── Debug Log Utilities ─────────────────────────────────────────────────────

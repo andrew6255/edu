@@ -62,6 +62,12 @@ export interface AiTutorPanelProps {
   hasStrokes: boolean;
   isOpen: boolean;
   onClose: () => void;
+  // Pre-computed enrichment data from Phase 3 (optional)
+  precomputedSolution?: string;
+  precomputedSolutionPlan?: string;
+  precomputedHint?: string;
+  precomputedGradingSchema?: Array<{ criterion: string; points: number; deductionOnError: string }>;
+  modelAnswer?: string;
 }
 
 /* ─────────────────────────────────────────────────────────────────
@@ -156,7 +162,9 @@ function Spin({ color = '#8b5cf6', size = 12 }: { color?: string; size?: number 
    Main Component
 ───────────────────────────────────────────────────────────────── */
 
-export default function AiTutorPanel({ currentQuestion, pages, fetchMyScriptBlocks, getCanvasImages, hasStrokes, isOpen, onClose }: AiTutorPanelProps) {
+export default function AiTutorPanel({ currentQuestion, pages, fetchMyScriptBlocks, getCanvasImages, hasStrokes, isOpen, onClose,
+  precomputedSolution, precomputedSolutionPlan, precomputedHint, precomputedGradingSchema, modelAnswer,
+}: AiTutorPanelProps) {
   const [expanded, setExpanded] = useState(true);
   const [activeMode, setActiveMode] = useState<AiMode>('plan');
 
@@ -183,6 +191,9 @@ export default function AiTutorPanel({ currentQuestion, pages, fetchMyScriptBloc
   const [isGrading, setIsGrading] = useState(false);
   const [showGradeModal, setShowGradeModal] = useState(false);
 
+  // Hint
+  const [showHint, setShowHint] = useState(false);
+
   // ── Pre-load analysis when panel opens or question changes ──
   const questionText = typeof currentQuestion === 'string'
     ? currentQuestion
@@ -193,6 +204,42 @@ export default function AiTutorPanel({ currentQuestion, pages, fetchMyScriptBloc
     // Don't re-fetch if we already have analysis for this question
     if (analysisQuestionKey === questionText && analysis) return;
 
+    // ── Shortcut: if Phase 3 pre-computed data is available, use it directly ──
+    if (precomputedSolution && precomputedSolutionPlan && precomputedGradingSchema) {
+      const planSteps = precomputedSolutionPlan
+        .split('\n')
+        .map(l => l.replace(/^[•\-*]\s*/, '').trim())
+        .filter(Boolean);
+
+      const solutionStepsFromPrecomputed: SolutionStep[] = precomputedSolution
+        .split(/\n(?=\d+\.|Step\s*\d+)/i)
+        .map((part, i) => {
+          const lines = part.trim().split('\n');
+          const title = lines[0] ?? `Step ${i + 1}`;
+          const body = lines.slice(1).join('\n').trim() || title;
+          return { title, body, expanded: false };
+        })
+        .filter(s => s.body);
+
+      const preAnalysis: QuestionAnalysis = {
+        plan: planSteps,
+        fullSolution: solutionStepsFromPrecomputed.length > 0
+          ? solutionStepsFromPrecomputed
+          : [{ title: 'Solution', body: precomputedSolution, expanded: false }],
+        scoringScheme: {
+          totalPoints: 100,
+          rubric: precomputedGradingSchema.map(s => ({ criterion: s.criterion, points: s.points })),
+        },
+      };
+
+      setAnalysis(preAnalysis);
+      setPlanChecked(new Array(preAnalysis.plan.length).fill(false));
+      setSolutionSteps(preAnalysis.fullSolution.map(s => ({ ...s, expanded: false })));
+      setAnalysisQuestionKey(questionText);
+      return;
+    }
+
+    // ── Fallback: generate via LLM ──
     setLoadingAnalysis(true);
     setAnalysisError(null);
     setAnalysis(null);
@@ -418,7 +465,9 @@ CRITICAL: Double-escape LaTeX backslashes. Output ONLY raw JSON.`,
         },
         {
           role: 'user',
-          content: `Question: ${questionText}\n\nReference solution:\n${fullSolutionText}\n\nStudent's work:\n${studentWork}`,
+          content: `Question: ${questionText}\n\n` +
+            (modelAnswer ? `Correct Answer: ${modelAnswer}\n\n` : '') +
+            `Reference solution:\n${fullSolutionText}\n\nStudent's work:\n${studentWork}`,
         },
       ], 900);
 
@@ -487,7 +536,9 @@ CRITICAL: Double-escape LaTeX backslashes. Output ONLY raw JSON.`,
         },
         {
           role: 'user',
-          content: `Question: ${questionText}\n\nRubric (total ${totalPts} pts):\n${rubricText}\n\nStudent's work:\n${studentWork || '(nothing written yet)'}`,
+          content: `Question: ${questionText}\n\n` +
+            (modelAnswer ? `Correct Answer: ${modelAnswer}\n\n` : '') +
+            `Rubric (total ${totalPts} pts):\n${rubricText}\n\nStudent's work:\n${studentWork || '(nothing written yet)'}`,
         },
       ], 700);
 
@@ -605,6 +656,23 @@ CRITICAL: Double-escape LaTeX backslashes. Output ONLY raw JSON.`,
             {isGrading ? <><Spin color="#fbbf24" size={10} /> Grading…</> : '📊 Grade'}
           </button>
 
+          {/* Hint button — shown when pre-computed hint available */}
+          {precomputedHint && (
+            <button
+              onClick={() => { setShowHint(h => !h); setExpanded(true); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px', borderRadius: 20,
+                border: `1.5px solid ${showHint ? 'rgba(16,185,129,0.5)' : 'rgba(16,185,129,0.25)'}`,
+                background: showHint ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.07)',
+                color: '#10b981', fontSize: 12, fontWeight: 700,
+                cursor: 'pointer', transition: 'all 0.18s', fontFamily: 'inherit', flexShrink: 0,
+              }}
+            >
+              💡 Hint
+            </button>
+          )}
+
           {/* Close */}
           <button
             onClick={onClose}
@@ -615,6 +683,14 @@ CRITICAL: Double-escape LaTeX backslashes. Output ONLY raw JSON.`,
         {/* ── Body ── */}
         {expanded && (
           <div className="ai-panel-body" style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
+
+            {/* Hint banner */}
+            {showHint && precomputedHint && (
+              <div style={{ marginBottom: 12, padding: '10px 14px', background: 'rgba(16,185,129,0.1)', borderRadius: 8, border: '1px solid rgba(16,185,129,0.25)', fontSize: 13, color: '#6ee7b7' }}>
+                <span style={{ fontWeight: 700, color: '#10b981', marginRight: 6 }}>💡 Hint:</span>
+                <LatexRenderer content={precomputedHint} />
+              </div>
+            )}
 
             {/* Global loading */}
             {loadingAnalysis && (

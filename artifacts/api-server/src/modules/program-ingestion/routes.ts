@@ -18,6 +18,8 @@ import {
   extractMcqFromText,
   extractIqPdf,
   generateIqQuestionDetails,
+  generateEmoji,
+  enrichQuestions,
 } from "./controller";
 
 const router: IRouter = Router();
@@ -39,5 +41,7 @@ router.get("/program-ingestion/personal/:jobId/debug", getPersonalProgramDebug);
 router.post("/program-ingestion/extract-mcq", extractMcqFromText);
 router.post("/program-ingestion/extract-iq-pdf", upload.single("file"), extractIqPdf);
 router.post("/program-ingestion/iq-question-details", generateIqQuestionDetails);
+router.post("/program-ingestion/emoji", generateEmoji);
+router.post("/program-ingestion/enrich-questions", enrichQuestions);
 
 export default router;
