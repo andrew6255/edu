@@ -39,6 +39,7 @@ import { clearDraftProgram, setDraftProgram } from '@/lib/draftProgramStore';
 import { runPhase1Ocr, runPhase2Questions, runPhase3Enrichment } from '@/lib/localOcrPipeline';
 import ProgramMapView from '@/views/ProgramMapView';
 import FullScreenWorkspace from '@/components/FullScreenWorkspace';
+import WorksheetEditorView from './WorksheetEditorView';
 import { type PersonalSubject, listPersonalSubjects, createPersonalSubject, updatePersonalSubject, deletePersonalSubject } from '@/lib/personalSubjectService';
 import { generateEmojiWithLlm } from '@/lib/programIngestionService';
 
@@ -245,10 +246,11 @@ export default function ProgramsAdmin() {
   const [saving, setSaving] = useState(false);
 
   // View state
-  const [view, setView] = useState<'list' | 'setup' | 'explorer' | 'preview'>('list');
+  const [view, setView] = useState<'list' | 'setup' | 'explorer' | 'preview' | 'worksheetEditor'>('list');
   const [previewReturnView, setPreviewReturnView] = useState<'list' | 'explorer'>('list');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const [editingWorksheetId, setEditingWorksheetId] = useState<string | null>(null);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
 
   // Builder data model (underpins the explorer)
@@ -809,7 +811,7 @@ export default function ProgramsAdmin() {
     }
   }
 
-  // ── Upload worksheet ────────────────────────────────────────────────────────
+  // ── Create Worksheet ────────────────────────────────────────────────────────
 
   function openUploadModal() {
     setUploadOpen(true);
@@ -852,6 +854,28 @@ export default function ProgramsAdmin() {
       setUploadFiles(files);
       if (!uploadTitle) setUploadTitle(files[0].name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '));
     }
+  }
+
+  function handleCreateWorksheetManually() {
+    const title = "New Manual Sheet";
+    const worksheetFolderId = makeStableId('node');
+    const worksheetFolder: BuilderNode = {
+      id: worksheetFolderId,
+      title: title,
+      children: [],
+      questionTypes: [] // Empty initially
+    };
+
+    const curNodeId = getCurrentNode()?.id || getFixedContainer()?.id || 'root';
+    
+    setBuilderAtNode(curNodeId, (n) => ({
+      ...n,
+      children: [...n.children, worksheetFolder],
+    }));
+
+    setUploadOpen(false);
+    setEditingWorksheetId(worksheetFolderId);
+    setView('worksheetEditor');
   }
 
   async function handleCreateWorksheet() {
@@ -908,7 +932,7 @@ export default function ProgramsAdmin() {
           const questions = (topic.questions ?? []).map((q) => ({
             id: q.id || makeStableId('q'),
             promptBlocks: [{ type: 'text', text: (q.rawText || q.label || '').trim() }],
-            interaction: { type: 'open_response' },
+            interaction: { type: 'freeform', grading: 'ai' },
             difficulty: 'medium',
             // Phase 2 answer data
             modelAnswer: q.modelAnswer,
@@ -989,7 +1013,7 @@ export default function ProgramsAdmin() {
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          UPLOAD WORKSHEET MODAL  —  mirrors the student "Create New Program" flow
+          Create Worksheet MODAL  —  mirrors the student "Create New Program" flow
           ═══════════════════════════════════════════════════════════════════════ */}
       {uploadOpen && (
         <div
@@ -1003,7 +1027,7 @@ export default function ProgramsAdmin() {
             {/* Header */}
             <div style={{ padding: '14px 18px', borderBottom: '1px solid #1e293b', display: 'flex', alignItems: 'center', gap: 10, background: '#1e293b', borderRadius: '18px 18px 0 0' }}>
               <div style={{ fontSize: 20 }}>📄</div>
-              <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>Upload Worksheet</div>
+              <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>Create Worksheet</div>
               {!uploading && <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={closeUploadModal}>✕</button>}
             </div>
 
@@ -1016,29 +1040,45 @@ export default function ProgramsAdmin() {
 
               {/* Drag & Drop Zone (hidden while processing) */}
               {!uploading && !uploadDone && (
-                <div
-                  onDragEnter={handleUploadDrag}
-                  onDragLeave={handleUploadDrag}
-                  onDragOver={handleUploadDrag}
-                  onDrop={handleUploadDrop}
-                  style={{ border: `2px dashed ${uploadDragActive ? '#8b5cf6' : '#334155'}`, background: uploadDragActive ? 'rgba(139,92,246,0.06)' : '#1e293b', borderRadius: 16, padding: '36px 20px', textAlign: 'center', transition: 'all 0.2s', position: 'relative', cursor: 'pointer' }}
-                >
-                  <input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" onChange={handleUploadFileChange} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} />
-                  <div style={{ fontSize: 36, marginBottom: 12 }}>
-                    {uploadDragActive ? '📥' : uploadFiles.length > 0 ? '📑' : '📄'}
+                <>
+                  <div
+                    onDragEnter={handleUploadDrag}
+                    onDragLeave={handleUploadDrag}
+                    onDragOver={handleUploadDrag}
+                    onDrop={handleUploadDrop}
+                    style={{ border: `2px dashed ${uploadDragActive ? '#8b5cf6' : '#334155'}`, background: uploadDragActive ? 'rgba(139,92,246,0.06)' : '#1e293b', borderRadius: 16, padding: '36px 20px', textAlign: 'center', transition: 'all 0.2s', position: 'relative', cursor: 'pointer' }}
+                  >
+                    <input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" onChange={handleUploadFileChange} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} />
+                    <div style={{ fontSize: 36, marginBottom: 12 }}>
+                      {uploadDragActive ? '📥' : uploadFiles.length > 0 ? '📑' : '📄'}
+                    </div>
+                    {uploadFiles.length > 0 ? (
+                      <>
+                        <div style={{ fontSize: 14, fontWeight: 'bold', color: 'white', marginBottom: 4 }}>{uploadFiles[0].name}</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Click to change file</div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 14, fontWeight: 'bold', color: '#94a3b8', marginBottom: 4 }}>Drag & Drop or click to browse</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Supports .pdf, .png, .jpg</div>
+                      </>
+                    )}
                   </div>
-                  {uploadFiles.length > 0 ? (
-                    <>
-                      <div style={{ fontSize: 14, fontWeight: 'bold', color: 'white', marginBottom: 4 }}>{uploadFiles[0].name}</div>
-                      <div style={{ fontSize: 12, color: '#64748b' }}>Click to change file</div>
-                    </>
-                  ) : (
-                    <>
-                      <div style={{ fontSize: 14, fontWeight: 'bold', color: '#94a3b8', marginBottom: 4 }}>Drag & Drop or click to browse</div>
-                      <div style={{ fontSize: 12, color: '#64748b' }}>Supports .pdf, .png, .jpg</div>
-                    </>
+                  
+                  {uploadFiles.length === 0 && (
+                    <div style={{ textAlign: 'center', marginTop: 10 }}>
+                      <div style={{ color: '#475569', fontSize: 11, marginBottom: 10, fontWeight: 'bold' }}>OR</div>
+                      <button
+                        onClick={handleCreateWorksheetManually}
+                        style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #475569', color: '#94a3b8', cursor: 'pointer', transition: 'all 0.15s' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#94a3b8'; e.currentTarget.style.color = 'white'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#475569'; e.currentTarget.style.color = '#94a3b8'; }}
+                      >
+                        Create Sheet manually
+                      </button>
+                    </div>
                   )}
-                </div>
+                </>
               )}
 
               {/* File ready panel */}
@@ -1302,7 +1342,7 @@ export default function ProgramsAdmin() {
                 title="Upload a PDF worksheet into this folder"
                 style={{ padding: '6px 12px', fontSize: 12, background: 'rgba(139,92,246,0.15)', borderColor: 'rgba(139,92,246,0.45)', color: '#c4b5fd' }}
               >
-                📤 Upload Worksheet
+                📤 Create Worksheet
               </button>
               <div style={{ width: 1, height: 20, background: '#334155', margin: '0 2px' }} />
               <button className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }} onClick={previewFromExplorer}>
@@ -1362,7 +1402,7 @@ export default function ProgramsAdmin() {
                     onClick={openUploadModal}
                       style={{ padding: '10px 22px', borderRadius: 9, border: '1px solid rgba(139,92,246,0.4)', background: 'rgba(139,92,246,0.08)', color: '#c4b5fd', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', fontWeight: 600 }}
                     >
-                      📤 Upload Worksheet
+                      📤 Create Worksheet
                   </button>
                 </div>
               </div>
@@ -1454,6 +1494,15 @@ export default function ProgramsAdmin() {
                       >
                         Open
                       </button>
+                      {isWorksheetStack && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setEditingWorksheetId(folder.id); setView('worksheetEditor'); }}
+                          disabled={!!uploadNode}
+                          style={{ padding: '4px 10px', fontSize: 11, borderRadius: 6, border: '1px solid rgba(59,130,246,0.4)', background: 'rgba(59,130,246,0.1)', color: '#93c5fd', cursor: uploadNode ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: uploadNode ? 0.5 : 1 }}
+                        >
+                          Edit
+                        </button>
+                      )}
                       <button
                         onClick={(e) => { e.stopPropagation(); setEditingFolderId(folder.id); }}
                         disabled={!!uploadNode}
@@ -1636,6 +1685,36 @@ export default function ProgramsAdmin() {
            />
         </div>
       )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          WORKSHEET EDITOR VIEW
+          ═══════════════════════════════════════════════════════════════════════ */}
+      {view === 'worksheetEditor' && editingWorksheetId && (
+        <div style={{ height: 'calc(100vh - 120px)', minHeight: 600, background: '#0f172a', borderRadius: 14, border: '1px solid #334155', overflow: 'hidden' }}>
+          {(() => {
+            function findNode(n: BuilderNode, targetId: string): BuilderNode | null {
+              if (n.id === targetId) return n;
+              for (const child of n.children) {
+                const res = findNode(child, targetId);
+                if (res) return res;
+              }
+              return null;
+            }
+            
+            const worksheetNode = findNode(builder.root, editingWorksheetId);
+            if (!worksheetNode) return <div style={{ color: '#f87171', padding: 20 }}>Worksheet not found.</div>;
+            
+            return (
+              <WorksheetEditorView
+                worksheetNode={worksheetNode}
+                onUpdate={(updater) => setBuilderAtNode(editingWorksheetId, updater)}
+                onClose={() => { setView('explorer'); setEditingWorksheetId(null); }}
+              />
+            );
+          })()}
+        </div>
+      )}
+
     </div>
   );
 }

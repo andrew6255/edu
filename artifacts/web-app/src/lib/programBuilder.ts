@@ -45,6 +45,15 @@ export type BuilderQuestion = {
   // Still allow legacy fields above to keep older JSON working.
   promptBlocks?: ProgramPromptBlock[];
   interaction?: ProgramInteractionSpec;
+  
+  // Phase 2 answer data
+  modelAnswer?: string;
+  answerFromPdf?: boolean;
+  rawAnswerText?: string | null;
+  
+  // Phase 3 enrichment
+  solutionPlan?: string;
+  gradingSchema?: any[]; // GradingCriterion[]
 };
 
 export type BuilderQuestionTypeFile = {
