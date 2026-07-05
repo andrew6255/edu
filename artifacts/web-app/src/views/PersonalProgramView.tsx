@@ -709,6 +709,86 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
               ))}
             </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+              <button
+                onClick={() => {
+                  alert('Test Me feature coming soon!');
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, rgba(59,130,246,0.1) 0%, rgba(59,130,246,0.05) 100%)',
+                  border: '1px solid rgba(59,130,246,0.3)',
+                  borderRadius: 16,
+                  padding: '16px 20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  color: 'inherit',
+                  fontFamily: 'inherit',
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget;
+                  el.style.transform = 'translateY(-2px)';
+                  el.style.borderColor = 'rgba(59,130,246,0.8)';
+                  el.style.background = 'linear-gradient(135deg, rgba(59,130,246,0.15) 0%, rgba(59,130,246,0.08) 100%)';
+                  el.style.boxShadow = '0 8px 24px rgba(59,130,246,0.15)';
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget;
+                  el.style.transform = '';
+                  el.style.borderColor = 'rgba(59,130,246,0.3)';
+                  el.style.background = 'linear-gradient(135deg, rgba(59,130,246,0.1) 0%, rgba(59,130,246,0.05) 100%)';
+                  el.style.boxShadow = 'none';
+                }}
+              >
+                <div style={{ fontSize: 24, filter: 'drop-shadow(0 2px 4px rgba(59,130,246,0.3))' }}>🎯</div>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#3b82f6', marginBottom: 2 }}>Test Me</div>
+                  <div style={{ fontSize: 12, color: 'var(--ll-text-muted)', lineHeight: 1.2 }}>Take a timed quiz on this sheet</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  alert('Feynman Mode feature coming soon!');
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, rgba(168,85,247,0.1) 0%, rgba(168,85,247,0.05) 100%)',
+                  border: '1px solid rgba(168,85,247,0.3)',
+                  borderRadius: 16,
+                  padding: '16px 20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  color: 'inherit',
+                  fontFamily: 'inherit',
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget;
+                  el.style.transform = 'translateY(-2px)';
+                  el.style.borderColor = 'rgba(168,85,247,0.8)';
+                  el.style.background = 'linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(168,85,247,0.08) 100%)';
+                  el.style.boxShadow = '0 8px 24px rgba(168,85,247,0.15)';
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget;
+                  el.style.transform = '';
+                  el.style.borderColor = 'rgba(168,85,247,0.3)';
+                  el.style.background = 'linear-gradient(135deg, rgba(168,85,247,0.1) 0%, rgba(168,85,247,0.05) 100%)';
+                  el.style.boxShadow = 'none';
+                }}
+              >
+                <div style={{ fontSize: 24, filter: 'drop-shadow(0 2px 4px rgba(168,85,247,0.3))' }}>👨‍🏫</div>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#a855f7', marginBottom: 2 }}>Feynman Mode</div>
+                  <div style={{ fontSize: 12, color: 'var(--ll-text-muted)', lineHeight: 1.2 }}>Explain concepts to AI tutor</div>
+                </div>
+              </button>
+            </div>
+
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24,
               padding: '8px 12px', background: 'var(--ll-surface-1)', borderRadius: 10,
