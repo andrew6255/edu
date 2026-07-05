@@ -1015,6 +1015,11 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
         const completedIds = uid ? (pp?.completedUnitIds ?? []) : [];
         setCompletedUnitIds(completedIds);
 
+        if (prog && (prog as any).builderSpec) {
+          window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'personalProgram', personalProgramId: programId, isPublicProgram: true } }));
+          return;
+        }
+
         const solvedIds = uid ? ((pp as any)?.solvedQuestionIds ?? []) : [];
         setSolvedQuestionIds(Array.isArray(solvedIds) ? (solvedIds as string[]) : []);
 

@@ -273,7 +273,13 @@ export default function HexUniverseView() {
       const visibleProgs = progs.filter(({ p }) => !!p);
 
       const items = visibleProgs
-        .map(({ pid, p }) => ({ id: pid, title: p?.title ?? pid, coverEmoji: p?.coverEmoji, subject: p?.subject }))
+        .map(({ pid, p }) => ({ 
+          id: pid, 
+          title: p?.title ?? pid, 
+          coverEmoji: p?.coverEmoji, 
+          subject: p?.subject,
+          builderSpec: p?.builderSpec
+        }))
         .filter((x) => !!x.id);
 
       setActiveProgramTitle(items[0]?.title ?? 'My Book');

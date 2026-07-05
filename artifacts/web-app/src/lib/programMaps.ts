@@ -59,6 +59,7 @@ function toPublicProgram(data: Partial<PublicProgram> & { id: string }): PublicP
     programMeta: (data as any).programMeta,
     toc,
     deletedAt: typeof (data as any).deletedAt === 'string' ? ((data as any).deletedAt as string) : undefined,
+    builderSpec: (data as any).builderSpec,
   };
 }
 
