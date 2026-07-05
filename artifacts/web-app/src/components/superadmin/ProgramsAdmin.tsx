@@ -13,7 +13,7 @@
  * per-user under the admin's UID and is never published to program content.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   FIXED_FIRST_DIVISION_NODE_ID,
@@ -234,6 +234,29 @@ function SubjectSelector({
 }
 
 // ─── ProgramsAdmin Component ──────────────────────────────────────────────────
+
+function AdminPreviewWrapper({ programId, onBack }: { programId: string, onBack: () => void }) {
+  const [hasBuilderSpec, setHasBuilderSpec] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    import('@/lib/programMaps').then(m => m.getPublicProgramOrDraft(programId)).then(prog => {
+      setHasBuilderSpec(!!prog?.builderSpec);
+    });
+  }, [programId]);
+
+  if (hasBuilderSpec === null) return <div style={{ padding: 18, color: '#64748b' }}>Loading preview...</div>;
+
+  if (hasBuilderSpec) {
+    const PersonalProgramView = lazy(() => import('@/views/PersonalProgramView'));
+    return (
+      <Suspense fallback={<div style={{ padding: 18, color: '#64748b' }}>Loading...</div>}>
+        <PersonalProgramView programId={programId} isPublicProgram={true} onBack={onBack} />
+      </Suspense>
+    );
+  }
+  
+  return <ProgramMapView programId={programId} onBack={onBack} />;
+}
 
 export default function ProgramsAdmin() {
   const { user } = useAuth();
@@ -523,7 +546,7 @@ export default function ProgramsAdmin() {
   }
 
   async function resetToList() {
-    if (view === 'explorer' || view === 'preview') {
+    if (view === 'explorer') {
       await saveBuilderDraft(true);
     }
     setView('list');
@@ -579,7 +602,7 @@ export default function ProgramsAdmin() {
   }
 
   useEffect(() => {
-    if (view !== 'explorer' && view !== 'preview') return;
+    if (view !== 'explorer') return;
     const { id: programId, title } = computeProgramIdAndTitle();
     if (!programId || !title) return;
 
@@ -687,6 +710,7 @@ export default function ProgramsAdmin() {
         annotations: internal.annotations,
         programMeta: internal.programMeta,
         rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+        builderSpec: builder,
       });
       setPreviewProgramId(`ll-draft:${key}`);
       setPreviewReturnView('explorer');
@@ -719,6 +743,7 @@ export default function ProgramsAdmin() {
           annotations: internal.annotations,
           programMeta: internal.programMeta,
           rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
+          builderSpec: spec,
         });
         setPreviewProgramId(`ll-draft:${key}`);
       } else {
@@ -1157,25 +1182,13 @@ export default function ProgramsAdmin() {
           PREVIEW VIEW
           ═══════════════════════════════════════════════════════════════════════ */}
       {view === 'preview' && (
-        <div style={{ background: '#0f172a', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, borderBottom: '1px solid #1f2a44', background: '#1e293b' }}>
-            <div style={{ color: 'white', fontWeight: 900, fontSize: 14, flex: 1 }}>👁️ Preview</div>
-            <button
-              className="ll-btn"
-              style={{ padding: '7px 12px', fontSize: 12 }}
-              onClick={() => {
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#0f172a' }}>
+          {previewProgramId
+            ? <AdminPreviewWrapper onBack={() => {
                 if (previewProgramId?.startsWith('ll-draft:')) clearDraftProgram(previewProgramId.slice('ll-draft:'.length));
                 setView(previewReturnView);
-              }}
-            >
-              ← {previewReturnView === 'explorer' ? 'Back to Explorer' : 'Back'}
-            </button>
-          </div>
-          <div style={{ height: 'calc(100vh - 260px)', minHeight: 560 }}>
-            {previewProgramId
-              ? <ProgramMapView onBack={() => setView(previewReturnView)} programId={previewProgramId} />
-              : <div style={{ padding: 18, color: '#64748b' }}>No preview loaded.</div>}
-          </div>
+              }} programId={previewProgramId} />
+            : <div style={{ padding: 18, color: '#64748b' }}>No preview loaded.</div>}
         </div>
       )}
 

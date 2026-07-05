@@ -37,6 +37,7 @@ export type PublicProgram = {
   toc: TocData;
   deletedAt?: string;
   draftKey?: string;
+  builderSpec?: any;
 };
 
 function toPublicProgram(data: Partial<PublicProgram> & { id: string }): PublicProgram | null {
@@ -90,6 +91,7 @@ function rebuildPublicProgramFromBuilderSpec(data: Partial<PublicProgram> & { id
       programMeta: internal.programMeta,
       toc: internal.toc,
       deletedAt: typeof (data as any).deletedAt === 'string' ? ((data as any).deletedAt as string) : undefined,
+      builderSpec: data.builderSpec,
     };
   } catch {
     return null;

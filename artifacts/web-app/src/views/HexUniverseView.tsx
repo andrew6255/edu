@@ -384,7 +384,11 @@ export default function HexUniverseView() {
                 <div
                   key={p.id}
                   onClick={() => {
-                    window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'programMap', programId: p.id } }));
+                    if ((p as any).builderSpec) {
+                      window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'personalProgram', personalProgramId: p.id, isPublicProgram: true } }));
+                    } else {
+                      window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'programMap', programId: p.id } }));
+                    }
                   }}
                   style={{
                     background: 'rgba(59,130,246,0.10)',

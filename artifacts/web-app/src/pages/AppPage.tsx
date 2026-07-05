@@ -40,6 +40,7 @@ export default function AppPage() {
   const [view, setView] = useState<View>('universe');
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
   const [selectedPersonalProgramId, setSelectedPersonalProgramId] = useState<string | null>(null);
+  const [isPublicPersonalProgram, setIsPublicPersonalProgram] = useState<boolean>(false);
   const [pendingContentId, setPendingContentId] = useState<string | null>(null);
   const [pendingContentType, setPendingContentType] = useState<string | null>(null);
   const [showRefresh, setShowRefresh] = useState(false);
@@ -54,14 +55,20 @@ export default function AppPage() {
 
   useEffect(() => {
     function onSetView(e: Event) {
-      const ce = e as CustomEvent<{ view?: View; programId?: string | null; personalProgramId?: string | null }>;
+      const ce = e as CustomEvent<{ view?: View; programId?: string | null; personalProgramId?: string | null; isPublicProgram?: boolean }>;
       const next = ce.detail?.view;
       if (!next) return;
       setView(next);
       if (next !== 'programMap') setSelectedProgramId(null);
       if (next === 'programMap') setSelectedProgramId(ce.detail?.programId ?? null);
-      if (next !== 'personalProgram') setSelectedPersonalProgramId(null);
-      if (next === 'personalProgram') setSelectedPersonalProgramId(ce.detail?.personalProgramId ?? null);
+      if (next !== 'personalProgram') {
+        setSelectedPersonalProgramId(null);
+        setIsPublicPersonalProgram(false);
+      }
+      if (next === 'personalProgram') {
+        setSelectedPersonalProgramId(ce.detail?.personalProgramId ?? null);
+        setIsPublicPersonalProgram(ce.detail?.isPublicProgram ?? false);
+      }
     }
 
     function onOpenClassContent(e: Event) {
@@ -120,7 +127,11 @@ export default function AppPage() {
       case 'personalProgram':
         return (
           <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--ll-text-muted)' }}>Loading...</div>}>
-            <PersonalProgramView programId={selectedPersonalProgramId} onBack={() => setView('universe')} />
+            <PersonalProgramView 
+              programId={selectedPersonalProgramId} 
+              isPublicProgram={isPublicPersonalProgram} 
+              onBack={() => setView('universe')} 
+            />
           </Suspense>
         );
       case 'studySessions':

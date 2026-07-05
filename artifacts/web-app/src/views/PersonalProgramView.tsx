@@ -31,6 +31,7 @@ interface Props {
   onBack: () => void;
   sandboxData?: PersonalProgramData;
   sandboxMeta?: PersonalProgramMeta;
+  isPublicProgram?: boolean;
 }
 
 function renderWithMath(text: string) {
@@ -38,7 +39,7 @@ function renderWithMath(text: string) {
   return <LatexMarkdown content={text} />;
 }
 
-export default function PersonalProgramView({ programId, onBack, sandboxData, sandboxMeta }: Props) {
+export default function PersonalProgramView({ programId, onBack, sandboxData, sandboxMeta, isPublicProgram }: Props) {
   const { user } = useAuth();
   const [meta, setMeta] = useState<PersonalProgramMeta | null>(null);
   const [programData, setProgramData] = useState<PersonalProgramData | null>(null);
@@ -61,6 +62,11 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
   const [formattedPreviews, setFormattedPreviews] = useState<Record<string, string>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestPagesRef = useRef<WhiteboardPageData[] | null>(null);
+
+  // File Explorer state for public programs
+  const [publicProgramSpec, setPublicProgramSpec] = useState<any | null>(null);
+  const [currentExplorerPath, setCurrentExplorerPath] = useState<any[]>([]);
+  const [selectedSheetNode, setSelectedSheetNode] = useState<any | null>(null);
 
   // Show refresh button if loading takes too long
   useEffect(() => {
@@ -86,20 +92,50 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
       setLoading(true);
       setError(null);
       try {
-        // Get meta from user_docs
-        const doc = await getUserDoc(user!.uid, 'personal_programs', programId!);
-        if (!doc) {
-          setError('Program not found.');
-          setLoading(false);
-          return;
-        }
-        const m = doc as unknown as PersonalProgramMeta;
-        setMeta(m);
+        let mStatus = 'ready';
+        if (isPublicProgram) {
+          const { getPublicProgramOrDraft } = await import('@/lib/programMaps');
+          const prog = await getPublicProgramOrDraft(programId!);
+          if (!prog || !prog.builderSpec) {
+            setError('Public program missing builder content.');
+            setLoading(false);
+            return false;
+          }
+          const spec = prog.builderSpec as any;
+          setPublicProgramSpec(spec);
+          
+          // Set a basic meta immediately so the UI doesn't crash
+          const basicMeta: PersonalProgramMeta = {
+            jobId: programId!,
+            programId: programId!,
+            status: 'ready',
+            title: spec.programTitle || prog.title || 'Program',
+            subjectId: spec.subject || prog.subject || 'mathematics',
+            coverEmoji: spec.coverEmoji || prog.coverEmoji || '📄',
+            contentHash: 'public',
+            sourceFileName: 'Public Program',
+            createdAt: new Date().toISOString(),
+            programData: null as any // Will be set when a sheet is opened
+          };
+          setMeta(basicMeta);
+          
+        } else {
+          // Get meta from user_docs
+          const doc = await getUserDoc(user!.uid, 'personal_programs', programId!);
+          if (!doc) {
+            setError('Program not found.');
+            setLoading(false);
+            return false;
+          }
+          const m = doc as unknown as PersonalProgramMeta;
+          setMeta(m);
+          mStatus = m.status;
 
-        if (m.status === 'processing') {
-          // Polling will handle updates
-        } else if (m.programData) {
-          setProgramData(m.programData);
+          if (m.status === 'processing') {
+            // Polling will handle updates
+          } else if (m.programData) {
+            setProgramData(m.programData);
+          }
         }
 
         // Load answered question IDs from both whiteboard and manual progress
@@ -111,18 +147,21 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
           for (const id of progressDoc.solvedQuestionIds) combined.add(id);
         }
         if (!cancelled) setAnsweredIds(combined);
+        return !isPublicProgram && !sandboxData && mStatus === 'processing';
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load program.');
+        return false;
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
 
-    load();
-
     // Setup polling if we are in processing state
     let pollInterval: ReturnType<typeof setInterval>;
+    
+    // We start polling later once the initial load finishes and confirms it's processing
     const startPolling = () => {
+      if (isPublicProgram || sandboxData) return;
       pollInterval = setInterval(async () => {
         if (cancelled) return;
         try {
@@ -139,13 +178,84 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
       }, 3000);
     };
 
-    startPolling();
+    load().then(shouldPoll => {
+      if (shouldPoll && !cancelled) startPolling();
+    });
 
     return () => { 
       cancelled = true; 
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [user, programId]);
+  }, [user, programId, isPublicProgram, sandboxData]);
+  // When a Sheet is selected in File Explorer mode, dynamically build programData for it
+  useEffect(() => {
+    if (!publicProgramSpec || !selectedSheetNode) {
+      if (isPublicProgram && !selectedSheetNode) {
+        setProgramData(null);
+      }
+      return;
+    }
+
+    const questions: any[] = [];
+    let totalQuestions = 0;
+    const topics: any[] = [];
+
+    if (selectedSheetNode.questionTypes) {
+      selectedSheetNode.questionTypes.forEach((qt: any) => {
+        const questionIds: string[] = [];
+        let parsedQuestions: any[] = [];
+        try {
+          if (qt.jsonText) parsedQuestions = JSON.parse(qt.jsonText);
+        } catch (e) {
+          console.error("Failed to parse jsonText for qt", qt.id, e);
+        }
+        
+        if (parsedQuestions && parsedQuestions.length > 0) {
+          parsedQuestions.forEach((q: any) => {
+            questionIds.push(q.id);
+            let rawText = q.question || '';
+            if (!rawText && q.promptBlocks && Array.isArray(q.promptBlocks)) {
+              rawText = q.promptBlocks
+                .filter((b: any) => b.type === 'text' || b.type === 'math')
+                .map((b: any) => b.type === 'math' ? b.latex : b.text)
+                .filter(Boolean)
+                .join('\n\n');
+            }
+
+            questions.push({
+              id: q.id,
+              rawText,
+              chapterId: selectedSheetNode.id,
+              questionTypeTitle: qt.title,
+              modelAnswer: q.modelAnswer || q.solution
+            });
+            totalQuestions++;
+          });
+        }
+        topics.push({
+          id: qt.id,
+          title: qt.title,
+          questionTypeTitle: qt.title,
+          questionIds
+        });
+      });
+    }
+
+    const pData: PersonalProgramData = {
+      title: selectedSheetNode.title || 'Worksheet',
+      subject: publicProgramSpec.subject || 'mathematics',
+      chapters: [{
+        id: selectedSheetNode.id,
+        title: selectedSheetNode.title || 'Worksheet',
+        topics
+      }],
+      questions,
+      totalQuestions
+    };
+
+    setProgramData(pData);
+    setMeta(prev => prev ? { ...prev, programData: pData } : null);
+  }, [publicProgramSpec, selectedSheetNode, isPublicProgram]);
 
   // Format question previews via Groq dynamically
   useEffect(() => {
@@ -180,13 +290,18 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
     .then(r => r.json())
     .then(data => {
       try {
+        if (!data || !data.choices || !data.choices[0]) {
+          return; // Silently fallback
+        }
         const parsed = JSON.parse(data.choices[0].message.content);
         setFormattedPreviews(prev => ({ ...prev, ...parsed }));
       } catch (e) {
-        console.warn('Failed to parse formatted previews', e);
+        // Silently ignore parse errors
       }
     })
-    .catch(console.error);
+    .catch(() => {
+      // Silently ignore network errors
+    });
   }, [programData, formattedPreviews]);
 
   // Open question whiteboard
@@ -421,6 +536,101 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
     );
   }
 
+  // ─── File Explorer (Public Programs Only) ──────────────────────────────────────
+  if (!programData && publicProgramSpec && !selectedSheetNode) {
+    const currentNode = currentExplorerPath.length === 0 
+      ? publicProgramSpec.root 
+      : currentExplorerPath[currentExplorerPath.length - 1];
+    
+    let displayChildren = currentNode.children || [];
+    if (currentExplorerPath.length === 0 && displayChildren.length === 1 && displayChildren[0].id === 'fixed_first_division') {
+      displayChildren = displayChildren[0].children || [];
+    }
+
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--ll-surface-0)' }}>
+        <div style={{
+          padding: '14px 16px', flexShrink: 0,
+          background: 'var(--ll-surface-1)', borderBottom: '1px solid var(--ll-border)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={() => {
+              if (currentExplorerPath.length > 0) {
+                setCurrentExplorerPath(prev => prev.slice(0, -1));
+              } else {
+                window.dispatchEvent(new CustomEvent('ll:openMyPrograms'));
+                onBack();
+              }
+            }} className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }}>← Back</button>
+            <span style={{ fontSize: 24 }}>{meta?.coverEmoji || '📄'}</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 'bold', color: 'var(--ll-text)', fontSize: 16 }}>
+                {currentExplorerPath.length === 0 ? (publicProgramSpec.programTitle || 'Program') : currentNode.title}
+              </div>
+              <div style={{ color: 'var(--ll-text-muted)', fontSize: 11 }}>
+                {currentExplorerPath.length === 0 ? 'Program Explorer' : 'Folder'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+          {currentExplorerPath.length === 0 && currentNode.questionTypes && currentNode.questionTypes.length > 0 && (
+             <div
+                onClick={() => setSelectedSheetNode(currentNode)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: 16,
+                  background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)',
+                  borderRadius: 12, cursor: 'pointer', marginBottom: 12
+                }}
+             >
+               <span style={{ fontSize: 24 }}>📄</span>
+               <div style={{ flex: 1 }}>
+                 <div style={{ fontWeight: 'bold', color: 'var(--ll-text)', fontSize: 14 }}>Root Worksheet</div>
+                 <div style={{ color: 'var(--ll-text-muted)', fontSize: 12 }}>{currentNode.questionTypes.length} question types</div>
+               </div>
+             </div>
+          )}
+
+          {displayChildren.length === 0 && !(currentExplorerPath.length === 0 && currentNode.questionTypes?.length > 0) && (
+            <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>Empty folder.</div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
+            {displayChildren.map((child: any) => {
+              const isSheet = child.questionTypes && child.questionTypes.length > 0;
+              return (
+                <div
+                  key={child.id}
+                  onClick={() => {
+                    if (isSheet) {
+                      setSelectedSheetNode(child);
+                    } else {
+                      setCurrentExplorerPath(prev => [...prev, child]);
+                    }
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: 16,
+                    background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)',
+                    borderRadius: 12, cursor: 'pointer'
+                  }}
+                >
+                  <span style={{ fontSize: 24 }}>{isSheet ? '📄' : '📁'}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 'bold', color: 'var(--ll-text)', fontSize: 14 }}>{child.title || (isSheet ? 'Worksheet' : 'Folder')}</div>
+                    <div style={{ color: 'var(--ll-text-muted)', fontSize: 12 }}>
+                      {isSheet ? `${child.questionTypes.length} types` : `${child.children?.length || 0} items`}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ─── No Data Yet ──────────────────────────────────────────────────────────────
   if (!programData) {
     return (
@@ -455,8 +665,12 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <button onClick={() => {
-            window.dispatchEvent(new CustomEvent('ll:openMyPrograms'));
-            onBack();
+            if (selectedSheetNode) {
+              setSelectedSheetNode(null);
+            } else {
+              window.dispatchEvent(new CustomEvent('ll:openMyPrograms'));
+              onBack();
+            }
           }} className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }}>← Back</button>
           <span style={{ fontSize: 24 }}>{meta?.coverEmoji || '📄'}</span>
           <div style={{ flex: 1 }}>
@@ -663,7 +877,7 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
 
                       const isAnswered = answeredIds.has(qId);
 
-                      const previewText = formattedPreviews[qId] || question.rawText;
+                      const previewText = formattedPreviews[qId] || question.rawText || '';
                       const displayPreview = previewText.length > 200
                         ? previewText.slice(0, 200) + '...'
                         : previewText;
