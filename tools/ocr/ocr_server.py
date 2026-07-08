@@ -246,12 +246,16 @@ def postprocess(text: str) -> str:
 def extract_page(page: fitz.Page, page_num: int) -> dict:
     """Extract text from a single PDF page. Returns per-page result dict."""
 
-    # Step 1 — try embedded text layer
+    # Step 1 — try embedded text layer (fast & perfect for digital PDFs)
     raw_text = page.get_text("text").strip()
-    
-    # Bypass pymupdf text layer if pix2text is available because pymupdf ruins math formatting
-    if not PIX2TEXT_AVAILABLE and len(raw_text) >= MIN_CHARS_PER_PAGE:
+
+    # If PyMuPDF got a good text layer, USE IT.
+    # We only run pix2text on pages that are genuinely sparse/scanned (image-based).
+    # Previously this bypassed PyMuPDF whenever pix2text was installed, causing
+    # 4–5 s of ONNX inference PER PAGE even on fully-digital PDFs — extremely slow.
+    if len(raw_text) >= MIN_CHARS_PER_PAGE:
         text = postprocess(raw_text)
+        print(f"[OCR Server]   Page {page_num+1}: pymupdf_text_layer ({len(text)} chars)", flush=True)
         return {
             "page": page_num + 1,
             "method": "pymupdf_text_layer",
@@ -259,13 +263,16 @@ def extract_page(page: fitz.Page, page_num: int) -> dict:
             "text": text,
         }
 
-    # Step 2 — render at 300 DPI and run math-aware OCR
+    # Step 2 — page is sparse (scanned / image-based). Render at 300 DPI and
+    # run math-aware OCR with pix2text, falling back to Tesseract.
+    print(f"[OCR Server]   Page {page_num+1}: sparse ({len(raw_text)} chars) — running OCR...", flush=True)
     pil_img = render_page(page)
 
     if PIX2TEXT_AVAILABLE:
         try:
             result = ocr_with_pix2text(pil_img)
             text = postprocess(result["text"].strip())
+            print(f"[OCR Server]   Page {page_num+1}: pix2text OK ({len(text)} chars)", flush=True)
             return {
                 "page": page_num + 1,
                 "method": "pix2text",
@@ -273,11 +280,12 @@ def extract_page(page: fitz.Page, page_num: int) -> dict:
                 "text": text,
             }
         except Exception as e:
-            print(f"[OCR Server] pix2text failed on page {page_num+1}: {e} — falling back to Tesseract", flush=True)
+            print(f"[OCR Server]   Page {page_num+1}: pix2text failed ({e}) — falling back to Tesseract", flush=True)
 
     # Fallback: Tesseract
     result = ocr_with_tesseract(pil_img)
     text = postprocess(result["text"].strip())
+    print(f"[OCR Server]   Page {page_num+1}: tesseract ({len(text)} chars)", flush=True)
     return {
         "page": page_num + 1,
         "method": "tesseract_ocr",
@@ -415,10 +423,41 @@ def phase1_ocr():
 
 @app.route("/ocr/phase2", methods=["POST"])
 def phase2_questions():
+    import time
+
+    # ── Token budget constants ─────────────────────────────────────────────────
+    # Groq free tier: 12,000 TPM for llama-3.3-70b-versatile.
+    # TPM counts (input tokens + requested max_tokens) per minute.
+    # Keep input + max_tokens well under 10,000 to leave headroom.
+    #
+    # Max input chars per chunk: ~6,000 chars ≈ 1,500 tokens (4 chars/token avg).
+    # Combined with system prompt (~500 tokens) + max_tokens (4096) ≈ 6,096 —
+    # safely under 10,000. Between chunks we sleep 5s to spread across the minute.
+    MAX_CHARS_PER_CHUNK = 6_000
+    PASS1_MAX_TOKENS    = 4_096   # enough for 40+ questions without detailed answers
+    PASS2_MAX_TOKENS    = 1_024   # just topic-id arrays, very compact
+    CHUNK_SLEEP_SECS    = 5       # sleep between chunks to avoid TPM exhaustion
+    MAX_RETRIES         = 3
+
+    def groq_call_with_retry(client, **kwargs):
+        """Call client.chat.completions.create with exponential backoff on 413/429."""
+        for attempt in range(MAX_RETRIES):
+            try:
+                return client.chat.completions.create(**kwargs)
+            except Exception as e:
+                msg = str(e)
+                is_rate_limit = "413" in msg or "429" in msg or "rate_limit" in msg.lower() or "too large" in msg.lower()
+                if is_rate_limit and attempt < MAX_RETRIES - 1:
+                    wait = (attempt + 1) * 15  # 15s, 30s backoff
+                    print(f"[OCR Server] Rate limit hit — waiting {wait}s before retry {attempt+2}/{MAX_RETRIES}...", flush=True)
+                    time.sleep(wait)
+                    continue
+                raise
+
     try:
         body = request.get_json(force=True)
-        text = body.get("text", "")
-        if not text:
+        text = body.get("text", "") or ""
+        if not text.strip():
             return jsonify({"error": "No text provided"}), 400
 
         if not GROQ_API_KEY:
@@ -426,132 +465,147 @@ def phase2_questions():
 
         client = groq.Groq(api_key=GROQ_API_KEY)
 
-        # ── PASS 1 ─────────────────────────────────────────────────────────────
-        # Structural analysis + Q&A pairing.
-        # The LLM first understands the layout of the document (questions section,
-        # answer-key section, inline answers, etc.) and extracts every Q&A pair.
-        # If no answer exists in the PDF it generates a correct model answer.
-        # ────────────────────────────────────────────────────────────────────────
+        # ── Split text into page-aware chunks ─────────────────────────────────
+        # Split on the page-break marker written by extract_from_pdf().
+        # If a single page is still > MAX_CHARS_PER_CHUNK, hard-slice it.
+        PAGE_BREAK = "\n\n--- PAGE BREAK ---\n\n"
+        pages = text.split(PAGE_BREAK)
+
+        chunks: list[str] = []
+        current_chunk = ""
+        for page in pages:
+            if len(current_chunk) + len(page) + len(PAGE_BREAK) <= MAX_CHARS_PER_CHUNK:
+                current_chunk = (current_chunk + PAGE_BREAK + page).strip() if current_chunk else page
+            else:
+                # Flush current chunk
+                if current_chunk:
+                    chunks.append(current_chunk)
+                # If single page is still too large, hard-slice it
+                if len(page) > MAX_CHARS_PER_CHUNK:
+                    for i in range(0, len(page), MAX_CHARS_PER_CHUNK):
+                        chunks.append(page[i:i + MAX_CHARS_PER_CHUNK])
+                    current_chunk = ""
+                else:
+                    current_chunk = page
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        print(f"[OCR Server] Phase 2 — {len(chunks)} chunk(s) to process (text length: {len(text)} chars)", flush=True)
+
+        # ── PASS 1: Extract Q&A from each chunk ────────────────────────────
         pass1_system = (
-            "You are a strict educational document parser. Your job is to extract every "
-            "question from a worksheet/exam and match it with its correct answer.\n\n"
-            "STEP 1 — Understand the document structure:\n"
-            "  • Look for an 'Answer Key', 'Answers', 'Solutions' section (often at the end).\n"
-            "  • Answers may also appear inline right after each question.\n"
-            "  • Irrelevant content (headers, student names, dates, instructions, page numbers) must be DROPPED.\n\n"
-            "STEP 2 — Extract every question:\n"
-            "  • Extract EXACTLY as written. Do NOT rephrase.\n"
-            "  • If a shared instruction applies to multiple independent sub-items "
-            "(e.g. 'Find the derivative: a) f(x)=cos(x) b) f(x)=sin(x)'), expand each into a "
-            "fully self-contained question by prepending the instruction. Output 'Find the derivative of f(x)=cos(x)' "
-            "AND 'Find the derivative of f(x)=sin(x)' as SEPARATE questions.\n"
-            "  • CRITICAL: Preserve ALL mathematical notation and LaTeX. You MUST wrap all math, equations, and symbols in $...$ (inline) or $$...$$ (display) delimiters if they are not already wrapped.\n"
-            "  • Double-escape all LaTeX backslashes for valid JSON (e.g. '\\\\frac' not '\\frac').\n\n"
-            "STEP 3 — Match each question to its answer:\n"
-            "  • Use any Answer Key, inline answer, or worked solution found in the PDF.\n"
-            "  • Set 'answerFromPdf': true when an answer was found in the document.\n"
-            "  • If no answer exists in the PDF, GENERATE a correct step-by-step model answer yourself and set 'answerFromPdf': false.\n"
-            "  • The 'modelAnswer' MUST be written with ALL steps, not just the final answer. Structure each step with a step title followed by the solving in that step, continuing until the final answer. If the uploaded original worksheet has the answers with steps, use them directly.\n\n"
-            "OUTPUT FORMAT — Return ONLY a valid JSON object with this exact shape:\n"
-            "{\n"
-            "  \"questions\": [\n"
-            "    {\n"
-            "      \"id\": \"q_1\",\n"
-            "      \"label\": \"1.\",\n"
-            "      \"rawText\": \"Exact question text here\",\n"
-            "      \"answerFromPdf\": true,\n"
-            "      \"rawAnswerText\": \"Answer exactly as in PDF, or null\",\n"
-            "      \"modelAnswer\": \"Full step-by-step solution ending with the final answer\"\n"
-            "    }\n"
-            "  ]\n"
-            "}\n"
+            "You are a strict educational document parser. Extract every question "
+            "from the provided worksheet text and match each to its answer.\n\n"
+            "RULES:\n"
+            "  • Extract questions EXACTLY as written. Do NOT rephrase.\n"
+            "  • If a shared instruction applies to multiple sub-items (e.g. "
+            "'Find the derivative: a) f(x)=x^2  b) f(x)=sin(x)'), expand each "
+            "into a fully self-contained question (prepend the instruction).\n"
+            "  • Preserve ALL math notation. Wrap in $...$ (inline) or $$...$$ (display).\n"
+            "  • Double-escape LaTeX backslashes for JSON (\\\\frac, not \\frac).\n"
+            "  • Drop headers, student names, dates, page numbers, and pure instructions.\n"
+            "  • 'rawAnswerText': copy the short answer/result from the PDF, or null.\n"
+            "  • Keep rawAnswerText SHORT — final answer only, no full working.\n\n"
+            "OUTPUT — valid JSON only:\n"
+            "{\"questions\":[{\"id\":\"q_1\",\"label\":\"1.\",\"rawText\":\"...\","
+            "\"answerFromPdf\":true,\"rawAnswerText\":\"...\"}]}"
         )
 
-        print("[OCR Server] Phase 2 — Pass 1: Extracting Q&A pairs...", flush=True)
-        pass1_response = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": pass1_system},
-                {"role": "user", "content": text}
-            ],
-            model="llama-3.3-70b-versatile",
-            temperature=0.0,
-            response_format={"type": "json_object"}
-        )
+        all_qa: list[dict] = []
+        q_offset = 0  # so IDs stay globally unique across chunks
 
-        pass1_json = json.loads(pass1_response.choices[0].message.content)
-        qa_pairs = pass1_json.get("questions", [])
-        print(f"[OCR Server] Phase 2 — Pass 1 done. Extracted {len(qa_pairs)} Q&A pair(s).", flush=True)
+        for chunk_idx, chunk_text in enumerate(chunks):
+            print(f"[OCR Server] Phase 2 — Pass 1 chunk {chunk_idx+1}/{len(chunks)} ({len(chunk_text)} chars)...", flush=True)
 
-        if not qa_pairs:
-            result_json = {"topics": []}
-        else:
-            # ── PASS 2 ─────────────────────────────────────────────────────────
-            # Classification into fine-grained question types.
-            # The LLM sees ALL questions together so it can reason holistically
-            # about what makes each cluster distinct.
-            # ──────────────────────────────────────────────────────────────────
-            pass2_system = (
-                "You are an expert curriculum designer. You are given a list of extracted math/science questions "
-                "from a single worksheet. Your job is to classify them into specific, descriptive question types.\n\n"
-                "RULES FOR QUESTION TYPE NAMES:\n"
-                "  • Names must be SPECIFIC and DESCRIPTIVE, not generic.\n"
-                "  • Good examples: 'Finding equation of line using two points', "
-                "'Expanding using Newton's Binomial Theorem', 'Solving quadratic by completing the square'.\n"
-                "  • Bad examples: 'Line questions', 'Algebra', 'Practice'.\n"
-                "  • If there are subtle differences between groups of questions, create separate types for each.\n"
-                "  • Analyze ALL questions together before deciding on types — don't classify one at a time.\n\n"
-                "OUTPUT FORMAT — Return ONLY a valid JSON object with this exact shape:\n"
-                "{\n"
-                "  \"topics\": [\n"
-                "    {\n"
-                "      \"id\": \"t1\",\n"
-                "      \"title\": \"Specific descriptive question type name\",\n"
-                "      \"questions\": [\n"
-                "        {\n"
-                "          \"id\": \"q_1\",\n"
-                "          \"label\": \"1.\",\n"
-                "          \"rawText\": \"Exact question text\",\n"
-                "          \"answerFromPdf\": true,\n"
-                "          \"rawAnswerText\": \"answer or null\",\n"
-                "          \"modelAnswer\": \"Full step-by-step solution ending with the final answer\"\n"
-                "        }\n"
-                "      ]\n"
-                "    }\n"
-                "  ]\n"
-                "}\n"
-                "IMPORTANT: Include ALL question IDs from the input. Do not drop any questions."
-            )
+            if chunk_idx > 0:
+                time.sleep(CHUNK_SLEEP_SECS)
 
-            # Compact input for Pass 2 (summaries only — saves tokens)
-            pass2_input = json.dumps({
-                "questions": [
-                    {"id": q.get("id"), "rawText": q.get("rawText"), "modelAnswer": q.get("modelAnswer")}
-                    for q in qa_pairs
-                ]
-            }, ensure_ascii=False)
-
-            print("[OCR Server] Phase 2 — Pass 2: Classifying into question types...", flush=True)
-            pass2_response = client.chat.completions.create(
+            resp = groq_call_with_retry(
+                client,
                 messages=[
-                    {"role": "system", "content": pass2_system},
-                    {"role": "user", "content": pass2_input}
+                    {"role": "system", "content": pass1_system},
+                    {"role": "user",   "content": chunk_text},
                 ],
                 model="llama-3.3-70b-versatile",
                 temperature=0.0,
-                response_format={"type": "json_object"}
+                max_tokens=PASS1_MAX_TOKENS,
+                response_format={"type": "json_object"},
             )
 
-            pass2_json = json.loads(pass2_response.choices[0].message.content)
+            chunk_json = json.loads(resp.choices[0].message.content)
+            chunk_qs = chunk_json.get("questions", [])
+
+            # Re-index IDs to be globally unique
+            for q in chunk_qs:
+                q_offset += 1
+                q["id"] = f"q_{q_offset}"
+
+            all_qa.extend(chunk_qs)
+            print(f"[OCR Server] Phase 2 — chunk {chunk_idx+1} done: {len(chunk_qs)} question(s) extracted.", flush=True)
+
+        print(f"[OCR Server] Phase 2 — Pass 1 complete: {len(all_qa)} total question(s).", flush=True)
+
+        if not all_qa:
+            result_json = {"topics": []}
+        else:
+            # ── PASS 2: Classify ALL questions into topic groups ───────────────
+            # We send only id + rawText — no answers needed for classification.
+            # Output is a compact {topics:[{id,title,questionIds:[...]}]} mapping.
+            pass2_system = (
+                "You are an expert curriculum designer. Classify the given math/science "
+                "questions into specific, descriptive question type groups.\n\n"
+                "RULES:\n"
+                "  • Type names must be SPECIFIC: e.g. 'Differentiating power functions', "
+                "'Applying the product rule', 'Chain rule with trigonometric functions'.\n"
+                "  • NOT generic: 'Calculus', 'Algebra', 'Practice'.\n"
+                "  • Analyze ALL questions together before deciding on groups.\n\n"
+                "OUTPUT — valid JSON only. Use questionIds arrays (NOT full question objects):\n"
+                "{\"topics\":[{\"id\":\"t1\",\"title\":\"...\",\"questionIds\":[\"q_1\",\"q_2\"]}]}\n"
+                "IMPORTANT: Every question ID must appear in exactly one topic. Do not omit any."
+            )
+
+            pass2_input = json.dumps({
+                "questions": [{"id": q["id"], "rawText": q.get("rawText", "")} for q in all_qa]
+            }, ensure_ascii=False)
+
+            print("[OCR Server] Phase 2 — Pass 2: Classifying into question types...", flush=True)
+            time.sleep(CHUNK_SLEEP_SECS)  # brief pause before Pass 2
+
+            resp2 = groq_call_with_retry(
+                client,
+                messages=[
+                    {"role": "system", "content": pass2_system},
+                    {"role": "user",   "content": pass2_input},
+                ],
+                model="llama-3.3-70b-versatile",
+                temperature=0.0,
+                max_tokens=PASS2_MAX_TOKENS,
+                response_format={"type": "json_object"},
+            )
+
+            pass2_json = json.loads(resp2.choices[0].message.content)
             topics_raw = pass2_json.get("topics", [])
 
-            # Merge the full Q&A data (from Pass 1) back into the classified topics
-            qa_by_id = {q.get("id"): q for q in qa_pairs}
+            # Merge: map question IDs back to full question objects from Pass 1
+            qa_by_id = {q["id"]: q for q in all_qa}
             topics_merged = []
             for topic in topics_raw:
+                question_ids = topic.get("questionIds", [])
+                # Fallback: if model returned full question objects instead of IDs
+                if not question_ids and "questions" in topic:
+                    question_ids = [q.get("id") for q in topic["questions"] if q.get("id")]
+
                 merged_questions = []
-                for q in topic.get("questions", []):
-                    full_q = qa_by_id.get(q.get("id"), q)
-                    merged_questions.append(full_q)
+                for qid in question_ids:
+                    full_q = qa_by_id.get(qid)
+                    if full_q:
+                        q_out = dict(full_q)
+                        # modelAnswer is filled by Phase 3 enrichment;
+                        # use rawAnswerText as a compact placeholder for now
+                        if not q_out.get("modelAnswer"):
+                            q_out["modelAnswer"] = q_out.get("rawAnswerText") or ""
+                        merged_questions.append(q_out)
+
                 topics_merged.append({
                     "id": topic.get("id"),
                     "title": topic.get("title"),
@@ -590,7 +644,6 @@ def phase2_questions():
             )
         except Exception:
             pass
-        return jsonify({"error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ import { type PersonalSubject, listPersonalSubjects } from '@/lib/personalSubjec
 import {
   runPhase1Ocr,
   runPhase2Questions,
+  runPhase3Enrichment,
   createDebugLog,
   saveDebugLogToFile,
   type PipelineDebugLog,
@@ -255,8 +256,8 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
       const { createPersonalProgram } = await import('@/lib/personalProgramService');
       const meta = await createPersonalProgram(user.uid, title, file, subjectId || undefined);
 
-      // Close modal
-      onClose();
+      // Reset state BEFORE closing so we don't call setState on an unmounted component
+      // (which triggers the React "Expected static flag was missing" internal error)
       setUploading(false);
       setUploadProgress('');
       setUploadFiles([]);
@@ -264,6 +265,9 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
 
       // Dispatch event so HexUniverseView renders it immediately
       window.dispatchEvent(new CustomEvent('ll:personalProgramCreated', { detail: { program: meta } }));
+
+      // Close modal AFTER all state has been reset
+      onClose();
 
       // Run background pipeline — each step writes its stage to Supabase
       // so the ProcessingDetailsModal shows real progress.
@@ -280,6 +284,9 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
           await updateProcessingStage(uid, jobId, 'extracting_questions');
           const phase2 = await runPhase2Questions(phase1.rawText, () => {});
 
+          // ── Stage: Enriching questions ───────────────────────────────────
+          const enrichedTopics = await runPhase3Enrichment(phase2.topics, () => {});
+
           // ── Stage: Building program structure ────────────────────────────
           await updateProcessingStage(uid, jobId, 'building_program');
 
@@ -295,16 +302,22 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
           const chapter = {
             id: 'ch1',
             title: 'Extracted Content',
-            topics: phase2.topics.map((t, tIdx) => {
-              const questionIds = t.questions.map(q => {
+            topics: enrichedTopics.map((t, tIdx) => {
+              const questionIds = t.questions.map((q: any) => {
                 qIndex++;
                 const newQId = `q${qIndex}`;
                 programData.questions.push({
                   id: newQId,
                   questionLabel: q.label || '',
-                  rawText: q.rawText,
+                  rawText: (q.rawText || q.label || '').trim(),
                   page: q.page || 1,
                   difficulty: 'medium',
+                  modelAnswer: q.modelAnswer,
+                  answerFromPdf: q.answerFromPdf,
+                  solution: q.solution,
+                  solutionPlan: q.solutionPlan,
+                  hint: q.hint,
+                  gradingSchema: q.gradingSchema,
                 });
                 return newQId;
               });

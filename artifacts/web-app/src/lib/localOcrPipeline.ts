@@ -195,10 +195,11 @@ export async function runPhase1Ocr(
 
   onProgress?.('⚙️ Running OCR (PyMuPDF + Tesseract)... This may take 10–60 seconds for large files.');
 
-  // 3. Send to OCR server
+  // 3. Send to OCR server — allow up to 10 minutes for heavy pix2text inference
   const response = await fetch(`${OCR_SERVER_URL}/ocr/phase1`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(600_000), // 10-minute timeout for large/math-heavy PDFs
     body: JSON.stringify({
       fileName: file.name,
       mimeType: file.type || 'application/pdf',
@@ -297,7 +298,7 @@ export async function runPhase2Questions(
 
 // ─── Phase 3: Question Enrichment ────────────────────────────────────────────
 
-const API_SERVER_URL = import.meta.env.VITE_API_SERVER_URL || 'http://localhost:3000';
+const API_SERVER_URL = import.meta.env.VITE_API_SERVER_URL || 'http://localhost:3001';
 
 /**
  * Phase 3 – Question Enrichment

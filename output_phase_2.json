@@ -1,63 +1,293 @@
 {
   "phase": "phase2_questions",
-  "created_at": "2026-07-05T19:55:45.926941+00:00",
+  "created_at": "2026-07-08T20:19:42.639552+00:00",
   "result": {
     "topics": [
       {
         "id": "t1",
-        "title": "Expanding using Newton's Binomial Theorem",
+        "title": "Differentiating power functions",
         "questions": [
           {
             "id": "q_1",
-            "label": "Exercice 1",
-            "rawText": "Développer, a l'aide de la formule du binéme de Newton, pour tout réel $x$: $$A=( x+1 )^{5}$$ $$B=( x-2 )^{4}$$",
+            "label": "1.",
+            "rawText": "Find the derivative: $f(x) = x^2 + 1$",
             "answerFromPdf": true,
-            "rawAnswerText": null,
-            "modelAnswer": "## Step 1: Développer A à l'aide de la formule du binôme de Newton\nLa formule du binôme de Newton est donnée par : $(a+b)^n = \\sum_{k=0}^{n} \\binom{n}{k} a^{n-k}b^k$. Pour A, on a $a = x$, $b = 1$ et $n = 5$. Donc, $A = (x+1)^5 = \\sum_{k=0}^{5} \\binom{5}{k} x^{5-k}1^k$.\n## Step 2: Calculer les termes de A\nEn utilisant la formule, on calcule chaque terme : $A = x^5 + 5x^4 + 10x^3 + 10x^2 + 5x + 1$.\n## Step 3: Développer B à l'aide de la formule du binôme de Newton\nPour B, on a $a = x$, $b = -2$ et $n = 4$. Donc, $B = (x-2)^4 = \\sum_{k=0}^{4} \\binom{4}{k} x^{4-k}(-2)^k$.\n## Step 4: Calculer les termes de B\nEn utilisant la formule, on calcule chaque terme : $B = x^4 - 8x^3 + 24x^2 - 32x + 16$.\n## Step 5: Conclusion\nLes développements de A et B sont respectivement $x^5 + 5x^4 + 10x^3 + 10x^2 + 5x + 1$ et $x^4 - 8x^3 + 24x^2 - 32x + 16$."
+            "rawAnswerText": "$f'(x) = 2x$",
+            "modelAnswer": "$f'(x) = 2x$"
           },
           {
-            "id": "q_2",
-            "label": "Exercice 2",
-            "rawText": "Développer, a l’aide de la formule du binôme de Newton, pour tout couple de réels $(a, b)$: $$A=( a+b )^{6}$$ $$B=( a-b )^{6}$$",
+            "id": "q_3",
+            "label": "3.",
+            "rawText": "Find the derivative: $h(x) = x^3 + x^2$",
             "answerFromPdf": true,
-            "rawAnswerText": null,
-            "modelAnswer": "## Step 1: Développer A à l'aide de la formule du binôme de Newton\nLa formule du binôme de Newton est donnée par : $(a+b)^n = \\sum_{k=0}^{n} \\binom{n}{k} a^{n-k}b^k$. Pour A, on a $a = a$, $b = b$ et $n = 6$. Donc, $A = (a+b)^6 = \\sum_{k=0}^{6} \\binom{6}{k} a^{6-k}b^k$.\n## Step 2: Calculer les termes de A\nEn utilisant la formule, on calcule chaque terme : $A = a^6 + 6a^5b + 15a^4b^2 + 20a^3b^3 + 15a^2b^4 + 6ab^5 + b^6$.\n## Step 3: Développer B à l'aide de la formule du binôme de Newton\nPour B, on a $a = a$, $b = -b$ et $n = 6$. Donc, $B = (a-b)^6 = \\sum_{k=0}^{6} \\binom{6}{k} a^{6-k}(-b)^k$.\n## Step 4: Calculer les termes de B\nEn utilisant la formule, on calcule chaque terme : $B = a^6 - 6a^5b + 15a^4b^2 - 20a^3b^3 + 15a^2b^4 - 6ab^5 + b^6$.\n## Step 5: Conclusion\nLes développements de A et B sont respectivement $a^6 + 6a^5b + 15a^4b^2 + 20a^3b^3 + 15a^2b^4 + 6ab^5 + b^6$ et $a^6 - 6a^5b + 15a^4b^2 - 20a^3b^3 + 15a^2b^4 - 6ab^5 + b^6$."
+            "rawAnswerText": "$h'(x) = 3x^2 + 2x$",
+            "modelAnswer": "$h'(x) = 3x^2 + 2x$"
           },
           {
-            "id": "q_5",
-            "label": "Exercice 5",
-            "rawText": "En écrivant $1 1=1 0+1$ et en utilisant la formule du binôme de Newton calculer $1 1^{2}$, $1 1^{3}$, $1 1^{4}$.",
+            "id": "q_4",
+            "label": "4.",
+            "rawText": "Find the derivative: $i(x) = x^3 + x + 1$",
             "answerFromPdf": true,
-            "rawAnswerText": null,
-            "modelAnswer": "## Step 1: Calculer $1 1^{2}$\nEn utilisant la formule du binôme de Newton, $(a+b)^n = \\sum_{k=0}^{n} \\binom{n}{k} a^{n-k}b^k$, avec $a = 10$, $b = 1$ et $n = 2$.\n## Step 2: Appliquer la formule pour $1 1^{2}$\n$1 1^{2} = (10+1)^2 = 10^2 + 2 \\times 10 \\times 1 + 1^2 = 100 + 20 + 1 = 121$.\n## Step 3: Calculer $1 1^{3}$\nEn utilisant la même formule avec $n = 3$.\n## Step 4: Appliquer la formule pour $1 1^{3}$\n$1 1^{3} = (10+1)^3 = 10^3 + 3 \\times 10^2 \\times 1 + 3 \\times 10 \\times 1^2 + 1^3 = 1000 + 300 + 30 + 1 = 1331$.\n## Step 5: Calculer $1 1^{4}$\nEn utilisant la formule avec $n = 4$.\n## Step 6: Appliquer la formule pour $1 1^{4}$\n$1 1^{4} = (10+1)^4 = 10^4 + 4 \\times 10^3 \\times 1 + 6 \\times 10^2 \\times 1^2 + 4 \\times 10 \\times 1^3 + 1^4 = 10000 + 4000 + 600 + 40 + 1 = 14641$.\n## Step 7: Conclusion\nLes résultats sont $1 1^{2} = 121$, $1 1^{3} = 1331$ et $1 1^{4} = 14641$."
+            "rawAnswerText": "$i'(x) = 3x^2 + 1 - \\frac{2}{x^3}$",
+            "modelAnswer": "$i'(x) = 3x^2 + 1 - \\frac{2}{x^3}$"
+          },
+          {
+            "id": "q_10",
+            "label": "10.",
+            "rawText": "Find the derivative: $f(x) = 3x^2 - 5x$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$f'(x) = 6x - 5$",
+            "modelAnswer": "$f'(x) = 6x - 5$"
+          },
+          {
+            "id": "q_11",
+            "label": "11.",
+            "rawText": "Find the derivative: $g(x) = -4x^2 + 3x$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$g'(x) = -8x + 3$",
+            "modelAnswer": "$g'(x) = -8x + 3$"
+          },
+          {
+            "id": "q_12",
+            "label": "12.",
+            "rawText": "Find the derivative: $h(x) = \\frac{1}{2}x^2 - \\frac{1}{2}x + 3$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$h'(x) = x - \\frac{1}{2}$",
+            "modelAnswer": "$h'(x) = x - \\frac{1}{2}$"
+          },
+          {
+            "id": "q_13",
+            "label": "13.",
+            "rawText": "Find the derivative: $i(x) = 4x^3 - \\frac{2}{3}x^2 + 6$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$i'(x) = 12x^2 - \\frac{4}{3}x$",
+            "modelAnswer": "$i'(x) = 12x^2 - \\frac{4}{3}x$"
+          },
+          {
+            "id": "q_14",
+            "label": "14.",
+            "rawText": "Find the derivative: $j(x) = x^2 - 2x + 6$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$j'(x) = 2x - 2$",
+            "modelAnswer": "$j'(x) = 2x - 2$"
+          },
+          {
+            "id": "q_15",
+            "label": "15.",
+            "rawText": "Find the derivative: $k(x) = 3x^5 + 7x^2 + 1$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$k'(x) = 15x^4 + 14x$",
+            "modelAnswer": "$k'(x) = 15x^4 + 14x$"
           }
         ]
       },
       {
         "id": "t2",
-        "title": "Simplifying expressions involving binomial coefficients",
+        "title": "Differentiating rational functions",
         "questions": [
           {
-            "id": "q_3",
-            "label": "Exercice 3",
-            "rawText": "Pour tout couple d’entiers naturels $(n, p)$ tels que $n \\leqslant p$, simplifier l’expression suivante : $$\\frac{\\binom{n+1}{p+1}}{\\binom{n}{p}}$$",
+            "id": "q_5",
+            "label": "5.",
+            "rawText": "Find the derivative: $j(x) = \\frac{4x + 1}{x}$",
             "answerFromPdf": true,
-            "rawAnswerText": null,
-            "modelAnswer": "## Step 1: Utiliser la définition des coefficients binomiaux\n$\\binom{n}{p} = \\frac{n!}{p!(n-p)!}$ et $\\binom{n+1}{p+1} = \\frac{(n+1)!}{(p+1)!(n-p)!}$.\n## Step 2: Simplifier l'expression\n$\\frac{\\binom{n+1}{p+1}}{\\binom{n}{p}} = \\frac{\\frac{(n+1)!}{(p+1)!(n-p)!}}{\\frac{n!}{p!(n-p)!}} = \\frac{(n+1)!}{(p+1)!} \\times \\frac{p!}{n!}$.\n## Step 3: Simplifier davantage\n$\\frac{(n+1)!}{n!} = n+1$ et $\\frac{p!}{(p+1)!} = \\frac{1}{p+1}$.\n## Step 4: Conclusion\n$\\frac{\\binom{n+1}{p+1}}{\\binom{n}{p}} = \\frac{n+1}{p+1}$."
+            "rawAnswerText": "$j'(x) = -\\frac{1}{x^2}$",
+            "modelAnswer": "$j'(x) = -\\frac{1}{x^2}$"
+          },
+          {
+            "id": "q_6",
+            "label": "6.",
+            "rawText": "Find the derivative: $k(x) = \\frac{x^2 + x + 4 + 1}{x}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$k'(x) = 2x + 1 - \\frac{1}{x^2}$",
+            "modelAnswer": "$k'(x) = 2x + 1 - \\frac{1}{x^2}$"
+          },
+          {
+            "id": "q_22",
+            "label": "22.",
+            "rawText": "Find the derivative: $f(x) = \\frac{1}{x^3 - 4}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$f'(x) = -\\frac{3x^2}{(x^3 - 4)^2}$",
+            "modelAnswer": "$f'(x) = -\\frac{3x^2}{(x^3 - 4)^2}$"
+          },
+          {
+            "id": "q_23",
+            "label": "23.",
+            "rawText": "Find the derivative: $g(x) = \\frac{1}{1 - x}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$g'(x) = \\frac{1}{(1 - x)^2}$",
+            "modelAnswer": "$g'(x) = \\frac{1}{(1 - x)^2}$"
+          },
+          {
+            "id": "q_24",
+            "label": "24.",
+            "rawText": "Find the derivative: $h(x) = \\frac{1}{-x^2 + 5x + 7}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$h'(x) = \\frac{2x - 5}{(-x^2 + 5x + 7)^2}$",
+            "modelAnswer": "$h'(x) = \\frac{2x - 5}{(-x^2 + 5x + 7)^2}$"
+          },
+          {
+            "id": "q_28",
+            "label": "4.",
+            "rawText": "Find the derivative of $f(x) = \\frac{4}{x^2 -1}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$\\frac{-8x}{(x^2 -1)^2}$",
+            "modelAnswer": "$\\frac{-8x}{(x^2 -1)^2}$"
+          },
+          {
+            "id": "q_29",
+            "label": "5.",
+            "rawText": "Find the derivative of $g(x) = \\frac{x^2 -1}{1 -x}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$-1$",
+            "modelAnswer": "$-1$"
+          },
+          {
+            "id": "q_30",
+            "label": "6.",
+            "rawText": "Find the derivative of $h(x) = \\frac{x^2 -1}{x^2}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$\\frac{2}{x^3}$",
+            "modelAnswer": "$\\frac{2}{x^3}$"
+          },
+          {
+            "id": "q_31",
+            "label": "7.",
+            "rawText": "Find the derivative of $i(x) = \\frac{3x^2 -2x -1}{x -x^3 + 1}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$\\frac{6x -2 + \\frac{1}{x -x^3 + 1} - \\frac{3x^2}{(x -x^3 + 1)^2}}{(x -x^3 + 1)^2}$",
+            "modelAnswer": "$\\frac{6x -2 + \\frac{1}{x -x^3 + 1} - \\frac{3x^2}{(x -x^3 + 1)^2}}{(x -x^3 + 1)^2}$"
           }
         ]
       },
       {
         "id": "t3",
-        "title": "Solving equations involving binomial coefficients",
+        "title": "Differentiating functions with radicals",
         "questions": [
           {
-            "id": "q_4",
-            "label": "Exercice 4",
-            "rawText": "Résoudre dans $\\mathbb{N^{*}}$ l’équation : $$\\left( \\begin{matrix} {n} \\ {1} \\ \\end{matrix} \\right)+\\left( \\begin{matrix} {n+1} \\ {2} \\ \\end{matrix} \\right)=\\left( \\begin{matrix} {n+1} \\ {3} \\ \\end{matrix} \\right)$$",
+            "id": "q_2",
+            "label": "2.",
+            "rawText": "Find the derivative: $g(x) = x + \\sqrt{x}$",
             "answerFromPdf": true,
-            "rawAnswerText": null,
-            "modelAnswer": "## Step 1: Utiliser la définition des coefficients binomiaux\n$\\binom{n}{1} = n$, $\\binom{n+1}{2} = \\frac{(n+1)n}{2}$ et $\\binom{n+1}{3} = \\frac{(n+1)n(n-1)}{6}$.\n## Step 2: Simplifier l'équation\n$n + \\frac{(n+1)n}{2} = \\frac{(n+1)n(n-1)}{6}$.\n## Step 3: Résoudre l'équation\nEn multipliant par 6 pour éliminer les fractions, on obtient : $6n + 3(n+1)n = (n+1)n(n-1)$.\n## Step 4: Développer et simplifier\n$6n + 3n^2 + 3n = n^3 - n$.\n## Step 5: Réorganiser l'équation\n$n^3 - 4n^2 - 10n = 0$.\n## Step 6: Factoriser\n$n(n^2 - 4n - 10) = 0$.\n## Step 7: Résoudre pour n\n$n = 0$ ou $n^2 - 4n - 10 = 0$.\n## Step 8: Résoudre la quadratique\nEn utilisant la formule quadratique, $n = \\frac{-(-4) \\pm \\sqrt{(-4)^2 - 4(1)(-10)}}{2(1)}$.\n## Step 9: Calculer les racines\n$n = \\frac{4 \\pm \\sqrt{16 + 40}}{2}$, $n = \\frac{4 \\pm \\sqrt{56}}{2}$, $n = \\frac{4 \\pm 2\\sqrt{14}}{2}$, $n = 2 \\pm \\sqrt{14}$.\n## Step 10: Vérifier les solutions\nSeule $n = 5$ est un entier naturel supérieur ou égal à 2 et satisfait l'équation originale.\n## Step 11: Conclusion\nLa solution de l'équation est $n = 5$."
+            "rawAnswerText": "$g'(x) = 1 + \\frac{1}{2\\sqrt{x}}$",
+            "modelAnswer": "$g'(x) = 1 + \\frac{1}{2\\sqrt{x}}$"
+          },
+          {
+            "id": "q_7",
+            "label": "7.",
+            "rawText": "Find the derivative: $f(x) = x^{\\frac{4}{5}}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$f'(x) = \\frac{4}{5}x^{-\\frac{1}{5}}$",
+            "modelAnswer": "$f'(x) = \\frac{4}{5}x^{-\\frac{1}{5}}$"
+          },
+          {
+            "id": "q_16",
+            "label": "16.",
+            "rawText": "Find the derivative: $f(x) = x\\sqrt{x}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$f'(x) = \\frac{3}{2}\\sqrt{x}$",
+            "modelAnswer": "$f'(x) = \\frac{3}{2}\\sqrt{x}$"
+          },
+          {
+            "id": "q_17",
+            "label": "17.",
+            "rawText": "Find the derivative: $g(x) = \\frac{\\sqrt{x}}{x}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$g'(x) = -\\frac{1}{2x\\sqrt{x}}$",
+            "modelAnswer": "$g'(x) = -\\frac{1}{2x\\sqrt{x}}$"
+          },
+          {
+            "id": "q_18",
+            "label": "18.",
+            "rawText": "Find the derivative: $h(x) = (\\sqrt{x} + 1)^2$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$h'(x) = \\frac{2(\\sqrt{x} + 1)}{2\\sqrt{x}}$",
+            "modelAnswer": "$h'(x) = \\frac{2(\\sqrt{x} + 1)}{2\\sqrt{x}}$"
+          },
+          {
+            "id": "q_25",
+            "label": "1.",
+            "rawText": "Find the derivative of $f(x) = \\frac{x^3}{\\sqrt{x}}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$\\frac{5x^2}{2\\sqrt{x}}$",
+            "modelAnswer": "$\\frac{5x^2}{2\\sqrt{x}}$"
+          },
+          {
+            "id": "q_26",
+            "label": "2.",
+            "rawText": "Find the derivative of $g(x) = \\frac{2\\sqrt{x}}{x^2 -4}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$\\frac{-3x^2 -4}{(x^2 -4)^2 \\sqrt{x}}$",
+            "modelAnswer": "$\\frac{-3x^2 -4}{(x^2 -4)^2 \\sqrt{x}}$"
+          },
+          {
+            "id": "q_32",
+            "label": "8.",
+            "rawText": "Find the derivative of $j(x) = \\frac{3x + 1}{2x -\\sqrt{x}}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$\\frac{3 - \\frac{1}{2x} - \\frac{1}{2\\sqrt{x}} \\times \\frac{3}{2} - \\frac{1}{2x^2} - \\frac{1}{2\\sqrt{x}}}{(2x -\\sqrt{x})^2}$",
+            "modelAnswer": "$\\frac{3 - \\frac{1}{2x} - \\frac{1}{2\\sqrt{x}} \\times \\frac{3}{2} - \\frac{1}{2x^2} - \\frac{1}{2\\sqrt{x}}}{(2x -\\sqrt{x})^2}$"
+          },
+          {
+            "id": "q_33",
+            "label": "9.",
+            "rawText": "Find the derivative of $k(x) = \\frac{x}{3x^2 -x + \\sqrt{7x}}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$\\frac{-1}{3x^2} -1 + \\frac{\\sqrt{7}}{2\\sqrt{x}}$",
+            "modelAnswer": "$\\frac{-1}{3x^2} -1 + \\frac{\\sqrt{7}}{2\\sqrt{x}}$"
+          }
+        ]
+      },
+      {
+        "id": "t4",
+        "title": "Differentiating functions with products and quotients",
+        "questions": [
+          {
+            "id": "q_8",
+            "label": "8.",
+            "rawText": "Find the derivative: $g(x) = -\\frac{1}{x}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$g'(x) = \\frac{1}{x^2}$",
+            "modelAnswer": "$g'(x) = \\frac{1}{x^2}$"
+          },
+          {
+            "id": "q_9",
+            "label": "9.",
+            "rawText": "Find the derivative: $h(x) = \\frac{1}{5x}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$h'(x) = -\\frac{1}{5x^2}$",
+            "modelAnswer": "$h'(x) = -\\frac{1}{5x^2}$"
+          },
+          {
+            "id": "q_19",
+            "label": "19.",
+            "rawText": "Find the derivative: $i(x) = x^2(2x + 4)$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$i'(x) = 6x^2 + 8x$",
+            "modelAnswer": "$i'(x) = 6x^2 + 8x$"
+          },
+          {
+            "id": "q_20",
+            "label": "20.",
+            "rawText": "Find the derivative: $j(x) = \\frac{3 - x}{x^5}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$j'(x) = \\frac{4x - 15}{x^6}$",
+            "modelAnswer": "$j'(x) = \\frac{4x - 15}{x^6}$"
+          },
+          {
+            "id": "q_21",
+            "label": "21.",
+            "rawText": "Find the derivative: $k(x) = (4x - 1)\\frac{1}{x^6}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$k'(x) = \\frac{6 - 20x}{x^7}$",
+            "modelAnswer": "$k'(x) = \\frac{6 - 20x}{x^7}$"
+          },
+          {
+            "id": "q_27",
+            "label": "3.",
+            "rawText": "Find the derivative of $h(x) = \\frac{x^4 + 1}{x^3 -1}$",
+            "answerFromPdf": true,
+            "rawAnswerText": "$\\frac{x^6 -4x^3 -3x^2}{(x^3 -1)^2}$",
+            "modelAnswer": "$\\frac{x^6 -4x^3 -3x^2}{(x^3 -1)^2}$"
           }
         ]
       }

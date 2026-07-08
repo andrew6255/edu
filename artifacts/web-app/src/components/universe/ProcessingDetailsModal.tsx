@@ -151,23 +151,22 @@ export default function ProcessingDetailsModal({
   program,
   onCancel,
 }: ProcessingDetailsModalProps) {
-  if (!open || !program) return null;
+  // ⚠️ Hooks must be called unconditionally (Rules of Hooks).
+  // Compute safe fallbacks when program is null so hooks always run.
+  const isFailed  = program?.status === 'failed';
+  const isReady   = program?.status === 'ready';
+  const isActive  = program?.status === 'processing';
 
-  const isFailed  = program.status === 'failed';
-  const isReady   = program.status === 'ready';
-  const isActive  = program.status === 'processing';
+  const targetPct = program ? getProgressPercentage(program.status, program.processingStage) : 0;
+  const currentPct = useSmoothProgress(targetPct, isFailed, program?.stageUpdatedAt);
 
-  const targetPct = getProgressPercentage(program.status, program.processingStage);
-  const currentPct = useSmoothProgress(targetPct, isFailed, program.stageUpdatedAt);
-
-  // Which stage index is currently running?
-  const activeStageId: string = isReady
-    ? 'done'
-    : (program.processingStage ?? 'uploading');
-
+  const activeStageId: string = isReady ? 'done' : (program?.processingStage ?? 'uploading');
   const activeStageIdx = PIPELINE_STAGES.findIndex((s) => s.id === activeStageId);
 
-  const elapsed = useElapsed(program.createdAt, isActive);
+  const elapsed = useElapsed(program?.createdAt, isActive);
+
+  // Early return AFTER all hooks
+  if (!open || !program) return null;
 
   const overlayStyle: React.CSSProperties = {
     position: 'fixed',
@@ -196,7 +195,6 @@ export default function ProcessingDetailsModal({
   };
 
   return (
-    <>
       <div style={overlayStyle} onClick={onClose}>
         <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
 
@@ -405,6 +403,5 @@ export default function ProcessingDetailsModal({
 
         </div>
       </div>
-    </>
   );
 }
