@@ -316,46 +316,85 @@ function buildEnrichmentPrompt(questionText: string, modelAnswer: string): strin
 }
 
 /**
- * Escape literal control characters (U+0000–U+001F) that appear INSIDE JSON
- * string values. Structural whitespace outside strings is left untouched.
- * Groq occasionally emits raw newlines/tabs inside string values which crash
- * JSON.parse with "Bad control character in string literal".
+ * Repair a JSON string that Groq may have produced with:
+ *  1. Literal control characters inside string values (e.g. raw newlines)
+ *  2. Invalid escape sequences inside string values (e.g. \$ \( \{ from LaTeX)
+ *
+ * Walks the raw text character-by-character, tracking whether we are inside
+ * a quoted string so that structural whitespace is left untouched.
  */
 function sanitizeJson(raw: string): string {
-  const ESCAPE: Record<string, string> = {
+  // Characters that are valid after \ inside a JSON string
+  const VALID_AFTER_BACKSLASH = new Set(['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u']);
+  const CTRL_ESCAPE: Record<string, string> = {
     '\n': '\\n', '\r': '\\r', '\t': '\\t', '\b': '\\b', '\f': '\\f',
   };
+
   let out = '';
   let inString = false;
   let i = 0;
+
   while (i < raw.length) {
     const ch = raw[i];
-    if (inString) {
-      if (ch === '\\') {
-        // consume the escape sequence as-is (don't touch it)
-        out += ch;
-        i++;
-        if (i < raw.length) { out += raw[i]; i++; }
-        continue;
-      }
-      if (ch === '"') {
-        inString = false;
-        out += ch; i++;
-        continue;
-      }
-      const code = raw.charCodeAt(i);
-      if (code <= 0x1F) {
-        // literal control char inside a string — escape it
-        out += ESCAPE[ch] ?? `\\u${code.toString(16).padStart(4, '0')}`;
-        i++;
-        continue;
-      }
-    } else {
-      if (ch === '"') { inString = true; out += ch; i++; continue; }
+
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      i++;
+      continue;
     }
+
+    // ── inside a JSON string ──────────────────────────────────────────────
+    if (ch === '\\') {
+      const next = raw[i + 1] ?? '';
+
+      if (next === 'u') {
+        // \uXXXX — validate 4 hex digits
+        const hex = raw.slice(i + 2, i + 6);
+        if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+          out += '\\u' + hex;
+          i += 6;
+        } else {
+          // bad \u — double the backslash and re-process from next char
+          out += '\\\\';
+          i++;
+        }
+        continue;
+      }
+
+      if (VALID_AFTER_BACKSLASH.has(next)) {
+        // valid escape sequence — pass through unchanged
+        out += '\\' + next;
+        i += 2;
+      } else {
+        // invalid escape (e.g. \$, \(, \{, \|) — double the backslash
+        // so it becomes a literal backslash character in the parsed string
+        out += '\\\\';
+        i++; // consume only the backslash; next char is processed normally
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      // end of string
+      inString = false;
+      out += ch;
+      i++;
+      continue;
+    }
+
+    const code = raw.charCodeAt(i);
+    if (code <= 0x1F) {
+      // literal control character inside a string — escape it
+      out += CTRL_ESCAPE[ch] ?? `\\u${code.toString(16).padStart(4, '0')}`;
+      i++;
+      continue;
+    }
+
     out += ch;
     i++;
   }
+
   return out;
 }
 
@@ -395,16 +434,17 @@ async function enrichOneQuestion(
       }),
     });
 
-    // Rate limited — wait and retry
-    if (response.status === 429) {
+    // Rate-limited or temporarily unavailable — wait and retry
+    if (response.status === 429 || response.status === 503) {
       const retryAfter = Number(response.headers.get('retry-after') ?? 0);
       const waitMs = retryAfter > 0 ? retryAfter * 1000 : delay;
-      console.warn(`[Phase 3] 429 rate limited — waiting ${Math.round(waitMs / 1000)}s before retry ${attempt + 1}/${retries}`);
+      console.warn(`[Phase 3] ${response.status} — waiting ${Math.round(waitMs / 1000)}s before retry ${attempt + 1}/${retries}`);
       await sleep(waitMs);
       delay = Math.min(delay * 2, 60000); // cap at 60s
-      lastErr = new Error('Groq enrichment failed: 429');
+      lastErr = new Error(`Groq enrichment failed: ${response.status}`);
       continue;
     }
+
 
     if (!response.ok) throw new Error('Groq enrichment failed: ' + response.status);
 

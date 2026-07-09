@@ -285,7 +285,9 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
           const phase2 = await runPhase2Questions(phase1.rawText, () => {});
 
           // ── Stage: Enriching questions ───────────────────────────────────
+          await updateProcessingStage(uid, jobId, 'enriching_questions');
           const enrichedTopics = await runPhase3Enrichment(phase2.topics, () => {});
+
 
           // ── Stage: Building program structure ────────────────────────────
           await updateProcessingStage(uid, jobId, 'building_program');

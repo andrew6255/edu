@@ -20,11 +20,12 @@ export type PersonalProgramStatus = 'processing' | 'ready' | 'failed' | 'opened'
  * Used by ProcessingDetailsModal to show true progress.
  */
 export type ProcessingStage =
-  | 'uploading'          // 10% — saving initial record to Supabase
-  | 'ocr'               // 35% — OCR server reading PDF
-  | 'extracting_questions' // 65% — AI extracting questions via Groq
-  | 'building_program'  // 85% — assembling chapters/topics structure
-  | 'saving';           // 95% — writing finished programData to Supabase
+  | 'uploading'            // 10% — saving initial record to Supabase
+  | 'ocr'                 // 35% — OCR server reading PDF
+  | 'extracting_questions' // 60% — AI extracting questions via Groq
+  | 'enriching_questions'  // 75% — AI generating solutions & grading schemas
+  | 'building_program'    // 85% — assembling chapters/topics structure
+  | 'saving';             // 95% — writing finished programData to Supabase
 
 export interface PersonalProgramMeta {
   programId: string;

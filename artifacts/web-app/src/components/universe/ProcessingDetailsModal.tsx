@@ -33,7 +33,13 @@ const PIPELINE_STAGES: StageConfig[] = [
     id: 'extracting_questions',
     label: 'Extracting Questions',
     description: 'AI is identifying and grouping all questions by topic',
-    pct: 65,
+    pct: 60,
+  },
+  {
+    id: 'enriching_questions',
+    label: 'Generating Solutions',
+    description: 'AI is generating step-by-step solutions, hints, and grading schemas',
+    pct: 75,
   },
   {
     id: 'building_program',
