@@ -296,26 +296,94 @@ export async function runPhase2Questions(
   };
 }
 
-// ─── Phase 3: Question Enrichment ────────────────────────────────────────────
+// ─── Phase 3: Question Enrichment (direct Groq call) ─────────────────────────
 
-/**
- * Returns the API server base URL, replacing 'localhost' with the actual
- * window hostname when running outside of localhost (e.g. on GitHub Pages).
- * Falls back gracefully to an empty string so fetch errors are caught below.
- */
-function getPhase3ApiBase(): string {
-  let url = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() ?? '';
-  if (url && typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-    url = url.replace('localhost', window.location.hostname);
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+
+function buildEnrichmentPrompt(questionText: string, modelAnswer: string): string {
+  return (
+    'You are an expert tutor. Analyze this question and correct answer.\n\n' +
+    'QUESTION:\n' + questionText + '\n\n' +
+    'CORRECT ANSWER:\n' + modelAnswer + '\n\n' +
+    'Return JSON with these exact keys: solution, solutionPlan, hint, gradingSchema.\n' +
+    'solution: Detailed step-by-step worked solution (min 3 steps).\n' +
+    'solutionPlan: High-level bullet plan, NO details, 3-5 bullets.\n' +
+    'hint: Single hint that nudges WITHOUT giving the answer.\n' +
+    'gradingSchema: array of 2-5 criteria objects, points must sum to 100.\n\n' +
+    'CRITICAL: You MUST wrap all math, equations, and symbols in $...$ (inline) or $$...$$ (display) delimiters.'
+  );
+}
+
+async function enrichOneQuestion(
+  questionText: string,
+  modelAnswer: string,
+  answerFromPdf: boolean,
+  apiKey: string,
+): Promise<{
+  solution: string;
+  solutionPlan: string;
+  hint: string;
+  gradingSchema: GradingCriterion[];
+  modelAnswer: string;
+  answerFromPdf: boolean;
+}> {
+  const response = await fetch(GROQ_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      temperature: 0.1,
+      max_tokens: 1200,
+      messages: [
+        { role: 'system', content: 'Output only valid JSON with keys: solution, solutionPlan, hint, gradingSchema.' },
+        { role: 'user', content: buildEnrichmentPrompt(questionText, modelAnswer) },
+      ],
+    }),
+  });
+
+  if (!response.ok) throw new Error('Groq enrichment failed: ' + response.status);
+
+  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+  let raw = (payload.choices?.[0]?.message?.content ?? '').trim();
+  if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+
+  const parsed = JSON.parse(raw) as {
+    solution?: string; solutionPlan?: string; hint?: string; gradingSchema?: GradingCriterion[];
+  };
+
+  const schema = (parsed.gradingSchema ?? []).filter(
+    (c) => typeof c.criterion === 'string' && typeof c.points === 'number',
+  );
+
+  // Normalise points to sum to 100
+  const total = schema.reduce((s, c) => s + c.points, 0);
+  if (total !== 100 && total > 0) {
+    const factor = 100 / total;
+    let remaining = 100;
+    schema.forEach((c, i) => {
+      if (i < schema.length - 1) { c.points = Math.round(c.points * factor); remaining -= c.points; }
+      else { c.points = remaining; }
+    });
   }
-  return url.replace(/\/+$/, '');
+
+  return {
+    solution: parsed.solution ?? ('The correct answer is: ' + modelAnswer),
+    solutionPlan: parsed.solutionPlan ?? 'Understand, apply method, verify',
+    hint: parsed.hint ?? 'Re-read the question and identify the method.',
+    gradingSchema: schema.length > 0
+      ? schema
+      : [{ criterion: 'Correct answer', points: 100, deductionOnError: 'All marks deducted' }],
+    modelAnswer,
+    answerFromPdf,
+  };
 }
 
 /**
- * Phase 3 – Question Enrichment
+ * Phase 3 – Question Enrichment (runs directly in the browser via Groq API)
  *
- * For each question type topic, sends all questions to the api-server which
- * calls Groq to generate: step-by-step solutions, grading schemas, and hints.
+ * Calls Groq with VITE_GROQ_API_KEY to generate step-by-step solutions,
+ * grading schemas, and hints for each question. No API server required.
  *
  * @param topics       The topics+questions output from Phase 2
  * @param onProgress   Optional progress callback
@@ -339,42 +407,41 @@ export async function runPhase3Enrichment(
 
   if (allQuestions.length === 0) return topics;
 
-  const apiBase = getPhase3ApiBase();
-  if (!apiBase) {
-    console.warn('[Phase 3] No API server URL configured — skipping enrichment.');
+  const apiKey = (import.meta.env.VITE_GROQ_API_KEY as string | undefined)?.trim();
+  if (!apiKey) {
+    console.warn('[Phase 3] VITE_GROQ_API_KEY not set — skipping enrichment.');
     return topics;
   }
 
   onProgress?.(`⚙️ Phase 3: Generating solutions & grading schemas for ${allQuestions.length} question(s)...`);
 
-  let response: Response;
-  try {
-    response = await fetch(`${apiBase}/api/program-ingestion/enrich-questions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ questions: allQuestions }),
-    });
-  } catch (networkErr) {
-    console.warn('[Phase 3] Network error reaching API server — continuing without enrichment.', networkErr);
-    return topics;
+  const enriched: Record<string, {
+    solution: string; solutionPlan: string; hint: string;
+    gradingSchema: GradingCriterion[]; modelAnswer: string; answerFromPdf: boolean;
+  }> = {};
+
+  const CONCURRENCY = 3;
+  let done = 0;
+  for (let i = 0; i < allQuestions.length; i += CONCURRENCY) {
+    const batch = allQuestions.slice(i, i + CONCURRENCY);
+    await Promise.all(batch.map(async (q) => {
+      try {
+        enriched[q.id] = await enrichOneQuestion(q.rawText, q.modelAnswer, q.answerFromPdf, apiKey);
+      } catch (err) {
+        console.error('[Phase 3] Failed for ' + q.id + ':', err);
+        enriched[q.id] = {
+          solution: 'The correct answer is: ' + q.modelAnswer,
+          solutionPlan: 'Understand, apply method, verify',
+          hint: 'Re-read the question.',
+          gradingSchema: [{ criterion: 'Correct answer', points: 100, deductionOnError: 'All marks deducted' }],
+          modelAnswer: q.modelAnswer,
+          answerFromPdf: q.answerFromPdf,
+        };
+      }
+      done++;
+      onProgress?.(`⚙️ Phase 3: Enriched ${done}/${allQuestions.length} question(s)...`);
+    }));
   }
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.warn('[Phase 3] Enrichment failed:', errText, '— continuing without enrichment.');
-    return topics; // Non-fatal: return unenriched topics
-  }
-
-  const data = await response.json() as { enriched: Record<string, {
-    solution: string;
-    solutionPlan: string;
-    hint: string;
-    gradingSchema: GradingCriterion[];
-    modelAnswer: string;
-    answerFromPdf: boolean;
-  }> };
-
-  const enriched = data.enriched ?? {};
 
   // Merge enrichment data back into each question
   const enrichedTopics = topics.map((topic) => ({
