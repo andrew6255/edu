@@ -315,11 +315,28 @@ function buildEnrichmentPrompt(questionText: string, modelAnswer: string): strin
   );
 }
 
+/** Strip literal control characters (U+0000–U+001F) from inside JSON strings.
+ * Groq occasionally emits raw newlines/tabs inside string values which crash JSON.parse. */
+function sanitizeJson(raw: string): string {
+  // Replace literal control chars inside strings with their escape sequence
+  return raw.replace(/[\x00-\x1F]/g, (ch) => {
+    const escapes: Record<string, string> = {
+      '\n': '\\n', '\r': '\\r', '\t': '\\t',
+      '\b': '\\b', '\f': '\\f',
+    };
+    return escapes[ch] ?? `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`;
+  });
+}
+
+/** Sleep for `ms` milliseconds. */
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 async function enrichOneQuestion(
   questionText: string,
   modelAnswer: string,
   answerFromPdf: boolean,
   apiKey: string,
+  retries = 4,
 ): Promise<{
   solution: string;
   solutionPlan: string;
@@ -328,55 +345,76 @@ async function enrichOneQuestion(
   modelAnswer: string;
   answerFromPdf: boolean;
 }> {
-  const response = await fetch(GROQ_API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      temperature: 0.1,
-      max_tokens: 1200,
-      messages: [
-        { role: 'system', content: 'Output only valid JSON with keys: solution, solutionPlan, hint, gradingSchema.' },
-        { role: 'user', content: buildEnrichmentPrompt(questionText, modelAnswer) },
-      ],
-    }),
-  });
+  let lastErr: unknown;
+  let delay = 8000; // start at 8s on first 429
 
-  if (!response.ok) throw new Error('Groq enrichment failed: ' + response.status);
-
-  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  let raw = (payload.choices?.[0]?.message?.content ?? '').trim();
-  if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
-
-  const parsed = JSON.parse(raw) as {
-    solution?: string; solutionPlan?: string; hint?: string; gradingSchema?: GradingCriterion[];
-  };
-
-  const schema = (parsed.gradingSchema ?? []).filter(
-    (c) => typeof c.criterion === 'string' && typeof c.points === 'number',
-  );
-
-  // Normalise points to sum to 100
-  const total = schema.reduce((s, c) => s + c.points, 0);
-  if (total !== 100 && total > 0) {
-    const factor = 100 / total;
-    let remaining = 100;
-    schema.forEach((c, i) => {
-      if (i < schema.length - 1) { c.points = Math.round(c.points * factor); remaining -= c.points; }
-      else { c.points = remaining; }
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const response = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        temperature: 0.1,
+        max_tokens: 1200,
+        messages: [
+          { role: 'system', content: 'Output only valid JSON with keys: solution, solutionPlan, hint, gradingSchema.' },
+          { role: 'user', content: buildEnrichmentPrompt(questionText, modelAnswer) },
+        ],
+      }),
     });
+
+    // Rate limited — wait and retry
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get('retry-after') ?? 0);
+      const waitMs = retryAfter > 0 ? retryAfter * 1000 : delay;
+      console.warn(`[Phase 3] 429 rate limited — waiting ${Math.round(waitMs / 1000)}s before retry ${attempt + 1}/${retries}`);
+      await sleep(waitMs);
+      delay = Math.min(delay * 2, 60000); // cap at 60s
+      lastErr = new Error('Groq enrichment failed: 429');
+      continue;
+    }
+
+    if (!response.ok) throw new Error('Groq enrichment failed: ' + response.status);
+
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    let raw = (payload.choices?.[0]?.message?.content ?? '').trim();
+    // Strip markdown fences
+    if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+    // Sanitise control characters before parsing
+    raw = sanitizeJson(raw);
+
+    const parsed = JSON.parse(raw) as {
+      solution?: string; solutionPlan?: string; hint?: string; gradingSchema?: GradingCriterion[];
+    };
+
+    const schema = (parsed.gradingSchema ?? []).filter(
+      (c) => typeof c.criterion === 'string' && typeof c.points === 'number',
+    );
+
+    // Normalise points to sum to 100
+    const total = schema.reduce((s, c) => s + c.points, 0);
+    if (total !== 100 && total > 0) {
+      const factor = 100 / total;
+      let remaining = 100;
+      schema.forEach((c, i) => {
+        if (i < schema.length - 1) { c.points = Math.round(c.points * factor); remaining -= c.points; }
+        else { c.points = remaining; }
+      });
+    }
+
+    return {
+      solution: parsed.solution ?? ('The correct answer is: ' + modelAnswer),
+      solutionPlan: parsed.solutionPlan ?? 'Understand, apply method, verify',
+      hint: parsed.hint ?? 'Re-read the question and identify the method.',
+      gradingSchema: schema.length > 0
+        ? schema
+        : [{ criterion: 'Correct answer', points: 100, deductionOnError: 'All marks deducted' }],
+      modelAnswer,
+      answerFromPdf,
+    };
   }
 
-  return {
-    solution: parsed.solution ?? ('The correct answer is: ' + modelAnswer),
-    solutionPlan: parsed.solutionPlan ?? 'Understand, apply method, verify',
-    hint: parsed.hint ?? 'Re-read the question and identify the method.',
-    gradingSchema: schema.length > 0
-      ? schema
-      : [{ criterion: 'Correct answer', points: 100, deductionOnError: 'All marks deducted' }],
-    modelAnswer,
-    answerFromPdf,
-  };
+  throw lastErr ?? new Error('Groq enrichment failed after retries');
 }
 
 /**
@@ -392,13 +430,14 @@ export async function runPhase3Enrichment(
   topics: Phase2QuestionsResult['topics'],
   onProgress?: (msg: string) => void,
 ): Promise<Phase2QuestionsResult['topics']> {
-  // Collect all questions across all topics
+  // Collect all questions, generating stable ids for any that are missing one
   const allQuestions: Array<{ id: string; rawText: string; modelAnswer: string; answerFromPdf: boolean }> = [];
+  let autoIdx = 0;
   for (const topic of topics) {
     for (const q of topic.questions) {
       allQuestions.push({
-        id: q.id,
-        rawText: q.rawText,
+        id: q.id ?? `auto_${autoIdx++}`,
+        rawText: q.rawText ?? '',
         modelAnswer: q.modelAnswer ?? '',
         answerFromPdf: q.answerFromPdf ?? false,
       });
@@ -420,34 +459,44 @@ export async function runPhase3Enrichment(
     gradingSchema: GradingCriterion[]; modelAnswer: string; answerFromPdf: boolean;
   }> = {};
 
-  const CONCURRENCY = 3;
+  // Process ONE at a time with a short gap to avoid Groq rate limits
   let done = 0;
-  for (let i = 0; i < allQuestions.length; i += CONCURRENCY) {
-    const batch = allQuestions.slice(i, i + CONCURRENCY);
-    await Promise.all(batch.map(async (q) => {
-      try {
-        enriched[q.id] = await enrichOneQuestion(q.rawText, q.modelAnswer, q.answerFromPdf, apiKey);
-      } catch (err) {
-        console.error('[Phase 3] Failed for ' + q.id + ':', err);
-        enriched[q.id] = {
-          solution: 'The correct answer is: ' + q.modelAnswer,
-          solutionPlan: 'Understand, apply method, verify',
-          hint: 'Re-read the question.',
-          gradingSchema: [{ criterion: 'Correct answer', points: 100, deductionOnError: 'All marks deducted' }],
-          modelAnswer: q.modelAnswer,
-          answerFromPdf: q.answerFromPdf,
-        };
-      }
-      done++;
-      onProgress?.(`⚙️ Phase 3: Enriched ${done}/${allQuestions.length} question(s)...`);
-    }));
+  for (const q of allQuestions) {
+    try {
+      if (done > 0) await sleep(500); // 500ms between requests
+      enriched[q.id] = await enrichOneQuestion(q.rawText, q.modelAnswer, q.answerFromPdf, apiKey);
+    } catch (err) {
+      console.error('[Phase 3] Failed for ' + q.id + ':', err);
+      enriched[q.id] = {
+        solution: 'The correct answer is: ' + q.modelAnswer,
+        solutionPlan: 'Understand, apply method, verify',
+        hint: 'Re-read the question.',
+        gradingSchema: [{ criterion: 'Correct answer', points: 100, deductionOnError: 'All marks deducted' }],
+        modelAnswer: q.modelAnswer,
+        answerFromPdf: q.answerFromPdf,
+      };
+    }
+    done++;
+    onProgress?.(`⚙️ Phase 3: Enriched ${done}/${allQuestions.length} question(s)...`);
+  }
+
+  // Build a lookup from original q.id to the auto-assigned id we used
+  // so we can match back even when q.id was undefined
+  let autoLookupIdx = 0;
+  const idMap = new Map<string | undefined, string>();
+  for (const topic of topics) {
+    for (const q of topic.questions) {
+      const assignedId = q.id ?? `auto_${autoLookupIdx++}`;
+      idMap.set(q.id, assignedId);
+    }
   }
 
   // Merge enrichment data back into each question
   const enrichedTopics = topics.map((topic) => ({
     ...topic,
     questions: topic.questions.map((q) => {
-      const e = enriched[q.id];
+      const assignedId = idMap.get(q.id) ?? q.id;
+      const e = assignedId != null ? enriched[assignedId] : undefined;
       if (!e) return q;
       return { ...q, solution: e.solution, solutionPlan: e.solutionPlan, hint: e.hint, gradingSchema: e.gradingSchema };
     }),
