@@ -349,15 +349,26 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
           }
         } catch (err) {
           console.error('Background processing failed:', err);
+          const rawMsg = err instanceof Error ? err.message : String(err);
+          // Produce a human-readable message for the most common failure modes
+          let friendlyMsg = rawMsg;
+          if (rawMsg.includes('tokens per day') || rawMsg.includes('TPD') || rawMsg.includes('Rate limit reached')) {
+            friendlyMsg = 'The AI service has reached its daily usage limit. Please try again in about 1 hour.';
+          } else if (rawMsg.includes('tokens per minute') || rawMsg.includes('TPM') || rawMsg.includes('429')) {
+            friendlyMsg = 'The AI service is temporarily busy (rate limited). Please wait a minute and try again.';
+          } else if (rawMsg.includes('500') || rawMsg.includes('INTERNAL SERVER')) {
+            friendlyMsg = 'The OCR server encountered an error. Check that it is running and try again.';
+          }
           const existing = await getUserDoc(uid, 'personal_programs', jobId);
           if (existing) {
             await setUserDoc(uid, 'personal_programs', jobId, {
               ...existing,
               status: 'failed',
-              errorMessage: err instanceof Error ? err.message : String(err),
+              errorMessage: friendlyMsg,
             });
           }
         }
+
       })();
 
     } catch (err) {

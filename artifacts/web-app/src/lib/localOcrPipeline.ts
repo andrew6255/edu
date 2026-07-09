@@ -299,7 +299,10 @@ export async function runPhase2Questions(
 // ─── Phase 3: Question Enrichment (direct Groq call) ─────────────────────────
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+// Use the fast 8B model for Phase 3 — it has a 500k token/day limit vs 100k
+// for the 70B model, preventing it from exhausting the shared daily budget
+// that Phase 2 (Python OCR server) also draws from.
+const GROQ_MODEL = 'llama-3.1-8b-instant';
 
 function buildEnrichmentPrompt(questionText: string, modelAnswer: string): string {
   return (
@@ -426,7 +429,7 @@ async function enrichOneQuestion(
       body: JSON.stringify({
         model: GROQ_MODEL,
         temperature: 0.1,
-        max_tokens: 1200,
+        max_tokens: 800,
         messages: [
           { role: 'system', content: 'Output only valid JSON with keys: solution, solutionPlan, hint, gradingSchema.' },
           { role: 'user', content: buildEnrichmentPrompt(questionText, modelAnswer) },
