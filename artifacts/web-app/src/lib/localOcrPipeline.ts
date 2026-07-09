@@ -298,7 +298,18 @@ export async function runPhase2Questions(
 
 // ─── Phase 3: Question Enrichment ────────────────────────────────────────────
 
-const API_SERVER_URL = import.meta.env.VITE_API_SERVER_URL || 'http://localhost:3001';
+/**
+ * Returns the API server base URL, replacing 'localhost' with the actual
+ * window hostname when running outside of localhost (e.g. on GitHub Pages).
+ * Falls back gracefully to an empty string so fetch errors are caught below.
+ */
+function getPhase3ApiBase(): string {
+  let url = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() ?? '';
+  if (url && typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    url = url.replace('localhost', window.location.hostname);
+  }
+  return url.replace(/\/+$/, '');
+}
 
 /**
  * Phase 3 – Question Enrichment
@@ -328,13 +339,25 @@ export async function runPhase3Enrichment(
 
   if (allQuestions.length === 0) return topics;
 
+  const apiBase = getPhase3ApiBase();
+  if (!apiBase) {
+    console.warn('[Phase 3] No API server URL configured — skipping enrichment.');
+    return topics;
+  }
+
   onProgress?.(`⚙️ Phase 3: Generating solutions & grading schemas for ${allQuestions.length} question(s)...`);
 
-  const response = await fetch(`${API_SERVER_URL}/api/program-ingestion/enrich-questions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ questions: allQuestions }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase}/api/program-ingestion/enrich-questions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questions: allQuestions }),
+    });
+  } catch (networkErr) {
+    console.warn('[Phase 3] Network error reaching API server — continuing without enrichment.', networkErr);
+    return topics;
+  }
 
   if (!response.ok) {
     const errText = await response.text();
