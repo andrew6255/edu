@@ -315,18 +315,50 @@ function buildEnrichmentPrompt(questionText: string, modelAnswer: string): strin
   );
 }
 
-/** Strip literal control characters (U+0000–U+001F) from inside JSON strings.
- * Groq occasionally emits raw newlines/tabs inside string values which crash JSON.parse. */
+/**
+ * Escape literal control characters (U+0000–U+001F) that appear INSIDE JSON
+ * string values. Structural whitespace outside strings is left untouched.
+ * Groq occasionally emits raw newlines/tabs inside string values which crash
+ * JSON.parse with "Bad control character in string literal".
+ */
 function sanitizeJson(raw: string): string {
-  // Replace literal control chars inside strings with their escape sequence
-  return raw.replace(/[\x00-\x1F]/g, (ch) => {
-    const escapes: Record<string, string> = {
-      '\n': '\\n', '\r': '\\r', '\t': '\\t',
-      '\b': '\\b', '\f': '\\f',
-    };
-    return escapes[ch] ?? `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`;
-  });
+  const ESCAPE: Record<string, string> = {
+    '\n': '\\n', '\r': '\\r', '\t': '\\t', '\b': '\\b', '\f': '\\f',
+  };
+  let out = '';
+  let inString = false;
+  let i = 0;
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (inString) {
+      if (ch === '\\') {
+        // consume the escape sequence as-is (don't touch it)
+        out += ch;
+        i++;
+        if (i < raw.length) { out += raw[i]; i++; }
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+        out += ch; i++;
+        continue;
+      }
+      const code = raw.charCodeAt(i);
+      if (code <= 0x1F) {
+        // literal control char inside a string — escape it
+        out += ESCAPE[ch] ?? `\\u${code.toString(16).padStart(4, '0')}`;
+        i++;
+        continue;
+      }
+    } else {
+      if (ch === '"') { inString = true; out += ch; i++; continue; }
+    }
+    out += ch;
+    i++;
+  }
+  return out;
 }
+
 
 /** Sleep for `ms` milliseconds. */
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
