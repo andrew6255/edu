@@ -290,10 +290,51 @@ export default function SuperAdminPage() {
   const [createError, setCreateError] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // Impersonate modal
+  const [impersonateTarget, setImpersonateTarget] = useState<(UserData & { uid: string }) | null>(null);
+  const [impersonating, setImpersonating] = useState(false);
+  const [impersonateError, setImpersonateError] = useState('');
+
+  async function doImpersonate() {
+    if (!impersonateTarget) return;
+    setImpersonating(true);
+    setImpersonateError('');
+    try {
+      const admin = getAdminClient();
+      const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+        type: 'magiclink',
+        email: impersonateTarget.email,
+      });
+      if (linkError) throw linkError;
+      const token_hash = linkData?.properties?.hashed_token;
+      if (!token_hash) throw new Error('No token returned.');
+      const rawSession = localStorage.getItem('sb-auth-token');
+      if (rawSession) {
+        localStorage.setItem('ll:superadmin_session', rawSession);
+      }
+
+      const { error: verifyErr } = await requireSupabase().auth.verifyOtp({ token_hash, type: 'magiclink' });
+      if (verifyErr) throw verifyErr;
+      localStorage.setItem('ll:impersonating', 'true');
+      localStorage.setItem('ll:last_impersonated_uid', impersonateTarget.uid);
+      window.location.href = import.meta.env.BASE_URL;
+    } catch (e: any) {
+      console.error('Impersonation error:', e);
+      setImpersonateError(e.message || String(e));
+      setImpersonating(false);
+    }
+  }
+
   useEffect(() => {
-    if (userData && userData.role !== 'superadmin') setLocation('/');
-    else loadData();
-  }, [userData]);
+    if (user === null) {
+      setLocation('/auth');
+      return;
+    }
+    if (userData) {
+      if (userData.role !== 'superadmin') setLocation('/');
+      else loadData();
+    }
+  }, [user, userData, setLocation]);
 
   async function loadData() {
     setLoading(true);
@@ -302,6 +343,13 @@ export default function SuperAdminPage() {
       setUsers(u);
       setAtaLinks(ata);
       setPslLinks(psl);
+
+      const lastImpUid = localStorage.getItem('ll:last_impersonated_uid');
+      if (lastImpUid) {
+        setTab('users');
+        setExpandedUser(lastImpUid);
+        localStorage.removeItem('ll:last_impersonated_uid');
+      }
     } catch (e) {
       console.error('Failed to load users:', e);
     } finally {
@@ -698,30 +746,7 @@ export default function SuperAdminPage() {
                         )}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
                           <button
-                            onClick={async () => {
-                              if (!window.confirm(`Login as "${u.username || u.firstName}"? You will be signed out of your superadmin session.`)) return;
-                              try {
-                                const admin = getAdminClient();
-                                const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-                                  type: 'magiclink',
-                                  email: u.email,
-                                });
-                                if (linkError) throw linkError;
-                                const token_hash = linkData?.properties?.hashed_token;
-                                if (!token_hash) throw new Error('No token returned.');
-                                const supabase = requireSupabase();
-                                // Do NOT signOut first — it triggers onAuthStateChange which
-                                // unmounts this component before verifyOtp can run.
-                                // verifyOtp will replace the current session automatically.
-                                const { error: verifyErr } = await supabase.auth.verifyOtp({ token_hash, type: 'magiclink' });
-                                if (verifyErr) throw verifyErr;
-                                localStorage.removeItem('ll:superadmin_session');
-                                window.location.href = import.meta.env.BASE_URL;
-                              } catch (e: any) {
-                                console.error('Impersonation error:', e);
-                                window.alert('Impersonation failed: ' + (e.message || String(e)));
-                              }
-                            }}
+                            onClick={e => { e.stopPropagation(); setImpersonateTarget(u); }}
                             style={{
                               padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold',
                               fontFamily: 'inherit', cursor: 'pointer',
@@ -907,6 +932,16 @@ export default function SuperAdminPage() {
           </>
         );
       })()}
+      {/* ── Impersonate Confirmation Modal ───────────────────────────── */}
+      {impersonateTarget && (
+        <ImpersonateModal
+          target={impersonateTarget}
+          impersonating={impersonating}
+          error={impersonateError}
+          onConfirm={doImpersonate}
+          onCancel={() => { setImpersonateTarget(null); setImpersonateError(''); }}
+        />
+      )}
     </div>
   );
 }
@@ -1821,6 +1856,156 @@ function LogicGamesAdmin() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── ImpersonateModal ───────────────────────────────────────────────────────
+function ImpersonateModal({
+  target, impersonating, error, onConfirm, onCancel,
+}: {
+  target: UserData & { uid: string };
+  impersonating: boolean;
+  error: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const displayName = [target.firstName, target.lastName].filter(Boolean).join(' ') || target.username || target.email;
+  const roleColor = ROLE_COLORS[target.role as UserRole] ?? '#94a3b8';
+  const roleLabel = ROLE_LABELS[target.role as UserRole] ?? target.role;
+  const roleIcon = target.role === 'student' ? '🎓' : target.role === 'teacher' ? '🧑‍🏫' : target.role === 'admin' ? '🛡️' : target.role === 'parent' ? '👨‍👩‍👧' : '👤';
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9000,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
+        padding: 16,
+      }}
+      onClick={() => { if (!impersonating) onCancel(); }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 'min(460px, 94vw)',
+          background: 'linear-gradient(145deg, #0f172a, #1e1b4b)',
+          border: '1px solid rgba(168,85,247,0.35)',
+          borderRadius: 20,
+          boxShadow: '0 40px 100px rgba(0,0,0,0.7)',
+          overflow: 'hidden',
+          fontFamily: 'inherit',
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          padding: '20px 24px 16px',
+          borderBottom: '1px solid rgba(168,85,247,0.2)',
+          background: 'rgba(168,85,247,0.08)',
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <div style={{
+            width: 42, height: 42, borderRadius: 12,
+            background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 20, flexShrink: 0,
+          }}>
+            👑
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: '#f1f5f9' }}>Login as User</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Super Admin Impersonation</div>
+          </div>
+        </div>
+
+        <div style={{ padding: '20px 24px' }}>
+          {/* User card */}
+          <div style={{
+            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 14, padding: '16px 18px',
+            display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18,
+          }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: 12, flexShrink: 0,
+              background: `linear-gradient(135deg, ${roleColor}33, ${roleColor}11)`,
+              border: `1px solid ${roleColor}55`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
+            }}>
+              {roleIcon}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {displayName}
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {target.email}
+              </div>
+            </div>
+            <div style={{
+              padding: '4px 10px', borderRadius: 20,
+              background: `${roleColor}22`, border: `1px solid ${roleColor}55`,
+              color: roleColor, fontSize: 11, fontWeight: 700, flexShrink: 0,
+            }}>
+              {roleLabel}
+            </div>
+          </div>
+
+          {/* Warning */}
+          <div style={{
+            background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)',
+            borderRadius: 10, padding: '12px 14px',
+            display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 22,
+          }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+            <span style={{ fontSize: 12, color: '#fbbf24', lineHeight: 1.5 }}>
+              You will be temporarily logged into <strong>{target.username || displayName}</strong>'s account.
+              A <strong>"Back to Super Admin"</strong> button will appear in the sidebar to return.
+            </span>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div style={{
+              background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+              borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+              color: '#fca5a5', fontSize: 12,
+            }}>
+              ❌ {error}
+            </div>
+          )}
+
+          {/* Buttons */}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={onCancel}
+              disabled={impersonating}
+              style={{
+                flex: 1, padding: '12px 0', borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.1)',
+                background: 'rgba(255,255,255,0.05)',
+                color: '#94a3b8', fontFamily: 'inherit',
+                fontWeight: 600, fontSize: 13, cursor: impersonating ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={impersonating}
+              style={{
+                flex: 2, padding: '12px 0', borderRadius: 10,
+                border: '1px solid rgba(168,85,247,0.5)',
+                background: impersonating ? 'rgba(168,85,247,0.15)' : 'rgba(168,85,247,0.25)',
+                color: '#c084fc', fontFamily: 'inherit',
+                fontWeight: 700, fontSize: 13, cursor: impersonating ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}
+            >
+              {impersonating ? '⏳ Logging in…' : `🔑 Login as ${target.username || target.firstName}`}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

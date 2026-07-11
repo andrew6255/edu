@@ -238,10 +238,26 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
   const battery = Math.max(0, Math.min(3, Math.floor(rankedEnergyStreak)));
 
+  const isImpersonating = localStorage.getItem('ll:impersonating') === 'true';
+
   function handleLogout() {
     localStorage.clear();
     requireSupabase().auth.signOut().catch(() => {});
     window.location.href = import.meta.env.BASE_URL + 'auth';
+  }
+
+  function handleBackToSuperAdmin() {
+    localStorage.removeItem('ll:impersonating');
+    const savedSession = localStorage.getItem('ll:superadmin_session');
+    if (savedSession) {
+      localStorage.setItem('sb-auth-token', savedSession);
+      localStorage.removeItem('ll:superadmin_session');
+    } else {
+      localStorage.removeItem('sb-auth-token');
+      requireSupabase().auth.signOut().catch(() => {});
+    }
+    // Force a full reload to the superadmin page so Supabase reinitializes with the token
+    window.location.href = import.meta.env.BASE_URL + 'superadmin';
   }
 
 
@@ -588,7 +604,24 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
             </div>
 
-            <button onClick={handleLogout} className="ll-btn ll-btn-danger" style={{ width: '100%', padding: '12px', marginTop: 15 }}>
+            {isImpersonating && (
+              <button
+                onClick={handleBackToSuperAdmin}
+                style={{
+                  width: '100%', padding: '12px', marginTop: 15,
+                  borderRadius: 10, border: '1px solid rgba(168,85,247,0.5)',
+                  background: 'rgba(168,85,247,0.12)', color: '#c084fc',
+                  fontFamily: 'inherit', fontWeight: 700, fontSize: 13,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', gap: 8, transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(168,85,247,0.25)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(168,85,247,0.12)')}
+              >
+                👑 Back to Super Admin
+              </button>
+            )}
+            <button onClick={handleLogout} className="ll-btn ll-btn-danger" style={{ width: '100%', padding: '12px', marginTop: 10 }}>
               🚪 Log Out
             </button>
           </div>

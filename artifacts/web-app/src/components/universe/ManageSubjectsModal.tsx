@@ -46,7 +46,8 @@ export default function ManageSubjectsModal({ open, onClose }: Props) {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const created = await createPersonalSubject(user!.uid, newName, newEmoji);
+      const existingEmojis = subjects.map(s => s.emoji).filter(Boolean);
+      const created = await createPersonalSubject(user!.uid, newName, newEmoji, existingEmojis);
       setSubjects(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
       setNewName('');
       setNewEmoji('');
@@ -61,7 +62,9 @@ export default function ManageSubjectsModal({ open, onClose }: Props) {
   async function handleSaveEdit(id: string) {
     if (!editName.trim()) return;
     try {
-      const updated = await updatePersonalSubject(user!.uid, id, editName, editEmoji);
+      // Exclude emojis of all OTHER subjects (the one being edited can keep or change its emoji).
+      const existingEmojis = subjects.filter(s => s.id !== id).map(s => s.emoji).filter(Boolean);
+      const updated = await updatePersonalSubject(user!.uid, id, editName, editEmoji, existingEmojis);
       setSubjects(prev => prev.map(s => s.id === id ? updated : s).sort((a, b) => a.name.localeCompare(b.name)));
       setEditingId(null);
       window.dispatchEvent(new Event('ll:subjectsUpdated'));
