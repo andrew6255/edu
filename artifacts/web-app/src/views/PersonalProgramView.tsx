@@ -709,85 +709,7 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
               ))}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-              <button
-                onClick={() => {
-                  alert('Test Me feature coming soon!');
-                }}
-                style={{
-                  background: 'linear-gradient(135deg, rgba(59,130,246,0.1) 0%, rgba(59,130,246,0.05) 100%)',
-                  border: '1px solid rgba(59,130,246,0.3)',
-                  borderRadius: 16,
-                  padding: '16px 20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  color: 'inherit',
-                  fontFamily: 'inherit',
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget;
-                  el.style.transform = 'translateY(-2px)';
-                  el.style.borderColor = 'rgba(59,130,246,0.8)';
-                  el.style.background = 'linear-gradient(135deg, rgba(59,130,246,0.15) 0%, rgba(59,130,246,0.08) 100%)';
-                  el.style.boxShadow = '0 8px 24px rgba(59,130,246,0.15)';
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget;
-                  el.style.transform = '';
-                  el.style.borderColor = 'rgba(59,130,246,0.3)';
-                  el.style.background = 'linear-gradient(135deg, rgba(59,130,246,0.1) 0%, rgba(59,130,246,0.05) 100%)';
-                  el.style.boxShadow = 'none';
-                }}
-              >
-                <div style={{ fontSize: 24, filter: 'drop-shadow(0 2px 4px rgba(59,130,246,0.3))' }}>🎯</div>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#3b82f6', marginBottom: 2 }}>Test Me</div>
-                  <div style={{ fontSize: 12, color: 'var(--ll-text-muted)', lineHeight: 1.2 }}>Take a timed quiz on this sheet</div>
-                </div>
-              </button>
 
-              <button
-                onClick={() => {
-                  alert('Feynman Mode feature coming soon!');
-                }}
-                style={{
-                  background: 'linear-gradient(135deg, rgba(168,85,247,0.1) 0%, rgba(168,85,247,0.05) 100%)',
-                  border: '1px solid rgba(168,85,247,0.3)',
-                  borderRadius: 16,
-                  padding: '16px 20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  color: 'inherit',
-                  fontFamily: 'inherit',
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget;
-                  el.style.transform = 'translateY(-2px)';
-                  el.style.borderColor = 'rgba(168,85,247,0.8)';
-                  el.style.background = 'linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(168,85,247,0.08) 100%)';
-                  el.style.boxShadow = '0 8px 24px rgba(168,85,247,0.15)';
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget;
-                  el.style.transform = '';
-                  el.style.borderColor = 'rgba(168,85,247,0.3)';
-                  el.style.background = 'linear-gradient(135deg, rgba(168,85,247,0.1) 0%, rgba(168,85,247,0.05) 100%)';
-                  el.style.boxShadow = 'none';
-                }}
-              >
-                <div style={{ fontSize: 24, filter: 'drop-shadow(0 2px 4px rgba(168,85,247,0.3))' }}>👨‍🏫</div>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#a855f7', marginBottom: 2 }}>Feynman Mode</div>
-                  <div style={{ fontSize: 12, color: 'var(--ll-text-muted)', lineHeight: 1.2 }}>Explain concepts to AI tutor</div>
-                </div>
-              </button>
-            </div>
 
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24,
@@ -911,7 +833,11 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
 
                       const isAnswered = answeredIds.has(qId);
 
-                      const previewText = formattedPreviews[qId] || question.rawText || '';
+                      let previewText = formattedPreviews[qId] || question.rawText || '';
+                      
+                      // Clean up common OCR numbering prefixes like "1.", "**Q1:**", "### Question 1:", "Exercice 1:"
+                      previewText = previewText.replace(/^\s*(?:\*\*|###\s*|##\s*|#\s*)?(?:(?:Q|Question|Exercice|Exo|Ex)\s*(?:n[°o]\s*)?\d+\s*[:.)-]?|\d+\s*[:.)-])\s*(?:\*\*|:)?\s*/i, '');
+                      
                       const displayPreview = previewText.length > 200
                         ? previewText.slice(0, 200) + '...'
                         : previewText;
@@ -925,7 +851,8 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                             border: `1px solid ${isAnswered ? 'rgba(59,130,246,0.3)' : 'var(--ll-border)'}`,
                             borderRadius: 12, padding: '16px', cursor: 'pointer',
                             transition: 'all 0.2s', position: 'relative',
-                            width: '100%',
+                            width: '100%', overflow: 'hidden',
+                            overflowWrap: 'break-word', wordBreak: 'break-word',
                           }}
                           onMouseEnter={e => {
                             (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)';
@@ -967,7 +894,7 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                           </div>
                           <div style={{
                             fontSize: 14, color: 'var(--ll-text-soft)', lineHeight: 1.6,
-                            fontFamily: 'inherit',
+                            fontFamily: 'inherit', overflowWrap: 'break-word', wordBreak: 'break-word',
                           }}>
                             {renderWithMath(displayPreview)}
                           </div>
@@ -989,8 +916,11 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
             {programData.questions.map((question, qIdx) => {
               const isAnswered = answeredIds.has(question.id);
-              const previewText = formattedPreviews[question.id] || question.rawText;
-              const displayPreview = previewText.length > 120 ? previewText.slice(0, 120) + '...' : previewText;
+              let previewText = formattedPreviews[question.id] || question.rawText;
+              if (previewText) {
+                previewText = previewText.replace(/^\s*(?:\*\*|###\s*|##\s*|#\s*)?(?:(?:Q|Question|Exercice|Exo|Ex)\s*(?:n[°o]\s*)?\d+\s*[:.)-]?|\d+\s*[:.)-])\s*(?:\*\*|:)?\s*/i, '');
+              }
+              const displayPreview = previewText && previewText.length > 200 ? previewText.slice(0, 120) + '...' : previewText;
               return (
                 <div
                   key={question.id}
@@ -1016,7 +946,7 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                     <span style={{ fontSize: 11, color: 'var(--ll-text-muted)' }}>Question {qIdx + 1}</span>
                     <span style={{ fontSize: 14, marginLeft: 'auto' }}>{isAnswered ? '📝' : '✏️'}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--ll-text-soft)', lineHeight: 1.5, maxHeight: 54, overflow: 'hidden' }}>
+                  <div style={{ fontSize: 12, color: 'var(--ll-text-soft)', lineHeight: 1.5, maxHeight: 54, overflow: 'hidden', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                     {renderWithMath(displayPreview)}
                   </div>
                 </div>

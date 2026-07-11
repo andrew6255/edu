@@ -97,7 +97,8 @@ Your instructions:
 2. If they are correct, confirm it and briefly highlight why it's a good explanation.
 3. If they are incorrect, gently correct them and point out the gap in their understanding.
 4. If their input is IRRELEVANT or off-topic, strictly reply: "This is not relevant to the question. Please explain how to solve the problem."
-5. Use markdown and latex ($ and $$) for any math notation.`;
+5. Use markdown and latex ($ and $$) for any math notation.
+6. CRITICAL: Reply and evaluate the explanation in the EXACT SAME LANGUAGE as the question provided above. Do not translate.`;
 
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',

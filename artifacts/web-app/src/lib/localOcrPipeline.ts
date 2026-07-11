@@ -302,7 +302,7 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // Use the fast 8B model for Phase 3 — it has a 500k token/day limit vs 100k
 // for the 70B model, preventing it from exhausting the shared daily budget
 // that Phase 2 (Python OCR server) also draws from.
-const GROQ_MODEL = 'llama-3.1-8b-instant';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 function buildEnrichmentPrompt(questionText: string, modelAnswer: string): string {
   return (
@@ -310,10 +310,11 @@ function buildEnrichmentPrompt(questionText: string, modelAnswer: string): strin
     'QUESTION:\n' + questionText + '\n\n' +
     'CORRECT ANSWER:\n' + modelAnswer + '\n\n' +
     'Return JSON with these exact keys: solution, solutionPlan, hint, gradingSchema.\n' +
-    'solution: Detailed step-by-step worked solution (min 3 steps).\n' +
+    'solution: Concise step-by-step worked solution (max 150 words).\n' +
     'solutionPlan: High-level bullet plan, NO details, 3-5 bullets.\n' +
     'hint: Single hint that nudges WITHOUT giving the answer.\n' +
     'gradingSchema: array of 2-5 criteria objects, points must sum to 100.\n\n' +
+    'CRITICAL: You MUST write the solution, solutionPlan, hint, and gradingSchema in the EXACT SAME LANGUAGE as the provided question and answer text. If the question is in French, all your output must be in French. Do not translate into English.\n' +
     'CRITICAL: You MUST wrap all math, equations, and symbols in $...$ (inline) or $$...$$ (display) delimiters.'
   );
 }
@@ -429,11 +430,12 @@ async function enrichOneQuestion(
       body: JSON.stringify({
         model: GROQ_MODEL,
         temperature: 0.1,
-        max_tokens: 800,
+        max_tokens: 1500,
         messages: [
-          { role: 'system', content: 'Output only valid JSON with keys: solution, solutionPlan, hint, gradingSchema.' },
+          { role: 'system', content: 'Output only valid JSON with keys: solution, solutionPlan, hint, gradingSchema. BE CONCISE.' },
           { role: 'user', content: buildEnrichmentPrompt(questionText, modelAnswer) },
         ],
+        response_format: { type: 'json_object' },
       }),
     });
 
@@ -449,7 +451,11 @@ async function enrichOneQuestion(
     }
 
 
-    if (!response.ok) throw new Error('Groq enrichment failed: ' + response.status);
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`Groq 400 error payload:`, errText);
+      throw new Error(`Groq enrichment failed: ${response.status} - ${errText}`);
+    }
 
     const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
     let raw = (payload.choices?.[0]?.message?.content ?? '').trim();
@@ -534,11 +540,11 @@ export async function runPhase3Enrichment(
     gradingSchema: GradingCriterion[]; modelAnswer: string; answerFromPdf: boolean;
   }> = {};
 
-  // Process ONE at a time with a short gap to avoid Groq rate limits
+  // Process ONE at a time with a gap to avoid Groq rate limits (6000 TPM limit)
   let done = 0;
   for (const q of allQuestions) {
     try {
-      if (done > 0) await sleep(500); // 500ms between requests
+      if (done > 0) await sleep(15000); // 15s between requests to stay under 6000 TPM limit
       enriched[q.id] = await enrichOneQuestion(q.rawText, q.modelAnswer, q.answerFromPdf, apiKey);
     } catch (err) {
       console.error('[Phase 3] Failed for ' + q.id + ':', err);

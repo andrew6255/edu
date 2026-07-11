@@ -502,6 +502,7 @@ def phase2_questions():
             "'Find the derivative: a) f(x)=x^2  b) f(x)=sin(x)'), expand each "
             "into a fully self-contained question (prepend the instruction).\n"
             "  • Preserve ALL math notation. Wrap in $...$ (inline) or $$...$$ (display).\n"
+            "  • CRITICAL: Extract and output questions in the EXACT SAME LANGUAGE as the source text. Do not translate.\n"
             "  • Double-escape LaTeX backslashes for JSON (\\\\frac, not \\frac).\n"
             "  • Drop headers, student names, dates, page numbers, and pure instructions.\n"
             "  • 'rawAnswerText': copy the short answer/result from the PDF, or null.\n"
@@ -558,6 +559,7 @@ def phase2_questions():
                 "  • Type names must be SPECIFIC: e.g. 'Differentiating power functions', "
                 "'Applying the product rule', 'Chain rule with trigonometric functions'.\n"
                 "  • NOT generic: 'Calculus', 'Algebra', 'Practice'.\n"
+                "  • CRITICAL: You MUST detect the language of the provided questions (e.g., French, Spanish, etc). The `title` for each topic MUST be generated entirely in that SAME LANGUAGE. Under NO circumstances should you output English if the input is not English.\n"
                 "  • Analyze ALL questions together before deciding on groups.\n\n"
                 "OUTPUT — valid JSON only. Use questionIds arrays (NOT full question objects):\n"
                 "{\"topics\":[{\"id\":\"t1\",\"title\":\"...\",\"questionIds\":[\"q_1\",\"q_2\"]}]}\n"
@@ -565,6 +567,7 @@ def phase2_questions():
             )
 
             pass2_input = json.dumps({
+                "language_instruction": "Generate all topic titles in the exact same language as the questions below.",
                 "questions": [{"id": q["id"], "rawText": q.get("rawText", "")} for q in all_qa]
             }, ensure_ascii=False)
 

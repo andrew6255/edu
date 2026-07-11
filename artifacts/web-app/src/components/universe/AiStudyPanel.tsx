@@ -47,6 +47,7 @@ Return ONLY a JSON object with this exact structure:
     }
   ]
 }
+CRITICAL: Generate all content (including titles, questions, and explanations) in the EXACT SAME LANGUAGE as the programTitle and contentSummary. Do not translate.
 NO OTHER TEXT OR MARKDOWN OUTSIDE THE JSON.`;
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {

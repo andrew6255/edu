@@ -157,7 +157,7 @@ export default function HexUniverseView() {
   const [myProgramsOpen, setMyProgramsOpen] = useState(false);
 
   const { personalPrograms, setPersonalPrograms, subjects, setSubjects } = useGlobalData();
-  
+
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(
     () => typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('ll:selectedSubjectId') : null
   );
@@ -170,7 +170,7 @@ export default function HexUniverseView() {
     }
   };
   const [manageSubjectsOpen, setManageSubjectsOpen] = useState(false);
-  
+
   const [selectedProcessingJobId, setSelectedProcessingJobId] = useState<string | null>(null);
   const selectedProcessingProgram = personalPrograms.find(p => p.jobId === selectedProcessingJobId) || null;
 
@@ -186,7 +186,7 @@ export default function HexUniverseView() {
     if (!user || subjects.length === 0 || personalPrograms.length === 0) return;
     const uncatProgs = personalPrograms.filter(p => !p.subjectId);
     if (uncatProgs.length === 0) return;
-    
+
     let cancelled = false;
     import('@/lib/personalSubjectService').then(({ createPersonalSubject }) => {
       let mathSubject = subjects.find(s => s.name.toLowerCase().includes('math'));
@@ -273,10 +273,10 @@ export default function HexUniverseView() {
       const visibleProgs = progs.filter(({ p }) => !!p);
 
       const items = visibleProgs
-        .map(({ pid, p }) => ({ 
-          id: pid, 
-          title: p?.title ?? pid, 
-          coverEmoji: p?.coverEmoji, 
+        .map(({ pid, p }) => ({
+          id: pid,
+          title: p?.title ?? pid,
+          coverEmoji: p?.coverEmoji,
           subject: p?.subject,
           builderSpec: p?.builderSpec
         }))
@@ -378,7 +378,7 @@ export default function HexUniverseView() {
               {`${subjects.find(s => s.id === selectedSubjectId)?.emoji || '📘'} ${subjects.find(s => s.id === selectedSubjectId)?.name || 'Worksheets'}`}
             </h2>
           </div>
-          
+
           {filteredActivePrograms.length > 0 && (
             <div style={{
               display: 'grid',
@@ -467,7 +467,7 @@ export default function HexUniverseView() {
               ))}
             </div>
           )}
-          
+
           {filteredPersonalPrograms.length === 0 && filteredActivePrograms.length === 0 && (
             <div style={{ color: 'var(--ll-text-muted)', textAlign: 'center', padding: 40 }}>
               No programs or worksheets in this subject yet.
@@ -501,54 +501,54 @@ export default function HexUniverseView() {
                 ];
                 const c = palette[i % palette.length];
                 return (
-                    <div
-                      key={s.id}
-                      onClick={() => handleSetSelectedSubjectId(s.id)}
-                      style={{
-                        background: `linear-gradient(135deg, rgba(${c},0.15) 0%, rgba(${c},0.05) 100%)`,
-                        border: `1px solid rgba(${c},0.3)`,
-                        borderRadius: 24,
-                        padding: '16px',
-                        textAlign: 'center',
-                        cursor: 'pointer',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        animation: `fadeIn ${0.2 + i * 0.05}s ease`,
-                        width: 220,
-                        height: 220,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-                        backdropFilter: 'blur(8px)',
-                      }}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.transform = 'translateY(-6px) scale(1.02)';
-                        e.currentTarget.style.borderColor = `rgba(${c},0.8)`;
-                        e.currentTarget.style.boxShadow = `0 15px 40px rgba(${c},0.25)`;
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.transform = 'none';
-                        e.currentTarget.style.borderColor = `rgba(${c},0.3)`;
-                        e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.1)';
-                      }}
-                    >
-                      <div style={{ 
-                        fontSize: 64, 
-                        marginBottom: 16,
-                        filter: `drop-shadow(0 8px 16px rgba(${c},0.4))`
-                      }}>
-                        {s.emoji}
-                      </div>
-                      <div style={{ 
-                        fontWeight: 800, 
-                        fontSize: 20, 
-                        color: 'var(--ll-text)',
-                        letterSpacing: '0.5px'
-                      }}>
-                        {s.name}
-                      </div>
+                  <div
+                    key={s.id}
+                    onClick={() => handleSetSelectedSubjectId(s.id)}
+                    style={{
+                      background: `linear-gradient(135deg, rgba(${c},0.15) 0%, rgba(${c},0.05) 100%)`,
+                      border: `1px solid rgba(${c},0.3)`,
+                      borderRadius: 24,
+                      padding: '16px',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      animation: `fadeIn ${0.2 + i * 0.05}s ease`,
+                      width: 220,
+                      height: 220,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+                      backdropFilter: 'blur(8px)',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.transform = 'translateY(-6px) scale(1.02)';
+                      e.currentTarget.style.borderColor = `rgba(${c},0.8)`;
+                      e.currentTarget.style.boxShadow = `0 15px 40px rgba(${c},0.25)`;
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.transform = 'none';
+                      e.currentTarget.style.borderColor = `rgba(${c},0.3)`;
+                      e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.1)';
+                    }}
+                  >
+                    <div style={{
+                      fontSize: 64,
+                      marginBottom: 16,
+                      filter: `drop-shadow(0 8px 16px rgba(${c},0.4))`
+                    }}>
+                      {s.emoji}
                     </div>
+                    <div style={{
+                      fontWeight: 800,
+                      fontSize: 20,
+                      color: 'var(--ll-text)',
+                      letterSpacing: '0.5px'
+                    }}>
+                      {s.name}
+                    </div>
+                  </div>
                 );
               })}
             </div>

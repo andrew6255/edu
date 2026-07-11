@@ -1,70 +1,70 @@
 {
   "phase": "phase2_questions",
-  "created_at": "2026-07-11T15:12:12.243406+00:00",
+  "created_at": "2026-07-11T17:33:15.476307+00:00",
   "result": {
     "topics": [
       {
         "id": "t1",
-        "title": "Converting and Adding Currency",
+        "title": "Calculs avec des billets de banque",
         "questions": [
           {
             "id": "q_1",
             "label": "a)",
-            "rawText": "Find the equivalent of: 2 billets de 20 L.E. + 1 billet de 50 L.E.",
+            "rawText": "Find the equivalent of: 2 billets de 20 L.E. + 1 billet de 50 L.E",
             "answerFromPdf": true,
-            "rawAnswerText": "3 billets de 10 L.E. + 1 billet de 50 L.E.",
-            "modelAnswer": "3 billets de 10 L.E. + 1 billet de 50 L.E."
+            "rawAnswerText": "3 billets de 10 L.E. + 1 billet de 50 LE",
+            "modelAnswer": "3 billets de 10 L.E. + 1 billet de 50 LE"
           },
           {
             "id": "q_2",
             "label": "b)",
-            "rawText": "Find the equivalent of: 1 billet de 100 L.E.",
+            "rawText": "Find the equivalent of: 1 billet de 100 L.E",
             "answerFromPdf": true,
-            "rawAnswerText": "2 billets de 50 L.E.",
-            "modelAnswer": "2 billets de 50 L.E."
+            "rawAnswerText": "2 billets de 50 L.E",
+            "modelAnswer": "2 billets de 50 L.E"
           },
           {
             "id": "q_7",
-            "label": "4) Rami a 3 billets de 50 L.E. et 2 billets de 10 L.E. Mona a 1 billet de 200 L.E et 1 billet de 20 L.E. Combien ont-ils ensemble ?",
-            "rawText": "Rami has 3 $\\times$ 50 L.E. and 2 $\\times$ 10 L.E. Mona has 1 $\\times$ 200 L.E and 1 $\\times$ 20 L.E. How much do they have together?",
+            "label": "4",
+            "rawText": "Rami a 3 billets de 50 L.E. et 2 billets de 10 L.E. Mona a 1 billet de 200 L.E et 1 billet de 20 L.E. Combien ont-ils ensemble ?",
             "answerFromPdf": true,
-            "rawAnswerText": "350",
-            "modelAnswer": "350"
+            "rawAnswerText": "340",
+            "modelAnswer": "340"
           }
         ]
       },
       {
         "id": "t2",
-        "title": "Identifying Odd and Even Numbers",
+        "title": "Reconnaissance des nombres pairs et impairs",
         "questions": [
           {
             "id": "q_3",
-            "label": "2) Entoure les nombres impairs ;",
-            "rawText": "Which of the numbers are odd: 8, 203, 22, 195, 210, 52, 603, 9999",
+            "label": "2",
+            "rawText": "Entoure les nombres impairs ; 8 - 203 - 22 - 195 - 210 - 52 - 603 - 9999",
             "answerFromPdf": true,
             "rawAnswerText": "203, 195, 603, 9999",
             "modelAnswer": "203, 195, 603, 9999"
           },
           {
             "id": "q_4",
-            "label": "a) Un nombre pair plus grand que 14 est......",
-            "rawText": "A number greater than 14 that is even is...",
+            "label": "a)",
+            "rawText": "Un nombre pair plus grand que 14 est......",
             "answerFromPdf": true,
             "rawAnswerText": "16",
             "modelAnswer": "16"
           },
           {
             "id": "q_5",
-            "label": "b) 2 nombres impairs consécutifs .......... et...",
-            "rawText": "Two consecutive odd numbers are...",
+            "label": "b)",
+            "rawText": "2 nombres impairs consécutifs .......... et...",
             "answerFromPdf": true,
-            "rawAnswerText": "13 and 15",
-            "modelAnswer": "13 and 15"
+            "rawAnswerText": "13 et 15",
+            "modelAnswer": "13 et 15"
           },
           {
             "id": "q_6",
-            "label": "c) La somme de 34 et 59 est un nombre .........",
-            "rawText": "The sum of 34 and 59 is a...",
+            "label": "c)",
+            "rawText": "La somme de 34 et 59 est un nombre ........",
             "answerFromPdf": true,
             "rawAnswerText": "impair",
             "modelAnswer": "impair"

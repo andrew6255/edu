@@ -649,7 +649,7 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
         program={selectedProcessingProgram}
         onCancel={async () => {
           if (!selectedProcessingProgram || !user) return;
-          if (!confirm('Cancel and delete this program?')) return;
+          if (!(await confirm('Cancel and delete this program?'))) return;
           setSelectedProcessingProgram(null);
           try {
             await deletePersonalProgram(user.uid, selectedProcessingProgram.jobId);
