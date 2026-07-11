@@ -240,9 +240,8 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
   function handleLogout() {
     localStorage.clear();
-    // Fire-and-forget signOut — redirect immediately so user isn't waiting
     requireSupabase().auth.signOut().catch(() => {});
-    window.location.href = '/auth';
+    window.location.href = import.meta.env.BASE_URL + 'auth';
   }
 
 
