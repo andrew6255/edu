@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { BuilderNode, BuilderQuestionTypeFile, BuilderQuestion } from '@/lib/programBuilder';
 import { makeStableId } from '@/lib/programBuilder';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import katex from 'katex';
 
 const LatexRenderer = ({ content }: { content?: string }) => {
@@ -32,6 +33,7 @@ interface WorksheetEditorViewProps {
 }
 
 export default function WorksheetEditorView({ worksheetNode, onUpdate, onClose }: WorksheetEditorViewProps) {
+  const { confirm } = useConfirm();
   const [selectedQtId, setSelectedQtId] = useState<string | null>(null);
   const [editingQtId, setEditingQtId] = useState<string | null>(null);
 
@@ -61,8 +63,8 @@ export default function WorksheetEditorView({ worksheetNode, onUpdate, onClose }
     setEditingQtId(id);
   }
 
-  function handleDeleteQt(id: string) {
-    if (!window.confirm('Delete this question type and all its questions?')) return;
+  async function handleDeleteQt(id: string) {
+    if (!(await confirm('Delete this question type and all its questions?'))) return;
     if (selectedQtId === id) setSelectedQtId(null);
     onUpdate(n => ({
       ...n,
@@ -116,8 +118,8 @@ export default function WorksheetEditorView({ worksheetNode, onUpdate, onClose }
     handleSaveQuestions(nextQ);
   }
 
-  function handleDeleteQuestion(index: number) {
-    if (!window.confirm('Delete this question?')) return;
+  async function handleDeleteQuestion(index: number) {
+    if (!(await confirm('Delete this question?'))) return;
     const nextQ = [...questions];
     nextQ.splice(index, 1);
     handleSaveQuestions(nextQ);

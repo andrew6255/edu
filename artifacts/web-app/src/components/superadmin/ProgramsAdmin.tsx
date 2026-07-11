@@ -15,6 +15,8 @@
 
 import { useState, useEffect, Suspense, lazy } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   FIXED_FIRST_DIVISION_NODE_ID,
   type BuilderNode,
@@ -128,6 +130,7 @@ function SubjectSelector({
   onDelete: (id: string) => void;
   creating: boolean 
 }) {
+  const { confirm } = useConfirm();
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
@@ -213,9 +216,9 @@ function SubjectSelector({
                         Rename
                       </button>
                       <button
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
-                          if (window.confirm(`Delete subject "${s.name}"?`)) onDelete(s.id);
+                          if (await confirm(`Delete subject "${s.name}"?`)) onDelete(s.id);
                         }}
                         style={{ padding: '4px 8px', fontSize: 11, borderRadius: 4, border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: '#f87171', cursor: 'pointer' }}
                       >
@@ -259,6 +262,8 @@ function AdminPreviewWrapper({ programId, onBack }: { programId: string, onBack:
 }
 
 export default function ProgramsAdmin() {
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const { user } = useAuth();
 
   // Programs list
@@ -530,7 +535,7 @@ export default function ProgramsAdmin() {
 
   function handleSetupContinue() {
     const name = setupName.trim();
-    if (!name) { window.alert('Please enter a program name.'); return; }
+    if (!name) { toast({ variant: 'destructive', description: 'Please enter a program name.' }); return; }
     const emoji = setupEmoji.trim() || suggestEmoji(name, setupSubject);
     const id = editingId || editingDraftId || makeIdFromTitle(name) || 'program';
     const b = newBuilderSpec();
@@ -564,7 +569,7 @@ export default function ProgramsAdmin() {
   async function saveBuilderDraft(isAuto = false) {
     const { id: programId, title } = computeProgramIdAndTitle();
     if (!programId) { 
-      if (!isAuto) window.alert('Missing program ID'); 
+      if (!isAuto) toast({ variant: 'destructive', description: 'Missing program ID' }); 
       return; 
     }
     if (!isAuto) setSaving(true);
@@ -592,10 +597,10 @@ export default function ProgramsAdmin() {
         setLastAutoSave(new Date());
       } else {
         await load();
-        window.alert('Draft saved ✓');
+        toast({ description: 'Draft saved ✓' });
       }
     } catch (e) { 
-      if (!isAuto) window.alert(formatErr(e)); 
+      if (!isAuto) toast({ variant: 'destructive', description: formatErr(e) }); 
     } finally { 
       if (!isAuto) setSaving(false); 
     }
@@ -616,7 +621,7 @@ export default function ProgramsAdmin() {
 
   async function publishBuilder() {
     const { id: programId, title } = computeProgramIdAndTitle();
-    if (!programId) { window.alert('Missing program ID'); return; }
+    if (!programId) { toast({ variant: 'destructive', description: 'Missing program ID' }); return; }
     setSaving(true);
     try {
       const spec = { ...builder, programId, programTitle: title };
@@ -642,8 +647,8 @@ export default function ProgramsAdmin() {
       await load();
       setView('list');
       setEditingId(programId);
-      window.alert('Published ✓');
-    } catch (e) { window.alert(formatErr(e)); }
+      toast({ description: 'Published ✓' });
+    } catch (e) { toast({ variant: 'destructive', description: formatErr(e) }); }
     finally { setSaving(false); }
   }
 
@@ -654,7 +659,7 @@ export default function ProgramsAdmin() {
     setEditingDraftId(null);
     try {
       const data = await getPublishedProgramAdmin(p.id);
-      if (!data) { window.alert('Program not found'); return; }
+      if (!data) { toast({ variant: 'destructive', description: 'Program not found' }); return; }
       const spec = data.builderSpec as BuilderSpec | undefined;
       const next = spec?.version === '1.0' ? spec : (() => {
         const b = newBuilderSpec();
@@ -668,7 +673,7 @@ export default function ProgramsAdmin() {
       setBuilder(ensureFixedFirstDivisionContainer(next));
       setBuilderPathIds(['root']);
       setView('explorer');
-    } catch (e) { window.alert(formatErr(e)); }
+    } catch (e) { toast({ variant: 'destructive', description: formatErr(e) }); }
   }
 
   async function startEditDraft(d: ProgramItem) {
@@ -676,7 +681,7 @@ export default function ProgramsAdmin() {
     setEditingDraftId(d.id);
     try {
       const data = await getDraftProgramAdmin(d.id);
-      if (!data) { window.alert('Draft not found'); return; }
+      if (!data) { toast({ variant: 'destructive', description: 'Draft not found' }); return; }
       const spec = data?.builderSpec as BuilderSpec | undefined;
       const next = spec?.version === '1.0' ? spec : (() => {
         const b = newBuilderSpec();
@@ -690,7 +695,7 @@ export default function ProgramsAdmin() {
       setBuilder(ensureFixedFirstDivisionContainer(next));
       setBuilderPathIds(['root']);
       setView('explorer');
-    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { toast({ variant: 'destructive', description: e instanceof Error ? e.message : String(e) }); }
   }
 
   // ── Preview ─────────────────────────────────────────────────────────────────
@@ -715,7 +720,7 @@ export default function ProgramsAdmin() {
       setPreviewProgramId(`ll-draft:${key}`);
       setPreviewReturnView('explorer');
       setView('preview');
-    } catch (e) { window.alert(formatErr(e)); }
+    } catch (e) { toast({ variant: 'destructive', description: formatErr(e) }); }
   }
 
   async function previewDraft(programId: string) {
@@ -751,25 +756,25 @@ export default function ProgramsAdmin() {
       }
       setPreviewReturnView('list');
       setView('preview');
-    } catch (e) { window.alert(formatErr(e)); }
+    } catch (e) { toast({ variant: 'destructive', description: formatErr(e) }); }
   }
 
   async function removeDraft(programId: string) {
-    if (!window.confirm('Delete this draft?')) return;
+    if (!(await confirm('Delete this draft?'))) return;
     await deleteDraftProgramAdmin(programId);
     await load();
     if (editingDraftId === programId) resetToList();
   }
 
   async function removePublished(id: string) {
-    if (!window.confirm('Are you sure you want to delete this program?')) return;
+    if (!(await confirm('Are you sure you want to delete this program?'))) return;
     await softDeletePublishedProgramAdmin(id);
     await load();
     if (editingId === id) resetToList();
   }
 
   async function publishDraftFromList(d: ProgramItem) {
-    if (!window.confirm(`Publish "${d.title ?? d.id}"?`)) return;
+    if (!(await confirm(`Publish "${d.title ?? d.id}"?`))) return;
     setLoading(true);
     try {
       const data = await getDraftProgramAdmin(d.id);
@@ -794,16 +799,16 @@ export default function ProgramsAdmin() {
       if (d.grade_band) payload.grade_band = d.grade_band;
       await publishProgramAdmin(d.id, payload, d.id);
       await load();
-      window.alert('Published ✓');
+      toast({ description: 'Published ✓' });
     } catch (e) {
-      window.alert(formatErr(e));
+      toast({ variant: 'destructive', description: formatErr(e) });
     } finally {
       setLoading(false);
     }
   }
 
   async function unpublishProgramFromList(p: ProgramItem) {
-    if (!window.confirm(`Unpublish "${p.title ?? p.id}" and move it back to drafts?`)) return;
+    if (!(await confirm(`Unpublish "${p.title ?? p.id}" and move it back to drafts?`))) return;
     setLoading(true);
     try {
       const data = await getPublishedProgramAdmin(p.id);
@@ -828,9 +833,9 @@ export default function ProgramsAdmin() {
       await softDeletePublishedProgramAdmin(p.id);
       
       await load();
-      window.alert('Program moved back to drafts.');
+      toast({ description: 'Program moved back to drafts.' });
     } catch (e) {
-      window.alert(formatErr(e));
+      toast({ variant: 'destructive', description: formatErr(e) });
     } finally {
       setLoading(false);
     }
@@ -1524,7 +1529,7 @@ export default function ProgramsAdmin() {
                         Rename
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${folder.title}" and all its contents?`)) deleteFolder(folder.id); }}
+                        onClick={async (e) => { e.stopPropagation(); if (await confirm(`Delete "${folder.title}" and all its contents?`)) deleteFolder(folder.id); }}
                         disabled={!!uploadNode}
                         style={{ padding: '4px 10px', fontSize: 11, borderRadius: 6, border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: '#f87171', cursor: uploadNode ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: uploadNode ? 0.5 : 1 }}
                       >
@@ -1556,7 +1561,7 @@ export default function ProgramsAdmin() {
                         </span>
                       </div>
                       <button
-                        onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${qt.title}"?`)) deleteWorksheet(qt.id); }}
+                        onClick={async (e) => { e.stopPropagation(); if (await confirm(`Delete "${qt.title}"?`)) deleteWorksheet(qt.id); }}
                         style={{ padding: '4px 14px', fontSize: 11, borderRadius: 6, border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: '#f87171', cursor: 'pointer', fontFamily: 'inherit' }}
                       >
                         Delete

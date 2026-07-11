@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { useGlobalData } from '@/contexts/GlobalDataContext';
 import {
   getMyClasses,
@@ -37,6 +39,8 @@ interface ClassesViewProps {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 export default function ClassesView({ pendingContentId, pendingContentType, onPendingHandled }: ClassesViewProps = {}) {
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const { user, userData } = useAuth();
   const { globalClasses: classes } = useGlobalData();
   const [selectedClass, setSelectedClass] = useState<StudentClass | null>(null);
@@ -131,7 +135,7 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
         return;
       }
       // no attempt yet — confirm start
-      if (!window.confirm(`Start quiz "${item.title}"?${item.time_limit_minutes ? ` Time limit: ${item.time_limit_minutes} minutes.` : ''} You only get one attempt.`)) return;
+      if (!(await confirm(`Start quiz "${item.title}"?${item.time_limit_minutes ? ` Time limit: ${item.time_limit_minutes} minutes.` : ''} You only get one attempt.`))) return;
       const att = await startQuizAttempt(item.id, user.uid, item.time_limit_minutes);
       setAttempt(att);
       setActiveQuiz(item);
@@ -139,7 +143,7 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
       setAnswers({});
       startTimer(att);
     } catch (e) {
-      window.alert('Failed to open quiz: ' + (e instanceof Error ? e.message : String(e)));
+      toast({ variant: 'destructive', description: 'Failed to open quiz: ' + (e instanceof Error ? e.message : String(e)) });
     }
   }
 
@@ -172,13 +176,13 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
 
   const handleSubmitQuiz = useCallback(async () => {
     if (!attempt || quizSubmitted) return;
-    if (timeLeft !== 0 && !window.confirm('Submit quiz? You cannot change your answers after.')) return;
+    if (timeLeft !== 0 && !(await confirm('Submit quiz? You cannot change your answers after.'))) return;
     try {
       await submitQuizAttempt(attempt.id, answers);
       setQuizSubmitted(true);
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     } catch (e) {
-      window.alert('Submit failed: ' + (e instanceof Error ? e.message : String(e)));
+      toast({ variant: 'destructive', description: 'Submit failed: ' + (e instanceof Error ? e.message : String(e)) });
     }
   }, [attempt, answers, quizSubmitted, timeLeft]);
 

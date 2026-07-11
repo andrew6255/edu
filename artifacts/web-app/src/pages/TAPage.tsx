@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
+import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getTAClasses,
@@ -28,6 +29,7 @@ type ClassDetailTab = 'submissions' | 'content';
 type SubFilter = 'all' | 'submitted' | 'graded';
 
 export default function TAPage() {
+  const { toast } = useToast();
   const { user, userData, loading } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -97,7 +99,7 @@ export default function TAPage() {
   async function handleGrade() {
     if (!gradingSub || gradeScore === '') return;
     const score = parseFloat(gradeScore);
-    if (isNaN(score)) { window.alert('Please enter a valid number.'); return; }
+    if (isNaN(score)) { toast({ variant: 'destructive', description: 'Please enter a valid number.' }); return; }
     setGrading(true);
     try {
       await gradeQuizAttempt(gradingSub.attempt_id, score);
@@ -106,7 +108,7 @@ export default function TAPage() {
       ));
       setGradingSub(null);
     } catch (e) {
-      window.alert('Failed: ' + (e instanceof Error ? e.message : String(e)));
+      toast({ variant: 'destructive', description: 'Failed: ' + (e instanceof Error ? e.message : String(e)) });
     } finally {
       setGrading(false);
     }

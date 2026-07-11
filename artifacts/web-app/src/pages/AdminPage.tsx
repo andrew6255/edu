@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
+import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -60,6 +62,8 @@ const inputStyle: React.CSSProperties = {
 };
 
 export default function AdminPage() {
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const { user, userData, loading } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -248,7 +252,7 @@ export default function AdminPage() {
       await createClassContent({ id, class_id: selectedClassId, content_type: newContentType, title: newContentTitle.trim(), subject: newContentSubject, time_limit_minutes: newContentType === 'quiz' && newContentTimeLimit ? parseInt(newContentTimeLimit, 10) : null, created_by: user?.uid });
       setShowCreateContent(false); setNewContentTitle(''); setNewContentTimeLimit('');
       await refreshContent();
-    } catch (e) { window.alert('Failed: ' + (e instanceof Error ? e.message : String(e))); }
+    } catch (e) { toast({ variant: 'destructive', description: 'Failed: ' + (e instanceof Error ? e.message : String(e)) }); }
     finally { setCreatingContent(false); }
   }
 
@@ -264,7 +268,7 @@ export default function AdminPage() {
     try {
       let parsedQ: unknown = null;
       if (editingContent.content_type !== 'program') {
-        try { parsedQ = JSON.parse(editQuestions); } catch { window.alert('Invalid JSON.'); setSavingContent(false); return; }
+        try { parsedQ = JSON.parse(editQuestions); } catch { toast({ variant: 'destructive', description: 'Invalid JSON.' }); setSavingContent(false); return; }
       }
       await updateClassContent(editingContent.id, {
         title: editTitle.trim() || editingContent.title, subject: editSubject || editingContent.subject,
@@ -272,21 +276,21 @@ export default function AdminPage() {
         ...(editingContent.content_type === 'quiz' ? { time_limit_minutes: editTimeLimit ? parseInt(editTimeLimit, 10) : null } : {}),
       });
       setEditingContent(null); await refreshContent();
-    } catch (e) { window.alert('Save failed: ' + (e instanceof Error ? e.message : String(e))); }
+    } catch (e) { toast({ variant: 'destructive', description: 'Save failed: ' + (e instanceof Error ? e.message : String(e)) }); }
     finally { setSavingContent(false); }
   }
 
   async function handleTogglePublish(item: ClassContentRow) {
     const next = item.status === 'draft' ? 'published' : 'draft';
-    if (next === 'published' && !window.confirm(`Publish "${item.title}"?`)) return;
+    if (next === 'published' && !(await confirm(`Publish "${item.title}"?`))) return;
     try { await toggleClassContentStatus(item.id, next); setContentItems(prev => prev.map(c => c.id === item.id ? { ...c, status: next } : c)); }
-    catch (e) { window.alert('Failed: ' + (e instanceof Error ? e.message : String(e))); }
+    catch (e) { toast({ variant: 'destructive', description: 'Failed: ' + (e instanceof Error ? e.message : String(e)) }); }
   }
 
   async function handleDeleteContent(item: ClassContentRow) {
-    if (!window.confirm(`Delete "${item.title}"?`)) return;
+    if (!(await confirm(`Delete "${item.title}"?`))) return;
     try { await softDeleteClassContent(item.id); setContentItems(prev => prev.filter(c => c.id !== item.id)); }
-    catch (e) { window.alert('Failed: ' + (e instanceof Error ? e.message : String(e))); }
+    catch (e) { toast({ variant: 'destructive', description: 'Failed: ' + (e instanceof Error ? e.message : String(e)) }); }
   }
 
   async function handleCreateClass() {
@@ -295,20 +299,20 @@ export default function AdminPage() {
     try {
       await createClass(makeClassId(), newClassName.trim(), selectedTeacherId);
       setShowCreate(false); setNewClassName(''); await refreshTeacherData();
-    } catch (e) { window.alert('Failed: ' + (e instanceof Error ? e.message : String(e))); }
+    } catch (e) { toast({ variant: 'destructive', description: 'Failed: ' + (e instanceof Error ? e.message : String(e)) }); }
     finally { setCreating(false); }
   }
 
   async function handleRename(classId: string) {
     if (!renameValue.trim()) return;
     try { await updateClass(classId, renameValue.trim()); setClasses(prev => prev.map(c => c.id === classId ? { ...c, name: renameValue.trim() } : c)); setRenaming(null); }
-    catch (e) { window.alert('Rename failed: ' + (e instanceof Error ? e.message : String(e))); }
+    catch (e) { toast({ variant: 'destructive', description: 'Rename failed: ' + (e instanceof Error ? e.message : String(e)) }); }
   }
 
   async function handleDeleteClass(classId: string) {
-    if (!window.confirm('Delete this class and all its content?')) return;
+    if (!(await confirm('Delete this class and all its content?'))) return;
     try { await deleteClass(classId); if (selectedClassId === classId) setSelectedClassId(null); await refreshTeacherData(); }
-    catch (e) { window.alert('Delete failed: ' + (e instanceof Error ? e.message : String(e))); }
+    catch (e) { toast({ variant: 'destructive', description: 'Delete failed: ' + (e instanceof Error ? e.message : String(e)) }); }
   }
 
   async function openAddMember(classId?: string) {
@@ -328,20 +332,20 @@ export default function AdminPage() {
       await addClassMember(targetClassId, userId, addMemberRole);
       if (selectedClassId) await openClass(selectedClassId);
       await refreshTeacherData();
-    } catch (e) { window.alert('Failed: ' + (e instanceof Error ? e.message : String(e))); }
+    } catch (e) { toast({ variant: 'destructive', description: 'Failed: ' + (e instanceof Error ? e.message : String(e)) }); }
     finally { setAddingMember(false); }
   }
 
   async function handleRemoveMember(userId: string) {
-    if (!selectedClassId || !window.confirm('Remove this member?')) return;
+    if (!selectedClassId || !(await confirm('Remove this member?'))) return;
     try { await removeClassMember(selectedClassId, userId); setMembers(prev => prev.filter(m => m.user_id !== userId)); await refreshTeacherData(); }
-    catch (e) { window.alert('Remove failed: ' + (e instanceof Error ? e.message : String(e))); }
+    catch (e) { toast({ variant: 'destructive', description: 'Remove failed: ' + (e instanceof Error ? e.message : String(e)) }); }
   }
 
   async function handleRemoveUserFromTeacher(u: TeacherUserRow) {
-    if (!selectedTeacherId || !window.confirm(`Remove ${u.username} from all classes?`)) return;
+    if (!selectedTeacherId || !(await confirm(`Remove ${u.username} from all classes?`))) return;
     try { await removeUserFromAllTeacherClasses(selectedTeacherId, u.user_id); await refreshTeacherData(); }
-    catch (e) { window.alert('Failed: ' + (e instanceof Error ? e.message : String(e))); }
+    catch (e) { toast({ variant: 'destructive', description: 'Failed: ' + (e instanceof Error ? e.message : String(e)) }); }
   }
 
   async function handleCreateTa() {
@@ -979,7 +983,7 @@ export default function AdminPage() {
                         setAssignTaModal(null);
                         await refreshTeacherData();
                       } catch (e: any) {
-                        window.alert('Failed: ' + (e.message || String(e)));
+                        toast({ variant: 'destructive', description: 'Failed: ' + (e.message || String(e)) });
                       } finally { setAssigningTa(false); }
                     }}
                     className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}>

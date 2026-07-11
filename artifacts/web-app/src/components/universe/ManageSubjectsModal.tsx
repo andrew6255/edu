@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   type PersonalSubject,
   listPersonalSubjects,
@@ -14,6 +16,8 @@ interface Props {
 }
 
 export default function ManageSubjectsModal({ open, onClose }: Props) {
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const { user } = useAuth();
   const [subjects, setSubjects] = useState<PersonalSubject[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +57,7 @@ export default function ManageSubjectsModal({ open, onClose }: Props) {
       setNewEmoji('');
       window.dispatchEvent(new Event('ll:subjectsUpdated'));
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      toast({ variant: 'destructive', description: err instanceof Error ? err.message : String(err) });
     } finally {
       setCreating(false);
     }
@@ -69,18 +73,18 @@ export default function ManageSubjectsModal({ open, onClose }: Props) {
       setEditingId(null);
       window.dispatchEvent(new Event('ll:subjectsUpdated'));
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      toast({ variant: 'destructive', description: err instanceof Error ? err.message : String(err) });
     }
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('Delete this subject? Your worksheets will become Uncategorized.')) return;
+    if (!(await confirm('Delete this subject? Your worksheets will become Uncategorized.'))) return;
     try {
       await deletePersonalSubject(user!.uid, id);
       setSubjects(prev => prev.filter(s => s.id !== id));
       window.dispatchEvent(new Event('ll:subjectsUpdated'));
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      toast({ variant: 'destructive', description: err instanceof Error ? err.message : String(err) });
     }
   }
 

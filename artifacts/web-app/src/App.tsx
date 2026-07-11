@@ -19,6 +19,7 @@ import TAPage from '@/pages/TAPage';
 import ParentPage from '@/pages/ParentPage';
 import MathInteractionDemoView from '@/views/MathInteractionDemoView';
 import { applyAppTheme, DEFAULT_APP_THEME_ID } from '@/lib/appTheme';
+import { ConfirmProvider } from '@/contexts/ConfirmContext';
 
 const queryClient = new QueryClient();
 
@@ -85,15 +86,17 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <SessionProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <ThemeController />
-              <Router />
-            </WouterRouter>
-          </SessionProvider>
-        </AuthProvider>
-        <Toaster />
+        <ConfirmProvider>
+          <AuthProvider>
+            <SessionProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                <ThemeController />
+                <Router />
+              </WouterRouter>
+            </SessionProvider>
+          </AuthProvider>
+          <Toaster />
+        </ConfirmProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

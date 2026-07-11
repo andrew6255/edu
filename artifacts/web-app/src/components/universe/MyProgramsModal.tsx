@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   assignProgramToUser,
   listPublicPrograms,
@@ -34,6 +36,8 @@ interface Props {
 }
 
 export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const { user, userData, refreshUserData } = useAuth();
   const [tab, setTab] = useState<'create' | 'current' | 'search'>('create');
   const [loading, setLoading] = useState(false);
@@ -182,7 +186,7 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
   }
 
   async function handleDelete(programId: string) {
-    if (!window.confirm('Remove this program from your profile?')) return;
+    if (!(await confirm('Remove this program from your profile?'))) return;
     await removeProgramFromUser(uid, programId);
     await refreshUserData();
     window.dispatchEvent(new CustomEvent('ll:programDeleted', { detail: { programId } }));
@@ -191,7 +195,7 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
   async function handleDeletePersonal(e: React.MouseEvent, jobId: string) {
     e.stopPropagation();
     if (!user) return;
-    if (!confirm('Are you sure you want to delete this program?')) return;
+    if (!(await confirm('Are you sure you want to delete this program?'))) return;
     try {
       const { deletePersonalProgram } = await import('@/lib/personalProgramService');
       await deletePersonalProgram(user.uid, jobId);
@@ -373,7 +377,7 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
 
     } catch (err) {
       console.error(err);
-      window.alert('Failed to start program creation:\n\n' + (err instanceof Error ? err.message : String(err)));
+      toast({ variant: 'destructive', description: 'Failed to start program creation:\n\n' + (err instanceof Error ? err.message : String(err)) });
       setUploading(false);
     }
   }
@@ -387,7 +391,7 @@ export default function MyProgramsModal({ open, onClose, subjectId }: Props) {
       window.dispatchEvent(new CustomEvent('ll:personalProgramCreated', { detail: { program: updated } }));
     } catch (err) {
       console.error(err);
-      window.alert('Failed to rename program');
+      toast({ variant: 'destructive', description: 'Failed to rename program' });
     }
   }
 

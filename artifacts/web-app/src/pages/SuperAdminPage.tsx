@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
+import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
@@ -257,6 +259,8 @@ function getNormalizedSolutionSteps(value: unknown): ProgramStepSpec[] {
 }
 
 export default function SuperAdminPage() {
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const { user, userData } = useAuth();
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<Tab>('overview');
@@ -372,7 +376,7 @@ export default function SuperAdminPage() {
     const msg = isStudentOrParent && pairedUid
       ? 'This will permanently delete BOTH the student and their linked parent account. Continue?'
       : 'Permanently delete this account? This cannot be undone.';
-    if (!window.confirm(msg)) return;
+    if (!(await confirm(msg))) return;
     setDeletingUser(uid);
     await deleteUserData(uid);
     const removedIds = new Set([uid, ...(pairedUid ? [pairedUid] : [])]);
@@ -548,7 +552,7 @@ export default function SuperAdminPage() {
                 { label: 'Total Users', value: users.length, icon: '👤', color: '#c084fc' },
                 { label: 'Students', value: roleCounts.student, icon: '🧑‍🎓', color: ROLE_COLORS.student },
                 { label: 'Admins', value: roleCounts.admin, icon: '🛡️', color: ROLE_COLORS.admin },
-                { label: 'Teachers', value: roleCounts.teacher, icon: '�', color: ROLE_COLORS.teacher },
+                { label: 'Teachers', value: roleCounts.teacher, icon: '', color: ROLE_COLORS.teacher },
                 { label: 'TAs', value: roleCounts.teacher_assistant, icon: '✏️', color: ROLE_COLORS.teacher_assistant },
                 { label: 'Parents', value: roleCounts.parent, icon: '👨‍👩‍👧', color: ROLE_COLORS.parent },
                 { label: 'Super Admins', value: roleCounts.superadmin, icon: '👑', color: ROLE_COLORS.superadmin },
@@ -881,7 +885,7 @@ export default function SuperAdminPage() {
             }
           } catch (e) {
             console.error('Failed to update teacher assignment:', e);
-            window.alert('Failed: ' + (e instanceof Error ? e.message : String(e)));
+            toast({ variant: 'destructive', description: 'Failed: ' + (e instanceof Error ? e.message : String(e)) });
           } finally {
             setAtaSaving(false);
           }
@@ -947,7 +951,8 @@ export default function SuperAdminPage() {
 }
 
 function LogicGamesAdmin() {
-  const { userData } = useAuth();
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const [, setLocation] = useLocation();
 
   const [loading, setLoading] = useState(true);
@@ -1102,7 +1107,7 @@ function LogicGamesAdmin() {
   
 
   async function deleteNode(nodeId: string) {
-    if (!window.confirm('Delete this level and all its questions? This cannot be undone.')) return;
+    if (!(await confirm('Delete this level and all its questions? This cannot be undone.'))) return;
     setSaving(true);
     try {
       await deleteLogicGameNode(nodeId);
@@ -1278,8 +1283,9 @@ function LogicGamesAdmin() {
                             📊 Details
                           </button>
                           <button 
-                            onClick={() => {
-                              if(window.confirm('Delete question?')) {
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if(await confirm('Delete question?')) {
                                 saveQuestionsList(questions.filter(x => x.id !== q.id));
                               }
                             }}
@@ -1679,8 +1685,8 @@ function LogicGamesAdmin() {
                   {extractedQuestions.map((q, qIndex) => (
                      <div key={qIndex} style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 12, padding: 16, position: 'relative' }}>
                        <button 
-                          onClick={() => {
-                            if(window.confirm('Delete question?')) {
+                          onClick={async () => {
+                            if(await confirm('Delete question?')) {
                               setExtractedQuestions((extractedQuestions || []).filter((_, i) => i !== qIndex));
                             }
                           }}
@@ -1837,7 +1843,7 @@ function LogicGamesAdmin() {
                       // Check if any question is missing a correct answer
                       const missingAns = extractedQuestions.some(q => q.interaction.type === 'mcq' && q.interaction.correctChoiceIndex < 0);
                       if (missingAns) {
-                         if (!window.confirm("Some questions do not have a correct answer selected. Add them anyway?")) return;
+                         if (!(await confirm("Some questions do not have a correct answer selected. Add them anyway?"))) return;
                       }
 
                       await saveQuestionsList([...questions, ...extractedQuestions]);
