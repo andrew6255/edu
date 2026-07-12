@@ -1145,7 +1145,7 @@ function LogicGamesAdmin() {
     try {
       setPdfError('Uploading PDF for extraction...');
 
-      const apiUrl = import.meta.env.VITE_API_SERVER_URL || '';
+      const apiUrl = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() || 'http://localhost:3001';
       const formData = new FormData();
       formData.append('file', pdfFile);
 
@@ -1470,7 +1470,7 @@ function LogicGamesAdmin() {
         const askGroq = async () => {
           setDetailsGroqLoading(true);
           try {
-            const apiUrl = import.meta.env.VITE_API_SERVER_URL || '';
+            const apiUrl = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() || 'http://localhost:3001';
             const promptText = dq.promptRawText || (dq.promptBlocks?.[0] as any)?.text || '';
             const choices = dq.interaction.type === 'mcq' ? dq.interaction.choices : [];
             const correctIdx = dq.interaction.type === 'mcq' ? dq.interaction.correctChoiceIndex : -1;

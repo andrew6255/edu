@@ -332,26 +332,33 @@ export default function LogicGamesView() {
 
     const explanation = rankedCurrent.explanation || undefined;
 
+    // Dequeue the answered question SYNCHRONOUSLY before any awaits.
+    // This prevents a race condition: setRankedFeedback (below) shows the "Next"
+    // button immediately, and if the user clicks it before the awaits resolve,
+    // pickNextQuestion would read the un-dequeued queue and show the same question again.
+    const answeredId = rankedCurrent.id;
+    const answeredCorrect = g.correct;
+    if (activeNode) {
+      const queue = getQueueState(activeNode.id);
+      if (queue && queue.currentQueue.length > 0 && queue.currentQueue[0] === answeredId) {
+        queue.currentQueue.shift();
+        if (answeredCorrect) {
+          queue.nextRoundRight.push(answeredId);
+        } else {
+          queue.nextRoundWrong.push(answeredId);
+        }
+        saveQueueState(activeNode.id, queue);
+      }
+    }
+
     setRankedFeedback({ correct: g.correct, explanation });
+
     if (uid) {
       try {
         const k = interaction.type === 'mcq' ? 'mcq' : interaction.type === 'numeric' ? 'numeric' : 'text';
         await emitSolveEvent(uid, { correct: g.correct, kind: k, difficulty: 2 });
       } catch {
         // ignore battle pass errors
-      }
-    }
-
-    if (activeNode) {
-      const queue = getQueueState(activeNode.id);
-      if (queue && queue.currentQueue.length > 0 && queue.currentQueue[0] === rankedCurrent.id) {
-        queue.currentQueue.shift();
-        if (g.correct) {
-          queue.nextRoundRight.push(rankedCurrent.id);
-        } else {
-          queue.nextRoundWrong.push(rankedCurrent.id);
-        }
-        saveQueueState(activeNode.id, queue);
       }
     }
 
