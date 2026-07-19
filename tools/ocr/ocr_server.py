@@ -243,29 +243,31 @@ def postprocess(text: str) -> str:
 # Page extraction
 # ---------------------------------------------------------------------------
 
-def extract_page(page: fitz.Page, page_num: int) -> dict:
+def extract_page(page: fitz.Page, page_num: int, force_ocr: bool = False) -> dict:
     """Extract text from a single PDF page. Returns per-page result dict."""
 
-    # Step 1 — try embedded text layer (fast & perfect for digital PDFs)
-    raw_text = page.get_text("text").strip()
+    if not force_ocr:
+        # Step 1 — try embedded text layer (fast & perfect for digital PDFs)
+        raw_text = page.get_text("text").strip()
 
-    # If PyMuPDF got a good text layer, USE IT.
-    # We only run pix2text on pages that are genuinely sparse/scanned (image-based).
-    # Previously this bypassed PyMuPDF whenever pix2text was installed, causing
-    # 4–5 s of ONNX inference PER PAGE even on fully-digital PDFs — extremely slow.
-    if len(raw_text) >= MIN_CHARS_PER_PAGE:
-        text = postprocess(raw_text)
-        print(f"[OCR Server]   Page {page_num+1}: pymupdf_text_layer ({len(text)} chars)", flush=True)
-        return {
-            "page": page_num + 1,
-            "method": "pymupdf_text_layer",
-            "char_count": len(text),
-            "text": text,
-        }
+        # If PyMuPDF got a good text layer, USE IT.
+        # We only run pix2text on pages that are genuinely sparse/scanned (image-based).
+        if len(raw_text) >= MIN_CHARS_PER_PAGE:
+            text = postprocess(raw_text)
+            print(f"[OCR Server]   Page {page_num+1}: pymupdf_text_layer ({len(text)} chars)", flush=True)
+            return {
+                "page": page_num + 1,
+                "method": "pymupdf_text_layer",
+                "char_count": len(text),
+                "text": text,
+            }
+        
+        print(f"[OCR Server]   Page {page_num+1}: sparse ({len(raw_text)} chars) — running OCR...", flush=True)
+    else:
+        print(f"[OCR Server]   Page {page_num+1}: Force OCR enabled — skipping PyMuPDF text layer...", flush=True)
 
-    # Step 2 — page is sparse (scanned / image-based). Render at 300 DPI and
+    # Step 2 — page is sparse (scanned / image-based) OR Force OCR is enabled. Render at 300 DPI and
     # run math-aware OCR with pix2text, falling back to Tesseract.
-    print(f"[OCR Server]   Page {page_num+1}: sparse ({len(raw_text)} chars) — running OCR...", flush=True)
     pil_img = render_page(page)
 
     if PIX2TEXT_AVAILABLE:
@@ -294,12 +296,12 @@ def extract_page(page: fitz.Page, page_num: int) -> dict:
     }
 
 
-def extract_from_pdf(file_bytes: bytes) -> dict:
+def extract_from_pdf(file_bytes: bytes, force_ocr: bool = False) -> dict:
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     pages_result = []
 
     for i in range(len(doc)):
-        page_result = extract_page(doc[i], i)
+        page_result = extract_page(doc[i], i, force_ocr=force_ocr)
         pages_result.append(page_result)
 
     doc.close()
@@ -367,15 +369,16 @@ def phase1_ocr():
         mime_type   = body.get("mimeType", "application/pdf")
         content_b64 = body.get("contentBase64", "")
         title       = body.get("title") or file_name
+        force_ocr   = body.get("forceOcr", False)
 
         if not content_b64:
             return jsonify({"error": "contentBase64 is required"}), 400
 
         file_bytes = base64.b64decode(content_b64)
-        print(f"[OCR Server] Processing '{file_name}' ({len(file_bytes)//1024} KB) ...", flush=True)
+        print(f"[OCR Server] Processing '{file_name}' ({len(file_bytes)//1024} KB), Force OCR: {force_ocr} ...", flush=True)
 
         if mime_type == "application/pdf" or file_name.lower().endswith(".pdf"):
-            result = extract_from_pdf(file_bytes)
+            result = extract_from_pdf(file_bytes, force_ocr=force_ocr)
         else:
             result = extract_from_image(file_bytes)
 
@@ -498,12 +501,17 @@ def phase2_questions():
             "from the provided worksheet text and match each to its answer.\n\n"
             "RULES:\n"
             "  • Extract questions EXACTLY as written. Do NOT rephrase.\n"
-            "  • If a shared instruction applies to multiple sub-items (e.g. "
-            "'Find the derivative: a) f(x)=x^2  b) f(x)=sin(x)'), expand each "
-            "into a fully self-contained question (prepend the instruction).\n"
-            "  • Preserve ALL math notation. Wrap in $...$ (inline) or $$...$$ (display).\n"
+            "  • SUB-QUESTION GROUPING (CRITICAL):\n"
+            "    - If an exercise has a SHARED STEM/INSTRUCTION followed by numbered\n"
+            "      sub-questions (e.g. '1. ... 2. ... 3. ...') that all refer to the\n"
+            "      SAME context or object, treat the ENTIRE exercise (stem + all sub-\n"
+            "      questions) as ONE single question in rawText.\n"
+            "    - ONLY split into separate questions if each sub-question is fully\n"
+            "      independent and makes complete sense WITHOUT the stem.\n"
+            "  • Preserve numbers, quantities, and values EXACTLY as written.\n"
+            "    Do NOT convert numbers, counts, or values into LaTeX or $ symbols.\n"
+            "    Write numbers as plain digits: e.g. write '5 cards' not '$5$ cards'.\n"
             "  • CRITICAL: Extract and output questions in the EXACT SAME LANGUAGE as the source text. Do not translate.\n"
-            "  • Double-escape LaTeX backslashes for JSON (\\\\frac, not \\frac).\n"
             "  • Drop headers, student names, dates, page numbers, and pure instructions.\n"
             "  • 'rawAnswerText': copy the short answer/result from the PDF, or null.\n"
             "  • Keep rawAnswerText SHORT — final answer only, no full working.\n\n"

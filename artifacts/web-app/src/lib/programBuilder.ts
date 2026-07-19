@@ -54,6 +54,9 @@ export type BuilderQuestion = {
   // Phase 3 enrichment
   solutionPlan?: string;
   gradingSchema?: any[]; // GradingCriterion[]
+
+  // AI tutor notes — extra context for the AI tutor when helping students
+  aiTutorNotes?: string;
 };
 
 export type BuilderQuestionTypeFile = {
@@ -67,6 +70,9 @@ export type BuilderNode = {
   title: string;
   children: BuilderNode[];
   questionTypes: BuilderQuestionTypeFile[];
+  /** When true, this node is a "category" — it cannot contain sub-folders,
+   *  only questions (via Upload Questions). Visually distinct from a plain folder. */
+  isCategory?: boolean;
 };
 
 export type BuilderSpec = {

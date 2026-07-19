@@ -650,10 +650,14 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 40px' }}>
-        {!selectedTopicId ? (
-          <>
-            {/* ── AI Study Tools: Test Me + Feynman ── */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+        {(() => {
+          const allTopics = programData.chapters.flatMap(ch => ch.topics || []);
+          const isSingleTopic = allTopics.length === 1;
+          const activeTopicId = selectedTopicId || (isSingleTopic ? allTopics[0].id : null);
+
+          // AI Study Tools block (Test Me + Feynman)
+          const renderStudyTools = () => (
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
               {(
                 [
                   {
@@ -708,70 +712,74 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                 </button>
               ))}
             </div>
+          );
 
-
-
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24,
-              padding: '8px 12px', background: 'var(--ll-surface-1)', borderRadius: 10,
-              border: '1px solid var(--ll-border)',
-            }}>
-              <span style={{ fontSize: 18 }}>🧠</span>
-              <span style={{ fontWeight: 'bold', fontSize: 14, color: 'var(--ll-text)' }}>Question types</span>
-            </div>
+          if (!activeTopicId) {
+            return (
+              <>
+                {renderStudyTools()}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24,
+                  padding: '8px 12px', background: 'var(--ll-surface-1)', borderRadius: 10,
+                  border: '1px solid var(--ll-border)',
+                }}>
+                  <span style={{ fontSize: 18 }}>🧠</span>
+                  <span style={{ fontWeight: 'bold', fontSize: 14, color: 'var(--ll-text)' }}>Question types</span>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {allTopics.map((topic) => {
+                    const qCount = topic.questionIds?.length || 0;
+                    return (
+                      <button
+                        key={topic.id}
+                        onClick={() => setSelectedTopicId(topic.id)}
+                        style={{
+                          background: 'var(--ll-surface-1)',
+                          border: '1px solid var(--ll-border)',
+                          borderRadius: 16,
+                          padding: '20px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          textAlign: 'left',
+                          fontFamily: 'inherit',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                          width: '100%',
+                        }}
+                        onMouseEnter={e => {
+                          (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)';
+                          (e.currentTarget as HTMLButtonElement).style.borderColor = '#8b5cf6';
+                          (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 8px 24px rgba(139,92,246,0.15)';
+                        }}
+                        onMouseLeave={e => {
+                          (e.currentTarget as HTMLButtonElement).style.transform = '';
+                          (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--ll-border)';
+                          (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                        }}
+                      >
+                        <div style={{ fontSize: 16, fontWeight: 'bold', color: 'var(--ll-text)', marginBottom: 8 }}>
+                          {topic.questionTypeTitle || topic.title}
+                        </div>
+                        <div style={{ fontSize: 13, color: 'var(--ll-text-muted)' }}>
+                          {qCount} {qCount === 1 ? 'Question' : 'Questions'}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          } else {
+            const selectedTopic = allTopics.find(t => t.id === activeTopicId);
+            if (!selectedTopic) return null;
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {programData.chapters.flatMap(ch => ch.topics || []).map((topic) => {
-                const qCount = topic.questionIds?.length || 0;
-                return (
-                  <button
-                    key={topic.id}
-                    onClick={() => setSelectedTopicId(topic.id)}
-                    style={{
-                      background: 'var(--ll-surface-1)',
-                      border: '1px solid var(--ll-border)',
-                      borderRadius: 16,
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      textAlign: 'left',
-                      fontFamily: 'inherit',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                      width: '100%',
-                    }}
-                    onMouseEnter={e => {
-                      (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)';
-                      (e.currentTarget as HTMLButtonElement).style.borderColor = '#8b5cf6';
-                      (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 8px 24px rgba(139,92,246,0.15)';
-                    }}
-                    onMouseLeave={e => {
-                      (e.currentTarget as HTMLButtonElement).style.transform = '';
-                      (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--ll-border)';
-                      (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                    }}
-                  >
-                    <div style={{ fontSize: 16, fontWeight: 'bold', color: 'var(--ll-text)', marginBottom: 8 }}>
-                      {topic.questionTypeTitle || topic.title}
-                    </div>
-                    <div style={{ fontSize: 13, color: 'var(--ll-text-muted)' }}>
-                      {qCount} {qCount === 1 ? 'Question' : 'Questions'}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        ) : (
-          <>
-            {(() => {
-              const selectedTopic = programData.chapters.flatMap(ch => ch.topics || []).find(t => t.id === selectedTopicId);
-              if (!selectedTopic) return null;
-              
-              return (
-                <div>
+            return (
+              <div>
+                {/* Only show back button if there are multiple topics */}
+                {!isSingleTopic && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                     <button 
                       onClick={() => setSelectedTopicId(null)}
@@ -784,50 +792,53 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                       {selectedTopic.questionTypeTitle || selectedTopic.title}
                     </h3>
                   </div>
+                )}
 
-                  {/* Learn How to Solve button */}
-                  <button
-                    onClick={() => {
-                      const topicQuestions = (selectedTopic.questionIds || [])
-                        .map(qId => questionMap.get(qId))
-                        .filter((q): q is PersonalProgramQuestion => !!q);
-                      const topicContent = topicQuestions.map((q, i) => `Q${i + 1}: ${q.rawText}`).join('\n\n');
-                      setAiPanelTitle(selectedTopic.questionTypeTitle || selectedTopic.title);
-                      setAiPanelContent(topicContent);
-                      setAiPanelMode('study_sheet');
-                      setAiPanelOpen(true);
-                    }}
-                    style={{
-                      width: '100%', background: '#10b98110',
-                      border: '1px solid #10b98130',
-                      borderRadius: 12, padding: '13px 16px',
-                      cursor: 'pointer', fontFamily: 'inherit',
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      marginBottom: 16, transition: 'all 0.2s', color: 'inherit',
-                    }}
-                    onMouseEnter={e => {
-                      const el = e.currentTarget as HTMLButtonElement;
-                      el.style.background = '#10b98120';
-                      el.style.borderColor = '#10b98160';
-                      el.style.transform = 'translateY(-1px)';
-                    }}
-                    onMouseLeave={e => {
-                      const el = e.currentTarget as HTMLButtonElement;
-                      el.style.background = '#10b98110';
-                      el.style.borderColor = '#10b98130';
-                      el.style.transform = '';
-                    }}
-                  >
-                    <span style={{ fontSize: 20 }}>📚</span>
-                    <div style={{ textAlign: 'left' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981' }}>Learn How to Solve</div>
-                      <div style={{ fontSize: 11, color: 'var(--ll-text-muted)' }}>Step-by-step example for this question type</div>
-                    </div>
-                  </button>
+                {renderStudyTools()}
 
-                  {/* Question cards vertical list */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {(selectedTopic.questionIds || []).map((qId, qIdx) => {
+                {/* Learn How to Solve button */}
+                <button
+                  onClick={() => {
+                    const topicQuestions = (selectedTopic.questionIds || [])
+                      .map(qId => questionMap.get(qId))
+                      .filter((q): q is PersonalProgramQuestion => !!q);
+                    const topicContent = topicQuestions.map((q, i) => `Q${i + 1}: ${q.rawText}`).join('\n\n');
+                    setAiPanelTitle(selectedTopic.questionTypeTitle || selectedTopic.title);
+                    setAiPanelContent(topicContent);
+                    setAiPanelMode('study_sheet');
+                    setAiPanelOpen(true);
+                  }}
+                  style={{
+                    width: '100%', background: '#10b98110',
+                    border: '1px solid #10b98130',
+                    borderRadius: 12, padding: '13px 16px',
+                    cursor: 'pointer', fontFamily: 'inherit',
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    marginBottom: 24, transition: 'all 0.2s', color: 'inherit',
+                  }}
+                  onMouseEnter={e => {
+                    const el = e.currentTarget as HTMLButtonElement;
+                    el.style.background = '#10b98120';
+                    el.style.borderColor = '#10b98160';
+                    el.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={e => {
+                    const el = e.currentTarget as HTMLButtonElement;
+                    el.style.background = '#10b98110';
+                    el.style.borderColor = '#10b98130';
+                    el.style.transform = '';
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>📚</span>
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981' }}>Learn How to Solve</div>
+                    <div style={{ fontSize: 11, color: 'var(--ll-text-muted)' }}>Step-by-step example for this question type</div>
+                  </div>
+                </button>
+
+                {/* Question cards vertical list */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {(selectedTopic.questionIds || []).map((qId, qIdx) => {
                       const question = questionMap.get(qId);
                       if (!question) return null;
 
@@ -907,9 +918,8 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                   </div>
                 </div>
               );
-            })()}
-          </>
-        )}
+          }
+        })()}
 
         {/* If no chapters but there are questions, show flat list */}
         {programData.chapters.length === 0 && programData.questions.length > 0 && (

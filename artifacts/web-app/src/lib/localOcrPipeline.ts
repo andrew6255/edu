@@ -174,6 +174,7 @@ export async function runPhase1Ocr(
   file: File,
   title: string,
   onProgress?: (msg: string) => void,
+  forceOcr?: boolean
 ): Promise<Phase1OcrResult> {
   onProgress?.('🔍 Checking OCR server...');
 
@@ -196,16 +197,18 @@ export async function runPhase1Ocr(
   onProgress?.('⚙️ Running OCR (PyMuPDF + Tesseract)... This may take 10–60 seconds for large files.');
 
   // 3. Send to OCR server — allow up to 10 minutes for heavy pix2text inference
+  const payload = {
+    fileName: file.name,
+    mimeType: file.type || 'application/pdf',
+    contentBase64,
+    title,
+    forceOcr: !!forceOcr
+  };
   const response = await fetch(`${OCR_SERVER_URL}/ocr/phase1`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     signal: AbortSignal.timeout(600_000), // 10-minute timeout for large/math-heavy PDFs
-    body: JSON.stringify({
-      fileName: file.name,
-      mimeType: file.type || 'application/pdf',
-      contentBase64,
-      title,
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -585,6 +588,154 @@ export async function runPhase3Enrichment(
 
   onProgress?.(`✅ Phase 3 complete! Solutions and grading schemas generated.`);
   return enrichedTopics;
+}
+
+// ─── Phase 2 (Category-Aware): Extract + Classify Questions ─────────────────
+
+export interface ExtractedQuestion {
+  id: string;
+  rawText: string;
+  modelAnswer: string;
+  answerFromPdf: boolean;
+}
+
+export interface ClassificationResult {
+  questions: Array<{
+    question: ExtractedQuestion;
+    suggestedCategory: string; // category name (matches one of the provided category names)
+    confidence: 'high' | 'medium' | 'low';
+  }>;
+}
+
+/**
+ * Phase 2 (Category-Aware) — Extract questions from OCR text with smart
+ * sub-question grouping, then classify into the provided category names.
+ *
+ * Sub-question grouping rules:
+ *  - If sub-questions share a common main prompt (e.g. "On tire ensemble cartes...")
+ *    treat the whole exercise as ONE question unit.
+ *  - If sub-questions are independent statements that can stand alone
+ *    (e.g. true/false items, independent fill-in-the-blank), split them.
+ */
+export async function extractAndClassifyQuestions(
+  ocrText: string,
+  categoryNames: string[],
+  onProgress?: (msg: string) => void,
+): Promise<ClassificationResult> {
+  onProgress?.('🤖 Extracting questions from document...');
+
+  // Step A: extract questions via the OCR server (same as Phase 2)
+  const phase2Result = await runPhase2Questions(ocrText, onProgress);
+
+  // Flatten all detected questions across topics
+  const allQuestions: ExtractedQuestion[] = [];
+  for (const topic of phase2Result.topics) {
+    for (const q of topic.questions) {
+      allQuestions.push({
+        id: q.id,
+        rawText: q.rawText,
+        modelAnswer: q.modelAnswer ?? '',
+        answerFromPdf: q.answerFromPdf ?? false,
+      });
+    }
+  }
+
+  if (allQuestions.length === 0) {
+    onProgress?.('⚠️ No questions found in document.');
+    return { questions: [] };
+  }
+
+  onProgress?.(`🏷️ Classifying ${allQuestions.length} question(s) into categories: ${categoryNames.join(', ')}...`);
+
+  const apiKey = (import.meta.env.VITE_GROQ_API_KEY as string | undefined)?.trim();
+  if (!apiKey) {
+    console.warn('[Classification] VITE_GROQ_API_KEY not set — assigning all to first category.');
+    return {
+      questions: allQuestions.map((q) => ({
+        question: q,
+        suggestedCategory: categoryNames[0] ?? 'Uncategorized',
+        confidence: 'low' as const,
+      })),
+    };
+  }
+
+  const categoriesJson = JSON.stringify(categoryNames);
+  const questionsJson = JSON.stringify(
+    allQuestions.map((q, i) => ({ index: i, text: q.rawText.slice(0, 400) })),
+    null,
+    2,
+  );
+
+  const classifyPrompt =
+    `You are an expert teacher. Classify each of the following questions into exactly one of these categories:\n` +
+    `CATEGORIES: ${categoriesJson}\n\n` +
+    `QUESTIONS:\n${questionsJson}\n\n` +
+    `Rules:\n` +
+    `1. For each question, pick the most appropriate category from the list above.\n` +
+    `2. Only use category names from the provided list — do NOT invent new ones.\n` +
+    `3. If a question could fit multiple categories, pick the best match.\n` +
+    `4. Return a JSON array with objects: { "index": <number>, "category": "<category name>", "confidence": "high"|"medium"|"low" }\n` +
+    `Return ONLY the JSON array, no other text.`;
+
+  let classified: Array<{ index: number; category: string; confidence: string }> = [];
+
+  try {
+    const response = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        temperature: 0.1,
+        max_tokens: 2000,
+        messages: [
+          { role: 'system', content: 'Output only valid JSON. No markdown fences.' },
+          { role: 'user', content: classifyPrompt },
+        ],
+        response_format: { type: 'json_object' },
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    if (response.ok) {
+      const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+      let raw = (payload.choices?.[0]?.message?.content ?? '').trim();
+      if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+      raw = sanitizeJson(raw);
+      // Groq with json_object mode may wrap in {"result": [...]} — handle both
+      const parsed = JSON.parse(raw);
+      classified = Array.isArray(parsed) ? parsed : (parsed.result ?? parsed.classifications ?? []);
+    }
+  } catch (err) {
+    console.error('[Classification] Groq call failed:', err);
+  }
+
+  // Build lookup: index → suggested category
+  const lookup = new Map<number, { category: string; confidence: string }>();
+  for (const item of classified) {
+    if (typeof item.index === 'number' && typeof item.category === 'string') {
+      lookup.set(item.index, { category: item.category, confidence: item.confidence ?? 'medium' });
+    }
+  }
+
+  onProgress?.('✅ Classification complete!');
+
+  return {
+    questions: allQuestions.map((q, i) => {
+      const found = lookup.get(i);
+      const rawCat = found?.category ?? '';
+      // Validate the category name — fall back to first available if unknown
+      const suggestedCategory = categoryNames.includes(rawCat)
+        ? rawCat
+        : (categoryNames[0] ?? 'Uncategorized');
+      return {
+        question: q,
+        suggestedCategory,
+        confidence: (['high', 'medium', 'low'].includes(found?.confidence ?? '')
+          ? found!.confidence
+          : 'low') as 'high' | 'medium' | 'low',
+      };
+    }),
+  };
 }
 
 // ─── Debug Log Utilities ─────────────────────────────────────────────────────
