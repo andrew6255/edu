@@ -1,0 +1,414 @@
+[
+  {
+    "id": "q_1",
+    "promptRawText": "The ladybird would like to sit on his flower. The flower has five petals and the stem has three leaves. On which flower should the ladybird sit?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "The ladybird would like to sit on his flower. The flower has five petals and the stem has three leaves. On which flower should the ladybird sit?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "correctChoiceIndex": 1
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_2",
+    "promptRawText": "Theresa moves a pencil along the line. She starts at the arrow shown. In which order will she go past the shapes?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "Theresa moves a pencil along the line. She starts at the arrow shown. In which order will she go past the shapes?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "▲, ■, ●",
+        "▲, ●, ■",
+        "●, ▲, ■",
+        "■, ▲, ●",
+        "■, ●, ▲"
+      ],
+      "correctChoiceIndex": 0
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_3",
+    "promptRawText": "There are more grey squares than white. How many more?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "There are more grey squares than white. How many more?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "6",
+        "7",
+        "8",
+        "9",
+        "10"
+      ],
+      "correctChoiceIndex": 3
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_4",
+    "promptRawText": "A big square is made from 25 small squares put together. A few of the small squares have been lost. How many have been lost?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "A big square is made from 25 small squares put together. A few of the small squares have been lost. How many have been lost?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "6",
+        "7",
+        "8",
+        "10",
+        "12"
+      ],
+      "correctChoiceIndex": 3
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_5",
+    "promptRawText": "Put the animals in order of size. Begin with the smallest. Which animal will be in the middle?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "Put the animals in order of size. Begin with the smallest. Which animal will be in the middle?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "correctChoiceIndex": 1
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_6",
+    "promptRawText": "How many ducks weigh the same as a crocodile?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "How many ducks weigh the same as a crocodile?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "4 ducks",
+        "3 ducks",
+        "2 ducks",
+        "1 duck",
+        "0 ducks"
+      ],
+      "correctChoiceIndex": 1
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_7",
+    "promptRawText": "The kangaroo is inside how many circles?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "The kangaroo is inside how many circles?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "correctChoiceIndex": 2
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_8",
+    "promptRawText": "When the ant walks from home along the arrows → 3, ↑ 3, → 3, ↑ 1 , he gets to the ladybird. Which animal does the ant get to when he walks from home along the following arrows: → 2, ↓ 2, → 3, ↑ 3, → 2, ↑ 2?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "When the ant walks from home along the arrows → 3, ↑ 3, → 3, ↑ 1 , he gets to the ladybird. Which animal does the ant get to when he walks from home along the following arrows: → 2, ↓ 2, → 3, ↑ 3, → 2, ↑ 2?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "Butterfly",
+        "Bee",
+        "Caterpillar",
+        "Snail",
+        "Frog"
+      ],
+      "correctChoiceIndex": 0
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_9",
+    "promptRawText": "Max has cut a rectangle into two pieces. One piece looks like: What does the other piece look like?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "Max has cut a rectangle into two pieces. One piece looks like: What does the other piece look like?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "correctChoiceIndex": 4
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_10",
+    "promptRawText": "Seven sticks lay on top of each other. Stick 2 lays right at the bottom. Stick 6 lays right on top. Which stick lays exactly in the middle?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "Seven sticks lay on top of each other. Stick 2 lays right at the bottom. Stick 6 lays right on top. Which stick lays exactly in the middle?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "7"
+      ],
+      "correctChoiceIndex": 1
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_11",
+    "promptRawText": "How many numbers, which are only allowed to contain the digits 1, 2 or 3 are bigger than 10 and smaller than 32? The digits can be used more than once in the numbers.",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "How many numbers, which are only allowed to contain the digits 1, 2 or 3 are bigger than 10 and smaller than 32? The digits can be used more than once in the numbers."
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "2",
+        "4",
+        "6",
+        "7",
+        "8"
+      ],
+      "correctChoiceIndex": 3
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_12",
+    "promptRawText": "The rabbit family Hoppel eat cabbages and carrots. Each day they eat either 10 carrots or 2 cabbages. In the whole of last week they ate 6 cabbages. How many carrots did the rabbit family eat last week?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "The rabbit family Hoppel eat cabbages and carrots. Each day they eat either 10 carrots or 2 cabbages. In the whole of last week they ate 6 cabbages. How many carrots did the rabbit family eat last week?"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "20",
+        "30",
+        "34",
+        "40",
+        "50"
+      ],
+      "correctChoiceIndex": 3
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_13",
+    "promptRawText": "A square is cut into four pieces. Which shape can you not make with these four pieces?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "A square is cut into four pieces. Which shape can you not make with these four pieces?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "correctChoiceIndex": 3
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_14",
+    "promptRawText": "Each of the digits 2, 3, 4 and 5 will be placed in a square. Then there will be two numbers, which will be added together. What is the biggest number that they could make?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "Each of the digits 2, 3, 4 and 5 will be placed in a square. Then there will be two numbers, which will be added together. What is the biggest number that they could make?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "68",
+        "77",
+        "86",
+        "95",
+        "97"
+      ],
+      "correctChoiceIndex": 3
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  },
+  {
+    "id": "q_15",
+    "promptRawText": "Ingrid has 4 red, 3 blue, 2 green and 1 yellow cube. She uses them to build the following object: Cubes with the same colour don't touch each other. Which colour is the cube with the question mark?",
+    "promptBlocks": [
+      {
+        "type": "text",
+        "text": "Ingrid has 4 red, 3 blue, 2 green and 1 yellow cube. She uses them to build the following object: Cubes with the same colour don't touch each other. Which colour is the cube with the question mark?"
+      },
+      {
+        "type": "image",
+        "url": "INSERT_IMAGE_URL_HERE"
+      }
+    ],
+    "interaction": {
+      "type": "mcq",
+      "choices": [
+        "red",
+        "blue",
+        "green",
+        "yellow",
+        "This cannot be worked out for certain."
+      ],
+      "correctChoiceIndex": 0
+    },
+    "timeLimitSec": 60,
+    "iqDeltaCorrect": 5,
+    "iqDeltaWrong": -3
+  }
+]

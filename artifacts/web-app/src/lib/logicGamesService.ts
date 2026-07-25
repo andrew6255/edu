@@ -78,10 +78,22 @@ async function getQuestions(table: string, nodeId: string): Promise<LogicGameQue
 async function replaceQuestions(table: string, nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>, publishedAt?: string): Promise<void> {
   const now = new Date().toISOString();
   const supabase = getAdminClient();
-  const { error: deleteError } = await supabase.from(table as any).delete().eq('node_id', nodeId);
-  if (deleteError) throw deleteError;
-  if (docData.questions.length === 0) return;
-  const rows = docData.questions.map((q, idx) => ({
+
+  const newQuestions = docData.questions;
+  const newIds = new Set(newQuestions.map((q) => q.id));
+
+  // Step 1: Fetch existing question IDs for this node (lightweight query)
+  const { data: existingRows, error: fetchError } = await supabase
+    .from(table as any)
+    .select('question_id')
+    .eq('node_id', nodeId);
+  if (fetchError) throw fetchError;
+
+  const existingIds = new Set(((existingRows ?? []) as { question_id: string }[]).map((r) => r.question_id));
+  const idsToDelete = [...existingIds].filter((id) => !newIds.has(id));
+
+  // Step 2: Build rows to upsert
+  const rows = newQuestions.map((q, idx) => ({
     node_id: nodeId,
     question_id: q.id,
     prompt_blocks: q.promptBlocks ?? null,
@@ -93,10 +105,28 @@ async function replaceQuestions(table: string, nodeId: string, docData: Omit<Log
     iq_delta_wrong: q.iqDeltaWrong,
     sort_order: idx,
     updated_at: now,
-    
+    ...(publishedAt ? { published_at: publishedAt } : {}),
   }));
-  const { error } = await supabase.from(table as any).insert(rows as any);
-  if (error) throw error;
+
+  // Step 3: Upsert in safe chunks of 50 (NEVER delete before this succeeds)
+  const CHUNK_SIZE = 50;
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + CHUNK_SIZE);
+    const { error: upsertError } = await supabase
+      .from(table as any)
+      .upsert(chunk as any, { onConflict: 'node_id,question_id' });
+    if (upsertError) throw upsertError;
+  }
+
+  // Step 4: Only now delete rows that were explicitly removed (selective, not blanket)
+  if (idsToDelete.length > 0) {
+    const { error: deleteError } = await supabase
+      .from(table as any)
+      .delete()
+      .eq('node_id', nodeId)
+      .in('question_id', idsToDelete);
+    if (deleteError) throw deleteError;
+  }
 }
 
 export async function listLogicGameNodes(): Promise<LogicGameNode[]> {

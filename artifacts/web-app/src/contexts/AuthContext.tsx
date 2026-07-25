@@ -167,12 +167,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await resolveAuthState(data.session?.user ?? null, active);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
       // Pass the current user ID so resolveAuthState can skip the DB
-      // round-trip if the same user is still signed in (e.g. TOKEN_REFRESHED).
-      const currentUserId = session?.user?.id;
-      const storedUserId = (await supabase.auth.getUser()).data.user?.id;
-      await resolveAuthState(session?.user ?? null, active, storedUserId === currentUserId ? currentUserId : undefined);
+      // round-trip if the event is just a token refresh.
+      const isTokenRefresh = event === 'TOKEN_REFRESHED';
+      await resolveAuthState(session?.user ?? null, active, isTokenRefresh ? session?.user?.id : undefined);
     });
 
     return () => {

@@ -975,8 +975,10 @@ function LogicGamesAdmin() {
 
   // PDF Upload Flow
   const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [answersFile, setAnswersFile] = useState<File | null>(null);
   const [pdfExtracting, setPdfExtracting] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfProgress, setPdfProgress] = useState('');
   const [extractedQuestions, setExtractedQuestions] = useState<LogicGameQuestion[] | null>(null);
 
   async function load() {
@@ -1142,12 +1144,16 @@ function LogicGamesAdmin() {
     if (!pdfFile) return;
     setPdfExtracting(true);
     setPdfError(null);
+    setPdfProgress('📄 Uploading files...');
     try {
-      setPdfError('Uploading PDF for extraction...');
-
       const apiUrl = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() || 'http://localhost:3001';
       const formData = new FormData();
       formData.append('file', pdfFile);
+      if (answersFile) {
+        formData.append('answersFile', answersFile);
+      }
+
+      setPdfProgress('🔍 Rendering PDF pages & extracting with AI vision...');
 
       const aiRes = await fetch(`${apiUrl}/api/program-ingestion/extract-iq-pdf`, {
         method: 'POST',
@@ -1159,24 +1165,23 @@ function LogicGamesAdmin() {
         throw new Error(`AI Extraction failed: ${errText}`);
       }
 
+      setPdfProgress('✨ Processing results...');
       const data = await aiRes.json();
       if (!data.questions || data.questions.length === 0) {
         throw new Error("No questions could be found in this PDF.");
       }
 
       const formatted = data.questions.map((q: any, i: number) => {
-        const blocks: any[] = [];
-        if (q.promptRawText) blocks.push({ type: 'text', text: q.promptRawText });
-        if (q.imageUrl) blocks.push({ type: 'image', url: q.imageUrl });
+        const blocks: any[] = q.promptBlocks || [];
+        if (blocks.length === 0 && q.promptRawText) blocks.push({ type: 'text', text: q.promptRawText });
 
         return {
           id: `q_${Date.now()}_${i}`,
           promptBlocks: blocks,
-          promptRawText: q.promptRawText,
+          promptRawText: q.promptRawText || '',
           interaction: {
-            type: 'mcq',
+            type: 'mcq' as const,
             choices: q.interaction?.choices || [],
-            // Default to no answer selected if -1 or missing
             correctChoiceIndex: typeof q.interaction?.correctChoiceIndex === 'number' && q.interaction.correctChoiceIndex >= 0 
                 ? q.interaction.correctChoiceIndex 
                 : -1
@@ -1189,8 +1194,16 @@ function LogicGamesAdmin() {
 
       setExtractedQuestions(formatted);
       setPdfError(null);
+      setPdfProgress('');
+      const answeredCount = formatted.filter((q: any) => q.interaction.correctChoiceIndex >= 0).length;
+      if (answersFile && answeredCount > 0) {
+        toast({ title: `✅ Extracted ${formatted.length} questions with ${answeredCount} answers pre-filled from answer key` });
+      } else {
+        toast({ title: `✅ Extracted ${formatted.length} questions` });
+      }
     } catch (e) {
       setPdfError(e instanceof Error ? e.message : String(e));
+      setPdfProgress('');
     } finally {
       setPdfExtracting(false);
     }
@@ -1396,7 +1409,6 @@ function LogicGamesAdmin() {
                                          setQuestions(newQ);
                                        }
                                     }}
-                                    onBlur={() => saveQuestionsList(questions)}
                                     onPaste={(e) => handlePasteImage(e, (b64) => {
                                        const newQ = [...questions];
                                        if (newQ[qIndex].interaction.type === 'mcq') {
@@ -1637,36 +1649,110 @@ function LogicGamesAdmin() {
             </div>
             
             <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
-              <div style={{ display: 'flex', gap: 16, marginBottom: 24, alignItems: 'center' }}>
-                <input 
-                  type="file" accept=".pdf" 
-                  onChange={e => setPdfFile(e.target.files?.[0] || null)}
-                  style={{ flex: 1, padding: 12, background: '#0f172a', borderRadius: 8, border: '1px solid #334155', color: 'white' }}
-                />
+              {/* File Uploads Section */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 24 }}>
+                {/* Questions PDF */}
+                <div style={{ background: '#0f172a', borderRadius: 12, padding: 16, border: '1px solid #334155' }}>
+                  <label style={{ display: 'block', color: '#a78bfa', fontSize: 13, fontWeight: 'bold', marginBottom: 8 }}>📄 Questions File (PDF) *</label>
+                  {!pdfFile ? (
+                    <input 
+                      type="file" accept=".pdf" 
+                      onChange={e => setPdfFile(e.target.files?.[0] || null)}
+                      style={{ width: '100%', padding: 10, background: '#1e293b', borderRadius: 8, border: '1px solid #475569', color: 'white', fontSize: 13 }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', padding: '10px 16px', borderRadius: 8, border: '1px solid #475569' }}>
+                      <div style={{ color: '#34d399', fontSize: 13, fontWeight: '500' }}>✓ {pdfFile.name} ({(pdfFile.size / 1024 / 1024).toFixed(1)} MB)</div>
+                      <button onClick={() => setPdfFile(null)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold', fontSize: 13 }}>✕ Remove</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Answers File (Optional) */}
+                <div style={{ background: '#0f172a', borderRadius: 12, padding: 16, border: '1px solid #334155' }}>
+                  <label style={{ display: 'block', color: '#f59e0b', fontSize: 13, fontWeight: 'bold', marginBottom: 8 }}>📝 Answers File (Optional)</label>
+                  {!answersFile ? (
+                    <>
+                      <input 
+                        type="file" accept=".pdf,.txt,.text,.doc,.docx,.png,.jpg,.jpeg" 
+                        onChange={e => setAnswersFile(e.target.files?.[0] || null)}
+                        style={{ width: '100%', padding: 10, background: '#1e293b', borderRadius: 8, border: '1px solid #475569', color: 'white', fontSize: 13 }}
+                      />
+                      <div style={{ color: '#64748b', fontSize: 11, marginTop: 6 }}>Upload an answer key file (any format — PDF, text, image). The AI will parse it automatically.</div>
+                    </>
+                  ) : (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', padding: '10px 16px', borderRadius: 8, border: '1px solid #475569' }}>
+                      <div style={{ color: '#34d399', fontSize: 13, fontWeight: '500' }}>✓ {answersFile.name}</div>
+                      <button onClick={() => setAnswersFile(null)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold', fontSize: 13 }}>✕ Remove</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Extract Button */}
                 <button 
                   onClick={handleExtractFromPdf} 
                   disabled={!pdfFile || pdfExtracting}
                   className="ll-btn ll-btn-primary" 
-                  style={{ padding: '14px 24px', fontWeight: 'bold' }}
+                  style={{ padding: '14px 24px', fontWeight: 'bold', fontSize: 15, borderRadius: 10, width: '100%' }}
                 >
-                  {pdfExtracting ? 'Extracting...' : 'Extract MCQs'}
+                  {pdfExtracting ? '🔄 Extracting...' : '🚀 Extract MCQs with AI Vision'}
                 </button>
               </div>
 
-              <div style={{ textAlign: 'center', margin: '20px 0' }}>
-                 <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>— OR —</div>
-                 <button onClick={() => {
-                    const newQ: any = {
-                       id: `manual_${Date.now()}`,
-                       promptRawText: '',
-                       promptBlocks: [{ type: 'text', text: '' }],
-                       interaction: { type: 'mcq', choices: ['', '', '', ''], correctChoiceIndex: 0 },
-                       timeLimitSec: 0, iqDeltaCorrect: 0, iqDeltaWrong: 0
-                    };
-                    setExtractedQuestions([...(extractedQuestions || []), newQ]);
-                 }} className="ll-btn" style={{ background: '#334155', color: 'white', padding: '10px 20px', borderRadius: 8, fontWeight: 'bold' }}>
-                    + Add Question Manually
-                 </button>
+              {/* Progress */}
+              {pdfExtracting && pdfProgress && (
+                <div style={{ padding: 14, background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 10, marginBottom: 20, textAlign: 'center' }}>
+                  <div style={{ color: '#c4b5fd', fontSize: 14, fontWeight: 'bold' }}>{pdfProgress}</div>
+                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>This may take a minute for multi-page PDFs...</div>
+                </div>
+              )}
+
+              <div style={{ textAlign: 'center', margin: '16px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                 <div style={{ color: '#94a3b8', fontSize: 12 }}>— OR —</div>
+                 <div style={{ display: 'flex', gap: 12 }}>
+                   <button onClick={() => {
+                      const newQ: any = {
+                         id: `manual_${Date.now()}`,
+                         promptRawText: '',
+                         promptBlocks: [{ type: 'text', text: '' }],
+                         interaction: { type: 'mcq', choices: ['', '', '', '', ''], correctChoiceIndex: 0 },
+                         timeLimitSec: 0, iqDeltaCorrect: 0, iqDeltaWrong: 0
+                      };
+                      setExtractedQuestions([...(extractedQuestions || []), newQ]);
+                   }} className="ll-btn" style={{ background: '#334155', color: 'white', padding: '10px 20px', borderRadius: 8, fontWeight: 'bold' }}>
+                      + Add Question Manually
+                   </button>
+                   
+                   <label className="ll-btn" style={{ background: '#334155', color: 'white', padding: '10px 20px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer', display: 'inline-block' }}>
+                     JSON Import
+                     <input 
+                       type="file" 
+                       accept=".json" 
+                       style={{ display: 'none' }}
+                       onChange={(e) => {
+                         const file = e.target.files?.[0];
+                         if (file) {
+                           const reader = new FileReader();
+                           reader.onload = (ev) => {
+                             try {
+                               const content = ev.target?.result as string;
+                               const parsed = JSON.parse(content);
+                               if (Array.isArray(parsed)) {
+                                 setExtractedQuestions([...(extractedQuestions || []), ...parsed]);
+                               } else {
+                                 alert("JSON must be an array of questions.");
+                               }
+                             } catch (err) {
+                               alert("Failed to parse JSON file.");
+                             }
+                           };
+                           reader.readAsText(file);
+                         }
+                         e.target.value = ''; // Reset input
+                       }}
+                     />
+                   </label>
+                 </div>
               </div>
 
               {pdfError && (
@@ -1850,6 +1936,8 @@ function LogicGamesAdmin() {
                       setAddModalOpen(false);
                       setExtractedQuestions(null);
                       setPdfFile(null);
+                      setAnswersFile(null);
+                      setPdfProgress('');
                     }} 
                     className="ll-btn ll-btn-primary" 
                     style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', marginTop: 20 }}
