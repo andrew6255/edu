@@ -5,6 +5,9 @@ import {
   findUserByUsername, createUserData, isUsernameTaken, getUserData
 } from '@/lib/userService';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  getRememberedAccounts, removeRememberedAccount, switchToRememberedAccount, RememberedAccount
+} from '@/lib/authService';
 
 const SA_ADMIN_EMAIL = 'god.bypass@internal.app';
 
@@ -97,6 +100,10 @@ export default function AuthPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  const [rememberedAccounts, setRememberedAccounts] = useState<RememberedAccount[]>(() => getRememberedAccounts());
+  const [showRememberedView, setShowRememberedView] = useState<boolean>(() => getRememberedAccounts().length > 0);
+  const [switchingUid, setSwitchingUid] = useState<string | null>(null);
 
   const [loginId, setLoginId] = useState('');
   const [loginPass, setLoginPass] = useState('');
@@ -349,7 +356,9 @@ export default function AuthPage() {
           LOGIC LORDS
         </h1>
         <p style={{ color: '#94a3b8', marginBottom: 20, fontSize: 13 }}>
-          {mode === 'login' ? 'Sign in to your account' : 'Create your account'}
+          {showRememberedView && rememberedAccounts.length > 0
+            ? 'Select an account to sign in instantly on this device'
+            : (mode === 'login' ? 'Sign in to your account' : 'Create your account')}
         </p>
 
         {error && (
@@ -361,6 +370,154 @@ export default function AuthPage() {
             {error}
           </div>
         )}
+
+        {showRememberedView && rememberedAccounts.length > 0 ? (
+          <div style={{ textAlign: 'left', animation: 'slideUp 0.3s ease' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+              {rememberedAccounts.map((acc) => {
+                const isSwitching = switchingUid === acc.uid;
+                const roleEmoji =
+                  acc.role === 'superadmin' ? '👑' :
+                  acc.role === 'admin' ? '🛡️' :
+                  acc.role === 'teacher' ? '👨‍🏫' :
+                  acc.role === 'teacher_assistant' ? '🤖' :
+                  acc.role === 'parent' ? '👪' : '🎓';
+
+                return (
+                  <div
+                    key={acc.uid}
+                    style={{
+                      background: isSwitching ? 'rgba(59, 130, 246, 0.15)' : 'rgba(0, 0, 0, 0.4)',
+                      border: isSwitching ? '1px solid #3b82f6' : '1px solid #334155',
+                      borderRadius: 12,
+                      padding: '12px 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      transition: 'all 0.2s ease',
+                      cursor: isSwitching ? 'wait' : 'pointer',
+                    }}
+                    onClick={async () => {
+                      if (isSwitching) return;
+                      setSwitchingUid(acc.uid);
+                      setError('');
+                      const res = await switchToRememberedAccount(acc);
+                      if (res.success) {
+                        const routeMap: Record<string, string> = {
+                          superadmin: '/superadmin',
+                          admin: '/admin',
+                          teacher: '/teacher',
+                          teacher_assistant: '/ta',
+                          parent: '/parent',
+                        };
+                        const targetRoute = routeMap[acc.role] || '/app';
+                        const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
+                        window.location.href = `${window.location.origin}${baseUrl}${targetRoute}`;
+                      } else {
+                        setSwitchingUid(null);
+                        setError(`Session expired for ${acc.fullName}. Please enter password.`);
+                        setLoginId(acc.email || '');
+                        setShowRememberedView(false);
+                        setMode('login');
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+                      <div style={{
+                        width: 42, height: 42, borderRadius: '50%',
+                        background: '#3b82f6', color: 'white',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 18, fontWeight: 'bold', flexShrink: 0
+                      }}>
+                        {acc.avatarUrl ? (
+                          <img src={acc.avatarUrl} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                        ) : (
+                          roleEmoji
+                        )}
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ color: 'white', fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {acc.fullName}
+                        </div>
+                        <div style={{ color: '#94a3b8', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ textTransform: 'capitalize' }}>{acc.role.replace('_', ' ')}</span>
+                          <span>•</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{acc.email}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      {isSwitching ? (
+                        <span style={{ color: '#3b82f6', fontSize: 12, fontWeight: 600 }}>Signing in...</span>
+                      ) : (
+                        <>
+                          <span style={{ color: '#3b82f6', fontSize: 16, fontWeight: 'bold' }}>→</span>
+                          <button
+                            title="Remove account from this device"
+                            style={{
+                              background: 'transparent', border: 'none', color: '#64748b',
+                              padding: 6, borderRadius: 6, cursor: 'pointer', fontSize: 14,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              transition: 'all 0.2s'
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const updated = removeRememberedAccount(acc.uid);
+                              setRememberedAccounts(updated);
+                              if (updated.length === 0) {
+                                setShowRememberedView(false);
+                              }
+                            }}
+                            onMouseOver={(e) => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; }}
+                            onMouseOut={(e) => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            🗑️
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => {
+                setShowRememberedView(false);
+                setError('');
+              }}
+              style={{
+                width: '100%', padding: '12px 14px', borderRadius: 10,
+                background: 'rgba(255, 255, 255, 0.05)', border: '1px dashed #475569',
+                color: '#e2e8f0', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'; e.currentTarget.style.borderColor = '#3b82f6'; }}
+              onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'; e.currentTarget.style.borderColor = '#475569'; }}
+            >
+              <span>+</span> Use another account
+            </button>
+          </div>
+        ) : (
+          <div>
+            {!showRememberedView && rememberedAccounts.length > 0 && (
+              <button
+                onClick={() => {
+                  setShowRememberedView(true);
+                  setError('');
+                }}
+                style={{
+                  background: 'transparent', border: 'none', color: '#38bdf8',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 16,
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  textDecoration: 'underline'
+                }}
+              >
+                ← Back to remembered accounts
+              </button>
+            )}
 
         <button
           onClick={handleGoogle}
@@ -467,6 +624,8 @@ export default function AuthPage() {
             >
               {submitting ? 'Creating account...' : 'CREATE ACCOUNT'}
             </button>
+          </div>
+        )}
           </div>
         )}
       </div>

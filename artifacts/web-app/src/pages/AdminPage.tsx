@@ -4,6 +4,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { performSignOut } from '@/lib/authService';
 import {
   getMyTeachers,
   listClassesForTeacher,
@@ -407,7 +408,7 @@ export default function AdminPage() {
           <p style={{ fontSize: 13 }}>Ask the Super Admin to assign teachers to your account.</p>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
             <button onClick={loadTeachers} style={headerBtnStyle}>↺ Refresh</button>
-            <button onClick={async () => { requireSupabase().auth.signOut().catch(()=>{}); localStorage.clear(); window.location.href = import.meta.env.BASE_URL + 'auth'; }} style={{ ...headerBtnStyle, border: '1px solid #ef4444', color: '#f87171' }}>Sign Out</button>
+            <button onClick={async () => { await performSignOut(); }} style={{ ...headerBtnStyle, border: '1px solid #ef4444', color: '#f87171' }}>Sign Out</button>
           </div>
         </div>
       </div>
@@ -431,7 +432,7 @@ export default function AdminPage() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={refreshTeacherData} style={headerBtnStyle}>↺ Refresh</button>
-            <button onClick={async () => { requireSupabase().auth.signOut().catch(()=>{}); localStorage.clear(); window.location.href = import.meta.env.BASE_URL + 'auth'; }}
+            <button onClick={async () => { await performSignOut(); }}
               style={{ ...headerBtnStyle, border: '1px solid #ef4444', color: '#f87171' }}>Sign Out</button>
           </div>
         </div>

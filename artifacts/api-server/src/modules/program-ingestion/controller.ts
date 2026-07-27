@@ -5,6 +5,8 @@ import {
   parseCreateIngestionJobInput,
   parseRunIngestionStageInput,
 } from "./validation";
+import { logger } from "../../lib/logger";
+import { evaluateQuestionAnomalies } from "./anomalyEngine";
 
 function getJobId(req: Request): string {
   const rawJobId = req.params["jobId"];
@@ -90,6 +92,7 @@ export async function publishProgramIngestionJob(req: Request, res: Response): P
 // ─── Personal Program Endpoints ─────────────────────────────────────────────────
 
 import { runPersonalProgramPipeline } from "./autoRunPipeline";
+import { jobQueue } from "../../lib/jobQueue";
 
 export async function createPersonalProgramJob(req: Request, res: Response): Promise<void> {
   try {
@@ -110,9 +113,9 @@ export async function createPersonalProgramJob(req: Request, res: Response): Pro
       contentBase64,
     });
 
-    // 3. Fire background pipeline
-    runPersonalProgramPipeline(created.jobId).catch((err) => {
-      console.error("Personal program pipeline background error:", err);
+    // 3. Fire background pipeline via asynchronous job queue with concurrency control and retries
+    jobQueue.enqueue(created.jobId, async (updateProgress) => {
+      await runPersonalProgramPipeline(created.jobId, updateProgress);
     });
 
     res.status(201).json({
@@ -135,10 +138,14 @@ export async function getPersonalProgramStatus(req: Request, res: Response): Pro
       return;
     }
 
+    const providerMeta = (state.job.providerMeta as Record<string, any>) || {};
+
     res.json({
       status: state.job.status,
       stage: state.job.stage,
       errorMessage: state.job.errorMessage,
+      progress: providerMeta.progress || 0,
+      progressMessage: providerMeta.progressMessage || "",
       programData: state.job.status === "published" && state.draft.hierarchy.length > 0
         ? {
             title: state.draft.title,
@@ -310,34 +317,35 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
     try { await fs.access(py312Path); pythonCmd = py312Path; } catch {}
 
     // ─── Step 1: Render PDF pages to PNG for vision ─────────────────────────
-    console.log("[extractIqPdf] Rendering PDF pages to PNG...");
+    logger.info("[extractIqPdf] Rendering PDF pages to PNG...");
     const { stdout } = await execFileAsync(pythonCmd, [scriptPath, file.path, "--render"], {
       maxBuffer: 100 * 1024 * 1024,
       windowsHide: true,
     });
 
     const extractedData = JSON.parse(stdout) as {
-      pages: Array<{ page: number; pngBase64: string; images: string[] }>;
+      pages: Array<{ page: number; pngBase64: string; images: Record<string, string>; imageMetadata?: Record<string, any> }>;
     };
 
     // Clean up temp file
-    await fs.unlink(file.path).catch(console.warn);
+    await fs.unlink(file.path).catch(e => logger.warn({ err: e }, "Failed to unlink file"));
 
     if (!extractedData.pages || extractedData.pages.length === 0) {
       throw new Error("Could not extract any pages from the PDF.");
     }
 
-    // Collect all per-page images (individual extracted images) for later embedding
-    const allPageImages: Array<{ page: number; images: string[] }> = extractedData.pages.map(p => ({
+    // Collect all per-page images and metadata for later embedding
+    const allPageImages = extractedData.pages.map(p => ({
       page: p.page,
-      images: p.images || [],
+      images: p.images || {},
+      imageMetadata: p.imageMetadata || {},
     }));
 
     // ─── Step 2: Parse answer key if provided ───────────────────────────────
     let answerMap: Record<number, string> = {}; // questionNumber -> "A"|"B"|"C"...
 
     if (answersFile) {
-      console.log("[extractIqPdf] Parsing answer key file...");
+      logger.info("[extractIqPdf] Parsing answer key file...");
       let answersText = "";
 
       if (answersFile.mimetype === "application/pdf") {
@@ -348,11 +356,11 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
         });
         const ansData = JSON.parse(ansStdout) as { pages: Array<{ text: string }> };
         answersText = ansData.pages.map(p => p.text).join("\n");
-        await fs.unlink(answersFile.path).catch(console.warn);
+        await fs.unlink(answersFile.path).catch(e => logger.warn({ err: e }, "Failed to unlink answer file"));
       } else {
         // Read as text file
         answersText = await fs.readFile(answersFile.path, "utf-8");
-        await fs.unlink(answersFile.path).catch(console.warn);
+        await fs.unlink(answersFile.path).catch(e => logger.warn({ err: e }, "Failed to unlink answer file"));
       }
 
       if (answersText.trim()) {
@@ -396,9 +404,9 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
                   answerMap[num] = val.toUpperCase().trim();
                 }
               }
-              console.log(`[extractIqPdf] Parsed ${Object.keys(answerMap).length} answers from key`);
+              logger.info({ count: Object.keys(answerMap).length }, "[extractIqPdf] Parsed answers from key");
             } catch (e) {
-              console.warn("[extractIqPdf] Failed to parse answer key JSON:", e);
+              logger.warn({ err: e }, "[extractIqPdf] Failed to parse answer key JSON");
             }
           }
         }
@@ -406,7 +414,7 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
     }
 
     // ─── Step 3: Vision-based question extraction per page ──────────────────
-    console.log(`[extractIqPdf] Extracting questions from ${extractedData.pages.length} pages using vision...`);
+    logger.info({ totalPages: extractedData.pages.length }, "[extractIqPdf] Extracting questions using vision...");
 
     const VISION_MODEL = "qwen/qwen3.6-27b";
     const allQuestions: any[] = [];
@@ -414,7 +422,7 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
     // Process one page at a time — high-res PNGs can be large
     for (let pageIdx = 0; pageIdx < extractedData.pages.length; pageIdx++) {
       const page = extractedData.pages[pageIdx];
-      console.log(`[extractIqPdf] Processing page ${page.page}/${extractedData.pages.length}...`);
+      logger.info({ page: page.page, totalPages: extractedData.pages.length }, "[extractIqPdf] Processing page...");
 
       const visionPrompt = `You are an expert at extracting Multiple Choice Questions from exam/test page images.
 
@@ -498,13 +506,13 @@ Rules:
               // If we haven't tried all keys yet for this page, retry almost instantly with the next key.
               // If we have exhausted all keys (retryCount >= apiKeys.length - 1), then we actually wait.
               const waitMs = retryCount >= (apiKeys.length - 1) ? 15000 + (retryCount * 5000) : 500; 
-              console.warn(`[extractIqPdf] Rate limit hit on page ${page.page} (status ${visionRes.status}). Retrying in ${waitMs/1000}s... Error: ${errText.slice(0,100)}`);
+              logger.warn({ page: page.page, status: visionRes.status, err: errText.slice(0,100) }, "[extractIqPdf] Rate limit hit. Retrying...");
               await new Promise(r => setTimeout(r, waitMs));
               retryCount++;
               continue; // Try again
             }
 
-            console.error(`[extractIqPdf] Vision API error for page ${page.page}: status=${visionRes.status}`, errText);
+            logger.error({ page: page.page, status: visionRes.status, err: errText }, "[extractIqPdf] Vision API error");
             break; // Break the while loop on fatal errors (e.g. 401 auth error)
           }
 
@@ -512,11 +520,11 @@ Rules:
           let responseText = visionPayload.choices?.[0]?.message?.content?.trim();
           
           if (!responseText) {
-            console.warn(`[extractIqPdf] Empty response for page ${page.page}`);
+            logger.warn({ page: page.page }, "[extractIqPdf] Empty response for page");
             break;
           }
 
-          console.log(`[extractIqPdf] Page ${page.page} response length: ${responseText.length} chars`);
+          logger.info({ page: page.page, length: responseText.length }, "[extractIqPdf] Page response received");
 
           if (responseText.includes("</think>")) {
             responseText = responseText.split("</think>").pop()?.trim() || responseText;
@@ -534,28 +542,28 @@ Rules:
                 pageQuestions = Array.isArray(parsed) ? parsed : (parsed.questions || []);
                 success = true;
               } catch (e2) {
-                console.warn(`[extractIqPdf] Failed to parse vision response for page ${page.page}. First 500 chars:`, responseText.slice(0, 500));
+                logger.warn({ page: page.page, sample: responseText.slice(0, 500) }, "[extractIqPdf] Failed to parse vision response");
                 break;
               }
             } else {
-              console.warn(`[extractIqPdf] Could not parse response for page ${page.page}. First 500 chars:`, responseText.slice(0, 500));
+              logger.warn({ page: page.page, sample: responseText.slice(0, 500) }, "[extractIqPdf] Could not parse response");
               break;
             }
           }
         } catch (err) {
-          console.error(`[extractIqPdf] Error processing page ${page.page}:`, err);
+          logger.error({ page: page.page, err }, "[extractIqPdf] Error processing page");
           break; // Network errors
         }
       }
 
       if (success) {
-        console.log(`[extractIqPdf] Page ${page.page}: extracted ${pageQuestions.length} questions`);
+        logger.info({ page: page.page, extractedCount: pageQuestions.length }, "[extractIqPdf] Page extracted questions");
         pageQuestions.forEach((q: any) => {
           q.pageNumber = page.page;
         });
         allQuestions.push(...pageQuestions);
       } else {
-        console.warn(`[extractIqPdf] Failed to extract questions from page ${page.page} after ${retryCount} retries.`);
+        logger.warn({ page: page.page, retries: retryCount }, "[extractIqPdf] Failed to extract questions from page after retries");
       }
     }
 
@@ -564,13 +572,20 @@ Rules:
     }
 
     // ─── Step 4: Build final question objects with answers & images ──────────
-    console.log(`[extractIqPdf] Building ${allQuestions.length} question objects...`);
+    logger.info({ totalQuestions: allQuestions.length }, "[extractIqPdf] Building question objects...");
 
-    // Combine all page image dictionaries into one map
+    // Combine all page image dictionaries and spatial metadata into global maps
     const imageMap: Record<string, string> = {};
+    const metadataMap: Record<string, { bbox: number[]; nearestTextBefore: string; nearestChoiceLabel: string | null; pageNumber: number }> = {};
+    
     for (const pi of allPageImages) {
       if (pi.images && typeof pi.images === 'object' && !Array.isArray(pi.images)) {
         Object.assign(imageMap, pi.images);
+      }
+      if (pi.imageMetadata && typeof pi.imageMetadata === 'object') {
+        for (const [k, v] of Object.entries(pi.imageMetadata)) {
+          metadataMap[k] = { ...v, pageNumber: pi.page };
+        }
       }
     }
 
@@ -580,32 +595,36 @@ Rules:
       return match ? `[${match[0]}]` : null;
     };
 
-    // Pre-calculate which images were used in choices to find unused/orphan images
-    const usedImages = new Set<string>();
-    allQuestions.forEach((q: any) => {
-      const choices = Array.isArray(q.choices) ? q.choices : [];
-      choices.forEach((choice: string) => {
-        const key = getImgKey(choice);
-        if (key) usedImages.add(key);
-      });
-    });
-
-    // Group unused images by page
-    const pageToUnusedImages: Record<number, string[]> = {};
-    for (const pi of allPageImages) {
-      const pageKeys = Object.keys(pi.images || {});
-      pageToUnusedImages[pi.page] = pageKeys.filter(k => !usedImages.has(k));
-    }
+    // Track which images are explicitly matched to prevent orphan noise
+    const matchedImages = new Set<string>();
 
     const formattedQuestions = allQuestions.map((q: any, i: number) => {
       const choices: string[] = Array.isArray(q.choices) ? q.choices : [];
       const qNum = typeof q.questionNumber === "number" ? q.questionNumber : i + 1;
+      const pageNum = q.pageNumber || 1;
+      let rawText = q.promptRawText || "";
 
-      // Assign extracted images to placeholders in choices robustly
-      const finalChoices = choices.map((choice: string) => {
+      // Deterministic Proximity Correction: check if any image on this page belongs to choices or prompt programmatically
+      const pageImages = Object.entries(metadataMap).filter(([, meta]) => meta.pageNumber === pageNum);
+      
+      const finalChoices = choices.map((choice: string, idx: number) => {
+        const choiceLetter = String.fromCharCode(65 + idx); // A, B, C, D...
+        // 1. Check if LLM explicitly provided [IMG_X] in choice text
         const key = getImgKey(choice);
         if (key && imageMap[key]) {
-          return imageMap[key]; // Replace entire choice with base64 string
+          matchedImages.add(key);
+          return imageMap[key];
+        }
+        // 2. Deterministic Fallback: check if an image on this page had nearestChoiceLabel matching this choice letter!
+        for (const [imgKey, meta] of pageImages) {
+          if (!matchedImages.has(imgKey) && meta.nearestChoiceLabel === choiceLetter) {
+            // Check if nearestTextBefore matches this question
+            const qPrefix = `${qNum}.`;
+            if (rawText.startsWith(qPrefix) || meta.nearestTextBefore.includes(qPrefix) || (meta.nearestTextBefore.length > 5 && rawText.includes(meta.nearestTextBefore.slice(0, 20)))) {
+              matchedImages.add(imgKey);
+              return imageMap[imgKey];
+            }
+          }
         }
         return choice;
       });
@@ -621,7 +640,6 @@ Rules:
       }
 
       const blocks: any[] = [];
-      let rawText = q.promptRawText || "";
       const imgLabels = Array.isArray(q.promptImageLabels) ? q.promptImageLabels : [];
 
       // Extract images from text as fallback
@@ -635,6 +653,7 @@ Rules:
       const addBlockIfNew = (key: string) => {
         if (!blocks.some(b => b.type === 'image' && b.url === imageMap[key])) {
           blocks.push({ type: "image", url: imageMap[key] });
+          matchedImages.add(key);
         }
       };
 
@@ -644,9 +663,6 @@ Rules:
           const key = getImgKey(m);
           if (key && imageMap[key]) {
             addBlockIfNew(key);
-            // Mark as used so aggressive fallback doesn't duplicate it
-            const idx = pageToUnusedImages[q.pageNumber]?.indexOf(key);
-            if (idx > -1) pageToUnusedImages[q.pageNumber].splice(idx, 1);
           }
         }
       }
@@ -657,14 +673,28 @@ Rules:
           const key = getImgKey(m);
           if (key && imageMap[key]) {
             addBlockIfNew(key);
-            const idx = pageToUnusedImages[q.pageNumber]?.indexOf(key);
-            if (idx > -1) pageToUnusedImages[q.pageNumber].splice(idx, 1);
           }
         }
       }
 
-      // We no longer aggressively inject unused images because the AI is explicitly categorizing irrelevant images.
-      // We rely completely on promptImageLabels and the text fallback above.
+      // Deterministic Proximity Fallback for prompt images: if an image on this page matches question number prefix
+      for (const [imgKey, meta] of pageImages) {
+        if (!matchedImages.has(imgKey) && !meta.nearestChoiceLabel) {
+          const qPrefix = `${qNum}.`;
+          if ((rawText.startsWith(qPrefix) && meta.nearestTextBefore.includes(qPrefix)) || (meta.nearestTextBefore.length > 10 && rawText.includes(meta.nearestTextBefore.slice(0, 15)))) {
+            addBlockIfNew(imgKey);
+          }
+        }
+      }
+
+      // Anomaly Detection Engine: assign reviewStatus and flags
+      const { reviewStatus, flags } = evaluateQuestionAnomalies({
+        correctChoiceIndex,
+        hasAnswerMap: Object.keys(answerMap).length > 0,
+        blocks,
+        choices: finalChoices,
+        hasQuestionImage: q.hasQuestionImage,
+      });
 
       return {
         promptRawText: rawText,
@@ -674,17 +704,26 @@ Rules:
           choices: finalChoices,
           correctChoiceIndex,
         },
-        hasQuestionImage: q.hasQuestionImage || false,
-        pageNumber: q.pageNumber,
+        hasQuestionImage: q.hasQuestionImage || blocks.some(b => b.type === 'image'),
+        pageNumber: pageNum,
         questionNumber: qNum,
+        reviewStatus,
+        flags,
       };
     });
 
-    console.log(`[extractIqPdf] Done! Extracted ${formattedQuestions.length} questions, ${Object.keys(answerMap).length} answers applied.`);
+    // Post-check for orphan images across pages
+    const totalImages = Object.keys(imageMap).length;
+    const orphanCount = totalImages - matchedImages.size;
+    if (orphanCount > 0) {
+      logger.warn({ orphanCount, totalImages }, "[extractIqPdf] Anomaly: Detected orphan images on PDF");
+    }
+
+    logger.info({ questionCount: formattedQuestions.length, answerCount: Object.keys(answerMap).length }, "[extractIqPdf] Done! Extracted questions and applied answers.");
     res.json({ questions: formattedQuestions });
 
   } catch (error) {
-    console.error("extractIqPdf error:", error);
+    logger.error({ err: error }, "extractIqPdf error");
     const message = error instanceof Error ? error.message : "Unknown error";
     res.status(500).json({ error: message });
   }
@@ -774,7 +813,7 @@ Return ONLY valid JSON.`;
     });
 
   } catch (error) {
-    console.error("generateIqQuestionDetails error:", error);
+    logger.error({ err: error }, "generateIqQuestionDetails error");
     const message = error instanceof Error ? error.message : "Unknown error";
     res.status(500).json({ error: message });
   }

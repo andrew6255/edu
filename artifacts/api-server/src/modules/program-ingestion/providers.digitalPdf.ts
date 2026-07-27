@@ -6,6 +6,7 @@ import type { IngestionAsset } from "./types";
 import type { DocumentExtractionProvider } from "./providers.extraction";
 import { GeminiVisionPdfExtractionProvider } from "./providers.geminiVisionPdf";
 import { PythonPyMuPdfExtractionProvider } from "./providers.pythonPdf";
+import { logger } from "../../lib/logger";
 
 function normalizeExtractedText(text: string): string {
   return text
@@ -70,24 +71,24 @@ export class PdfParseDigitalDocumentExtractionProvider implements DocumentExtrac
 
     // No text found — try a stronger text extractor via Python/PyMuPDF first.
     try {
-      console.log(`[pdf-extraction] No usable text from pdf-parse for ${fileName}. Falling back to Python/PyMuPDF...`);
+      logger.info({ fileName }, "[pdf-extraction] No usable text from pdf-parse. Falling back to Python/PyMuPDF...");
       const pythonResult = await new PythonPyMuPdfExtractionProvider().extract(filePath, sourceAsset);
-      console.log(`[pdf-extraction] Python/PyMuPDF succeeded for ${fileName}. pageCount=${pythonResult.pageCount}`);
+      logger.info({ fileName, pageCount: pythonResult.pageCount }, "[pdf-extraction] Python/PyMuPDF succeeded.");
       return pythonResult;
     } catch (err) {
-      console.warn(`[pdf-extraction] Python/PyMuPDF extraction failed for ${fileName}:`, err);
+      logger.warn({ fileName, err }, "[pdf-extraction] Python/PyMuPDF extraction failed:");
     }
 
     // Still no text — PDF is likely scanned/image-based. Try Gemini Vision OCR.
     const hasGeminiKey = !!process.env["GEMINI_API_KEY"];
     if (hasGeminiKey) {
-      console.log(`[pdf-extraction] No text from pdf-parse for ${fileName}. Falling back to Gemini Vision OCR...`);
+      logger.info({ fileName }, "[pdf-extraction] No text from pdf-parse. Falling back to Gemini Vision OCR...");
       try {
         const geminiResult = await new GeminiVisionPdfExtractionProvider().extract(filePath, sourceAsset);
-        console.log(`[pdf-extraction] Gemini Vision OCR succeeded for ${fileName}. pageCount=${geminiResult.pageCount}`);
+        logger.info({ fileName, pageCount: geminiResult.pageCount }, "[pdf-extraction] Gemini Vision OCR succeeded.");
         return geminiResult;
       } catch (err) {
-        console.warn(`[pdf-extraction] Gemini Vision OCR failed for ${fileName}:`, err);
+        logger.warn({ fileName, err }, "[pdf-extraction] Gemini Vision OCR failed:");
         // Fall through to placeholder below
       }
     }

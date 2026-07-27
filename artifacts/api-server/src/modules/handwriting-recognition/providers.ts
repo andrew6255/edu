@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { HandwritingRecognitionInput, HandwritingRecognitionResult } from './types';
+import { logger } from '../../lib/logger';
 
 const execFileAsync = promisify(execFile);
 
@@ -62,7 +63,7 @@ print(json.dumps(result, ensure_ascii=False))
     });
 
     if (stderr && stderr.trim().length > 0) {
-      console.warn('[handwriting-recognition] pix2tex stderr:', stderr);
+      logger.warn({ stderr }, '[handwriting-recognition] pix2tex stderr');
     }
 
     const parsed = JSON.parse(stdout) as HandwritingRecognitionResult;

@@ -7,9 +7,13 @@
     "dev": "node -e \"process.env.NODE_ENV='development'; require('child_process').spawnSync('pnpm', ['run', 'build'], { stdio: 'inherit', shell: true }); require('child_process').spawnSync('pnpm', ['run', 'start'], { stdio: 'inherit', shell: true });\"",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@sentry/node": "^10.68.0",
     "@types/multer": "^2.1.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
@@ -28,9 +32,11 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "^4.1.10",
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",
     "pino-pretty": "^13",
-    "thread-stream": "3.1.0"
+    "thread-stream": "3.1.0",
+    "vitest": "^4.1.10"
   }
 }

@@ -844,3 +844,25 @@
 }
 .ll-slideUp-anim { animation: ll-slideUp 0.35s ease forwards; }
 @keyframes ll-shrink-width { from { width: 100%; } to { width: 0%; } }
+
+/* ── Capacitor Mobile Native Insets & Safe Area Utilities ── */
+.safe-area-top {
+  padding-top: max(12px, env(safe-area-inset-top, 12px));
+}
+.safe-area-bottom {
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+}
+.safe-area-left {
+  padding-left: max(12px, env(safe-area-inset-left, 12px));
+}
+.safe-area-right {
+  padding-right: max(12px, env(safe-area-inset-right, 12px));
+}
+
+/* Enforce iOS/Android Accessibility Touch Targets (minimum 44x44px) on touch devices */
+@media (pointer: coarse) {
+  button, a[role="button"], input[type="button"], input[type="submit"], select, .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

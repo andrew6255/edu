@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
+import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback } from 'react';
+import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { requireSupabase } from '@/lib/supabase';
 import { createUserData, getUserData, UserData } from '@/lib/userService';
+import { saveRememberedAccount, getRememberedAccounts } from '@/lib/authService';
 
 type AuthUser = Pick<SupabaseUser, 'id' | 'email'> & { uid: string; displayName: string | null };
 const SUPERADMIN_EMAIL = 'god.bypass@internal.app';
@@ -20,7 +21,13 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
+  const userDataRef = useRef<UserData | null>(null);
   const [loading, setLoading] = useState(true);
+
+  function updateUserDataState(data: UserData | null) {
+    setUserData(data);
+    userDataRef.current = data;
+  }
 
   function mapAuthUser(user: SupabaseUser | null): AuthUser | null {
     if (!user) return null;
@@ -116,11 +123,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data: authData } = await requireSupabase().auth.getUser();
       const authUser = authData.user;
       const data = authUser ? await ensureProfileForAuthUser(authUser) : await getUserData(user.uid);
-      setUserData(data);
+      updateUserDataState(data);
     }
   }, [user]);
 
-  async function resolveAuthState(sessionUser: SupabaseUser | null, active: boolean, existingUserId?: string) {
+  async function resolveAuthState(session: Session | null, active: boolean, existingUserId?: string) {
+    const sessionUser = session?.user ?? null;
     try {
       const currentUser = mapAuthUser(sessionUser);
       if (!active) return;
@@ -134,23 +142,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (sessionUser) {
-        // Skip expensive DB round-trip when the same user is already authenticated
-        // (e.g. TOKEN_REFRESHED fired when the tab regains focus).
+        // Sync refresh token on EVERY auth event (including TOKEN_REFRESHED) before early return
+        try {
+          if (session?.refresh_token && sessionUser.email) {
+            const existingAcc = getRememberedAccounts().find(a => a.uid === sessionUser.id);
+            const fullName = existingAcc?.fullName || sessionUser.email.split('@')[0];
+            const role = existingAcc?.role || 'student';
+            saveRememberedAccount({
+              uid: sessionUser.id,
+              email: sessionUser.email,
+              fullName,
+              role,
+              avatarUrl: existingAcc?.avatarUrl,
+              refreshToken: session.refresh_token,
+              lastUsedAt: new Date().toISOString(),
+            });
+          }
+        } catch (e) {
+          console.warn('[AuthContext] Failed to sync token to remembered accounts:', e);
+        }
+
+        // Skip expensive DB round-trip when the event is a token refresh (existingUserId matches).
+        // Querying the DB during TOKEN_REFRESHED causes PostgREST to call getSession(), which deadlocks on the auth mutex lock!
         if (existingUserId && existingUserId === sessionUser.id) {
           if (active) setLoading(false);
           return;
         }
         const profile = await ensureProfileForAuthUser(sessionUser);
         if (!active) return;
-        setUserData(profile);
+        updateUserDataState(profile);
+
+        // Update vault with full profile details from database
+        try {
+          if (session?.refresh_token && sessionUser.email && profile) {
+            const fullName = `${profile.firstName} ${profile.lastName}`.trim() || sessionUser.email.split('@')[0];
+            saveRememberedAccount({
+              uid: sessionUser.id,
+              email: sessionUser.email,
+              fullName,
+              role: profile.role || 'student',
+              avatarUrl: undefined,
+              refreshToken: session.refresh_token,
+              lastUsedAt: new Date().toISOString(),
+            });
+          }
+        } catch (e) {
+          console.warn('[AuthContext] Failed to save remembered account:', e);
+        }
       } else {
-        setUserData(null);
+        updateUserDataState(null);
       }
     } catch (error) {
       console.error('Failed to resolve auth state:', error);
       if (!active) return;
       setUser(mapAuthUser(sessionUser));
-      setUserData(sessionUser ? buildFallbackUserData(sessionUser) : null);
+      updateUserDataState(sessionUser ? buildFallbackUserData(sessionUser) : null);
     } finally {
       if (active) setLoading(false);
     }
@@ -164,14 +210,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) {
         console.error('Failed to get Supabase session:', error);
       }
-      await resolveAuthState(data.session?.user ?? null, active);
+      await resolveAuthState(data.session ?? null, active);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
       // Pass the current user ID so resolveAuthState can skip the DB
       // round-trip if the event is just a token refresh.
       const isTokenRefresh = event === 'TOKEN_REFRESHED';
-      await resolveAuthState(session?.user ?? null, active, isTokenRefresh ? session?.user?.id : undefined);
+      await resolveAuthState(session ?? null, active, isTokenRefresh ? session?.user?.id : undefined);
     });
 
     return () => {

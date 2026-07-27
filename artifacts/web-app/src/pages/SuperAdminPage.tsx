@@ -4,6 +4,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { performSignOut } from '@/lib/authService';
 import { 
   getAllUsers, 
   updateUserData, 
@@ -512,7 +513,7 @@ export default function SuperAdminPage() {
             <button onClick={loadData} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', cursor: 'pointer' }}>
               ↺ Refresh
             </button>
-            <button onClick={async () => { requireSupabase().auth.signOut().catch(()=>{}); localStorage.clear(); window.location.href = import.meta.env.BASE_URL + 'auth'; }} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>
+            <button onClick={async () => { await performSignOut(); }} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>
               Sign Out
             </button>
           </div>

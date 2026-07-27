@@ -1,5 +1,6 @@
 import type { TutorAnnotation, TutorChatInput, TutorChatResult, TutorEvaluationInput, TutorEvaluationResult, TutorStatusResult } from './types';
 import { getAiTutorProviderConfig, getExternalAiTutorProvider } from './providers';
+import { logger } from '../../lib/logger';
 
 function normalizeMathText(value: string): string {
   let s = value;
@@ -257,7 +258,7 @@ export class AiTutorService {
     // 1. Try deterministic arithmetic pre-check first (no LLM, no hallucinations)
     const arithmeticResult = tryArithmeticPreCheck(input);
     if (arithmeticResult) {
-      console.log('[ai-tutor] arithmetic pre-check resolved evaluation deterministically');
+      logger.info('[ai-tutor] arithmetic pre-check resolved evaluation deterministically');
       return arithmeticResult;
     }
 
@@ -268,7 +269,7 @@ export class AiTutorService {
         const result = await external.evaluateWork(input);
         if (result) return result;
       } catch (error) {
-        console.warn('[ai-tutor] external evaluate failed, falling back:', error);
+        logger.warn({ err: error }, '[ai-tutor] external evaluate failed, falling back');
       }
     }
 
@@ -295,7 +296,7 @@ export class AiTutorService {
         const result = await external.chat(input);
         if (result) return result;
       } catch (error) {
-        console.warn('[ai-tutor] external chat failed, falling back:', error);
+        logger.warn({ err: error }, '[ai-tutor] external chat failed, falling back');
       }
     }
 

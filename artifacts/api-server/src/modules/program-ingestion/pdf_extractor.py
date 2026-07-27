@@ -27,8 +27,10 @@ def extract_pdf(pdf_path, mode="text"):
 
             clean_img = img.copy()
 
-            # 2. Mask out text blocks with white rectangles to isolate figures
+            # 2. Extract text words & blocks for spatial layout matching
             text_blocks = page.get_text("blocks")
+            text_words = page.get_text("words") # (x0, y0, x1, y1, word, block_no, line_no, word_no)
+            
             mask_img = img.copy()
             for b in text_blocks:
                 # block_type == 0 means text
@@ -49,26 +51,57 @@ def extract_pdf(pdf_path, mode="text"):
 
             contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
-            # Filter contours (ignore very small noise)
+            # Filter contours and gather initial boxes
             min_area = 200
-            bboxes = []
+            h_img, w_img = img.shape[:2]
+            raw_boxes = []
             for c in contours:
                 x, y, w, h = cv2.boundingRect(c)
                 if w * h > min_area:
-                    bboxes.append({
-                        'bbox': (x, y, x+w, y+h)
-                    })
+                    # Filter out thin header/footer noise (top/bottom 4% of page)
+                    cy = y + h / 2.0
+                    if (cy < h_img * 0.04 or cy > h_img * 0.96) and h < 50:
+                        continue
+                    raw_boxes.append([x, y, x+w, y+h])
+
+            # Merge overlapping or closely adjacent bounding boxes (Spatial Consolidation)
+            def merge_boxes(boxes, tolerance=35):
+                if not boxes:
+                    return []
+                merged = True
+                while merged:
+                    merged = False
+                    new_boxes = []
+                    while boxes:
+                        box = boxes.pop(0)
+                        x0, y0, x1, y1 = box
+                        i = 0
+                        while i < len(boxes):
+                            bx0, by0, bx1, by1 = boxes[i]
+                            # Check if boxes overlap or are within tolerance distance
+                            if not (x1 + tolerance < bx0 or bx1 + tolerance < x0 or y1 + tolerance < by0 or by1 + tolerance < y0):
+                                x0 = min(x0, bx0)
+                                y0 = min(y0, by0)
+                                x1 = max(x1, bx1)
+                                y1 = max(y1, by1)
+                                boxes.pop(i)
+                                merged = True
+                            else:
+                                i += 1
+                        new_boxes.append([x0, y0, x1, y1])
+                    boxes = new_boxes
+                return [{'bbox': b} for b in boxes]
+
+            bboxes = merge_boxes(raw_boxes)
 
             # Sort reading order (group by rows)
             def sort_reading_order(boxes):
                 if not boxes: return []
-                # sort roughly by y0
                 boxes.sort(key=lambda d: d['bbox'][1])
                 rows = []
                 current_row = [boxes[0]]
                 current_y = boxes[0]['bbox'][1]
                 for box in boxes[1:]:
-                    # 40 pixels tolerance at 2x scale
                     if abs(box['bbox'][1] - current_y) < 40:
                         current_row.append(box)
                     else:
@@ -86,6 +119,10 @@ def extract_pdf(pdf_path, mode="text"):
             bboxes = sort_reading_order(bboxes)
 
             images_dict = {}
+            image_metadata = {}
+            
+            import re
+
             for box in bboxes:
                 x0, y0, x1, y1 = box['bbox']
                 label = f"[IMG_{global_img_idx}]"
@@ -94,8 +131,7 @@ def extract_pdf(pdf_path, mode="text"):
                 cv2.rectangle(img, (x0, y0), (x1, y1), (0, 0, 255), 3)
                 cv2.putText(img, label, (x0, max(y0 - 10, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
                 
-                # Crop from clean image with a larger padding to avoid cutting edges
-                h_img, w_img = clean_img.shape[:2]
+                # Crop from clean image with padding
                 pad = 25
                 cx0 = max(0, x0 - pad)
                 cy0 = max(0, y0 - pad)
@@ -108,6 +144,40 @@ def extract_pdf(pdf_path, mode="text"):
                 if success:
                     b64_img = base64.b64encode(buffer).decode('utf-8')
                     images_dict[label] = f"data:image/png;base64,{b64_img}"
+
+                # Deterministic Proximity Analysis: Find nearest text line above or choice label beside
+                nearest_text_before = ""
+                nearest_choice_label = None
+                min_y_dist = float('inf')
+                min_x_dist = float('inf')
+
+                for tb in text_blocks:
+                    if tb[6] != 0: continue
+                    tx0, ty0, tx1, ty1 = [int(v * 2) for v in tb[:4]]
+                    t_str = tb[4].strip()
+                    if not t_str: continue
+
+                    # Check for horizontal proximity (choice label to the left of image)
+                    if max(y0, ty0) < min(y1, ty1) + 20: # Overlaps vertically
+                        if tx1 <= x0 + 20 and (x0 - tx1) < min_x_dist and (x0 - tx1) < 150:
+                            min_x_dist = x0 - tx1
+                            # Check if t_str is a choice label like A), B., C), Option D
+                            m = re.match(r'^(?:Option\s*)?([A-Ea-e])[\.\)\:]|\b([A-Ea-e])[\.\)\:]', t_str)
+                            if m:
+                                nearest_choice_label = (m.group(1) or m.group(2)).upper()
+
+                    # Check for vertical proximity (text block directly above image)
+                    if ty1 <= y0 + 10 and (y0 - ty1) < min_y_dist and (y0 - ty1) < 250:
+                        # Check horizontal overlap
+                        if max(x0, tx0) < min(x1, tx1) or abs(x0 - tx0) < 200:
+                            min_y_dist = y0 - ty1
+                            nearest_text_before = t_str[:150].replace('\n', ' ')
+
+                image_metadata[label] = {
+                    "bbox": [x0, y0, x1, y1],
+                    "nearestTextBefore": nearest_text_before,
+                    "nearestChoiceLabel": nearest_choice_label
+                }
                 
                 global_img_idx += 1
 
@@ -118,7 +188,8 @@ def extract_pdf(pdf_path, mode="text"):
             pages_data.append({
                 "page": i + 1,
                 "pngBase64": b64_png,
-                "images": images_dict
+                "images": images_dict,
+                "imageMetadata": image_metadata
             })
         else:
             # Original text extraction mode

@@ -4,6 +4,7 @@
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
+import { logger } from "../../lib/logger";
 
 export interface GradingCriterion {
   criterion: string;
@@ -102,7 +103,7 @@ export async function enrichQuestionsBatch(
       try {
         results[q.id] = await enrichQuestion(q.rawText, q.modelAnswer, q.answerFromPdf, apiKey);
       } catch (err) {
-        console.error("[Grading] Failed for " + q.id + ":", err);
+        logger.error({ qId: q.id, err }, "[Grading] Failed to enrich question");
         results[q.id] = {
           solution: "The correct answer is: " + q.modelAnswer,
           solutionPlan: "Understand, apply method, verify",

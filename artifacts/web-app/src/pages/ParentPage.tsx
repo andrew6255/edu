@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
+import { performSignOut } from '@/lib/authService';
 import {
   getLinkedStudents,
   getStudentClasses,
@@ -201,7 +202,7 @@ export default function ParentPage() {
             {linkLoading ? 'Linking...' : 'Link Student'}
           </button>
           <button
-            onClick={async () => { requireSupabase().auth.signOut().catch(()=>{}); localStorage.clear(); window.location.href = import.meta.env.BASE_URL + 'auth'; }}
+            onClick={async () => { await performSignOut(); }}
             style={{
               padding: '10px 24px', borderRadius: 8, fontSize: 13, fontWeight: 'bold',
               fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444',
@@ -320,7 +321,7 @@ export default function ParentPage() {
               style={{ padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit', background: 'rgba(236,72,153,0.15)', border: `1px solid ${COLOR_DIM}`, color: '#f9a8d4', cursor: 'pointer' }}>
               {managePanelOpen ? '✕ Close' : '⚙ Manage Students'}
             </button>
-            <button onClick={async () => { requireSupabase().auth.signOut().catch(()=>{}); localStorage.clear(); window.location.href = import.meta.env.BASE_URL + 'auth'; }}
+            <button onClick={async () => { await performSignOut(); }}
               style={{ padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>
               Sign Out
             </button>

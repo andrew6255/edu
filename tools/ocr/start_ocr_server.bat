@@ -7,5 +7,5 @@ echo  Listening on: http://localhost:5100
 echo ============================================================
 echo.
 cd /d "%~dp0"
-"C:\Users\antoi\AppData\Local\Programs\Python\Python312\python.exe" ocr_server.py
+python ocr_server.py
 pause

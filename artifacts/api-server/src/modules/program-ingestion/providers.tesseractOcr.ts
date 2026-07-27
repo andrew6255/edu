@@ -5,6 +5,7 @@ import util from "node:util";
 import type { ExtractedDocument, ExtractedDocumentPage } from "./extractionTypes";
 import type { IngestionAsset } from "./types";
 import type { DocumentExtractionProvider } from "./providers.extraction";
+import { logger } from "../../lib/logger";
 
 const execAsync = util.promisify(exec);
 
@@ -13,7 +14,7 @@ export class TesseractOcrExtractionProvider implements DocumentExtractionProvide
 
   async extract(filePath: string, sourceAsset: IngestionAsset): Promise<ExtractedDocument> {
     const fileName = path.basename(filePath);
-    console.log(`[tesseract] Starting OCR for ${fileName}...`);
+    logger.info({ fileName }, "[tesseract] Starting OCR...");
     
     try {
       // Create a temporary file for the output (tesseract automatically adds .txt)
@@ -32,13 +33,13 @@ export class TesseractOcrExtractionProvider implements DocumentExtractionProvide
       try {
         await fs.unlink(outFilePath);
       } catch (cleanupErr) {
-        console.warn(`[tesseract] Failed to cleanup ${outFilePath}:`, cleanupErr);
+        logger.warn({ outFilePath, err: cleanupErr }, "[tesseract] Failed to cleanup:");
       }
       
       const text = fullText.trim();
       
       if (!text) {
-        console.warn(`[tesseract] OCR produced empty text for ${fileName}`);
+        logger.warn({ fileName }, "[tesseract] OCR produced empty text");
       }
 
       return {
@@ -64,7 +65,7 @@ export class TesseractOcrExtractionProvider implements DocumentExtractionProvide
         ],
       };
     } catch (err) {
-      console.error(`[tesseract] OCR failed for ${fileName}:`, err);
+      logger.error({ fileName, err }, "[tesseract] OCR failed:");
       throw err;
     }
   }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
+import { performSignOut } from '@/lib/authService';
 import {
   getTeacherClasses,
   getClassStudents,
@@ -413,7 +414,7 @@ export default function TeacherPage() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={loadAll} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', cursor: 'pointer' }}>↺ Refresh</button>
-            <button onClick={async () => { requireSupabase().auth.signOut().catch(()=>{}); localStorage.clear(); window.location.href = import.meta.env.BASE_URL + 'auth'; }}
+            <button onClick={async () => { await performSignOut(); }}
               style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>Sign Out</button>
           </div>
         </div>

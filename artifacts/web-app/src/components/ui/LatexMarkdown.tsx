@@ -9,7 +9,7 @@ export default function LatexMarkdown({ content, className }: { content: string;
     <div className={className} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <ReactMarkdown
         remarkPlugins={[remarkMath]}
-        rehypePlugins={[rehypeKatex]}
+        rehypePlugins={[[rehypeKatex, { throwOnError: false, errorColor: '#ef4444' }]]}
         components={{
           p: ({ children }) => <p style={{ margin: 0, lineHeight: 1.6 }}>{children}</p>,
           ul: ({ children }) => <ul style={{ margin: 0, paddingLeft: '1.5rem', listStyleType: 'disc' }}>{children}</ul>,

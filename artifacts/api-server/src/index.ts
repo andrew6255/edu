@@ -12,14 +12,12 @@ for (const envPath of envCandidates) {
   dotenv.config({ path: envPath, override: false });
 }
 
-async function bootstrap(): Promise<void> {
-  const rawPort = process.env["PORT"];
+// Sentry must be initialised after env vars are loaded but before any app code
+import { initSentry } from "./lib/sentry";
+initSentry();
 
-  if (!rawPort) {
-    throw new Error(
-      "PORT environment variable is required but was not provided.",
-    );
-  }
+async function bootstrap(): Promise<void> {
+  const rawPort = process.env["PORT"] || "5000";
 
   const port = Number(rawPort);
 

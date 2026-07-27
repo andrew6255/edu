@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { requireSupabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { performSignOut, getRememberedAccounts, switchToRememberedAccount, RememberedAccount } from '@/lib/authService';
 import SettingsModal from '@/components/settings/SettingsModal';
 import { computeLevel } from '@/lib/userService';
 import NotificationsView from '@/views/NotificationsView';
@@ -100,6 +101,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   const [notifBadgeCount, setNotifBadgeCount] = useState(0);
 
   const abandonTimerRef = useRef<number | null>(null);
@@ -241,9 +243,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const isImpersonating = localStorage.getItem('ll:impersonating') === 'true';
 
   function handleLogout() {
-    localStorage.clear();
-    requireSupabase().auth.signOut().catch(() => {});
-    window.location.href = import.meta.env.BASE_URL + 'auth';
+    performSignOut();
   }
 
   function handleBackToSuperAdmin() {
@@ -621,8 +621,102 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
                 👑 Back to Super Admin
               </button>
             )}
+            {getRememberedAccounts().length > 1 && (
+              <button
+                onClick={() => { setProfileOpen(false); setSwitcherOpen(true); }}
+                className="ll-btn ll-btn-secondary"
+                style={{ width: '100%', padding: '12px', marginTop: 10, background: 'rgba(59,130,246,0.15)', border: '1px solid #3b82f6', color: '#93c5fd' }}
+              >
+                🔄 Switch Account ({getRememberedAccounts().length})
+              </button>
+            )}
             <button onClick={handleLogout} className="ll-btn ll-btn-danger" style={{ width: '100%', padding: '12px', marginTop: 10 }}>
               🚪 Log Out
+            </button>
+          </div>
+        </>
+      )}
+
+      {switcherOpen && (
+        <>
+          <div onClick={() => setSwitcherOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1200 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            width: 'min(440px, 92vw)', background: '#0f172a', borderRadius: 16, border: '2px solid #334155',
+            zIndex: 1201, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.7)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, color: 'white', fontSize: 18 }}>🔄 Switch Account</h3>
+              <button onClick={() => setSwitcherOpen(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 22, cursor: 'pointer' }}>×</button>
+            </div>
+            <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>
+              Click an account to switch sessions instantly:
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: '60vh', overflowY: 'auto' }}>
+              {getRememberedAccounts().map((acc) => {
+                const isCurrent = acc.uid === user?.uid || (acc.email && acc.email.toLowerCase() === user?.email?.toLowerCase());
+                const roleEmoji =
+                  acc.role === 'superadmin' ? '👑' :
+                  acc.role === 'admin' ? '🛡️' :
+                  acc.role === 'teacher' ? '👨‍🏫' :
+                  acc.role === 'teacher_assistant' ? '🤖' :
+                  acc.role === 'parent' ? '👪' : '🎓';
+
+                return (
+                  <div
+                    key={acc.uid}
+                    style={{
+                      background: isCurrent ? 'rgba(59, 130, 246, 0.25)' : 'rgba(30, 41, 59, 0.6)',
+                      border: isCurrent ? '1px solid #3b82f6' : '1px solid #334155',
+                      borderRadius: 12, padding: '12px 14px', display: 'flex',
+                      alignItems: 'center', justifyContent: 'space-between', cursor: isCurrent ? 'default' : 'pointer',
+                      transition: '0.2s'
+                    }}
+                    onClick={async () => {
+                      if (isCurrent) {
+                        setSwitcherOpen(false);
+                        return;
+                      }
+                      const res = await switchToRememberedAccount(acc);
+                      if (res.success) {
+                        window.location.reload();
+                      } else {
+                        alert(`Session expired for ${acc.fullName}. Please sign out and sign in with password.`);
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+                      <div style={{
+                        width: 38, height: 38, borderRadius: '50%', background: '#3b82f6', color: 'white',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 'bold'
+                      }}>
+                        {acc.avatarUrl ? <img src={acc.avatarUrl} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : roleEmoji}
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ color: 'white', fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {acc.fullName} {isCurrent && <span style={{ fontSize: 11, color: '#60a5fa', marginLeft: 4 }}>(Active)</span>}
+                        </div>
+                        <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'capitalize' }}>
+                          {acc.role.replace('_', ' ')}
+                        </div>
+                      </div>
+                    </div>
+                    {!isCurrent && <span style={{ color: '#3b82f6', fontSize: 16, fontWeight: 'bold' }}>→</span>}
+                  </div>
+                );
+              })}
+            </div>
+            <button
+              onClick={() => {
+                performSignOut();
+              }}
+              style={{
+                width: '100%', padding: '11px', marginTop: 16, borderRadius: 10,
+                background: 'rgba(255, 255, 255, 0.05)', border: '1px dashed #475569',
+                color: '#e2e8f0', fontSize: 13, fontWeight: 600, cursor: 'pointer'
+              }}
+            >
+              + Add another account (Sign out)
             </button>
           </div>
         </>

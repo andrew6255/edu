@@ -32,7 +32,7 @@ export interface ProgramIngestionRepository {
   replaceQuestionBlocks(jobId: string, blocks: ExtractedQuestionBlock[]): Promise<void>;
   updateNormalizedQuestions(jobId: string, analyses: AiQuestionAnalysis[]): Promise<void>;
   createAsset(jobId: string, input: { assetType: IngestionAsset["assetType"]; path: string; mimeType?: string | null; page?: number | null; regionId?: string | null }): Promise<AttachIngestionSourceFileResult>;
-  updateJobStage(jobId: string, input: { status: IngestionJob["status"]; stage: string | null }): Promise<void>;
+  updateJobStage(jobId: string, input: { status?: IngestionJob["status"]; stage?: string | null; providerMeta?: Record<string, unknown> }): Promise<void>;
   updateDraftExtractedDocument(jobId: string, document: IngestionDraft["extractedDocument"]): Promise<void>;
   updateDraftExtractionReport(jobId: string, report: AiExtractionAudit): Promise<void>;
   updateDraftStructure(jobId: string, input: { title?: string; hierarchy: ProgramNode[]; aiSessionMeta?: IngestionDraft["aiSessionMeta"] }): Promise<void>;
@@ -356,19 +356,20 @@ export class DbProgramIngestionRepository implements ProgramIngestionRepository 
     };
   }
 
-  async updateJobStage(jobId: string, input: { status: IngestionJob["status"]; stage: string | null }): Promise<void> {
+  async updateJobStage(jobId: string, input: { status?: IngestionJob["status"]; stage?: string | null; providerMeta?: Record<string, unknown> }): Promise<void> {
     const existingState = await this.getJobState(jobId);
     if (!existingState) {
       throw new Error(`Program ingestion job ${jobId} not found.`);
     }
 
+    const setObj: Record<string, any> = { updatedAt: new Date() };
+    if (input.status !== undefined) setObj.status = input.status;
+    if (input.stage !== undefined) setObj.stage = input.stage;
+    if (input.providerMeta !== undefined) setObj.providerMeta = input.providerMeta;
+
     await db
       .update(programIngestionJobsTable)
-      .set({
-        status: input.status,
-        stage: input.stage,
-        updatedAt: new Date(),
-      })
+      .set(setObj)
       .where(eq(programIngestionJobsTable.id, jobId));
   }
 

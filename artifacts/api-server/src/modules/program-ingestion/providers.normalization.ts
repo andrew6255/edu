@@ -1,6 +1,7 @@
 import type { AiQuestionAnalysis, ExtractedQuestionBlock } from "./types";
 import { buildQuestionNormalizationPrompt } from "./normalization.prompts";
 import { normalizeQuestionBlock as fallbackNormalizeQuestionBlock } from "./normalization";
+import { logger } from "../../lib/logger";
 
 export interface QuestionNormalizationProvider {
   name: string;
@@ -104,7 +105,7 @@ export class GeminiNormalizationProvider extends BasePromptReadyLlmNormalization
 
     if (!response.ok) {
       if (response.status === 429) {
-        console.warn(`Gemini rate-limited (429). Falling back to deterministic normalizer for block ${block.id}.`);
+        logger.warn({ blockId: block.id }, "Gemini rate-limited (429). Falling back to deterministic normalizer.");
         return new DeterministicFallbackNormalizationProvider().normalize(block);
       }
       const errorText = await response.text();

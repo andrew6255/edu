@@ -45,7 +45,9 @@ catalog:
   '@replit/vite-plugin-dev-banner': ^0.1.1
   '@replit/vite-plugin-runtime-error-modal': ^0.0.6
   '@tailwindcss/vite': ^4.1.14
-  '@tanstack/react-query': ^5.90.21
+  '@tanstack/react-query': ^5.101.4
+  '@tanstack/query-sync-storage-persister': ^5.101.4
+  '@tanstack/react-query-persist-client': ^5.101.4
   '@types/node': ^25.3.3
   '@types/react': ^19.2.0
   '@types/react-dom': ^19.2.0
@@ -77,3 +79,12 @@ overrides:
   # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   esbuild: "0.27.3"
+  # Force a single drizzle-orm version so @sentry/node's OpenTelemetry sub-dep
+  # doesn't pull in a second incompatible copy, causing TypeScript private-member conflicts
+  drizzle-orm: "0.45.1"
+  # Force single copy of TanStack query core to prevent private-property symbol conflicts
+  "@tanstack/query-core": "5.101.4"
+  "@tanstack/react-query": "5.101.4"
+
+allowBuilds:
+  esbuild: true

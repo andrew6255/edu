@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SymbolRecognitionInput, SymbolRecognitionResult } from './types';
+import { logger } from '../../lib/logger';
 
 const execFileAsync = promisify(execFile);
 
@@ -58,7 +59,7 @@ class MnistCnnProvider implements SymbolRecognitionProvider {
     );
 
     if (stderr && stderr.trim().length > 0) {
-      console.warn('[symbol-recognition] python stderr:', stderr);
+      logger.warn({ stderr }, '[symbol-recognition] python stderr');
     }
 
     const parsed = JSON.parse(stdout) as Partial<SymbolRecognitionResult> & { error?: string };

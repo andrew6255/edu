@@ -1,4 +1,5 @@
 import type { IngestionJobState, ProgramNode, StructuredDraftSuggestion } from "./types";
+import { logger } from "../../lib/logger";
 
 function cleanTitleCandidate(value: string | null | undefined): string {
   const raw = String(value ?? "").trim();
@@ -198,7 +199,7 @@ EXTRACTED TEXT:\n${extractedText}`;
 
     if (!response.ok) {
       if (response.status === 429) {
-        console.warn("Gemini structuring rate-limited (429). Falling back to deterministic structurer.");
+        logger.warn("Gemini structuring rate-limited (429). Falling back to deterministic structurer.");
         return new DeterministicFallbackDraftStructuringProvider().structure(state);
       }
       const errorText = await response.text();

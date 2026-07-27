@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">IQ Games</string>
+    <string name="title_activity_main">IQ Games</string>
+    <string name="package_name">com.antigravity.iqgames</string>
+    <string name="custom_url_scheme">com.antigravity.iqgames</string>
+</resources>

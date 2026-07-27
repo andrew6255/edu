@@ -1,5 +1,5 @@
 import { Switch, Route, Router as WouterRouter } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect } from 'react';
@@ -21,7 +21,7 @@ import MathInteractionDemoView from '@/views/MathInteractionDemoView';
 import { applyAppTheme, DEFAULT_APP_THEME_ID } from '@/lib/appTheme';
 import { ConfirmProvider } from '@/contexts/ConfirmContext';
 
-const queryClient = new QueryClient();
+import { queryClient } from "@/lib/queryClient";
 
 function ThemeController() {
   const [location] = useLocation();
