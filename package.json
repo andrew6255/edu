@@ -7,13 +7,7 @@
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
-  "pnpm": {
-    "overrides": {
-      "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0",
-      "esbuild": "0.27.3",
-      "drizzle-orm": "0.45.1"
-    }
-  },
+  "packageManager": "pnpm@11.17.0",
   "private": true,
   "devDependencies": {
     "typescript": "~5.9.2",
