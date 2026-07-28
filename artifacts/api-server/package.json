@@ -13,6 +13,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
     "@sentry/node": "^10.68.0",
     "@types/multer": "^2.1.0",
     "@workspace/api-zod": "workspace:*",
