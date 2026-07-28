@@ -4,9 +4,84 @@ import fitz
 import base64
 import cv2
 import numpy as np
+import zipfile
+import xml.etree.ElementTree as ET
+import os
+
+def load_universal_doc(file_path):
+    try:
+        # PyMuPDF natively opens PDF, PNG, JPG, WEBP, BMP, TIFF, TXT, XPS, EPUB, etc.
+        return fitz.open(file_path)
+    except Exception as e:
+        # If fitz fails (e.g. for .docx, .doc, .rtf, or unsupported format), build a doc in memory
+        doc = fitz.open()
+        text_content = ""
+        
+        # Check if it is a Word document (.docx / .pptx ZIP archive)
+        if zipfile.is_zipfile(file_path):
+            try:
+                with zipfile.ZipFile(file_path, 'r') as z:
+                    for name in z.namelist():
+                        if name.endswith('document.xml') or name.endswith('slide1.xml'):
+                            xml_bytes = z.read(name)
+                            root = ET.fromstring(xml_bytes)
+                            paragraphs = []
+                            for p in root.iter():
+                                if p.tag.endswith('}p'):
+                                    p_text = "".join(node.text for node in p.iter() if node.tag.endswith('}t') and node.text)
+                                    if p_text.strip():
+                                        paragraphs.append(p_text.strip())
+                            if paragraphs:
+                                text_content += "\n\n".join(paragraphs) + "\n\n"
+                        # Also check if there are embedded media images in word/media/
+                        elif name.startswith('word/media/') or name.startswith('ppt/media/'):
+                            try:
+                                img_bytes = z.read(name)
+                                img_doc = fitz.open(stream=img_bytes, filetype=name.split('.')[-1])
+                                if len(img_doc) > 0:
+                                    doc.insert_pdf(img_doc)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+        
+        # If no text extracted from ZIP/XML, try reading as plain text (utf-8 or latin-1)
+        if not text_content.strip() and len(doc) == 0:
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    text_content = f.read()
+            except Exception:
+                pass
+                
+        # If we found text content, insert it into PDF pages in memory
+        if text_content.strip():
+            # Create standard A4 pages and insert text
+            lines = text_content.split('\n')
+            current_page = doc.new_page(width=595, height=842)
+            y = 40
+            for line in lines:
+                if y > 800:
+                    current_page = doc.new_page(width=595, height=842)
+                    y = 40
+                current_page.insert_text((40, y), line[:100], fontsize=11)
+                y += 16
+                if len(line) > 100:
+                    for i in range(100, len(line), 100):
+                        if y > 800:
+                            current_page = doc.new_page(width=595, height=842)
+                            y = 40
+                        current_page.insert_text((50, y), line[i:i+100], fontsize=11)
+                        y += 16
+        
+        # If still empty after everything, create at least 1 blank page with filename so pipeline doesn't crash
+        if len(doc) == 0:
+            p = doc.new_page(width=595, height=842)
+            p.insert_text((50, 50), f"[Document Content from {os.path.basename(file_path)}]", fontsize=12)
+            
+        return doc
 
 def extract_pdf(pdf_path, mode="text"):
-    doc = fitz.open(pdf_path)
+    doc = load_universal_doc(pdf_path)
     pages_data = []
     global_img_idx = 0
 

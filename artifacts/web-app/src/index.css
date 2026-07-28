@@ -4,6 +4,17 @@
 
 @import "katex/dist/katex.min.css";
 
+/* Skeleton loading pulse animation */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* Spinner for active extraction step */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

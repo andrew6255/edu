@@ -980,7 +980,47 @@ function LogicGamesAdmin() {
   const [pdfExtracting, setPdfExtracting] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [pdfProgress, setPdfProgress] = useState('');
-  const [extractedQuestions, setExtractedQuestions] = useState<LogicGameQuestion[] | null>(null);
+  const [pdfSteps, setPdfSteps] = useState<Array<{ icon: string; message: string; detail: string; done: boolean }>>([]);
+  const [extractedQuestionsState, setExtractedQuestionsState] = useState<LogicGameQuestion[] | null>(() => {
+    try {
+      const saved = localStorage.getItem('ll_extracted_questions_draft');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const extractedQuestions = extractedQuestionsState;
+  const setExtractedQuestions = (val: LogicGameQuestion[] | null | ((prev: LogicGameQuestion[] | null) => LogicGameQuestion[] | null)) => {
+    setExtractedQuestionsState(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      try {
+        if (next && next.length > 0) {
+          localStorage.setItem('ll_extracted_questions_draft', JSON.stringify(next));
+        } else {
+          localStorage.removeItem('ll_extracted_questions_draft');
+        }
+      } catch (e) {
+        console.warn('Failed to save draft to localStorage', e);
+      }
+      return next;
+    });
+  };
+  const [pdfStats, setPdfStats] = useState<{ totalPages: number; currentPage: number; totalQuestions: number; elapsedSeconds: number }>({
+    totalPages: 0,
+    currentPage: 0,
+    totalQuestions: 0,
+    elapsedSeconds: 0,
+  });
+
+  useEffect(() => {
+    let timer: any = null;
+    if (pdfExtracting) {
+      timer = setInterval(() => {
+        setPdfStats(prev => ({ ...prev, elapsedSeconds: prev.elapsedSeconds + 1 }));
+      }, 1000);
+    }
+    return () => { if (timer) clearInterval(timer); };
+  }, [pdfExtracting]);
 
   async function load() {
     setLoading(true);
@@ -1022,11 +1062,58 @@ function LogicGamesAdmin() {
   }
 
   useEffect(() => {
-    load();
+    let cancelled = false;
+
+    async function run() {
+      setLoading(true);
+      setErr(null);
+      setStatus(null);
+      try {
+        const pub = await listLogicGameNodes();
+        if (cancelled) return;
+
+        if (pub.length === 0) {
+          const id = `iq-80`;
+          const initialNode: LogicGameNode = { id, iq: 80, order: 0, label: `Level 1` };
+          await upsertLogicGameNode(initialNode);
+          if (cancelled) return;
+          setNodes([initialNode]);
+        } else {
+          setNodes(pub);
+        }
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    run();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
-    loadQuestions();
+    let cancelled = false;
+
+    async function run() {
+      if (!selectedNodeId) {
+        setQuestions([]);
+        return;
+      }
+      setQuestionsLoading(true);
+      try {
+        const doc = await getLogicGameQuestions(selectedNodeId);
+        if (cancelled) return;
+        setQuestions(doc ? doc.questions : []);
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setQuestionsLoading(false);
+      }
+    }
+
+    run();
+    return () => { cancelled = true; };
   }, [selectedNodeId]);
 
   
@@ -1145,34 +1232,81 @@ function LogicGamesAdmin() {
     if (!pdfFile) return;
     setPdfExtracting(true);
     setPdfError(null);
-    setPdfProgress('📄 Uploading files...');
+    setPdfProgress('📤 Uploading document & initializing AI engine…');
+    setPdfStats({ totalPages: 0, currentPage: 0, totalQuestions: 0, elapsedSeconds: 0 });
+    setPdfSteps([
+      { icon: '📤', message: 'Uploading document & initializing AI engine…', detail: 'Sending PDF & answer key to server', done: false }
+    ]);
     try {
-      const apiUrl = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() || 'http://localhost:3001';
+      const apiUrl = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() || 'http://localhost:5000';
       const formData = new FormData();
       formData.append('file', pdfFile);
       if (answersFile) {
         formData.append('answersFile', answersFile);
       }
 
-      setPdfProgress('🔍 Rendering PDF pages & extracting with AI vision...');
-
       const aiRes = await fetch(`${apiUrl}/api/program-ingestion/extract-iq-pdf`, {
         method: 'POST',
         body: formData,
       });
 
-      if (!aiRes.ok) {
+      if (!aiRes.ok || !aiRes.body) {
         const errText = await aiRes.text();
         throw new Error(`AI Extraction failed: ${errText}`);
       }
 
-      setPdfProgress('✨ Processing results...');
-      const data = await aiRes.json();
-      if (!data.questions || data.questions.length === 0) {
-        throw new Error("No questions could be found in this PDF.");
+      // ── Read NDJSON stream line by line ──
+      const reader = aiRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let resultData: any = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Split on newlines, keep last partial chunk in buffer
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed.progress) {
+              const step = parsed.progress as { icon: string; message: string; detail: string; stats?: any };
+              setPdfProgress(`${step.icon} ${step.message}`);
+              if (step.stats) {
+                setPdfStats(prev => ({
+                  ...prev,
+                  totalPages: step.stats.totalPages || prev.totalPages,
+                  currentPage: step.stats.currentPage !== undefined ? step.stats.currentPage : prev.currentPage,
+                  totalQuestions: step.stats.totalQuestions !== undefined ? step.stats.totalQuestions : prev.totalQuestions,
+                }));
+              }
+              setPdfSteps(prev => [
+                ...prev.map(s => ({ ...s, done: true })),          // mark all previous as done
+                { icon: step.icon, message: step.message, detail: step.detail, done: false }, // new active step
+              ]);
+            } else if (parsed.result) {
+              resultData = parsed.result;
+            } else if (parsed.error) {
+              throw new Error(parsed.error);
+            }
+          } catch (parseErr) {
+            // If the entire line itself was thrown, re-throw; otherwise skip malformed lines
+            if (parseErr instanceof Error && parseErr.message !== 'Unexpected token') throw parseErr;
+          }
+        }
       }
 
-      const formatted = data.questions.map((q: any, i: number) => {
+      if (!resultData || !resultData.questions || resultData.questions.length === 0) {
+        throw new Error('No questions could be found in this PDF.');
+      }
+
+      const formatted = resultData.questions.map((q: any, i: number) => {
         const blocks: any[] = q.promptBlocks || [];
         if (blocks.length === 0 && q.promptRawText) blocks.push({ type: 'text', text: q.promptRawText });
 
@@ -1196,6 +1330,7 @@ function LogicGamesAdmin() {
       setExtractedQuestions(formatted);
       setPdfError(null);
       setPdfProgress('');
+      setPdfSteps([]);
       const answeredCount = formatted.filter((q: any) => q.interaction.correctChoiceIndex >= 0).length;
       if (answersFile && answeredCount > 0) {
         toast({ title: `✅ Extracted ${formatted.length} questions with ${answeredCount} answers pre-filled from answer key` });
@@ -1205,6 +1340,7 @@ function LogicGamesAdmin() {
     } catch (e) {
       setPdfError(e instanceof Error ? e.message : String(e));
       setPdfProgress('');
+      setPdfSteps(prev => prev.map(s => ({ ...s, done: true })));
     } finally {
       setPdfExtracting(false);
     }
@@ -1216,7 +1352,31 @@ function LogicGamesAdmin() {
         {!selectedNodeId ? (
           <div style={{ width: '100%', maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 40 }}>
             <h1 style={{ textAlign: 'center', color: 'white', margin: '0 0 20px 0', fontSize: 32, fontWeight: 900 }}>IQ levels</h1>
-            {nodes.map((n) => (
+            {loading ? (
+              // ── Loading skeleton: shows while Supabase data is still fetching ──
+              <>
+                {[0, 1, 2].map(i => (
+                  <div key={i} style={{
+                    background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 20,
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+                    opacity: 1 - i * 0.25,
+                    animation: 'pulse 1.5s ease-in-out infinite',
+                  }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ width: 140, height: 18, borderRadius: 6, background: 'rgba(255,255,255,0.08)' }} />
+                      <div style={{ width: 100, height: 13, borderRadius: 6, background: 'rgba(255,255,255,0.05)' }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ width: 64, height: 32, borderRadius: 8, background: 'rgba(255,255,255,0.05)' }} />
+                      <div style={{ width: 64, height: 32, borderRadius: 8, background: 'rgba(255,255,255,0.05)' }} />
+                    </div>
+                  </div>
+                ))}
+                <div style={{ textAlign: 'center', color: '#475569', fontSize: 13, marginTop: 4 }}>Loading levels…</div>
+              </>
+            ) : (
+              nodes.map((n) => (
               <div key={n.id} 
                    onClick={() => { if (editingNodeId !== n.id) setSelectedNodeId(n.id); }}
                    style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.2)', cursor: editingNodeId === n.id ? 'default' : 'pointer', transition: 'all 0.2s' }}
@@ -1253,10 +1413,23 @@ function LogicGamesAdmin() {
                   </>
                 )}
               </div>
-            ))}
+            ))
+            )}
             
-            <button onClick={addNode} disabled={saving} className="ll-btn ll-btn-primary" style={{ padding: '16px', fontSize: 15, fontWeight: 'bold', alignSelf: 'center', marginTop: 10, borderRadius: 12 }}>
-                + Add New Level
+            <button
+              onClick={addNode}
+              disabled={saving || loading}
+              className="ll-btn ll-btn-primary"
+              style={{
+                padding: '16px', fontSize: 15, fontWeight: 'bold', alignSelf: 'center',
+                marginTop: 10, borderRadius: 12,
+                opacity: loading ? 0.4 : 1,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                transition: 'opacity 0.2s',
+              }}
+              title={loading ? 'Please wait while levels are loading…' : undefined}
+            >
+              {loading ? '⏳ Loading levels…' : '+ Add New Level'}
             </button>
           </div>
         ) : (
@@ -1645,22 +1818,25 @@ function LogicGamesAdmin() {
             boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
           }}>
             <div style={{ padding: '20px 24px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ color: 'white', margin: 0, fontSize: 18 }}>Extract PDF Questions</h2>
+              <h2 style={{ color: 'white', margin: 0, fontSize: 18 }}>Extract MCQs with AI Vision (Any Format)</h2>
               <button onClick={() => !pdfExtracting && setAddModalOpen(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 24 }}>×</button>
             </div>
             
             <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
               {/* File Uploads Section */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 24 }}>
-                {/* Questions PDF */}
+                {/* Questions File */}
                 <div style={{ background: '#0f172a', borderRadius: 12, padding: 16, border: '1px solid #334155' }}>
-                  <label style={{ display: 'block', color: '#a78bfa', fontSize: 13, fontWeight: 'bold', marginBottom: 8 }}>📄 Questions File (PDF) *</label>
+                  <label style={{ display: 'block', color: '#a78bfa', fontSize: 13, fontWeight: 'bold', marginBottom: 8 }}>📄 Questions File (Any Format) *</label>
                   {!pdfFile ? (
-                    <input 
-                      type="file" accept=".pdf" 
-                      onChange={e => setPdfFile(e.target.files?.[0] || null)}
-                      style={{ width: '100%', padding: 10, background: '#1e293b', borderRadius: 8, border: '1px solid #475569', color: 'white', fontSize: 13 }}
-                    />
+                    <>
+                      <input 
+                        type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.txt,.text,.rtf,.ppt,.pptx,.csv,.epub,.xps,*/*" 
+                        onChange={e => setPdfFile(e.target.files?.[0] || null)}
+                        style={{ width: '100%', padding: 10, background: '#1e293b', borderRadius: 8, border: '1px solid #475569', color: 'white', fontSize: 13 }}
+                      />
+                      <div style={{ color: '#64748b', fontSize: 11, marginTop: 6 }}>Upload your questions in any file format — PDF, Word (.docx), Images (.png/.jpg), or Text.</div>
+                    </>
                   ) : (
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', padding: '10px 16px', borderRadius: 8, border: '1px solid #475569' }}>
                       <div style={{ color: '#34d399', fontSize: 13, fontWeight: '500' }}>✓ {pdfFile.name} ({(pdfFile.size / 1024 / 1024).toFixed(1)} MB)</div>
@@ -1700,11 +1876,154 @@ function LogicGamesAdmin() {
                 </button>
               </div>
 
-              {/* Progress */}
-              {pdfExtracting && pdfProgress && (
-                <div style={{ padding: 14, background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 10, marginBottom: 20, textAlign: 'center' }}>
-                  <div style={{ color: '#c4b5fd', fontSize: 14, fontWeight: 'bold' }}>{pdfProgress}</div>
-                  <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>This may take a minute for multi-page PDFs...</div>
+              {/* Premium Live AI Vision Extraction Dashboard */}
+              {pdfExtracting && (
+                <div style={{
+                  padding: '22px',
+                  background: 'linear-gradient(135deg, rgba(168,85,247,0.12) 0%, rgba(59,130,246,0.12) 100%)',
+                  border: '1px solid rgba(168,85,247,0.35)',
+                  borderRadius: 16,
+                  marginBottom: 24,
+                  boxShadow: '0 8px 32px rgba(168,85,247,0.15)',
+                }}>
+                  {/* Header & Elapsed Timer */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 20 }}>⚡</span>
+                      <span style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16, letterSpacing: '0.3px', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+                        AI Vision Processing Center
+                      </span>
+                    </div>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      background: 'rgba(0,0,0,0.4)',
+                      padding: '6px 12px',
+                      borderRadius: 20,
+                      border: '1px solid rgba(255,255,255,0.15)',
+                    }}>
+                      <span style={{
+                        width: 8, height: 8, borderRadius: '50%', background: '#4ade80',
+                        boxShadow: '0 0 8px #4ade80',
+                        animation: 'pulse 1s infinite'
+                      }} />
+                      <span style={{ color: '#e2e8f0', fontSize: 13, fontFamily: 'monospace', fontWeight: 'bold' }}>
+                        {String(Math.floor(pdfStats.elapsedSeconds / 60)).padStart(2, '0')}:{String(pdfStats.elapsedSeconds % 60).padStart(2, '0')}s elapsed
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 3 Stats Boxes */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+                    <div style={{ background: 'rgba(0,0,0,0.35)', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
+                      <div style={{ color: '#94a3b8', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>Pages Processed</div>
+                      <div style={{ color: '#c4b5fd', fontSize: 18, fontWeight: 800, marginTop: 4 }}>
+                        {pdfStats.totalPages > 0 ? `${pdfStats.currentPage} / ${pdfStats.totalPages}` : 'Analyzing...'}
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(0,0,0,0.35)', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
+                      <div style={{ color: '#94a3b8', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>MCQs Discovered</div>
+                      <div style={{ color: '#38bdf8', fontSize: 18, fontWeight: 800, marginTop: 4 }}>
+                        {pdfStats.totalQuestions} {pdfStats.totalQuestions === 1 ? 'Question' : 'Questions'}
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(0,0,0,0.35)', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
+                      <div style={{ color: '#94a3b8', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>Current Phase</div>
+                      <div style={{ color: '#4ade80', fontSize: 13, fontWeight: 800, marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {pdfStats.totalPages > 0 && pdfStats.currentPage < pdfStats.totalPages ? `AI Vision (Pg ${pdfStats.currentPage || 1})` : pdfStats.totalPages > 0 ? 'Final Assembly' : 'Rasterizing PDF'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Animated Progress Bar */}
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#e2e8f0', fontWeight: 600, marginBottom: 8 }}>
+                      <span>Pipeline Progress</span>
+                      <span style={{ fontWeight: 800, color: '#c4b5fd' }}>
+                        {pdfStats.totalPages === 0 ? Math.min(25, 5 + pdfStats.elapsedSeconds * 2) : Math.min(95, Math.round(25 + (pdfStats.currentPage / pdfStats.totalPages) * 65))}%
+                      </span>
+                    </div>
+                    <div style={{ width: '100%', height: 10, background: 'rgba(0,0,0,0.5)', borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${pdfStats.totalPages === 0 ? Math.min(25, 5 + pdfStats.elapsedSeconds * 2) : Math.min(95, Math.round(25 + (pdfStats.currentPage / pdfStats.totalPages) * 65))}%`,
+                        background: 'linear-gradient(90deg, #a855f7, #3b82f6, #38bdf8)',
+                        borderRadius: 10,
+                        transition: 'width 0.5s ease-out',
+                        boxShadow: '0 0 12px rgba(168,85,247,0.6)'
+                      }} />
+                    </div>
+                  </div>
+
+                  {/* Live Step Timeline */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                    background: 'rgba(0,0,0,0.25)',
+                    padding: '16px 18px',
+                    borderRadius: 12,
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    maxHeight: '240px',
+                    overflowY: 'auto'
+                  }}>
+                    {pdfSteps.map((step, i) => (
+                      <div key={i} style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 12,
+                        opacity: step.done ? 0.6 : 1,
+                        transition: 'opacity 0.3s',
+                      }}>
+                        {/* Status icon */}
+                        <div style={{ width: 22, height: 22, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}>
+                          {step.done ? (
+                            <span style={{ color: '#4ade80', fontSize: 15, fontWeight: 'bold' }}>✓</span>
+                          ) : (
+                            <span style={{
+                              display: 'inline-block',
+                              width: 16, height: 16,
+                              border: '2.5px solid #38bdf8',
+                              borderTopColor: 'transparent',
+                              borderRadius: '50%',
+                              animation: 'spin 0.7s linear infinite',
+                            }} />
+                          )}
+                        </div>
+                        {/* Step content */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontSize: 14,
+                            fontWeight: step.done ? 500 : 700,
+                            color: step.done ? '#94a3b8' : '#f8fafc',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8
+                          }}>
+                            <span>{step.icon}</span>
+                            <span>{step.message}</span>
+                            {!step.done && (
+                              <span style={{
+                                fontSize: 10,
+                                background: 'rgba(56,189,248,0.15)',
+                                color: '#38bdf8',
+                                padding: '2px 8px',
+                                borderRadius: 10,
+                                border: '1px solid rgba(56,189,248,0.4)',
+                                marginLeft: 'auto',
+                                fontWeight: 800,
+                                letterSpacing: '0.5px'
+                              }}>ACTIVE</span>
+                            )}
+                          </div>
+                          {step.detail && (
+                            <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>{step.detail}</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -1764,9 +2083,24 @@ function LogicGamesAdmin() {
 
               {extractedQuestions && extractedQuestions.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <h3 style={{ color: 'white', margin: '10px 0' }}>Review Questions</h3>
-                  <div style={{ color: '#fca5a5', fontSize: 13, marginBottom: 10 }}>
-                     ⚠️ Please review all questions and select the correct answer for each by clicking the letter circle.
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '10px 0' }}>
+                    <div>
+                      <h3 style={{ color: 'white', margin: 0 }}>Review Questions ({extractedQuestions.length})</h3>
+                      <div style={{ color: '#fca5a5', fontSize: 13, marginTop: 4 }}>
+                        ⚠️ Please review all questions and select the correct answer for each by clicking the letter circle.
+                      </div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (await confirm('Are you sure you want to delete ALL extracted questions?')) {
+                          setExtractedQuestions(null);
+                        }
+                      }}
+                      className="ll-btn"
+                      style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.4)', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold', fontSize: 13, flexShrink: 0 }}
+                    >
+                      🗑 Delete All ({extractedQuestions.length})
+                    </button>
                   </div>
                   
                   {extractedQuestions.map((q, qIndex) => (
@@ -1925,26 +2259,39 @@ function LogicGamesAdmin() {
                        )}
                      </div>
                   ))}
-                  <button 
-                    onClick={async () => {
-                      // Check if any question is missing a correct answer
-                      const missingAns = extractedQuestions.some(q => q.interaction.type === 'mcq' && q.interaction.correctChoiceIndex < 0);
-                      if (missingAns) {
-                         if (!(await confirm("Some questions do not have a correct answer selected. Add them anyway?"))) return;
-                      }
+                  <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+                    <button
+                      onClick={async () => {
+                        if (await confirm('Are you sure you want to delete ALL extracted questions?')) {
+                          setExtractedQuestions(null);
+                        }
+                      }}
+                      className="ll-btn"
+                      style={{ padding: '14px 20px', fontSize: 15, fontWeight: 'bold', background: 'rgba(239,68,68,0.15)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 8, cursor: 'pointer' }}
+                    >
+                      🗑 Delete All ({extractedQuestions.length})
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        // Check if any question is missing a correct answer
+                        const missingAns = extractedQuestions.some(q => q.interaction.type === 'mcq' && q.interaction.correctChoiceIndex < 0);
+                        if (missingAns) {
+                           if (!(await confirm("Some questions do not have a correct answer selected. Add them anyway?"))) return;
+                        }
 
-                      await saveQuestionsList([...questions, ...extractedQuestions]);
-                      setAddModalOpen(false);
-                      setExtractedQuestions(null);
-                      setPdfFile(null);
-                      setAnswersFile(null);
-                      setPdfProgress('');
-                    }} 
-                    className="ll-btn ll-btn-primary" 
-                    style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', marginTop: 20 }}
-                  >
-                    Add All {extractedQuestions.length} Questions to Level
-                  </button>
+                        await saveQuestionsList([...questions, ...extractedQuestions]);
+                        setAddModalOpen(false);
+                        setExtractedQuestions(null);
+                        setPdfFile(null);
+                        setAnswersFile(null);
+                        setPdfProgress('');
+                      }} 
+                      className="ll-btn ll-btn-primary" 
+                      style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', flex: 1 }}
+                    >
+                      Add All {extractedQuestions.length} Questions to Level
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

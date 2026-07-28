@@ -281,13 +281,33 @@ ${text}
 }
 
 export async function extractIqPdf(req: Request, res: Response): Promise<void> {
+  // ── Streaming NDJSON setup ────────────────────────────────────────────────
+  // Each progress line: {"progress":{"icon":"...","message":"...","detail":"..."}}
+  // Final line:          {"result":{"questions":[...]}}
+  // Error line:          {"error":"..."}
+  res.setHeader("Content-Type", "application/x-ndjson");
+  res.setHeader("Transfer-Encoding", "chunked");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const sendProgress = (icon: string, message: string, detail?: string, stats?: { totalPages?: number; currentPage?: number; totalQuestions?: number }) => {
+    res.write(JSON.stringify({ progress: { icon, message, detail: detail ?? "", stats: stats ?? {} } }) + "\n");
+    if (typeof (res as any).flush === "function") (res as any).flush();
+  };
+
+  const sendError = (message: string) => {
+    res.write(JSON.stringify({ error: message }) + "\n");
+    res.end();
+  };
+
   try {
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     const file = files?.["file"]?.[0];
     const answersFile = files?.["answersFile"]?.[0];
 
     if (!file) {
-      res.status(400).json({ error: "PDF file is required" });
+      sendError("Questions file is required");
       return;
     }
 
@@ -316,8 +336,9 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
     let pythonCmd = "python";
     try { await fs.access(py312Path); pythonCmd = py312Path; } catch {}
 
-    // ─── Step 1: Render PDF pages to PNG for vision ─────────────────────────
-    logger.info("[extractIqPdf] Rendering PDF pages to PNG...");
+    // ─── Step 1: Render document pages to PNG for vision ─────────────────────────
+    sendProgress("📄", "Rendering document pages…", "Converting each page to high-resolution image");
+    logger.info("[extractIqPdf] Rendering document pages to PNG...");
     const { stdout } = await execFileAsync(pythonCmd, [scriptPath, file.path, "--render"], {
       maxBuffer: 100 * 1024 * 1024,
       windowsHide: true,
@@ -345,6 +366,7 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
     let answerMap: Record<number, string> = {}; // questionNumber -> "A"|"B"|"C"...
 
     if (answersFile) {
+      sendProgress("🔑", "Parsing answer key…", "Extracting answers from key file using AI");
       logger.info("[extractIqPdf] Parsing answer key file...");
       let answersText = "";
 
@@ -414,7 +436,9 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
     }
 
     // ─── Step 3: Vision-based question extraction per page ──────────────────
-    logger.info({ totalPages: extractedData.pages.length }, "[extractIqPdf] Extracting questions using vision...");
+    const totalPages = extractedData.pages.length;
+    sendProgress("🔍", `Starting vision extraction…`, `${totalPages} page${totalPages !== 1 ? 's' : ''} to process`, { totalPages, currentPage: 0, totalQuestions: 0 });
+    logger.info({ totalPages }, "[extractIqPdf] Extracting questions using vision...");
 
     const VISION_MODEL = "qwen/qwen3.6-27b";
     const allQuestions: any[] = [];
@@ -422,7 +446,13 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
     // Process one page at a time — high-res PNGs can be large
     for (let pageIdx = 0; pageIdx < extractedData.pages.length; pageIdx++) {
       const page = extractedData.pages[pageIdx];
-      logger.info({ page: page.page, totalPages: extractedData.pages.length }, "[extractIqPdf] Processing page...");
+      sendProgress(
+        "🧠",
+        `AI Vision — Page ${page.page} of ${totalPages}`,
+        `Identifying questions, choices & diagrams on page ${page.page}`,
+        { totalPages, currentPage: page.page, totalQuestions: allQuestions.length }
+      );
+      logger.info({ page: page.page, totalPages }, "[extractIqPdf] Processing page...");
 
       const visionPrompt = `You are an expert at extracting Multiple Choice Questions from exam/test page images.
 
@@ -562,6 +592,12 @@ Rules:
           q.pageNumber = page.page;
         });
         allQuestions.push(...pageQuestions);
+        sendProgress(
+          "✓",
+          `Completed Page ${page.page} of ${totalPages}`,
+          `Found ${pageQuestions.length} questions on this page (${allQuestions.length} total so far)`,
+          { totalPages, currentPage: page.page, totalQuestions: allQuestions.length }
+        );
       } else {
         logger.warn({ page: page.page, retries: retryCount }, "[extractIqPdf] Failed to extract questions from page after retries");
       }
@@ -572,6 +608,7 @@ Rules:
     }
 
     // ─── Step 4: Build final question objects with answers & images ──────────
+    sendProgress("⚙️", `Building question objects…`, `Assembling ${allQuestions.length} extracted questions with answers & images`, { totalPages, currentPage: totalPages, totalQuestions: allQuestions.length });
     logger.info({ totalQuestions: allQuestions.length }, "[extractIqPdf] Building question objects...");
 
     // Combine all page image dictionaries and spatial metadata into global maps
@@ -719,13 +756,17 @@ Rules:
       logger.warn({ orphanCount, totalImages }, "[extractIqPdf] Anomaly: Detected orphan images on PDF");
     }
 
-    logger.info({ questionCount: formattedQuestions.length, answerCount: Object.keys(answerMap).length }, "[extractIqPdf] Done! Extracted questions and applied answers.");
-    res.json({ questions: formattedQuestions });
+    const answeredCount = Object.keys(answerMap).length;
+    sendProgress("✅", `Done! ${formattedQuestions.length} questions extracted`, answeredCount > 0 ? `${answeredCount} answers applied from key` : "No answer key applied", { totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length });
+    logger.info({ questionCount: formattedQuestions.length, answerCount: answeredCount }, "[extractIqPdf] Done! Extracted questions and applied answers.");
+
+    res.write(JSON.stringify({ result: { questions: formattedQuestions } }) + "\n");
+    res.end();
 
   } catch (error) {
     logger.error({ err: error }, "extractIqPdf error");
     const message = error instanceof Error ? error.message : "Unknown error";
-    res.status(500).json({ error: message });
+    sendError(message);
   }
 }
 
