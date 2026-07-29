@@ -105,17 +105,26 @@ async function replaceQuestions(table: string, nodeId: string, docData: Omit<Log
     iq_delta_wrong: q.iqDeltaWrong,
     sort_order: idx,
     updated_at: now,
-    ...(publishedAt ? { published_at: publishedAt } : {}),
   }));
 
-  // Step 3: Upsert in safe chunks of 50 (NEVER delete before this succeeds)
-  const CHUNK_SIZE = 50;
+  // Step 3: Upsert one by one (chunk size 1) to absolutely avoid payload size limits with heavy images
+  const CHUNK_SIZE = 1;
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     const chunk = rows.slice(i, i + CHUNK_SIZE);
+    
+    // DEBUG: Log the chunk and its keys to see what is causing the 400 Bad Request
+    if (i === 0) {
+      console.log("[replaceQuestions] Sending chunk 0 keys:", Object.keys(chunk[0]));
+      console.log("[replaceQuestions] Sending chunk 0 sizes (chars):", chunk.map(r => JSON.stringify(r).length));
+    }
+    
     const { error: upsertError } = await supabase
       .from(table as any)
       .upsert(chunk as any, { onConflict: 'node_id,question_id' });
-    if (upsertError) throw upsertError;
+    if (upsertError) {
+      console.error("[replaceQuestions] Upsert error details:", upsertError, chunk);
+      throw new Error(`Supabase Upsert failed: ${upsertError.message || JSON.stringify(upsertError)}`);
+    }
   }
 
   // Step 4: Only now delete rows that were explicitly removed (selective, not blanket)

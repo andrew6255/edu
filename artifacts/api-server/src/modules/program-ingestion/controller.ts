@@ -454,47 +454,70 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
       );
       logger.info({ page: page.page, totalPages }, "[extractIqPdf] Processing page...");
 
-      const visionPrompt = `You are an expert at extracting Multiple Choice Questions from exam/test page images.
+      const visionPrompt = `You are an expert at extracting Multiple Choice Questions (MCQs) from exam/test page images.
 
-Analyze the page image carefully and extract ALL MCQ questions visible. We have drawn red boxes and labels (e.g. [IMG_0], [IMG_1]) around all images/figures on the page.
+We have drawn RED BOXES with WHITE-BACKGROUND LABELS (e.g. [IMG_0], [IMG_1]) around every image/figure detected on this page. Each label is printed in large red text above its red box.
 
-For each question:
+Your job: extract every MCQ on this page and correctly assign each [IMG_X] label to the right location.
 
-1. **Images Categorization (CRITICAL)**: You MUST categorize EVERY SINGLE RED LABEL (e.g. [IMG_0], [IMG_1]) on the page. Every red label MUST appear in exactly one of these arrays: 
-   - 'promptImageLabels': If the image belongs to the question prompt or is a diagram/figure for the question.
-   - 'choices': If the image is one of the answer choices.
-   - 'irrelevantImages': If the image is irrelevant noise, a page number, or a meaningless line.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 1 — EVERY RED LABEL MUST BE CATEGORIZED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Every [IMG_X] label visible on the page MUST appear in exactly one of:
+  • "promptImageLabels" — if it is a diagram/figure that belongs to the question body
+  • "choices" — if it IS one of the answer options (A, B, C, D, E)
+  • "irrelevantImages" — if it is a page border, page number, decorative noise, or watermark
 
-2. **Images in the Question**: If there is a diagram/figure for the question, you MUST put its red label in the "promptImageLabels" array. DO NOT skip this! Example: ["[IMG_0]"].
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 2 — IMAGE-ONLY CHOICES (MOST CRITICAL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+When a choice option is an IMAGE (not text), you MUST use its [IMG_X] label as the choice value.
+❌ WRONG:  "choices": ["(A)", "(B)", "(C)", "(D)"]   ← These are NEVER acceptable
+❌ WRONG:  "choices": ["A", "B", "C", "D"]
+✅ CORRECT: "choices": ["[IMG_3]", "[IMG_1]", "[IMG_4]", "[IMG_2]"]
 
-3. **Question text**: Extract the full question prompt text.
+Example scenario — 4 image choices on the page:
+  Option A → image labeled [IMG_3]
+  Option B → image labeled [IMG_1]
+  Option C → image labeled [IMG_4]
+  Option D → image labeled [IMG_2]
+Correct output: "choices": ["[IMG_3]", "[IMG_1]", "[IMG_4]", "[IMG_2]"]
+Note: The order follows A→B→C→D on the PAGE, NOT the numerical order of [IMG_X] labels!
 
-4. **Choices**: Extract ALL answer choices IN STRICT ALPHABETICAL ORDER (A, B, C, D, E). 
-   - CRITICAL: You MUST match the correct red label to the correct letter option exactly as they appear on the page!
-   - Example: If Option A is an image labeled [IMG_3] and Option B is an image labeled [IMG_1], your choices array MUST be exactly: ["[IMG_3]", "[IMG_1]", ...]
-   - Do NOT just list the images in numerical order. Respect the A, B, C, D order on the page.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 3 — PRESERVE EXACT CHOICE ORDER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Always output choices in A→B→C→D→E order as shown on the page.
+Do NOT reorder images by their [IMG_X] number. Match each image to its option letter by position on the page.
+The image that appears next to "A)" goes in choices[0], next to "B)" goes in choices[1], etc.
 
-4. **Choice count**: Make sure you capture the EXACT number of choices shown for each question. Do not assume all questions have 4 or 5 choices.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 4 — QUESTION IMAGES vs CHOICE IMAGES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• If an image appears ABOVE or WITHIN the question text → "promptImageLabels"
+• If an image appears NEXT TO or BELOW a choice letter (A, B, C, D) → put its label in "choices" at the correct index
+• If a question has BOTH a prompt image AND image choices, they go in separate arrays
 
-5. **Question numbering**: Note the question number as shown on the page.
-
-Return a JSON object with a "questions" array. Each question object:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT FORMAT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Return a JSON object with a "questions" array. Each question:
 {
   "questionNumber": 1,
+  "promptRawText": "The full question stem text (no [IMG_X] tokens in here)",
   "promptImageLabels": ["[IMG_0]"],
-  "promptRawText": "The full question text",
-  "hasQuestionImage": true/false,
-  "choices": ["choice A text", "[IMG_2]", ...],
+  "hasQuestionImage": true,
+  "choices": ["choice A text or [IMG_X]", "choice B text or [IMG_X]", ...],
   "choiceHasImage": [false, true, false, false],
-  "irrelevantImages": ["[IMG_4]"],
+  "irrelevantImages": ["[IMG_5]"],
   "pageNumber": ${page.page}
 }
 
-Rules:
-- Extract questions in order as numbered on the page
-- Be precise with mathematical notation
-- You must use the red [IMG_X] labels exactly as they appear on the page!
-- Return ONLY valid JSON, no markdown fences`;
+Additional rules:
+- Extract questions in the numbered order shown on the page
+- Be precise with mathematical notation and symbols
+- Use the [IMG_X] labels EXACTLY as printed (including brackets)
+- Return ONLY valid JSON — no markdown fences, no commentary`;
 
       let retryCount = 0;
       const maxRetries = 10;
@@ -643,19 +666,56 @@ Rules:
 
       // Deterministic Proximity Correction: check if any image on this page belongs to choices or prompt programmatically
       const pageImages = Object.entries(metadataMap).filter(([, meta]) => meta.pageNumber === pageNum);
-      
+
+      // Sort pageImages by their bbox Y position (top-to-bottom) for predictable assignment order
+      const pageImagesSorted = [...pageImages].sort(([, a], [, b]) => {
+        const ay = a.bbox?.[1] ?? 0;
+        const by = b.bbox?.[1] ?? 0;
+        return ay - by;
+      });
+
       const finalChoices = choices.map((choice: string, idx: number) => {
         const choiceLetter = String.fromCharCode(65 + idx); // A, B, C, D...
-        // 1. Check if LLM explicitly provided [IMG_X] in choice text
+
+        // Pass 1: AI explicitly assigned an [IMG_X] label to this choice → trust it
         const key = getImgKey(choice);
         if (key && imageMap[key]) {
           matchedImages.add(key);
           return imageMap[key];
         }
-        // 2. Deterministic Fallback: check if an image on this page had nearestChoiceLabel matching this choice letter!
-        for (const [imgKey, meta] of pageImages) {
+
+        // Pass 2: The AI returned "(A)", "(B)", "(C)" etc. — detect these placeholder strings
+        // and replace with image found via proximity metadata (nearestChoiceLabel)
+        const isPlaceholder = /^\s*[\(\[]?[A-Ea-e][\)\]]?\s*$/.test(choice.trim());
+        if (isPlaceholder) {
+          // Find an unmatched image whose nearestChoiceLabel matches this choice letter
+          for (const [imgKey, meta] of pageImagesSorted) {
+            if (!matchedImages.has(imgKey) && meta.nearestChoiceLabel === choiceLetter) {
+              matchedImages.add(imgKey);
+              return imageMap[imgKey];
+            }
+          }
+          // Secondary: if no label match, try assigning by Y-position order among unmatched images
+          // that have no nearestChoiceLabel (pure image grids)
+          const unlabeled = pageImagesSorted.filter(([imgKey, meta]) =>
+            !matchedImages.has(imgKey) && !meta.nearestChoiceLabel
+          );
+          if (unlabeled.length > 0) {
+            // Assign the idx-th unmatched unlabeled image to this choice slot
+            const unassigned = pageImagesSorted.filter(([imgKey, meta]) =>
+              !matchedImages.has(imgKey) && meta.nearestChoiceLabel === null
+            );
+            if (unassigned.length > 0) {
+              const [firstKey] = unassigned[0];
+              matchedImages.add(firstKey);
+              return imageMap[firstKey];
+            }
+          }
+        }
+
+        // Pass 3: Standard proximity fallback for non-placeholder text choices
+        for (const [imgKey, meta] of pageImagesSorted) {
           if (!matchedImages.has(imgKey) && meta.nearestChoiceLabel === choiceLetter) {
-            // Check if nearestTextBefore matches this question
             const qPrefix = `${qNum}.`;
             if (rawText.startsWith(qPrefix) || meta.nearestTextBefore.includes(qPrefix) || (meta.nearestTextBefore.length > 5 && rawText.includes(meta.nearestTextBefore.slice(0, 20)))) {
               matchedImages.add(imgKey);
@@ -663,7 +723,32 @@ Rules:
             }
           }
         }
-        return choice;
+
+        // Pass 4: Strip leading choice-label prefix from text choices.
+        // "A) 6" → "6",  "B. 7" → "7",  "(C) text" → "text"
+        // Only strip when the leading letter matches the EXPECTED letter for this slot,
+        // so we don't accidentally strip a chemistry answer like "A molecule..."
+        const prefixPattern = new RegExp(
+          `^\\s*[\\(\\[]?${choiceLetter}[\\)\\]\\.\\:\\s]\\s*`,
+          'i'
+        );
+        const strippedChoice = choice.replace(prefixPattern, '').trim();
+        // Never return an empty string — fall back to original if stripping removes everything
+        return strippedChoice || choice;
+      });
+
+      // Final pass: remove any choices that are still pure letter placeholders like "A", "(B)", "C)"
+      // after all recovery passes (these mean the AI could not resolve the image and left a stub).
+      // We keep them as-is but mark them for review; they'll appear as text stubs in the UI.
+      const cleanedFinalChoices = finalChoices.map((ch, idx) => {
+        const letter = String.fromCharCode(65 + idx);
+        // Pure letter placeholder: single letter, optional parens/brackets/dot — replace with empty string so UI renders nothing
+        const isPureLetter = /^\s*[\(\[]?[A-Ea-e][\)\]\.\:]?\s*$/.test(typeof ch === 'string' ? ch : '');
+        if (isPureLetter && typeof ch === 'string' && !ch.startsWith('data:')) {
+          // Return empty text — better than showing "(A)" as a meaningless choice
+          return '';
+        }
+        return ch;
       });
 
       // Determine correct answer from answer map
@@ -671,7 +756,7 @@ Rules:
       const answerLetter = answerMap[qNum];
       if (answerLetter) {
         const idx = answerLetter.charCodeAt(0) - "A".charCodeAt(0);
-        if (idx >= 0 && idx < finalChoices.length) {
+        if (idx >= 0 && idx < cleanedFinalChoices.length) {
           correctChoiceIndex = idx;
         }
       }
@@ -729,7 +814,7 @@ Rules:
         correctChoiceIndex,
         hasAnswerMap: Object.keys(answerMap).length > 0,
         blocks,
-        choices: finalChoices,
+        choices: cleanedFinalChoices,
         hasQuestionImage: q.hasQuestionImage,
       });
 
@@ -738,7 +823,7 @@ Rules:
         promptBlocks: blocks,
         interaction: {
           type: "mcq",
-          choices: finalChoices,
+          choices: cleanedFinalChoices,
           correctChoiceIndex,
         },
         hasQuestionImage: q.hasQuestionImage || blocks.some(b => b.type === 'image'),
@@ -748,6 +833,287 @@ Rules:
         flags,
       };
     });
+
+    // ─── Step 5: Deep Vision Review — Pass A (Vision AI vs Original PDF) ────────
+    // For each page, we send the original annotated page PNG + the extracted questions
+    // to the vision model. It compares what it sees on the page vs what was extracted,
+    // then returns a set of corrections. This catches: wrong choice text, missing images,
+    // wrong image slot assignment, mis-read question text, etc.
+    const reviewTotalPages = extractedData.pages.length;
+    sendProgress("🔎", "Vision Review Pass A…", `AI comparing PDF pages vs extracted questions (${formattedQuestions.length} questions)`, { totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length });
+
+    try {
+      for (let pageIdx = 0; pageIdx < extractedData.pages.length; pageIdx++) {
+        const reviewPage = extractedData.pages[pageIdx];
+        const pageQs = formattedQuestions.filter((fq: any) => fq.pageNumber === reviewPage.page);
+        if (pageQs.length === 0) continue;
+
+        sendProgress("🔎", `Vision Review — Page ${reviewPage.page}/${reviewTotalPages}`, `Cross-checking ${pageQs.length} question(s) on page ${reviewPage.page} against original PDF`, { totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length });
+
+        // Build compact question representation for the review prompt (no data URIs)
+        const pageQsForReview = pageQs.map((fq: any, localIdx: number) => ({
+          globalIdx: formattedQuestions.indexOf(fq),
+          questionNumber: fq.questionNumber,
+          promptRawText: fq.promptRawText,
+          choices: fq.interaction.choices.map((c: string) =>
+            typeof c === 'string' && c.startsWith('data:') ? '[IMAGE]' : c
+          ),
+          choiceCount: fq.interaction.choices.length,
+        }));
+
+        const visionReviewPrompt = `You are a quality-control AI that verifies MCQ extractions from an exam PDF page.
+
+I extracted the following questions from the PDF page shown in the image. Your job: compare what you see on the PDF page with what was extracted, and fix any errors.
+
+Extracted questions (JSON):
+${JSON.stringify(pageQsForReview, null, 2)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT TO CHECK AND FIX:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. **Question text accuracy**: Does the extracted promptRawText match what is written on the page? Fix any mis-reads, missing words, or truncations.
+
+2. **Choice text accuracy**: Does each choice text match the actual choice on the page? Fix mis-reads. 
+   - If a choice on the page is an IMAGE (not text), use "[IMAGE]" — do NOT write text for image choices.
+   - If a choice has a label prefix like "A) 6" but the actual answer is just "6", strip the prefix.
+   - If a choice slot has "(A)", "(B)" etc. as the extracted value but the real choice is an image, mark it as "[IMAGE]".
+
+3. **Choice count**: Verify the number of choices matches what you see on the page. If wrong, correct the count (add empty strings "" for missing slots, do not invent answers).
+
+4. **Issue flags**: For each question, set "needsHumanReview" to true and populate "issues" array if:
+   - You cannot confidently verify the answer content (image choices you cannot compare by text)
+   - The extracted text has a significant mismatch you cannot fully auto-correct
+   - A choice slot says "[IMAGE]" but you're unsure which image goes there
+   - The question number sequence seems broken or duplicated
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT FORMAT (JSON object with "corrections" array):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{
+  "corrections": [
+    {
+      "globalIdx": number,
+      "promptRawText": "corrected question text",
+      "choices": ["corrected choice A", "corrected choice B", ...],
+      "needsHumanReview": false,
+      "issues": []
+    }
+  ]
+}
+
+Rules:
+- Only include questions that have corrections or issues in the "corrections" array (skip unchanged questions)
+- Never invent or hallucinate answer content — if uncertain, set needsHumanReview: true
+- Preserve "[IMAGE]" placeholders exactly
+- Return ONLY valid JSON, no markdown fences`;
+
+        try {
+          let reviewRetries = 0;
+          while (reviewRetries < 4) {
+            const reviewRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${getNextApiKey()}`,
+              },
+              body: JSON.stringify({
+                model: VISION_MODEL,
+                temperature: 0.0,
+                max_tokens: 3000,
+                reasoning_effort: "none",
+                messages: [
+                  {
+                    role: "user",
+                    content: [
+                      { type: "text", text: visionReviewPrompt },
+                      {
+                        type: "image_url",
+                        image_url: { url: `data:image/png;base64,${reviewPage.pngBase64}` },
+                      },
+                    ],
+                  },
+                ],
+              }),
+            });
+
+            if (!reviewRes.ok) {
+              if (reviewRes.status === 429) {
+                const waitMs = 15000 + (reviewRetries * 5000);
+                await new Promise(r => setTimeout(r, waitMs));
+                reviewRetries++;
+                continue;
+              }
+              break;
+            }
+
+            const reviewPayload = await reviewRes.json() as any;
+            let reviewText = reviewPayload.choices?.[0]?.message?.content?.trim();
+            if (!reviewText) break;
+
+            // Strip <think> tags if present
+            if (reviewText.includes("</think>")) {
+              reviewText = reviewText.split("</think>").pop()?.trim() || reviewText;
+            }
+
+            try {
+              // Parse JSON (handle fenced blocks)
+              let parsed: any;
+              try {
+                parsed = JSON.parse(reviewText);
+              } catch {
+                const fenced = reviewText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+                if (fenced) parsed = JSON.parse(fenced[1]);
+                else throw new Error("unparseable");
+              }
+
+              const corrections: any[] = Array.isArray(parsed) ? parsed : (parsed.corrections || []);
+
+              for (const corr of corrections) {
+                const fq = formattedQuestions[corr.globalIdx];
+                if (!fq) continue;
+
+                // Apply text corrections
+                if (typeof corr.promptRawText === 'string' && corr.promptRawText.trim()) {
+                  fq.promptRawText = corr.promptRawText.trim();
+                  const firstText = fq.promptBlocks.find((b: any) => b.type === 'text');
+                  if (firstText) firstText.text = fq.promptRawText;
+                }
+
+                // Apply choice corrections (never overwrite real data: image URIs)
+                if (Array.isArray(corr.choices) && corr.choices.length === fq.interaction.choices.length) {
+                  fq.interaction.choices = fq.interaction.choices.map((orig: string, ci: number) => {
+                    const corrected = corr.choices[ci];
+                    if (typeof orig === 'string' && orig.startsWith('data:')) return orig; // preserve images
+                    if (typeof corrected === 'string' && corrected !== '[IMAGE]') return corrected;
+                    return orig;
+                  });
+                }
+
+                // Apply human-review flags from vision model
+                if (corr.needsHumanReview === true) {
+                  if (!fq.flags) fq.flags = [];
+                  fq.reviewStatus = "FLAGGED_FOR_REVIEW";
+                  if (Array.isArray(corr.issues) && corr.issues.length > 0) {
+                    for (const issue of corr.issues) {
+                      const flagStr = `VISION_REVIEW: ${issue}`;
+                      if (!fq.flags.includes(flagStr)) fq.flags.push(flagStr);
+                    }
+                  } else {
+                    if (!fq.flags.includes("VISION_REVIEW_UNCERTAIN")) {
+                      fq.flags.push("VISION_REVIEW_UNCERTAIN");
+                    }
+                  }
+                }
+              }
+
+              logger.info({ page: reviewPage.page, corrections: corrections.length }, "[extractIqPdf] Vision review Pass A applied corrections");
+              break; // Success — move to next page
+            } catch {
+              logger.warn({ page: reviewPage.page }, "[extractIqPdf] Vision review Pass A: failed to parse response");
+              break;
+            }
+          }
+        } catch (pageReviewErr) {
+          logger.warn({ page: reviewPage.page, err: pageReviewErr }, "[extractIqPdf] Vision review Pass A: page skipped");
+        }
+      }
+    } catch (visionReviewErr) {
+      logger.warn({ err: visionReviewErr }, "[extractIqPdf] Vision review Pass A failed, continuing");
+    }
+
+    // ─── Step 5 Pass B: Text LLM audit — flag residual issues ───────────────────
+    // After vision corrections, a fast text LLM does a final structural audit and
+    // flags anything that still looks suspicious for human review.
+    sendProgress("✅", "Vision Review Pass B…", "Final structural audit & flagging any remaining issues", { totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length });
+
+    try {
+      const textOnlyForAudit = formattedQuestions.map((fq: any, i: number) => ({
+        idx: i,
+        questionNumber: fq.questionNumber,
+        promptRawText: fq.promptRawText,
+        choices: fq.interaction.choices.map((c: string) =>
+          typeof c === 'string' && c.startsWith('data:') ? '[IMAGE]' : c
+        ),
+        choiceCount: fq.interaction.choices.length,
+        alreadyFlagged: fq.reviewStatus === "FLAGGED_FOR_REVIEW",
+        existingFlags: fq.flags || [],
+      }));
+
+      const auditPrompt = `You are a final quality-auditor for MCQ extraction from PDFs. A vision AI already reviewed and corrected these questions. Your job: a final check for structural and textual issues.
+
+For each question, check:
+1. Are any text choices still starting with letter prefixes like "A) ...", "B) ...", "(C) ..."? Flag as "LABEL_PREFIX_LEAK"
+2. Is any choice an empty string "" where it shouldn't be (suggesting a missing image or text)? Flag as "EMPTY_CHOICE_SLOT"
+3. Does the question text seem truncated, incomplete or non-sensical? Flag as "QUESTION_TEXT_SUSPECT"  
+4. Are there fewer than 2 choices? Flag as "FEW_CHOICES"
+5. Do the choices seem inconsistent in format (e.g., some are [IMAGE] and some are text in a question that should be all-image)? Flag as "MIXED_CHOICE_FORMAT"
+
+Return a JSON object:
+{
+  "audits": [
+    {
+      "idx": number,
+      "needsHumanReview": boolean,
+      "flags": ["FLAG_NAME", ...]
+    }
+  ]
+}
+
+Only include questions with issues. Return ONLY valid JSON, no fences.
+
+Questions:
+${JSON.stringify(textOnlyForAudit, null, 2)}`;
+
+      const auditRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getNextApiKey()}`,
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          temperature: 0.0,
+          max_tokens: 2000,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: "You output valid JSON only." },
+            { role: "user", content: auditPrompt },
+          ],
+        }),
+      });
+
+      if (auditRes.ok) {
+        const auditPayload = await auditRes.json() as any;
+        const auditText = auditPayload.choices?.[0]?.message?.content?.trim();
+        if (auditText) {
+          let parsed: any;
+          try { parsed = JSON.parse(auditText); }
+          catch {
+             const match = auditText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+             if (match) parsed = JSON.parse(match[1]);
+             else parsed = { audits: [] };
+          }
+          const audits: any[] = Array.isArray(parsed) ? parsed : (parsed.audits || []);
+          let auditFlagged = 0;
+          for (const audit of audits) {
+            const fq = formattedQuestions[audit.idx];
+            if (!fq) continue;
+            if (audit.needsHumanReview || (audit.flags && audit.flags.length > 0)) {
+              fq.reviewStatus = "FLAGGED_FOR_REVIEW";
+              if (!fq.flags) fq.flags = [];
+              for (const flag of (audit.flags || [])) {
+                if (!fq.flags.includes(flag)) fq.flags.push(flag);
+              }
+              auditFlagged++;
+            }
+          }
+          logger.info({ flagged: auditFlagged, total: formattedQuestions.length }, "[extractIqPdf] Vision review Pass B: audit complete");
+        }
+      }
+    } catch (auditErr) {
+      logger.warn({ err: auditErr }, "[extractIqPdf] Vision review Pass B: audit failed, continuing");
+    }
 
     // Post-check for orphan images across pages
     const totalImages = Object.keys(imageMap).length;

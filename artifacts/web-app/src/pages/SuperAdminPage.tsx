@@ -1211,8 +1211,8 @@ function LogicGamesAdmin() {
     }
   }
 
-  async function saveQuestionsList(newQuestions: LogicGameQuestion[]) {
-    if (!selectedNodeId) return;
+  async function saveQuestionsList(newQuestions: LogicGameQuestion[]): Promise<boolean> {
+    if (!selectedNodeId) return false;
     setSaving(true);
     try {
       await upsertLogicGameQuestions(selectedNodeId, {
@@ -1221,8 +1221,10 @@ function LogicGamesAdmin() {
       });
       setQuestions(newQuestions);
       setStatus('✅ Auto-saved');
+      return true;
     } catch(e) {
       setErr(e instanceof Error ? e.message : String(e));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -2103,16 +2105,37 @@ function LogicGamesAdmin() {
                     </button>
                   </div>
                   
-                  {extractedQuestions.map((q, qIndex) => (
+                   {extractedQuestions.map((q, qIndex) => (
                      <div key={qIndex} style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 12, padding: 16, position: 'relative' }}>
-                       <button 
-                          onClick={async () => {
-                            if(await confirm('Delete question?')) {
-                              setExtractedQuestions((extractedQuestions || []).filter((_, i) => i !== qIndex));
-                            }
-                          }}
-                          style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: 'none', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}
-                       >🗑 Delete</button>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                           <div style={{ fontWeight: 'bold', color: '#f1f5f9', fontSize: 16 }}>
+                             Q{q.questionNumber || qIndex + 1}
+                           </div>
+                           {(q as any).reviewStatus === 'FLAGGED_FOR_REVIEW' ? (
+                             <span style={{ background: 'rgba(245,158,11,0.15)', color: '#fcd34d', padding: '4px 8px', borderRadius: 4, fontSize: 12, fontWeight: 'bold', border: '1px solid rgba(245,158,11,0.3)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                               ⚠️ AI Flagged
+                             </span>
+                           ) : (
+                             <span style={{ background: 'rgba(16,185,129,0.15)', color: '#6ee7b7', padding: '4px 8px', borderRadius: 4, fontSize: 12, fontWeight: 'bold', border: '1px solid rgba(16,185,129,0.3)' }}>
+                               ✓ AI Verified
+                             </span>
+                           )}
+                           {((q as any).flags || []).map((flag: string, fi: number) => (
+                             <span key={fi} style={{ background: 'rgba(239,68,68,0.1)', color: '#fca5a5', padding: '4px 8px', borderRadius: 4, fontSize: 11, border: '1px solid rgba(239,68,68,0.2)' }}>
+                               {flag.replace(/_/g, ' ')}
+                             </span>
+                           ))}
+                         </div>
+                         <button 
+                            onClick={async () => {
+                              if(await confirm('Delete question?')) {
+                                setExtractedQuestions((extractedQuestions || []).filter((_, i) => i !== qIndex));
+                              }
+                            }}
+                            style={{ background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: 'none', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 'bold', flexShrink: 0 }}
+                         >🗑 Delete</button>
+                       </div>
                        
                        {/* Rendered Math Preview */}
                        {(q.promptRawText || (q.promptBlocks?.[0] as any)?.text) && (
@@ -2279,12 +2302,14 @@ function LogicGamesAdmin() {
                            if (!(await confirm("Some questions do not have a correct answer selected. Add them anyway?"))) return;
                         }
 
-                        await saveQuestionsList([...questions, ...extractedQuestions]);
-                        setAddModalOpen(false);
-                        setExtractedQuestions(null);
-                        setPdfFile(null);
-                        setAnswersFile(null);
-                        setPdfProgress('');
+                        const success = await saveQuestionsList([...questions, ...extractedQuestions]);
+                        if (success) {
+                          setAddModalOpen(false);
+                          setExtractedQuestions(null);
+                          setPdfFile(null);
+                          setAnswersFile(null);
+                          setPdfProgress('');
+                        }
                       }} 
                       className="ll-btn ll-btn-primary" 
                       style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', flex: 1 }}

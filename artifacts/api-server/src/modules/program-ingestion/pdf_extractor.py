@@ -7,6 +7,7 @@ import numpy as np
 import zipfile
 import xml.etree.ElementTree as ET
 import os
+import re
 
 def load_universal_doc(file_path):
     try:
@@ -16,7 +17,7 @@ def load_universal_doc(file_path):
         # If fitz fails (e.g. for .docx, .doc, .rtf, or unsupported format), build a doc in memory
         doc = fitz.open()
         text_content = ""
-        
+
         # Check if it is a Word document (.docx / .pptx ZIP archive)
         if zipfile.is_zipfile(file_path):
             try:
@@ -44,7 +45,7 @@ def load_universal_doc(file_path):
                                 pass
             except Exception:
                 pass
-        
+
         # If no text extracted from ZIP/XML, try reading as plain text (utf-8 or latin-1)
         if not text_content.strip() and len(doc) == 0:
             try:
@@ -52,10 +53,9 @@ def load_universal_doc(file_path):
                     text_content = f.read()
             except Exception:
                 pass
-                
+
         # If we found text content, insert it into PDF pages in memory
         if text_content.strip():
-            # Create standard A4 pages and insert text
             lines = text_content.split('\n')
             current_page = doc.new_page(width=595, height=842)
             y = 40
@@ -72,13 +72,117 @@ def load_universal_doc(file_path):
                             y = 40
                         current_page.insert_text((50, y), line[i:i+100], fontsize=11)
                         y += 16
-        
-        # If still empty after everything, create at least 1 blank page with filename so pipeline doesn't crash
+
+        # If still empty after everything, create at least 1 blank page
         if len(doc) == 0:
             p = doc.new_page(width=595, height=842)
             p.insert_text((50, 50), f"[Document Content from {os.path.basename(file_path)}]", fontsize=12)
-            
+
         return doc
+
+
+def auto_trim_crop(crop_img):
+    """Trim excess white/empty border from a cropped image, then re-add a small padding."""
+    if crop_img is None or crop_img.size == 0:
+        return crop_img
+    gray_crop = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY) if len(crop_img.shape) == 3 else crop_img.copy()
+    # Invert so content is white on black for findNonZero
+    _, thresh_crop = cv2.threshold(gray_crop, 250, 255, cv2.THRESH_BINARY_INV)
+    coords = cv2.findNonZero(thresh_crop)
+    if coords is None:
+        return crop_img  # All-white — return as-is
+    x, y, w, h = cv2.boundingRect(coords)
+    # Add a small padding back (8px) to not cut edges
+    pad = 8
+    x0 = max(0, x - pad)
+    y0 = max(0, y - pad)
+    x1 = min(crop_img.shape[1], x + w + pad)
+    y1 = min(crop_img.shape[0], y + h + pad)
+    trimmed = crop_img[y0:y1, x0:x1]
+    if trimmed.size == 0:
+        return crop_img
+    return trimmed
+
+
+def draw_label_with_bg(img, label, x, y, font_scale=1.0, thickness=2):
+    """Draw a label string with a white filled background rectangle for maximum readability."""
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    (lw, lh), baseline = cv2.getTextSize(label, font, font_scale, thickness)
+    lx = x
+    ly = max(y - 12, lh + 6)
+    # White background rectangle
+    cv2.rectangle(img, (lx - 3, ly - lh - 5), (lx + lw + 5, ly + baseline + 2), (255, 255, 255), -1)
+    # Red border for visibility
+    cv2.rectangle(img, (lx - 3, ly - lh - 5), (lx + lw + 5, ly + baseline + 2), (0, 0, 220), 2)
+    cv2.putText(img, label, (lx, ly), font, font_scale, (0, 0, 200), thickness)
+
+
+def overlaps_native(vbox, native_boxes, threshold=0.5):
+    """Check if a vector box substantially overlaps with any native image box."""
+    vx0, vy0, vx1, vy1 = vbox
+    va = max(0, vx1 - vx0) * max(0, vy1 - vy0)
+    if va == 0:
+        return True
+    for nb in native_boxes:
+        nx0, ny0, nx1, ny1 = nb
+        ix0, iy0 = max(vx0, nx0), max(vy0, ny0)
+        ix1, iy1 = min(vx1, nx1), min(vy1, ny1)
+        inter = max(0, ix1 - ix0) * max(0, iy1 - iy0)
+        if inter / va > threshold:
+            return True
+    return False
+
+
+def merge_boxes(boxes, tolerance=20):
+    """Merge overlapping or closely adjacent bounding boxes."""
+    if not boxes:
+        return []
+    merged = True
+    while merged:
+        merged = False
+        new_boxes = []
+        while boxes:
+            box = boxes.pop(0)
+            x0, y0, x1, y1 = box
+            i = 0
+            while i < len(boxes):
+                bx0, by0, bx1, by1 = boxes[i]
+                if not (x1 + tolerance < bx0 or bx1 + tolerance < x0 or y1 + tolerance < by0 or by1 + tolerance < y0):
+                    x0 = min(x0, bx0)
+                    y0 = min(y0, by0)
+                    x1 = max(x1, bx1)
+                    y1 = max(y1, by1)
+                    boxes.pop(i)
+                    merged = True
+                else:
+                    i += 1
+            new_boxes.append([x0, y0, x1, y1])
+        boxes = new_boxes
+    return [{'bbox': b} for b in boxes]
+
+
+def sort_reading_order(boxes):
+    """Sort bboxes in natural reading order (top-to-bottom, left-to-right)."""
+    if not boxes:
+        return []
+    boxes.sort(key=lambda d: d['bbox'][1])
+    rows = []
+    current_row = [boxes[0]]
+    current_y = boxes[0]['bbox'][1]
+    for box in boxes[1:]:
+        if abs(box['bbox'][1] - current_y) < 40:
+            current_row.append(box)
+        else:
+            rows.append(current_row)
+            current_row = [box]
+            current_y = box['bbox'][1]
+    rows.append(current_row)
+    sorted_boxes = []
+    for row in rows:
+        row.sort(key=lambda d: d['bbox'][0])
+        sorted_boxes.extend(row)
+    return sorted_boxes
+
 
 def extract_pdf(pdf_path, mode="text"):
     doc = load_universal_doc(pdf_path)
@@ -89,11 +193,10 @@ def extract_pdf(pdf_path, mode="text"):
         page = doc[i]
 
         if mode == "render":
-            # 1. Rasterize page (2x scale to stay under Groq token limits!)
-            zoom_matrix = fitz.Matrix(2, 2)
+            SCALE = 2.0  # 2x zoom for clarity
+            zoom_matrix = fitz.Matrix(SCALE, SCALE)
             pix = page.get_pixmap(matrix=zoom_matrix, alpha=False)
-            
-            # Convert to numpy array for OpenCV
+
             img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
             if pix.n == 4:
                 img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
@@ -101,162 +204,216 @@ def extract_pdf(pdf_path, mode="text"):
                 img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
             clean_img = img.copy()
+            h_img, w_img = img.shape[:2]
 
-            # 2. Extract text words & blocks for spatial layout matching
+            # ── Extract text blocks for spatial metadata ──────────────────────────
             text_blocks = page.get_text("blocks")
-            text_words = page.get_text("words") # (x0, y0, x1, y1, word, block_no, line_no, word_no)
-            
+            # Determine if this is a scanned/image-based page (very little selectable text)
+            page_text = page.get_text("text").strip()
+            is_scanned_page = len(page_text) < 30
+
+            # ── Priority A: Native raster image XObjects (pixel-perfect bboxes) ──
+            # PyMuPDF knows the exact placement rect of every embedded raster image.
+            # EXCEPTION: If a native image covers most of the page, it is the page background
+            # (e.g. a scanned PNG uploaded as a document). We reject those so that contour
+            # detection can find actual figures within the rendered pixels instead.
+            native_boxes = []
+            page_area = w_img * h_img
+            try:
+                for img_info in page.get_images(full=True):
+                    xref = img_info[0]
+                    rects = page.get_image_rects(xref)
+                    for rect in rects:
+                        if rect.is_empty or rect.is_infinite:
+                            continue
+                        x0 = int(rect.x0 * SCALE)
+                        y0 = int(rect.y0 * SCALE)
+                        x1 = int(rect.x1 * SCALE)
+                        y1 = int(rect.y1 * SCALE)
+                        # Clamp to image bounds
+                        x0, y0 = max(0, x0), max(0, y0)
+                        x1, y1 = min(w_img, x1), min(h_img, y1)
+                        w_box = x1 - x0
+                        h_box = y1 - y0
+                        box_area = w_box * h_box
+                        if box_area < 500:
+                            continue
+                        # CRITICAL: Reject background/full-page images.
+                        # If one native image covers >55% of the page, it is the scan background,
+                        # not a figure. We let contour detection handle these pages instead.
+                        if box_area / page_area > 0.55:
+                            continue
+                        # Filter header/footer noise
+                        cy = (y0 + y1) / 2.0
+                        if (cy < h_img * 0.04 or cy > h_img * 0.96) and h_box < 50:
+                            continue
+                        native_boxes.append([x0, y0, x1, y1])
+            except Exception:
+                pass
+
+            # ── Priority B: OpenCV contour detection for vector / drawn figures ──
+            # Mask out all text blocks AND native image areas before detecting contours
+            # so that only pure vector-drawn shapes remain.
             mask_img = img.copy()
             for b in text_blocks:
-                # block_type == 0 means text
-                if b[6] == 0:
-                    x0, y0, x1, y1 = [int(v * 2) for v in b[:4]]
-                    # Expand the text mask slightly to ensure text is fully erased
-                    cv2.rectangle(mask_img, (max(0, x0-2), max(0, y0-2)), (x1+2, y1+2), (255, 255, 255), -1)
+                if b[6] == 0:  # text block
+                    bx0, by0, bx1, by1 = [int(v * SCALE) for v in b[:4]]
+                    cv2.rectangle(mask_img, (max(0, bx0 - 2), max(0, by0 - 2)), (bx1 + 2, by1 + 2), (255, 255, 255), -1)
+            # Also mask out native image regions to prevent duplicate detection
+            for nb in native_boxes:
+                cv2.rectangle(mask_img, (nb[0], nb[1]), (nb[2], nb[3]), (255, 255, 255), -1)
 
-            # 3. Contour Detection
             gray = cv2.cvtColor(mask_img, cv2.COLOR_BGR2GRAY)
-            # Threshold to get dark elements on white background
             _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
-            
-            # Morphological operations to group nearby lines/shapes into single figures
-            kernel = np.ones((15, 15), np.uint8)
+
+            # TIGHTER kernel (8×8 instead of 15×15) to avoid merging separate question elements
+            kernel = np.ones((8, 8), np.uint8)
             dilated = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-            dilated = cv2.dilate(dilated, kernel, iterations=2)
+            dilated = cv2.dilate(dilated, kernel, iterations=1)  # Only 1 iteration
 
             contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            # Filter contours and gather initial boxes
-            min_area = 200
-            h_img, w_img = img.shape[:2]
-            raw_boxes = []
+
+            # Adaptive minimum area: scanned pages need a much higher threshold because
+            # character glyphs like "(A)", "(B)" etc. appear as small dark blobs.
+            # Digital PDF pages: 500px minimum. Scanned pages: 3500px minimum.
+            min_contour_area = 3500 if is_scanned_page else 500
+
+            vector_boxes = []
             for c in contours:
                 x, y, w, h = cv2.boundingRect(c)
-                if w * h > min_area:
-                    # Filter out thin header/footer noise (top/bottom 4% of page)
-                    cy = y + h / 2.0
-                    if (cy < h_img * 0.04 or cy > h_img * 0.96) and h < 50:
-                        continue
-                    raw_boxes.append([x, y, x+w, y+h])
+                area = w * h
+                if area < min_contour_area:
+                    continue
+                # Minimum absolute dimensions — nothing that could be a single character or letter label
+                if w < 40 or h < 40:
+                    continue
+                # Filter header/footer noise
+                cy = y + h / 2.0
+                if (cy < h_img * 0.04 or cy > h_img * 0.96) and h < 60:
+                    continue
+                # CRITICAL: Reject contours that span too much of the page — these are
+                # almost certainly a full-question-block merge artifact, not a real figure.
+                width_ratio = w / w_img
+                height_ratio = h / h_img
+                if width_ratio > 0.75 and height_ratio > 0.30:
+                    continue
+                # Reject by absolute area (>25% of page = suspicious merge)
+                if area > (w_img * h_img * 0.25):
+                    continue
+                # Reject very narrow tall strips or very wide flat strips (table lines, separators)
+                aspect = max(w, h) / max(min(w, h), 1)
+                if aspect > 12:
+                    continue
+                vector_boxes.append([x, y, x + w, y + h])
 
-            # Merge overlapping or closely adjacent bounding boxes (Spatial Consolidation)
-            def merge_boxes(boxes, tolerance=35):
-                if not boxes:
-                    return []
-                merged = True
-                while merged:
-                    merged = False
-                    new_boxes = []
-                    while boxes:
-                        box = boxes.pop(0)
-                        x0, y0, x1, y1 = box
-                        i = 0
-                        while i < len(boxes):
-                            bx0, by0, bx1, by1 = boxes[i]
-                            # Check if boxes overlap or are within tolerance distance
-                            if not (x1 + tolerance < bx0 or bx1 + tolerance < x0 or y1 + tolerance < by0 or by1 + tolerance < y0):
-                                x0 = min(x0, bx0)
-                                y0 = min(y0, by0)
-                                x1 = max(x1, bx1)
-                                y1 = max(y1, by1)
-                                boxes.pop(i)
-                                merged = True
-                            else:
-                                i += 1
-                        new_boxes.append([x0, y0, x1, y1])
-                    boxes = new_boxes
-                return [{'bbox': b} for b in boxes]
+            # Merge nearby vector boxes (smaller tolerance than before to keep figures separate)
+            vector_bboxes = merge_boxes(vector_boxes, tolerance=20)
 
-            bboxes = merge_boxes(raw_boxes)
+            # Combine: native raster images first (most accurate), then non-overlapping vector figures
+            all_raw_boxes = [{'bbox': b} for b in native_boxes]
+            for vb in vector_bboxes:
+                if not overlaps_native(vb['bbox'], native_boxes, threshold=0.4):
+                    all_raw_boxes.append(vb)
 
-            # Sort reading order (group by rows)
-            def sort_reading_order(boxes):
-                if not boxes: return []
-                boxes.sort(key=lambda d: d['bbox'][1])
-                rows = []
-                current_row = [boxes[0]]
-                current_y = boxes[0]['bbox'][1]
-                for box in boxes[1:]:
-                    if abs(box['bbox'][1] - current_y) < 40:
-                        current_row.append(box)
-                    else:
-                        rows.append(current_row)
-                        current_row = [box]
-                        current_y = box['bbox'][1]
-                rows.append(current_row)
-                
-                sorted_boxes = []
-                for row in rows:
-                    row.sort(key=lambda d: d['bbox'][0])
-                    sorted_boxes.extend(row)
-                return sorted_boxes
-
-            bboxes = sort_reading_order(bboxes)
+            # Sort in reading order
+            bboxes = sort_reading_order(all_raw_boxes)
 
             images_dict = {}
             image_metadata = {}
-            
-            import re
 
             for box in bboxes:
                 x0, y0, x1, y1 = box['bbox']
                 label = f"[IMG_{global_img_idx}]"
-                
-                # Draw red box and label on the annotated image
+
+                # Draw red bounding box on annotated page
                 cv2.rectangle(img, (x0, y0), (x1, y1), (0, 0, 255), 3)
-                cv2.putText(img, label, (x0, max(y0 - 10, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-                
-                # Crop from clean image with padding
-                pad = 25
-                cx0 = max(0, x0 - pad)
-                cy0 = max(0, y0 - pad)
-                cx1 = min(w_img, x1 + pad)
-                cy1 = min(h_img, y1 + pad)
+
+                # Draw label with white background above the box for maximum readability
+                draw_label_with_bg(img, label, x0, y0, font_scale=1.0, thickness=2)
+
+                # ── Crop from the clean (unannotated) image ──────────────────────
+                # Native PDF images: no extra padding (already pixel-perfect)
+                # Vector/drawn figures: small padding only
+                is_native = any(abs(x0 - nb[0]) < 6 and abs(y0 - nb[1]) < 6 for nb in native_boxes)
+                if is_native:
+                    cx0, cy0, cx1, cy1 = x0, y0, x1, y1
+                else:
+                    pad = 10
+                    cx0 = max(0, x0 - pad)
+                    cy0 = max(0, y0 - pad)
+                    cx1 = min(w_img, x1 + pad)
+                    cy1 = min(h_img, y1 + pad)
+
                 cropped = clean_img[cy0:cy1, cx0:cx1]
-                
-                # Convert to base64
+                # Auto-trim excess whitespace from the crop
+                cropped = auto_trim_crop(cropped)
+
                 success, buffer = cv2.imencode('.png', cropped)
                 if success:
                     b64_img = base64.b64encode(buffer).decode('utf-8')
                     images_dict[label] = f"data:image/png;base64,{b64_img}"
 
-                # Deterministic Proximity Analysis: Find nearest text line above or choice label beside
+                # ── Spatial proximity analysis ────────────────────────────────────
+                # Find the nearest choice label (A, B, C...) to the LEFT of or DIRECTLY ABOVE the image.
+                # This is used as a deterministic fallback when the AI misidentifies image placements.
                 nearest_text_before = ""
                 nearest_choice_label = None
                 min_y_dist = float('inf')
                 min_x_dist = float('inf')
 
                 for tb in text_blocks:
-                    if tb[6] != 0: continue
-                    tx0, ty0, tx1, ty1 = [int(v * 2) for v in tb[:4]]
+                    if tb[6] != 0:
+                        continue
+                    tx0_s = int(tb[0] * SCALE)
+                    ty0_s = int(tb[1] * SCALE)
+                    tx1_s = int(tb[2] * SCALE)
+                    ty1_s = int(tb[3] * SCALE)
                     t_str = tb[4].strip()
-                    if not t_str: continue
+                    if not t_str:
+                        continue
 
-                    # Check for horizontal proximity (choice label to the left of image)
-                    if max(y0, ty0) < min(y1, ty1) + 20: # Overlaps vertically
-                        if tx1 <= x0 + 20 and (x0 - tx1) < min_x_dist and (x0 - tx1) < 150:
-                            min_x_dist = x0 - tx1
-                            # Check if t_str is a choice label like A), B., C), Option D
-                            m = re.match(r'^(?:Option\s*)?([A-Ea-e])[\.\)\:]|\b([A-Ea-e])[\.\)\:]', t_str)
+                    # Direction 1: choice label to the LEFT of this image (same vertical band)
+                    vert_overlap = max(y0, ty0_s) < min(y1, ty1_s) + 20
+                    if vert_overlap and tx1_s <= x0 + 20 and (x0 - tx1_s) < min_x_dist and (x0 - tx1_s) < 160:
+                        min_x_dist = x0 - tx1_s
+                        m = re.match(r'^(?:Option\s*)?([A-Ea-e])[\.\)\:]', t_str.strip())
+                        if not m:
+                            m = re.search(r'\b([A-Ea-e])[\.\)\:]', t_str.strip())
+                        if m:
+                            nearest_choice_label = (m.group(1)).upper()
+
+                    # Direction 2: choice label DIRECTLY ABOVE the image (close vertical distance)
+                    if nearest_choice_label is None:
+                        is_above = ty1_s <= y0 + 5 and (y0 - ty1_s) < 80
+                        horiz_align = (max(x0, tx0_s) < min(x1, tx1_s)) or (abs(x0 - tx0_s) < 100)
+                        if is_above and horiz_align and (y0 - ty1_s) < min_y_dist:
+                            m = re.match(r'^(?:Option\s*)?([A-Ea-e])[\.\)\:]', t_str.strip())
+                            if not m:
+                                m = re.search(r'\b([A-Ea-e])[\.\)\:]', t_str.strip())
                             if m:
-                                nearest_choice_label = (m.group(1) or m.group(2)).upper()
+                                min_y_dist = y0 - ty1_s
+                                nearest_choice_label = (m.group(1)).upper()
 
-                    # Check for vertical proximity (text block directly above image)
-                    if ty1 <= y0 + 10 and (y0 - ty1) < min_y_dist and (y0 - ty1) < 250:
-                        # Check horizontal overlap
-                        if max(x0, tx0) < min(x1, tx1) or abs(x0 - tx0) < 200:
-                            min_y_dist = y0 - ty1
-                            nearest_text_before = t_str[:150].replace('\n', ' ')
+                    # Vertical proximity above for question context (used by controller.ts matching)
+                    if ty1_s <= y0 + 10 and (y0 - ty1_s) < 300:
+                        horiz_overlap = (max(x0, tx0_s) < min(x1, tx1_s)) or (abs(x0 - tx0_s) < 200)
+                        if horiz_overlap:
+                            dist = y0 - ty1_s
+                            # Track the closest text block above (regardless of it being a choice label)
+                            existing_dist = min_y_dist if nearest_choice_label is None else float('inf')
+                            if dist < existing_dist:
+                                nearest_text_before = t_str[:150].replace('\n', ' ')
 
                 image_metadata[label] = {
                     "bbox": [x0, y0, x1, y1],
                     "nearestTextBefore": nearest_text_before,
-                    "nearestChoiceLabel": nearest_choice_label
+                    "nearestChoiceLabel": nearest_choice_label,
+                    "isNativeImage": is_native,
                 }
-                
+
                 global_img_idx += 1
 
-            # Encode full page with red boxes to base64 for vision model
+            # Encode full annotated page PNG for the vision model
             success, buffer = cv2.imencode('.png', img)
             b64_png = base64.b64encode(buffer).decode("ascii")
 
@@ -264,10 +421,11 @@ def extract_pdf(pdf_path, mode="text"):
                 "page": i + 1,
                 "pngBase64": b64_png,
                 "images": images_dict,
-                "imageMetadata": image_metadata
+                "imageMetadata": image_metadata,
             })
+
         else:
-            # Original text extraction mode
+            # Original text extraction mode (used for answer key PDFs)
             text = page.get_text("text")
             images = []
             image_list = page.get_images(full=True)
@@ -283,14 +441,15 @@ def extract_pdf(pdf_path, mode="text"):
                     images.append(data_uri)
                 except Exception:
                     pass
-                
+
             pages_data.append({
                 "page": i + 1,
                 "text": text.strip(),
-                "images": images
+                "images": images,
             })
 
     print(json.dumps({"pages": pages_data}))
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
