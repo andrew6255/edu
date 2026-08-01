@@ -243,7 +243,6 @@ interface PageCanvasProps {
   onAnnotationAdd: (pageId: string, ann: TextAnnotation) => void;
   onAnnotationUpdate: (pageId: string, annId: string, text: string) => void;
   scale: number;
-  onToggleAI?: () => void;
 }
 
 const LatexRenderer = ({ content }: { content?: string }) => {
@@ -268,9 +267,25 @@ const LatexRenderer = ({ content }: { content?: string }) => {
   );
 };
 
+const QuestionText = ({ content }: { content?: string }) => {
+  if (!content) return null;
+  const normalized = content.replace(/<br\s*\/?>/gi, '\n');
+  const renderLine = (line: string, lineIndex: number) => {
+    const parts = line.split(/(\*\*[^*]+\*\*|__[^_]+__|\+\+[^+]+\+\+|<u>[\s\S]*?<\/u>)/gi);
+    return <div key={lineIndex} className={line.trim() ? 'fsw-question-line' : 'fsw-question-line blank'}>{parts.map((part, partIndex) => {
+      if (part.startsWith('**') && part.endsWith('**')) return <strong key={partIndex}><LatexRenderer content={part.slice(2, -2)} /></strong>;
+      if (part.startsWith('__') && part.endsWith('__')) return <u key={partIndex}><LatexRenderer content={part.slice(2, -2)} /></u>;
+      if (part.startsWith('++') && part.endsWith('++')) return <u key={partIndex}><LatexRenderer content={part.slice(2, -2)} /></u>;
+      if (/^<u>/i.test(part) && /<\/u>$/i.test(part)) return <u key={partIndex}><LatexRenderer content={part.slice(3, -4)} /></u>;
+      return <LatexRenderer key={partIndex} content={part} />;
+    })}</div>;
+  };
+  return <div className="fsw-question-content">{normalized.split(/\r?\n/).map(renderLine)}</div>;
+};
+
 const PageCanvas = memo(function PageCanvas({
   page, pageIndex, currentQuestion, activeTool, eraserMode, strokeColor, strokeWidth,
-  onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, scale, onToggleAI, testGrade
+  onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, scale, testGrade
 }: PageCanvasProps & { testGrade?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
@@ -473,23 +488,15 @@ const PageCanvas = memo(function PageCanvas({
         return (
           <div className="fsw-static-question" style={{ position: 'relative', zIndex: 10, pointerEvents: 'none' }}>
             {/* Main Context / Given */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, background: isMulti ? 'rgba(255,255,255,0.7)' : 'transparent', padding: isMulti ? '12px' : 0, borderRadius: 8 }}>
+            <div style={{ marginBottom: 8, background: isMulti ? 'rgba(255,255,255,0.7)' : 'transparent', padding: isMulti ? '12px' : 0, borderRadius: 8 }}>
               <div style={{ flex: 1, paddingRight: 16 }}>
-                <strong style={{ color: '#4f46e5' }}>{isMulti ? 'Given:' : 'Question:'}</strong> <LatexRenderer content={mainText} />
+                <QuestionText content={mainText} />
                 {testGrade && (
                   <div style={{ marginTop: 8, fontSize: 18, fontWeight: 'bold', color: '#ef4444' }}>
                     {testGrade}
                   </div>
                 )}
               </div>
-              {onToggleAI && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--ll-surface-1)', padding: '6px 10px', borderRadius: 20, cursor: 'pointer', border: '1px solid var(--ll-border)', pointerEvents: 'auto' }} onClick={onToggleAI} onPointerDown={e => e.stopPropagation()}>
-                  <span style={{ fontSize: 12, fontWeight: 'bold', color: 'var(--ll-text-muted)' }}>AI Tutor</span>
-                  <div style={{ width: 32, height: 18, borderRadius: 10, background: 'var(--ll-surface-3)', position: 'relative', transition: '0.2s' }}>
-                    <div style={{ position: 'absolute', top: 2, left: 2, width: 14, height: 14, borderRadius: '50%', background: 'white', transition: '0.2s' }} />
-                  </div>
-                </div>
-              )}
             </div>
             
             {/* Subquestions with dynamic spacing */}
@@ -503,10 +510,13 @@ const PageCanvas = memo(function PageCanvas({
                     right: 0, 
                     color: '#1e293b', 
                     fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 8,
                     transition: 'top 0.3s ease-out'
                   }}>
-                    <span style={{ color: '#4f46e5', marginRight: 8 }}>{sq.label}</span>
-                    <LatexRenderer content={sq.rawText} />
+                    <span style={{ color: '#4f46e5', flexShrink: 0 }}>{sq.label}</span>
+                    <div style={{ flex: 1 }}><QuestionText content={sq.rawText} /></div>
                   </div>
                 ))}
               </div>
@@ -593,9 +603,18 @@ interface FullScreenWorkspaceProps {
   onTestDone?: (pagesImages: string[]) => void;
   testGrade?: string;
   showAiSwitch?: boolean;
+  questionNavigation?: {
+    current: number;
+    total: number;
+    canPrevious: boolean;
+    canNext: boolean;
+    onPrevious: () => void;
+    onNext: () => void;
+    saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
+  };
 }
 
-export default function FullScreenWorkspace({ onClose, currentQuestion, initialPages, onPagesChange, isTestMode, onTestDone, testGrade, showAiSwitch }: FullScreenWorkspaceProps) {
+export default function FullScreenWorkspace({ onClose, currentQuestion, initialPages, onPagesChange, isTestMode, onTestDone, testGrade, showAiSwitch, questionNavigation }: FullScreenWorkspaceProps) {
   // ── AI Panel State ──
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
 
@@ -996,17 +1015,24 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
   const totalAnnotations = pages.reduce((s, p) => s + p.annotations.filter(a => a.text).length, 0);
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', background: '#fff' }}>
 
-      {/* ═══ BACK BUTTON ═══ */}
-      <button 
-        onClick={onClose} 
-        style={{ position: 'absolute', top: 16, left: 16, zIndex: 9999, padding: '8px 16px', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'white', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 6, backdropFilter: 'blur(10px)', boxShadow: '0 4px 12px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}
-        onMouseOver={e => e.currentTarget.style.background = 'rgba(30, 41, 59, 0.9)'}
-        onMouseOut={e => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.8)'}
-      >
-        <span>←</span> Back
-      </button>
+      <div className="fsw-workspace-toolbar">
+        <button type="button" onClick={onClose} className="fsw-toolbar-button">← Back</button>
+        <div className="fsw-toolbar-status">
+          {questionNavigation && <span>Question {questionNavigation.current} of {questionNavigation.total}</span>}
+          {questionNavigation?.saveStatus === 'saving' && <span className="fsw-saving">Saving…</span>}
+          {questionNavigation?.saveStatus === 'saved' && <span className="fsw-saved">Saved</span>}
+        </div>
+        <div className="fsw-toolbar-actions">
+          {questionNavigation && <>
+            <button type="button" className="fsw-toolbar-button" onClick={questionNavigation.onPrevious} disabled={!questionNavigation.canPrevious}>‹ Prev</button>
+            <button type="button" className="fsw-toolbar-button" onClick={questionNavigation.onNext} disabled={!questionNavigation.canNext}>Next ›</button>
+          </>}
+          <button type="button" className={`fsw-toolbar-button ${toolboxOpen ? 'active' : ''}`} onClick={() => setToolboxOpen(open => !open)} aria-expanded={toolboxOpen} title="Drawing toolbox">🧰 Toolbox</button>
+          {(showAiSwitch || !isTestMode) && <button type="button" className={`fsw-ai-switch ${aiPanelOpen ? 'active' : ''}`} onClick={() => setAiPanelOpen(open => !open)} aria-pressed={aiPanelOpen}><span>AI Tutor</span><span className="fsw-ai-switch-track"><span /></span></button>}
+        </div>
+      </div>
 
       {/* ═══ SCROLLABLE PAGE CONTAINER ═══ */}
       <div className="fsw-scroll" ref={scrollRef} style={{ paddingBottom: aiPanelOpen ? 370 : 0 }}>
@@ -1026,7 +1052,6 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
               onAnnotationAdd={handleAnnotationAdd}
               onAnnotationUpdate={handleAnnotationUpdate}
               scale={scale}
-              onToggleAI={showAiSwitch || !isTestMode ? () => setAiPanelOpen(true) : undefined}
               testGrade={testGrade}
             />
           ))}
@@ -1117,14 +1142,6 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           <button className="fsw-dock-btn fsw-dock-btn-clear" onClick={handleClearPage} title="Clear Page">🗑️</button>
         </div>
 
-        {/* FAB toggle */}
-        <button
-          className="fsw-fab"
-          onClick={() => setToolboxOpen(o => !o)}
-          title="Toolbox"
-        >
-          {toolboxOpen ? '✕' : '🧰'}
-        </button>
       </div>
 
       {/* ═══ OUTPUT MODAL — Live canvas snapshots ═══ */}
@@ -1355,14 +1372,77 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         }
 
         /* ── Scroll Container ── */
+        .fsw-workspace-toolbar {
+          min-height: 54px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 12px;
+          background: #f8fafc;
+          border-bottom: 1px solid #dbe3ee;
+          color: #334155;
+          flex-shrink: 0;
+          z-index: 120;
+          box-shadow: 0 2px 10px rgba(15,23,42,0.05);
+        }
+        .fsw-toolbar-status {
+          flex: 1;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 10px;
+          color: #64748b;
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .fsw-toolbar-actions { display: flex; align-items: center; gap: 7px; }
+        .fsw-toolbar-button {
+          min-height: 36px;
+          padding: 7px 11px;
+          border-radius: 9px;
+          border: 1px solid #cbd5e1;
+          background: #fff;
+          color: #334155;
+          font-family: inherit;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: 0.16s ease;
+          white-space: nowrap;
+        }
+        .fsw-toolbar-button:hover:not(:disabled), .fsw-toolbar-button.active { border-color: #818cf8; color: #4338ca; background: #eef2ff; }
+        .fsw-toolbar-button:disabled { opacity: 0.38; cursor: not-allowed; }
+        .fsw-saving { color: #d97706; }
+        .fsw-saved { color: #059669; }
+        .fsw-ai-switch {
+          min-height: 36px;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 9px;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          background: #fff;
+          color: #475569;
+          font-family: inherit;
+          font-size: 11px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+        .fsw-ai-switch.active { color: #6d28d9; border-color: #a78bfa; background: #f5f3ff; }
+        .fsw-ai-switch-track { width: 31px; height: 18px; padding: 2px; border-radius: 99px; background: #cbd5e1; transition: 0.2s; }
+        .fsw-ai-switch-track > span { display: block; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(15,23,42,.28); transition: transform .2s; }
+        .fsw-ai-switch.active .fsw-ai-switch-track { background: #8b5cf6; }
+        .fsw-ai-switch.active .fsw-ai-switch-track > span { transform: translateX(13px); }
+
         .fsw-scroll {
           flex: 1;
           overflow-y: auto;
           overflow-x: hidden;
-          background: #09090b;
+          background: #ffffff;
           display: flex;
           justify-content: center;
-          padding: 40px 0;
+          padding: 0;
           overscroll-behavior: none;
         }
         
@@ -1371,15 +1451,15 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           top: 10px;
           left: 20px;
           right: 20px;
-          background: rgba(255, 255, 255, 0.85);
-          backdrop-filter: blur(8px);
-          border: 1px solid rgba(79, 70, 229, 0.2);
-          border-radius: 8px;
-          padding: 12px 16px;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-          font-size: 16px;
-          color: #1f2937;
-          line-height: 1.5;
+          background: #ffffff;
+          border-left: 4px solid #6366f1;
+          border-radius: 0 10px 10px 0;
+          padding: 14px 18px;
+          font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          font-size: 18px;
+          color: #172033;
+          line-height: 1.65;
+          box-shadow: 0 4px 18px rgba(15,23,42,.07);
           z-index: 1;
           pointer-events: none;
         }
@@ -1388,18 +1468,22 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           display: flex;
           flex-direction: column;
           align-items: center;
-          padding: 40px 20px 120px;
+          width: 100%;
+          padding: 0 0 80px;
         }
+
+        .fsw-question-content { display: flex; flex-direction: column; gap: 3px; letter-spacing: .002em; }
+        .fsw-question-line { min-height: 1.65em; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .fsw-question-line.blank { min-height: .8em; }
+        .fsw-question-content strong { font-weight: 850; color: #111827; }
+        .fsw-question-content u { text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-color: #6366f1; }
 
         /* ── A4 Page ── */
         .fsw-page {
           position: relative;
           background: #ffffff;
-          border-radius: 4px;
-          box-shadow:
-            0 2px 8px rgba(0,0,0,0.25),
-            0 12px 40px rgba(0,0,0,0.15),
-            0 0 0 1px rgba(255,255,255,0.04);
+          border-radius: 0;
+          box-shadow: none;
           overflow: hidden;
           flex-shrink: 0;
         }
@@ -1468,27 +1552,22 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         /* ── Floating Toolbox ── */
         .fsw-toolbox {
           position: absolute;
-          bottom: 24px;
-          left: 50%;
-          transform: translateX(-50%);
-          z-index: 100;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 10px;
+          top: 58px;
+          right: 12px;
+          z-index: 130;
         }
         .fsw-dock {
           display: flex;
           align-items: center;
           gap: 6px;
           padding: 8px 14px;
-          background: rgba(24,24,27,0.88);
-          backdrop-filter: blur(24px) saturate(1.4);
-          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.98);
+          backdrop-filter: blur(24px) saturate(1.2);
+          border: 1px solid #dbe3ee;
           border-radius: 16px;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+          box-shadow: 0 14px 38px rgba(15,23,42,0.18);
           opacity: 0;
-          transform: translateY(20px) scale(0.92);
+          transform: translateY(-8px) scale(0.96);
           pointer-events: none;
           transition: all 0.28s cubic-bezier(0.34,1.56,0.64,1);
         }
@@ -1497,28 +1576,6 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           transform: translateY(0) scale(1);
           pointer-events: auto;
         }
-        .fsw-fab {
-          width: 52px;
-          height: 52px;
-          border-radius: 50%;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(24,24,27,0.9);
-          backdrop-filter: blur(20px);
-          color: white;
-          font-size: 22px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-          transition: all 0.2s ease;
-        }
-        .fsw-fab:hover {
-          background: rgba(40,40,44,0.95);
-          box-shadow: 0 6px 28px rgba(0,0,0,0.5);
-          transform: scale(1.05);
-        }
-
         /* Dock buttons */
         .fsw-dock-btn {
           width: 36px;
@@ -1526,7 +1583,7 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           border-radius: 10px;
           border: 1px solid transparent;
           background: transparent;
-          color: #a1a1aa;
+          color: #475569;
           font-size: 16px;
           cursor: pointer;
           display: flex;
@@ -1535,8 +1592,8 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           transition: all 0.15s ease;
         }
         .fsw-dock-btn:hover {
-          background: rgba(255,255,255,0.08);
-          color: white;
+          background: #f1f5f9;
+          color: #0f172a;
         }
         .fsw-dock-btn.active {
           background: rgba(59,130,246,0.2);
@@ -1553,7 +1610,7 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         .fsw-dock-divider {
           width: 1px;
           height: 24px;
-          background: rgba(255,255,255,0.08);
+          background: #e2e8f0;
           margin: 0 4px;
         }
 
@@ -1572,8 +1629,9 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           top: -34px;
           left: 50%;
           transform: translateX(-50%);
-          background: rgba(24,24,27,0.95);
-          border: 1px solid rgba(255,255,255,0.1);
+          background: #ffffff;
+          border: 1px solid #dbe3ee;
+          box-shadow: 0 8px 24px rgba(15,23,42,.14);
           border-radius: 8px;
           padding: 3px;
           white-space: nowrap;
@@ -1612,8 +1670,8 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         }
         .fsw-color-dot:hover { transform: scale(1.2); }
         .fsw-color-dot.active {
-          border-color: white;
-          box-shadow: 0 0 8px rgba(255,255,255,0.3);
+          border-color: #0f172a;
+          box-shadow: 0 0 0 2px rgba(255,255,255,.9), 0 0 0 3px rgba(15,23,42,.25);
           transform: scale(1.15);
         }
 
@@ -1820,6 +1878,16 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         }
         @keyframes fsw-spin {
           to { transform: rotate(360deg); }
+        }
+        @media (max-width: 760px) {
+          .fsw-workspace-toolbar { flex-wrap: wrap; gap: 6px; padding: 7px 8px; }
+          .fsw-toolbar-status { order: 3; flex-basis: 100%; min-height: 20px; }
+          .fsw-toolbar-actions { margin-left: auto; gap: 5px; }
+          .fsw-toolbar-button, .fsw-ai-switch { padding: 6px 8px; }
+          .fsw-ai-switch > span:first-child { display: none; }
+          .fsw-toolbox { top: 94px; right: 8px; max-width: calc(100vw - 16px); }
+          .fsw-dock { max-width: calc(100vw - 16px); overflow-x: auto; padding: 7px 9px; }
+          .fsw-static-question { left: 12px; right: 12px; padding: 12px 14px; font-size: 16px; }
         }
       `}</style>
     </div>

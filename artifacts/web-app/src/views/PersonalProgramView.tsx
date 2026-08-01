@@ -370,32 +370,6 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
   if (activeQuestionId && activeQuestion) {
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', flexDirection: 'column', background: 'var(--ll-surface-0)' }}>
-        {/* Top bar */}
-        <div style={{
-          padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8,
-          background: 'var(--ll-surface-1)', borderBottom: '1px solid var(--ll-border)',
-          flexShrink: 0, zIndex: 10,
-        }}>
-          <button onClick={closeWhiteboard} className="ll-btn" style={{ padding: '6px 12px', fontSize: 11 }}>← Back</button>
-          <span style={{ color: 'var(--ll-text-muted)', fontSize: 11, flex: 1, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-            <span>Question {currentQuestionIndex + 1} of {allQuestions.length}</span>
-            {saveStatus === 'saving' && <span style={{ color: '#fbbf24', animation: 'pulse 1.5s infinite' }}>Saving...</span>}
-            {saveStatus === 'saved' && <span style={{ color: '#10b981' }}>Saved</span>}
-          </span>
-          <button
-            onClick={() => goToQuestion('prev')}
-            disabled={currentQuestionIndex <= 0}
-            className="ll-btn"
-            style={{ padding: '6px 10px', fontSize: 11, opacity: currentQuestionIndex <= 0 ? 0.4 : 1 }}
-          >‹ Prev</button>
-          <button
-            onClick={() => goToQuestion('next')}
-            disabled={currentQuestionIndex >= allQuestions.length - 1}
-            className="ll-btn"
-            style={{ padding: '6px 10px', fontSize: 11, opacity: currentQuestionIndex >= allQuestions.length - 1 ? 0.4 : 1 }}
-          >Next ›</button>
-        </div>
-
         {/* Whiteboard area */}
         <div style={{ flex: 1, overflow: 'hidden' }}>
           {loadingWhiteboard ? (
@@ -408,6 +382,15 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
               onClose={closeWhiteboard}
               initialPages={(whiteboardPages as any) ?? undefined}
               onPagesChange={handleWhiteboardPagesChange as any}
+              questionNavigation={{
+                current: currentQuestionIndex + 1,
+                total: allQuestions.length,
+                canPrevious: currentQuestionIndex > 0,
+                canNext: currentQuestionIndex < allQuestions.length - 1,
+                onPrevious: () => goToQuestion('prev'),
+                onNext: () => goToQuestion('next'),
+                saveStatus,
+              }}
             />
           )}
         </div>
@@ -552,12 +535,12 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
             {displayChildren.map((child: any) => {
-              const isSheet = child.questionTypes && child.questionTypes.length > 0;
+              const isCategory = child.isCategory === true || (child.questionTypes && child.questionTypes.length > 0);
               return (
                 <div
                   key={child.id}
                   onClick={() => {
-                    if (isSheet) {
+                    if (isCategory) {
                       setSelectedSheetNode(child);
                     } else {
                       setCurrentExplorerPath(prev => [...prev, child]);
@@ -569,11 +552,11 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                     borderRadius: 12, cursor: 'pointer'
                   }}
                 >
-                  <span style={{ fontSize: 24 }}>{isSheet ? '📄' : '📁'}</span>
+                  <span style={{ fontSize: 24 }}>{isCategory ? '🏷️' : '📁'}</span>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 'bold', color: 'var(--ll-text)', fontSize: 14 }}>{child.title || (isSheet ? 'Worksheet' : 'Folder')}</div>
+                    <div style={{ fontWeight: 'bold', color: 'var(--ll-text)', fontSize: 14 }}>{child.title || (isCategory ? 'Category' : 'Folder')}</div>
                     <div style={{ color: 'var(--ll-text-muted)', fontSize: 12 }}>
-                      {isSheet ? `${child.questionTypes.length} types` : `${child.children?.length || 0} items`}
+                      {isCategory ? `${child.questionTypes?.length || 0} types` : `${child.children?.length || 0} items`}
                     </div>
                   </div>
                 </div>

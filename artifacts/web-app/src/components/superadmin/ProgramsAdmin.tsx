@@ -507,6 +507,7 @@ export default function ProgramsAdmin() {
   // Question edit popup (inside category view)
   const [editingQuestion, setEditingQuestion] = useState<any | null>(null);
   const [editingQuestionCategoryId, setEditingQuestionCategoryId] = useState<string | null>(null);
+  const [editingQuestionIsNew, setEditingQuestionIsNew] = useState(false);
   const [editQText, setEditQText] = useState('');
   const [editQModelAnswer, setEditQModelAnswer] = useState('');
   const [editQNotes, setEditQNotes] = useState('');
@@ -1036,6 +1037,7 @@ export default function ProgramsAdmin() {
   // ── Question edit popup ──────────────────────────────────────────────────────
 
   function openQuestionEdit(q: any, categoryNodeId: string) {
+    setEditingQuestionIsNew(false);
     setEditingQuestion(q);
     setEditingQuestionCategoryId(categoryNodeId);
     setEditQText(q.promptBlocks?.[0]?.text ?? q.rawText ?? q.question ?? '');
@@ -1057,25 +1059,29 @@ export default function ProgramsAdmin() {
   }
 
   function saveQuestionEdit() {
-    if (!editingQuestion || !editingQuestionCategoryId) return;
+    if (!editingQuestion || !editingQuestionCategoryId || !editQText.trim()) return;
     const catId = editingQuestionCategoryId;
     const qId = editingQuestion.id;
 
     setBuilderAtNode(catId, (n) => {
-      const updatedQts = n.questionTypes.map(qt => {
+      const updatedQuestion = {
+        ...(editingQuestion as any),
+        promptBlocks: [{ type: 'text', text: editQText.trim() }],
+        interaction: (editingQuestion as any).interaction ?? { type: 'free_response' },
+        modelAnswer: editQModelAnswer.trim() || undefined,
+        aiTutorNotes: editQNotes.trim() || undefined,
+      };
+      if (n.questionTypes.length === 0) {
+        return { ...n, questionTypes: [{ id: makeStableId('qt'), title: n.title, jsonText: JSON.stringify([updatedQuestion], null, 2) }] };
+      }
+      const updatedQts = n.questionTypes.map((qt, questionTypeIndex) => {
         let qs: any[] = [];
         try { qs = JSON.parse(qt.jsonText); } catch { qs = []; }
-        const updated = {
-          ...(editingQuestion as any),
-          promptBlocks: [{ type: 'text', text: editQText.trim() }],
-          modelAnswer: editQModelAnswer.trim() || undefined,
-          aiTutorNotes: editQNotes.trim() || undefined,
-        };
         const existingIdx = qs.findIndex((q: any) => q.id === qId);
         if (existingIdx !== -1) {
-          qs[existingIdx] = updated;
-        } else {
-          qs.push(updated);
+          qs[existingIdx] = updatedQuestion;
+        } else if (editingQuestionIsNew && questionTypeIndex === 0) {
+          qs.push(updatedQuestion);
         }
         return { ...qt, jsonText: JSON.stringify(qs, null, 2) };
       });
@@ -1084,13 +1090,15 @@ export default function ProgramsAdmin() {
 
     setEditingQuestion(null);
     setEditingQuestionCategoryId(null);
+    setEditingQuestionIsNew(false);
   }
 
   function openCreateQuestion(categoryNodeId: string) {
     const newId = 'q-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
     const newQ = { id: newId };
     setEditingQuestion(newQ);
-    setEditingQuestionCategoryId(categoryNodeId);
+    setEditingQuestionCategoryId(categoryNodeId || getImportCategories()[0]?.id || null);
+    setEditingQuestionIsNew(true);
     setEditQText('');
     setEditQModelAnswer('');
     setEditQNotes('');
@@ -2130,7 +2138,7 @@ export default function ProgramsAdmin() {
                   📁 New Folder
                 </button>
               )}
-              {/* Create Category & Upload Questions — only available when inside a folder (not at root) and NOT inside categories */}
+              {/* Folder actions — questions are imported through Question Import Studio or created manually here. */}
               {!isAtRoot && !(!!getCurrentNode()?.isCategory) && (
                 <>
                   <button
@@ -2143,40 +2151,24 @@ export default function ProgramsAdmin() {
                   </button>
                   <button
                     className="ll-btn"
-                    onClick={() => openCategoryUpload('folder')}
-                    title="Upload questions to categories in this folder"
-                    style={{ padding: '6px 12px', fontSize: 12, background: 'rgba(59,130,246,0.12)', borderColor: 'rgba(59,130,246,0.45)', color: '#60a5fa' }}
+                    onClick={() => openCreateQuestion('')}
+                    title="Create a question manually and choose its category"
+                    style={{ padding: '6px 12px', fontSize: 12, background: 'rgba(168,85,247,0.12)', borderColor: 'rgba(168,85,247,0.45)', color: '#c4b5fd' }}
                   >
-                    📤 Upload Questions
+                    ✏️ Create Question
                   </button>
                 </>
               )}
-              {/* Inside Category: Upload Questions and Create Question */}
+              {/* Inside a terminal category, create a question directly. */}
               {!!getCurrentNode()?.isCategory && (
-                <>
-                  <button
-                    className="ll-btn"
-                    onClick={() => {
-                      const catId = getCurrentNode()?.id;
-                      if (catId) openCategoryUpload(catId);
-                    }}
-                    title="Upload questions to this category"
-                    style={{ padding: '6px 12px', fontSize: 12, background: 'rgba(59,130,246,0.12)', borderColor: 'rgba(59,130,246,0.45)', color: '#60a5fa' }}
-                  >
-                    📤 Upload Questions
-                  </button>
-                  <button
-                    className="ll-btn"
-                    onClick={() => {
-                      const catId = getCurrentNode()?.id;
-                      if (catId) openQuestionEdit({ id: Math.random().toString(36).substr(2, 9), promptBlocks: [], modelAnswer: '', aiTutorNotes: '' }, catId);
-                    }}
-                    title="Create a new question"
-                    style={{ padding: '6px 12px', fontSize: 12, background: 'rgba(168,85,247,0.12)', borderColor: 'rgba(168,85,247,0.45)', color: '#c4b5fd' }}
-                  >
-                    ✨ Create New Question
-                  </button>
-                </>
+                <button
+                  className="ll-btn"
+                  onClick={() => { const catId = getCurrentNode()?.id; if (catId) openCreateQuestion(catId); }}
+                  title="Create a new question manually"
+                  style={{ padding: '6px 12px', fontSize: 12, background: 'rgba(168,85,247,0.12)', borderColor: 'rgba(168,85,247,0.45)', color: '#c4b5fd' }}
+                >
+                  ✏️ Create Question
+                </button>
               )}
               <div style={{ width: 1, height: 20, background: '#334155', margin: '0 2px' }} />
               <div style={{ minWidth: 96, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
@@ -2203,16 +2195,15 @@ export default function ProgramsAdmin() {
 
             {/* Folder navigation and current location */}
             <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-              {!isAtRoot && (
-                <button
-                  onClick={navigateBack}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', transition: 'all 0.15s' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#475569'; e.currentTarget.style.color = 'white'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94a3b8'; }}
-                >
-                  ← Back
-                </button>
-              )}
+              <button
+                onClick={isAtRoot ? resetToList : navigateBack}
+                title={isAtRoot ? 'Back to Programs List' : 'Back to parent folder'}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', transition: 'all 0.15s', flexShrink: 0 }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#475569'; e.currentTarget.style.color = 'white'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#94a3b8'; }}
+              >
+                ← Back
+              </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 120, maxWidth: 'min(620px, 75vw)', overflow: 'hidden', padding: '5px 8px', borderRadius: 8, background: '#111c31', border: '1px solid #334155' }}>
                 {breadcrumb.map((crumb, i) => (
                   <div key={crumb.id} style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
@@ -2238,27 +2229,19 @@ export default function ProgramsAdmin() {
                 </div>
                 <div style={{ fontSize: 13, color: '#475569', marginBottom: 22 }}>
                   {isAtRoot
-                    ? 'Create a folder to get started. Inside folders you can create categories and upload questions.'
+                    ? 'Create a folder to get started. Use Question Import Studio for files, or create questions manually inside categories.'
                     : (!!getCurrentNode()?.isCategory 
-                       ? 'Upload a PDF to extract questions or create one manually.'
+                       ? 'Create a question manually here, or use Question Import Studio for files.'
                        : 'Create a folder or add categories to this folder.')}
                 </div>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
                   {!!getCurrentNode()?.isCategory ? (
-                    <>
-                      <button
-                        onClick={() => openCategoryUpload(getCurrentNode()!.id)}
-                        style={{ padding: '10px 22px', borderRadius: 9, border: '1px solid rgba(59,130,246,0.4)', background: 'rgba(59,130,246,0.08)', color: '#60a5fa', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', fontWeight: 600 }}
-                      >
-                        📤 Upload Questions
-                      </button>
-                      <button
-                        onClick={() => openQuestionEdit({ id: Math.random().toString(36).substr(2, 9), promptBlocks: [], modelAnswer: '', aiTutorNotes: '' }, getCurrentNode()!.id)}
-                        style={{ padding: '10px 22px', borderRadius: 9, border: '1px solid rgba(168,85,247,0.4)', background: 'rgba(168,85,247,0.08)', color: '#c4b5fd', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', fontWeight: 600 }}
-                      >
-                        ✨ Create New Question
-                      </button>
-                    </>
+                    <button
+                      onClick={() => openCreateQuestion(getCurrentNode()!.id)}
+                      style={{ padding: '10px 22px', borderRadius: 9, border: '1px solid rgba(168,85,247,0.4)', background: 'rgba(168,85,247,0.08)', color: '#c4b5fd', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', fontWeight: 600 }}
+                    >
+                      ✏️ Create Question
+                    </button>
                   ) : (
                     <>
                       <button
@@ -2276,10 +2259,10 @@ export default function ProgramsAdmin() {
                             🗂️ Create Category
                           </button>
                           <button
-                            onClick={() => openCategoryUpload('folder')}
-                            style={{ padding: '10px 22px', borderRadius: 9, border: '1px solid rgba(59,130,246,0.4)', background: 'rgba(59,130,246,0.08)', color: '#60a5fa', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', fontWeight: 600 }}
+                            onClick={() => openCreateQuestion('')}
+                            style={{ padding: '10px 22px', borderRadius: 9, border: '1px solid rgba(168,85,247,0.4)', background: 'rgba(168,85,247,0.08)', color: '#c4b5fd', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', fontWeight: 600 }}
                           >
-                            📤 Upload Questions
+                            ✏️ Create Question
                           </button>
                         </>
                       )}
@@ -2931,10 +2914,23 @@ export default function ProgramsAdmin() {
           >
             <div style={{ padding: '14px 18px', borderBottom: '1px solid #1e293b', display: 'flex', alignItems: 'center', gap: 10, background: 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(139,92,246,0.08))', borderRadius: '18px 18px 0 0' }}>
               <div style={{ fontSize: 20 }}>✏️</div>
-              <div style={{ color: 'white', fontWeight: 900, fontSize: 15, flex: 1 }}>Edit Question</div>
+              <div style={{ color: 'white', fontWeight: 900, fontSize: 15, flex: 1 }}>{editingQuestionIsNew ? 'Create Question' : 'Edit Question'}</div>
               <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setEditingQuestion(null)}>✕</button>
             </div>
             <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 18 }}>
+              {editingQuestionIsNew && (
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', fontWeight: 900, letterSpacing: 0.7, marginBottom: 8, textTransform: 'uppercase' }}>Destination Category</label>
+                  <select
+                    value={editingQuestionCategoryId ?? ''}
+                    onChange={(event) => setEditingQuestionCategoryId(event.target.value || null)}
+                    style={{ width: '100%', padding: '10px 13px', borderRadius: 10, border: '1px solid #475569', background: '#111827', color: 'white', fontFamily: 'inherit', fontSize: 13 }}
+                  >
+                    {getImportCategories().length === 0 && <option value="">Create a category first</option>}
+                    {getImportCategories().map(category => <option key={category.id} value={category.id}>{category.path}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
                 <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', fontWeight: 900, letterSpacing: 0.7, marginBottom: 8, textTransform: 'uppercase' }}>Question Text</label>
                 <textarea
@@ -2966,12 +2962,13 @@ export default function ProgramsAdmin() {
                 />
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 4 }}>
-                <button className="ll-btn" style={{ padding: '9px 16px', fontSize: 13 }} onClick={() => setEditingQuestion(null)}>Cancel</button>
+                <button className="ll-btn" style={{ padding: '9px 16px', fontSize: 13 }} onClick={() => { setEditingQuestion(null); setEditingQuestionIsNew(false); }}>Cancel</button>
                 <button
                   onClick={saveQuestionEdit}
-                  style={{ padding: '9px 22px', fontSize: 13, fontWeight: 'bold', background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)', border: 'none', borderRadius: 9, color: 'white', cursor: 'pointer', fontFamily: 'inherit' }}
+                  disabled={!editQText.trim() || !editingQuestionCategoryId}
+                  style={{ padding: '9px 22px', fontSize: 13, fontWeight: 'bold', background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)', border: 'none', borderRadius: 9, color: 'white', cursor: !editQText.trim() || !editingQuestionCategoryId ? 'not-allowed' : 'pointer', opacity: !editQText.trim() || !editingQuestionCategoryId ? .5 : 1, fontFamily: 'inherit' }}
                 >
-                  Save Changes ✓
+                  {editingQuestionIsNew ? 'Create Question ✓' : 'Save Changes ✓'}
                 </button>
               </div>
             </div>

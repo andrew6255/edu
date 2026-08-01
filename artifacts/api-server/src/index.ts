@@ -1,9 +1,16 @@
 import path from "node:path";
 import dotenv from "dotenv";
+import { fileURLToPath } from "node:url";
+
+const runtimeDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 const envCandidates = [
   path.resolve(process.cwd(), ".env.local"),
   path.resolve(process.cwd(), ".env"),
+  path.resolve(process.cwd(), "artifacts/api-server/.env.local"),
+  path.resolve(process.cwd(), "artifacts/api-server/.env"),
+  path.resolve(runtimeDirectory, "../.env.local"),
+  path.resolve(runtimeDirectory, "../.env"),
   path.resolve(process.cwd(), "../../.env.local"),
   path.resolve(process.cwd(), "../../.env"),
 ];

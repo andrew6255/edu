@@ -9,6 +9,7 @@ import { logger } from "../../lib/logger";
 import { evaluateQuestionAnomalies } from "./anomalyEngine";
 import { getOrganizerProvider } from "./providers.organizer";
 import type { OrganizerRequest } from "./organizer";
+import { expandInstructionalSubquestions, restoreSharedSetupContext } from "./subquestionExpansion";
 
 type QuestionExtractionJob = {
   id: string;
@@ -486,7 +487,22 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
     const fs = await import("node:fs/promises");
 
     const execFileAsync = promisify(execFile);
-    const scriptPath = pathMod.resolve(process.cwd(), "src/modules/program-ingestion/pdf_extractor.py");
+    const scriptCandidates = [
+      pathMod.resolve(process.cwd(), "src/modules/program-ingestion/pdf_extractor.py"),
+      pathMod.resolve(process.cwd(), "artifacts/api-server/src/modules/program-ingestion/pdf_extractor.py"),
+      pathMod.resolve(process.cwd(), "../api-server/src/modules/program-ingestion/pdf_extractor.py"),
+    ];
+    let scriptPath = "";
+    for (const candidate of scriptCandidates) {
+      try {
+        await fs.access(candidate);
+        scriptPath = candidate;
+        break;
+      } catch { /* try the next launch-directory layout */ }
+    }
+    if (!scriptPath) {
+      throw new Error(`Question extraction renderer was not found. Checked: ${scriptCandidates.join(", ")}`);
+    }
 
     // Find Python
     const py312Path = "C:\\\\Users\\\\antoi\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe";
@@ -548,7 +564,7 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
     }));
 
     // ─── Step 2: Parse answer key if provided ───────────────────────────────
-    let answerMap: Record<number, string> = {}; // questionNumber -> "A"|"B"|"C"...
+    let answerMap: Record<string, string> = {}; // questionNumber -> "A"|"B"|"C"...
 
     if (answersFile) {
       sendProgress("🔑", "Parsing answer sources…", `Reading ${answerFiles.length} answer or marking-scheme file(s)`, {
@@ -724,7 +740,7 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
       );
       logger.info({ page: page.page, totalPages }, "[extractIqPdf] Processing page...");
 
-      const visionPrompt = `You are an expert at extracting Multiple Choice Questions (MCQs) from exam/test page images.
+      const visionPrompt = `You are an expert at extracting individual questions from exam, exercise, and test page images. Extract both multiple-choice and free-response questions.
 
 We have drawn RED BOXES with WHITE-BACKGROUND LABELS (e.g. [IMG_0], [IMG_1]) around every image/figure detected on this page. Each label is printed in large red text above its red box.
 
@@ -769,12 +785,47 @@ RULE 4 — QUESTION IMAGES vs CHOICE IMAGES
 • If a question has BOTH a prompt image AND image choices, they go in separate arrays
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULE 5 — SPLIT EXERCISE SUBQUESTIONS INTO INDIVIDUAL QUESTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Split an exercise only when its labeled tasks are PARALLEL AND INDEPENDENT: each task can be answered on its own after inheriting the same short instruction. Typical examples are lists of expressions to expand, equations to solve, or values to calculate.
+
+DO NOT split dependent subquestions. Keep the entire exercise as one question when its parts share a scenario, construction, table, diagram, algorithm/program, defined variable, intermediate result, or when a later part refers to an earlier part. Sequential requests such as "apply...", then "show that...", then "determine..." belong to one question.
+
+Inherit every piece of required shared context into every emitted question, not just the instruction. This includes definitions, formulas, diagrams, tables, assumptions, and scenario text. Never emit a later question that refers to a symbol or object defined only in an earlier extracted question. If repeating the context would be awkward or incomplete, keep the full exercise as one question.
+
+Shared-definition example:
+"On pose A = (7x - 3y + 4z) - (-3x + 4y - 5z) et B = (x + y - z)(z - y - x).
+1) Calculer A et B pour x = -1, y = 1 et z = -2.
+2) Calculer A et B pour x = 2, y = -1 et z = 1."
+Valid output is either one complete question containing both numbered parts, OR two questions where the full "On pose A = ... et B = ..." definition is repeated in BOTH prompts. Outputting the definition only in the first question is forbidden.
+
+For simple parallel lists, inherit the shared instruction into every emitted question and remove wording such as "the following questions/expressions" so each question stands alone.
+
+Example source:
+"Exercise 1: Expand and simplify the following questions:
+A) 2(x+3)
+B) 3(s+34)
+C) x(x+1)"
+
+Required output: three free-response questions:
+1. "Expand and simplify: 2(x+3)"
+2. "Expand and simplify: 3(s+34)"
+3. "Expand and simplify: x(x+1)"
+
+For these questions set "interactionType" to "free_response" and "choices" to []. Do not combine the subparts into one question and do not treat them as answer choices.
+
+Dependent counterexample that MUST remain one question:
+"Voici un programme de calcul... Appliquer le programme à 4 et -3. On appelle x le nombre choisi. Montrer que le résultat peut s'écrire 12x + 15. Déterminer pour quelle valeur de x le programme donnera 51."
+The parts depend on the same calculation program and defined variable x, so preserve the complete wording in a single free-response question.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT FORMAT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Return a JSON object with a "questions" array. Each question:
 {
   "questionNumber": 1,
   "promptRawText": "The full question stem text (no [IMG_X] tokens in here)",
+  "interactionType": "mcq or free_response",
   "promptImageLabels": ["[IMG_0]"],
   "hasQuestionImage": true,
   "choices": ["choice A text or [IMG_X]", "choice B text or [IMG_X]", ...],
@@ -927,6 +978,31 @@ Additional rules:
       }
     }
 
+    // Safety net: vision models sometimes interpret A/B/C exercise subparts as MCQ choices.
+    // Convert only clearly instructional prompts into independent free-response questions.
+    const expandedQuestions = expandInstructionalSubquestions(allQuestions);
+    if (expandedQuestions.length !== allQuestions.length) {
+      allQuestions.splice(0, allQuestions.length, ...expandedQuestions);
+      sendProgress("✂️", "Exercise subquestions separated", `${allQuestions.length} individual questions are now ready for review`, {
+        stage: "extracting", stageCurrent: totalPages, stageTotal: totalPages,
+        totalPages, currentPage: totalPages, totalQuestions: allQuestions.length, answersFound: Object.keys(answerMap).length,
+      });
+    }
+
+    // A valid split must still leave every question self-contained. When the
+    // model emits adjacent parts that refer to definitions present only in the
+    // first part, copy that shared setup into the later prompts.
+    const contextCompletedQuestions = restoreSharedSetupContext(allQuestions);
+    const restoredContextCount = contextCompletedQuestions.reduce((count, question, index) =>
+      count + (question.promptRawText !== allQuestions[index]?.promptRawText ? 1 : 0), 0);
+    if (restoredContextCount > 0) {
+      allQuestions.splice(0, allQuestions.length, ...contextCompletedQuestions);
+      sendProgress("\u{1f9e9}", "Shared exercise context restored", `${restoredContextCount} split question(s) were completed with their required definitions`, {
+        stage: "extracting", stageCurrent: totalPages, stageTotal: totalPages,
+        totalPages, currentPage: totalPages, totalQuestions: allQuestions.length, answersFound: Object.keys(answerMap).length,
+      });
+    }
+
     if (allQuestions.length === 0) {
       throw new Error("No questions could be extracted from the PDF. The vision model could not identify any MCQs.");
     }
@@ -964,9 +1040,10 @@ Additional rules:
 
     const formattedQuestions = allQuestions.map((q: any, i: number) => {
       const choices: string[] = Array.isArray(q.choices) ? q.choices : [];
-      const qNum = typeof q.questionNumber === "number" ? q.questionNumber : i + 1;
+      const qNum = typeof q.questionNumber === "number" || typeof q.questionNumber === "string" ? q.questionNumber : i + 1;
       const pageNum = q.pageNumber || 1;
       let rawText = q.promptRawText || "";
+      const isFreeResponse = q.interactionType === "free_response" || choices.length < 2;
 
       // Deterministic Proximity Correction: check if any image on this page belongs to choices or prompt programmatically
       const pageImages = Object.entries(metadataMap).filter(([, meta]) => meta.pageNumber === pageNum);
@@ -1116,9 +1193,9 @@ Additional rules:
       // Anomaly Detection Engine: assign reviewStatus and flags
       const { reviewStatus, flags } = evaluateQuestionAnomalies({
         correctChoiceIndex,
-        hasAnswerMap: Object.keys(answerMap).length > 0,
+        hasAnswerMap: !isFreeResponse && Object.keys(answerMap).length > 0,
         blocks,
-        choices: cleanedFinalChoices,
+        choices: isFreeResponse ? ["free-response", "free-response"] : cleanedFinalChoices,
         hasQuestionImage: q.hasQuestionImage,
       });
 
@@ -1126,9 +1203,8 @@ Additional rules:
         promptRawText: rawText,
         promptBlocks: blocks,
         interaction: {
-          type: "mcq",
-          choices: cleanedFinalChoices,
-          correctChoiceIndex,
+          type: isFreeResponse ? "free_response" : "mcq",
+          ...(isFreeResponse ? {} : { choices: cleanedFinalChoices, correctChoiceIndex }),
         },
         hasQuestionImage: q.hasQuestionImage || blocks.some(b => b.type === 'image'),
         pageNumber: pageNum,
@@ -1169,10 +1245,11 @@ Additional rules:
           globalIdx: formattedQuestions.indexOf(fq),
           questionNumber: fq.questionNumber,
           promptRawText: fq.promptRawText,
-          choices: fq.interaction.choices.map((c: string) =>
+          interactionType: fq.interaction.type,
+          choices: (fq.interaction.choices ?? []).map((c: string) =>
             typeof c === 'string' && c.startsWith('data:') ? '[IMAGE]' : c
           ),
-          choiceCount: fq.interaction.choices.length,
+          choiceCount: (fq.interaction.choices ?? []).length,
         }));
 
         const visionReviewPrompt = `You are a quality-control AI that verifies MCQ extractions from an exam PDF page.
@@ -1194,8 +1271,11 @@ WHAT TO CHECK AND FIX:
    - If a choice slot has "(A)", "(B)" etc. as the extracted value but the real choice is an image, mark it as "[IMAGE]".
 
 3. **Choice count**: Verify the number of choices matches what you see on the page. If wrong, correct the count (add empty strings "" for missing slots, do not invent answers).
+   - Free-response questions correctly have no choices. Do not flag them for having zero choices.
 
-4. **Issue flags**: For each question, set "needsHumanReview" to true and populate "issues" array if:
+4. **Exercise subquestions**: Keep independent parallel tasks separate only when each resulting prompt is fully self-contained. Repeat all required setup, definitions, formulas, scenario text, table/diagram references, and instructions in every split prompt. If a later extracted question refers to a symbol (such as A or B) defined only in an earlier question, restore the definition from the page. Dependent parts sharing a procedure, intermediate result, or earlier answer must remain together as one free-response question.
+
+5. **Issue flags**: For each question, set "needsHumanReview" to true and populate "issues" array if:
    - You cannot confidently verify the answer content (image choices you cannot compare by text)
    - The extracted text has a significant mismatch you cannot fully auto-correct
    - A choice slot says "[IMAGE]" but you're unsure which image goes there
@@ -1307,7 +1387,7 @@ Rules:
                 }
 
                 // Apply choice corrections (never overwrite real data: image URIs)
-                if (Array.isArray(corr.choices) && corr.choices.length === fq.interaction.choices.length) {
+                if (Array.isArray(fq.interaction.choices) && Array.isArray(corr.choices) && corr.choices.length === fq.interaction.choices.length) {
                   fq.interaction.choices = fq.interaction.choices.map((orig: string, ci: number) => {
                     const corrected = corr.choices[ci];
                     if (typeof orig === 'string' && orig.startsWith('data:')) return orig; // preserve images
@@ -1355,6 +1435,19 @@ Rules:
       logger.warn({ err: visionReviewErr }, "[extractIqPdf] Vision review Pass A failed, continuing");
     }
 
+    // Re-apply the context guard after AI review as well. The reviewer may
+    // correct prompt text, but it must never turn a self-contained split back
+    // into a contextless one.
+    const reviewedWithContext = restoreSharedSetupContext(formattedQuestions);
+    reviewedWithContext.forEach((question: any, index: number) => {
+      const formatted = formattedQuestions[index];
+      if (!formatted || formatted.promptRawText === question.promptRawText) return;
+      formatted.promptRawText = question.promptRawText;
+      const firstText = formatted.promptBlocks.find((block: any) => block.type === "text");
+      if (firstText) firstText.text = question.promptRawText;
+      else formatted.promptBlocks.unshift({ type: "text", text: question.promptRawText });
+    });
+
     // ─── Step 5 Pass B: Text LLM audit — flag residual issues ───────────────────
     // After vision corrections, a fast text LLM does a final structural audit and
     // flags anything that still looks suspicious for human review.
@@ -1371,10 +1464,11 @@ Rules:
         idx: i,
         questionNumber: fq.questionNumber,
         promptRawText: fq.promptRawText,
-        choices: fq.interaction.choices.map((c: string) =>
+        interactionType: fq.interaction.type,
+        choices: (fq.interaction.choices ?? []).map((c: string) =>
           typeof c === 'string' && c.startsWith('data:') ? '[IMAGE]' : c
         ),
-        choiceCount: fq.interaction.choices.length,
+        choiceCount: (fq.interaction.choices ?? []).length,
         alreadyFlagged: fq.reviewStatus === "FLAGGED_FOR_REVIEW",
         existingFlags: fq.flags || [],
       }));
@@ -1383,9 +1477,9 @@ Rules:
 
 For each question, check:
 1. Are any text choices still starting with letter prefixes like "A) ...", "B) ...", "(C) ..."? Flag as "LABEL_PREFIX_LEAK"
-2. Is any choice an empty string "" where it shouldn't be (suggesting a missing image or text)? Flag as "EMPTY_CHOICE_SLOT"
+2. For MCQs only, is any choice an empty string "" where it shouldn't be (suggesting a missing image or text)? Flag as "EMPTY_CHOICE_SLOT"
 3. Does the question text seem truncated, incomplete or non-sensical? Flag as "QUESTION_TEXT_SUSPECT"  
-4. Are there fewer than 2 choices? Flag as "FEW_CHOICES"
+4. For MCQs only, are there fewer than 2 choices? Flag as "FEW_CHOICES". Free-response questions should have zero choices and must not be flagged for this.
 5. Do the choices seem inconsistent in format (e.g., some are [IMAGE] and some are text in a question that should be all-image)? Flag as "MIXED_CHOICE_FORMAT"
 
 Return a JSON object:

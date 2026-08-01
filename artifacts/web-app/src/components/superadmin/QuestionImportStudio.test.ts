@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeImportedQuestions } from './QuestionImportStudio';
+import { normalizeImportedQuestions, reconcileTreeWithCurrentDraft } from './QuestionImportStudio';
 
 describe('Question Import Studio normalization', () => {
   it('normalizes audited extractor output and retains source metadata', () => {
@@ -41,5 +41,30 @@ describe('Question Import Studio normalization', () => {
     ] });
     expect(questions[0]?.modelAnswer).toBe('B');
     expect(questions[1]?.modelAnswer).toBe('');
+  });
+});
+
+describe('Question Import Studio tree refresh', () => {
+  const category = (id: string, title: string) => ({ id, title, kind: 'category' as const, children: [] });
+  const folder = (id: string, title: string, children: ReturnType<typeof category>[] = []) => ({ id, title, kind: 'folder' as const, children });
+
+  it('reflects draft additions, deletions, renames, and moves without losing studio-only nodes', () => {
+    const previous = [
+      folder('algebra', 'Algebra', [category('linear', 'Linear equations'), category('quadratic', 'Quadratics')]),
+      folder('geometry', 'Geometry'),
+    ];
+    const working = [
+      folder('algebra', 'Algebra', [category('linear', 'Linear equations'), category('quadratic', 'Quadratics'), category('studio', 'Studio category')]),
+      folder('geometry', 'Geometry'),
+    ];
+    const current = [
+      folder('algebra', 'Algebra & Functions', [category('external', 'External category')]),
+      folder('geometry', 'Geometry', [category('linear', 'Linear equations')]),
+    ];
+
+    expect(reconcileTreeWithCurrentDraft(working, previous, current)).toEqual([
+      folder('algebra', 'Algebra & Functions', [category('external', 'External category'), category('studio', 'Studio category')]),
+      folder('geometry', 'Geometry', [category('linear', 'Linear equations')]),
+    ]);
   });
 });
