@@ -20,6 +20,8 @@ export type LogicGameInteraction =
 
 export type LogicGameQuestion = {
   id: string;
+  /** Original paper number retained by the super-admin extraction workflow. */
+  questionNumber?: string | number;
   promptBlocks?: LogicGamePromptBlock[];
   promptRawText?: string;
   promptLatex?: string;

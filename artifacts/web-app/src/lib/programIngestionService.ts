@@ -185,3 +185,77 @@ export async function generateEmojiWithLlm(name: string, subject: string): Promi
   const data = await expectJson<{ emoji: string }>(response);
   return data.emoji;
 }
+
+export type QuestionPdfProgress = {
+  icon: string;
+  message: string;
+  detail?: string;
+  stats?: { totalPages?: number; currentPage?: number; totalQuestions?: number };
+};
+
+/**
+ * Runs the audited document extractor with one or more question sources and
+ * any number of marking-scheme sources. The endpoint streams JSONL updates.
+ */
+export async function extractQuestionPdfs(
+  questionFiles: File[],
+  answerFiles: File[],
+  onProgress?: (progress: QuestionPdfProgress) => void,
+): Promise<Record<string, unknown>> {
+  const form = new FormData();
+  for (const questionFile of questionFiles) form.append('file', questionFile);
+  for (const answerFile of answerFiles) form.append('answersFile', answerFile);
+
+  const extractionUrl = `${getProgramIngestionApiBase()}/extract-iq-pdf`;
+  let response: Response;
+  try {
+    response = await fetch(extractionUrl, { method: 'POST', body: form });
+  } catch (error) {
+    throw new Error(`Could not reach the question extraction service at ${extractionUrl}. Make sure the local API server is running.${error instanceof Error ? ` (${error.message})` : ''}`);
+  }
+  if (!response.ok || !response.body) {
+    throw new Error((await response.text()) || `Question extraction failed with status ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalResult: Record<string, unknown> | null = null;
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split('\n');
+    buffer = done ? '' : lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as { progress?: QuestionPdfProgress; error?: string; result?: Record<string, unknown> } & Record<string, unknown>;
+      if (event.error) throw new Error(event.error);
+      if (event.progress) onProgress?.(event.progress);
+      if (event.result) finalResult = event.result;
+      else if (!event.progress) finalResult = event;
+    }
+    if (done) break;
+  }
+  if (!finalResult) throw new Error('Question extraction completed without a result.');
+  return finalResult;
+}
+
+export type OrganizerTreeNode = { id: string; title: string; kind: 'folder' | 'category'; children: OrganizerTreeNode[] };
+export type OrganizerPlacement = { id: string; questionId: string; destinationCategoryId: string; alternativeCategoryIds: string[]; confidence: number; rationale: string; decision: 'pending' | 'approved' | 'rejected' | 'edited' };
+export type OrganizerOperation = { id: string; type: 'create_node' | 'rename_node' | 'move_node' | 'reorder_node' | 'delete_node'; decision: 'pending' | 'approved' | 'rejected' | 'edited'; [key: string]: unknown };
+export type OrganizerAssessment = { questionId: string; detectedSubject: string; subjectConfidence: number; likelyDuplicateQuestionId: string | null; duplicateConfidence: number };
+export type OrganizerResult = { baseRevision: number; previewTree: OrganizerTreeNode[]; operations: OrganizerOperation[]; placements: OrganizerPlacement[]; assessments: OrganizerAssessment[]; summary: string; provider: string };
+
+export async function organizeProgramQuestions(input: {
+  programId: string;
+  programSubject: string;
+  baseRevision: number;
+  currentTree: OrganizerTreeNode[];
+  incomingQuestions: Array<{ id: string; text: string; answerText?: string; flags?: string[] }>;
+  existingQuestions?: Array<{ id: string; text: string; answerText?: string }>;
+}): Promise<OrganizerResult> {
+  const response = await fetch(`${getProgramIngestionApiBase()}/organize-questions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  });
+  return expectJson<OrganizerResult>(response);
+}

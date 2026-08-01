@@ -7,6 +7,8 @@ import {
 } from "./validation";
 import { logger } from "../../lib/logger";
 import { evaluateQuestionAnomalies } from "./anomalyEngine";
+import { getOrganizerProvider } from "./providers.organizer";
+import type { OrganizerRequest } from "./organizer";
 
 function getJobId(req: Request): string {
   const rawJobId = req.params["jobId"];
@@ -86,6 +88,29 @@ export async function publishProgramIngestionJob(req: Request, res: Response): P
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     res.status(message.includes("not found") ? 404 : 400).json({ error: message });
+  }
+}
+
+export async function organizeProgramQuestions(req: Request, res: Response): Promise<void> {
+  try {
+    const body = req.body as Partial<OrganizerRequest> | undefined;
+    if (!body || typeof body.programId !== "string" || !body.programId.trim()) throw new Error("programId is required.");
+    if (typeof body.programSubject !== "string" || !body.programSubject.trim()) throw new Error("programSubject is required.");
+    if (!Number.isInteger(body.baseRevision) || Number(body.baseRevision) < 0) throw new Error("baseRevision must be a non-negative integer.");
+    if (!Array.isArray(body.currentTree)) throw new Error("currentTree must be an array.");
+    if (!Array.isArray(body.incomingQuestions) || body.incomingQuestions.length === 0) throw new Error("incomingQuestions must contain at least one question.");
+    const ids = new Set<string>();
+    for (const question of body.incomingQuestions) {
+      if (!question || typeof question.id !== "string" || !question.id.trim() || typeof question.text !== "string" || !question.text.trim()) throw new Error("Every incoming question requires a unique id and text.");
+      if (ids.has(question.id)) throw new Error(`Duplicate incoming question ID: ${question.id}`);
+      ids.add(question.id);
+    }
+    const provider = getOrganizerProvider();
+    const result = await provider.organize(body as OrganizerRequest);
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown organizer error";
+    res.status(400).json({ error: message });
   }
 }
 
@@ -303,11 +328,12 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
 
   try {
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
-    const file = files?.["file"]?.[0];
-    const answersFile = files?.["answersFile"]?.[0];
+    const questionFiles = files?.["file"] ?? [];
+    const answerFiles = files?.["answersFile"] ?? [];
+    const answersFile = answerFiles[0];
 
-    if (!file) {
-      sendError("Questions file is required");
+    if (questionFiles.length === 0) {
+      sendError("At least one questions file is required");
       return;
     }
 
@@ -322,6 +348,7 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
       keyIndex++;
       return key;
     };
+    const VISION_MODEL = "qwen/qwen3.6-27b";
 
     const { execFile } = await import("node:child_process");
     const { promisify } = await import("node:util");
@@ -337,22 +364,28 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
     try { await fs.access(py312Path); pythonCmd = py312Path; } catch {}
 
     // ─── Step 1: Render document pages to PNG for vision ─────────────────────────
-    sendProgress("📄", "Rendering document pages…", "Converting each page to high-resolution image");
-    logger.info("[extractIqPdf] Rendering document pages to PNG...");
-    const { stdout } = await execFileAsync(pythonCmd, [scriptPath, file.path, "--render"], {
-      maxBuffer: 100 * 1024 * 1024,
-      windowsHide: true,
-    });
-
-    const extractedData = JSON.parse(stdout) as {
+    sendProgress("📄", "Rendering document pages…", `Combining ${questionFiles.length} question source file(s)`);
+    logger.info({ fileCount: questionFiles.length }, "[extractIqPdf] Rendering question sources...");
+    const extractedData: {
       pages: Array<{ page: number; pngBase64: string; images: Record<string, string>; imageMetadata?: Record<string, any> }>;
-    };
-
-    // Clean up temp file
-    await fs.unlink(file.path).catch(e => logger.warn({ err: e }, "Failed to unlink file"));
+    } = { pages: [] };
+    for (const [sourceIndex, questionFile] of questionFiles.entries()) {
+      try {
+        sendProgress("📄", `Rendering question source ${sourceIndex + 1}/${questionFiles.length}…`, questionFile.originalname);
+        const { stdout } = await execFileAsync(pythonCmd, [scriptPath, questionFile.path, "--render"], {
+          maxBuffer: 100 * 1024 * 1024,
+          windowsHide: true,
+        });
+        const sourceData = JSON.parse(stdout) as typeof extractedData;
+        const pageOffset = extractedData.pages.length;
+        extractedData.pages.push(...(sourceData.pages ?? []).map((page, pageIndex) => ({ ...page, page: pageOffset + pageIndex + 1 })));
+      } finally {
+        await fs.unlink(questionFile.path).catch(e => logger.warn({ err: e }, "Failed to unlink question source"));
+      }
+    }
 
     if (!extractedData.pages || extractedData.pages.length === 0) {
-      throw new Error("Could not extract any pages from the PDF.");
+      throw new Error("Could not extract any pages from the uploaded question files.");
     }
 
     // Collect all per-page images and metadata for later embedding
@@ -370,19 +403,48 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
       logger.info("[extractIqPdf] Parsing answer key file...");
       let answersText = "";
 
-      if (answersFile.mimetype === "application/pdf") {
-        // Extract text from the answers PDF
-        const { stdout: ansStdout } = await execFileAsync(pythonCmd, [scriptPath, answersFile.path], {
-          maxBuffer: 50 * 1024 * 1024,
-          windowsHide: true,
-        });
-        const ansData = JSON.parse(ansStdout) as { pages: Array<{ text: string }> };
-        answersText = ansData.pages.map(p => p.text).join("\n");
-        await fs.unlink(answersFile.path).catch(e => logger.warn({ err: e }, "Failed to unlink answer file"));
-      } else {
-        // Read as text file
-        answersText = await fs.readFile(answersFile.path, "utf-8");
-        await fs.unlink(answersFile.path).catch(e => logger.warn({ err: e }, "Failed to unlink answer file"));
+      for (const [answerIndex, answerFile] of answerFiles.entries()) {
+        try {
+          let sourceText = "";
+          if (answerFile.mimetype.startsWith("text/") || /\.(txt|csv|json|md)$/i.test(answerFile.originalname)) {
+            sourceText = await fs.readFile(answerFile.path, "utf-8");
+          } else if (answerFile.mimetype.startsWith("image/")) {
+            const { stdout: renderedStdout } = await execFileAsync(pythonCmd, [scriptPath, answerFile.path, "--render"], {
+              maxBuffer: 50 * 1024 * 1024,
+              windowsHide: true,
+            });
+            const rendered = JSON.parse(renderedStdout) as { pages: Array<{ pngBase64: string }> };
+            for (const page of rendered.pages ?? []) {
+              const visionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${getNextApiKey()}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  model: VISION_MODEL,
+                  temperature: 0,
+                  messages: [{ role: "user", content: [
+                    { type: "text", text: "Transcribe this answer key or marking scheme exactly. Preserve question numbers and answer letters/text. Return transcription only." },
+                    { type: "image_url", image_url: { url: `data:image/png;base64,${page.pngBase64}` } },
+                  ] }],
+                }),
+              });
+              if (!visionResponse.ok) throw new Error(`Could not read answer image ${answerFile.originalname}`);
+              const visionPayload = await visionResponse.json() as any;
+              sourceText += `\n${visionPayload.choices?.[0]?.message?.content ?? ""}`;
+            }
+          } else {
+            const { stdout: documentStdout } = await execFileAsync(pythonCmd, [scriptPath, answerFile.path], {
+              maxBuffer: 50 * 1024 * 1024,
+              windowsHide: true,
+            });
+            const documentData = JSON.parse(documentStdout) as { pages: Array<{ text: string }> };
+            sourceText = documentData.pages.map(page => page.text).join("\n");
+          }
+          if (sourceText.trim()) {
+            answersText += `\n\n--- ANSWER SOURCE ${answerIndex + 1}: ${answerFile.originalname} ---\n${sourceText}`;
+          }
+        } finally {
+          await fs.unlink(answerFile.path).catch(e => logger.warn({ err: e }, "Failed to unlink answer file"));
+        }
       }
 
       if (answersText.trim()) {
@@ -440,7 +502,6 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
     sendProgress("🔍", `Starting vision extraction…`, `${totalPages} page${totalPages !== 1 ? 's' : ''} to process`, { totalPages, currentPage: 0, totalQuestions: 0 });
     logger.info({ totalPages }, "[extractIqPdf] Extracting questions using vision...");
 
-    const VISION_MODEL = "qwen/qwen3.6-27b";
     const allQuestions: any[] = [];
 
     // Process one page at a time — high-res PNGs can be large

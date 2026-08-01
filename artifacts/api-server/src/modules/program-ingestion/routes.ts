@@ -20,6 +20,7 @@ import {
   generateIqQuestionDetails,
   generateEmoji,
   enrichQuestions,
+  organizeProgramQuestions,
 } from "./controller";
 
 const router: IRouter = Router();
@@ -39,9 +40,10 @@ router.get("/program-ingestion/personal/:jobId/debug", getPersonalProgramDebug);
 
 // IQ Games API endpoints
 router.post("/program-ingestion/extract-mcq", extractMcqFromText);
-router.post("/program-ingestion/extract-iq-pdf", upload.fields([{ name: "file", maxCount: 1 }, { name: "answersFile", maxCount: 1 }]), extractIqPdf);
+router.post("/program-ingestion/extract-iq-pdf", upload.fields([{ name: "file", maxCount: 20 }, { name: "answersFile", maxCount: 20 }]), extractIqPdf);
 router.post("/program-ingestion/iq-question-details", generateIqQuestionDetails);
 router.post("/program-ingestion/emoji", generateEmoji);
 router.post("/program-ingestion/enrich-questions", enrichQuestions);
+router.post("/program-ingestion/organize-questions", organizeProgramQuestions);
 
 export default router;

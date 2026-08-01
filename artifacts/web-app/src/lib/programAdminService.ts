@@ -15,6 +15,8 @@ export type ProgramAdminRecord = {
   adminWhiteboardData?: unknown;
   deletedAt?: string;
   updatedAt?: string;
+  revision?: number;
+  versionNumber?: number;
 };
 
 function parseJsonField(value: unknown): unknown {
@@ -47,6 +49,8 @@ function fromSupabaseRow(row: Record<string, unknown>): ProgramAdminRecord {
     rankedTotalQuestionCount: typeof row.ranked_total_question_count === 'number' ? row.ranked_total_question_count : undefined,
     deletedAt: typeof row.deleted_at === 'string' ? row.deleted_at : undefined,
     updatedAt: typeof row.updated_at === 'string' ? row.updated_at : undefined,
+    revision: typeof row.revision === 'number' ? row.revision : undefined,
+    versionNumber: typeof row.version_number === 'number' ? row.version_number : undefined,
   };
 }
 
@@ -119,20 +123,62 @@ export async function getPublishedProgramAdmin(programId: string): Promise<Progr
   return data ? fromSupabaseRow(data as Record<string, unknown>) : null;
 }
 
-export async function saveDraftProgramAdmin(programId: string, payload: Record<string, unknown>): Promise<void> {
-  const supabase = requireSupabase();
-  const { error } = await supabase.from('draft_programs').upsert(toSupabaseRow(programId, payload, 'draft'));
-  if (error) throw error;
+function isMissingTransactionalRpc(error: { code?: string; message?: string } | null): boolean {
+  return !!error && (error.code === 'PGRST202' || error.code === '42883' || /function .* does not exist/i.test(error.message ?? ''));
 }
 
-export async function publishProgramAdmin(programId: string, payload: Record<string, unknown>, draftProgramId?: string | null): Promise<void> {
+export async function saveDraftProgramAdmin(programId: string, payload: Record<string, unknown>, options?: {
+  expectedRevision?: number;
+  organizerDecision?: Record<string, unknown> | null;
+}): Promise<{ revision: number; updatedAt: string }> {
   const supabase = requireSupabase();
+  const row = toSupabaseRow(programId, payload, 'draft');
+  const rpcPayload = { ...row };
+  delete rpcPayload.id;
+  const { data, error } = await supabase.rpc('save_program_draft_revision', {
+    p_program_id: programId,
+    p_payload: rpcPayload,
+    p_expected_revision: options?.expectedRevision ?? 0,
+    p_organizer_decision: options?.organizerDecision ?? null,
+  });
+  if (!error) {
+    const result = Array.isArray(data) ? data[0] : data;
+    return { revision: Number(result?.revision ?? 0), updatedAt: String(result?.updated_at ?? new Date().toISOString()) };
+  }
+  if (!isMissingTransactionalRpc(error)) throw error;
+  const fallback = await supabase.from('draft_programs').upsert(row);
+  if (fallback.error) throw fallback.error;
+  return { revision: options?.expectedRevision ?? 0, updatedAt: String(payload.updatedAt ?? new Date().toISOString()) };
+}
+
+export async function publishProgramAdmin(programId: string, payload: Record<string, unknown>, draftProgramId?: string | null, expectedRevision?: number): Promise<void> {
+  const supabase = requireSupabase();
+  if (draftProgramId && expectedRevision != null) {
+    const transaction = await supabase.rpc('publish_program_draft_revision', { p_program_id: draftProgramId, p_expected_revision: expectedRevision });
+    if (!transaction.error) return;
+    if (!isMissingTransactionalRpc(transaction.error)) throw transaction.error;
+  }
   const { error } = await supabase.from('public_programs').upsert(toSupabaseRow(programId, payload, 'published'));
   if (error) throw error;
   if (draftProgramId) {
     const { error: deleteError } = await supabase.from('draft_programs').delete().eq('id', draftProgramId);
     if (deleteError) throw deleteError;
   }
+}
+
+export async function listProgramVersionsAdmin(programId: string): Promise<Array<{ versionNumber: number; publishedAt: string; publishedBy: string }>> {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from('program_versions').select('version_number,published_at,published_by').eq('program_id', programId).order('version_number', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(row => ({ versionNumber: Number(row.version_number), publishedAt: String(row.published_at), publishedBy: String(row.published_by) }));
+}
+
+export async function rollbackProgramVersionToDraftAdmin(programId: string, versionNumber: number): Promise<{ revision: number; updatedAt: string }> {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.rpc('rollback_program_version_to_draft', { p_program_id: programId, p_version_number: versionNumber });
+  if (error) throw error;
+  const result = Array.isArray(data) ? data[0] : data;
+  return { revision: Number(result?.revision ?? 1), updatedAt: String(result?.updated_at ?? new Date().toISOString()) };
 }
 
 export async function deleteDraftProgramAdmin(programId: string): Promise<void> {

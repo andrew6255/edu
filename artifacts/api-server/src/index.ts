@@ -17,7 +17,12 @@ import { initSentry } from "./lib/sentry";
 initSentry();
 
 async function bootstrap(): Promise<void> {
-  const rawPort = process.env["PORT"] || "5000";
+  const configuredApiUrl = process.env["VITE_API_SERVER_URL"];
+  let configuredApiPort = "";
+  if (configuredApiUrl) {
+    try { configuredApiPort = new URL(configuredApiUrl).port; } catch { /* validated below when PORT is used */ }
+  }
+  const rawPort = process.env["PORT"] || configuredApiPort || "5000";
 
   const port = Number(rawPort);
 

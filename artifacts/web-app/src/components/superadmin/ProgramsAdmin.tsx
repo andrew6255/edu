@@ -13,7 +13,7 @@
  * per-user under the admin's UID and is never published to program content.
  */
 
-import { useState, useEffect, Suspense, lazy } from 'react';
+import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/contexts/ConfirmContext';
@@ -33,8 +33,10 @@ import {
   getDraftProgramAdmin,
   getPublishedProgramAdmin,
   listProgramsAdmin,
+  listProgramVersionsAdmin,
   publishProgramAdmin,
   saveDraftProgramAdmin,
+  rollbackProgramVersionToDraftAdmin,
   softDeletePublishedProgramAdmin,
 } from '@/lib/programAdminService';
 import { clearDraftProgram, setDraftProgram } from '@/lib/draftProgramStore';
@@ -42,12 +44,141 @@ import { runPhase1Ocr, runPhase2Questions, runPhase3Enrichment, extractAndClassi
 import ProgramMapView from '@/views/ProgramMapView';
 import FullScreenWorkspace from '@/components/FullScreenWorkspace';
 import WorksheetEditorView from './WorksheetEditorView';
+import QuestionImportStudio, { type ApprovedImport, type ImportCategoryOption, type ImportPlacement } from './QuestionImportStudio';
+import type { OrganizerTreeNode } from '@/lib/programIngestionService';
 import { type PersonalSubject, listPersonalSubjects, createPersonalSubject, updatePersonalSubject, deletePersonalSubject } from '@/lib/personalSubjectService';
 import { generateEmojiWithLlm } from '@/lib/programIngestionService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type ProgramItem = { id: string; title?: string; subject?: string; grade_band?: string; coverEmoji?: string };
+
+type ProgramTreePopup = {
+  programId: string;
+  title: string;
+  source: 'Published' | 'Draft';
+  spec: BuilderSpec | null;
+  loading: boolean;
+  error?: string;
+};
+
+function ProgramTreeBranch({ node, path, onNavigate, isRoot = false }: { node: BuilderNode; path: string[]; onNavigate: (path: string[], questionTypeId?: string) => void; isRoot?: boolean }) {
+  const [expanded, setExpanded] = useState(true);
+  const hasContents = node.children.length > 0 || node.questionTypes.length > 0;
+  const icon = isRoot ? '🌳' : node.isCategory ? '🏷️' : '📁';
+  const label = isRoot ? 'Root' : node.title || 'Untitled';
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onNavigate(path)}
+        title={`Open ${isRoot ? 'program root' : node.isCategory ? 'category' : 'folder'}: ${isRoot ? node.title : label}`}
+        className={`program-tree-circle ${isRoot ? 'is-root' : node.isCategory ? 'is-category' : 'is-folder'}`}
+      >
+        <span className="program-tree-icon">{icon}</span>
+        <span className="program-tree-label">{label}</span>
+        {hasContents && <span className="program-tree-toggle" title={expanded ? 'Collapse branch' : 'Expand branch'} onClick={event => { event.stopPropagation(); setExpanded(value => !value); }}>{expanded ? '−' : '+'}</span>}
+      </button>
+      {expanded && hasContents && (
+        <ul>
+          {node.children.map(child => <ProgramTreeBranch key={child.id} node={child} path={[...path, child.id]} onNavigate={onNavigate} />)}
+          {node.questionTypes.map(file => (
+            <li key={file.id}>
+              <button type="button" className="program-tree-circle is-question" title={`Open question file: ${file.title || 'Questions'}`} onClick={() => onNavigate(path, file.id)}>
+                <span className="program-tree-icon">📄</span>
+                <span className="program-tree-label">{file.title || 'Questions'}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function ProgramTreeCanvas({ spec, onNavigate }: { spec: BuilderSpec; onNavigate: (path: string[], questionTypeId?: string) => void }) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; left: number; top: number } | null>(null);
+  const suppressClickRef = useRef(false);
+  const [dragging, setDragging] = useState(false);
+  const fixedDivision = spec.root.children.find(child => child.id === FIXED_FIRST_DIVISION_NODE_ID);
+  const visibleRoot: BuilderNode = fixedDivision
+    ? {
+        ...spec.root,
+        children: [
+          ...fixedDivision.children,
+          ...spec.root.children.filter(child => child.id !== FIXED_FIRST_DIVISION_NODE_ID),
+        ],
+        questionTypes: [...spec.root.questionTypes, ...fixedDivision.questionTypes],
+      }
+    : spec.root;
+
+  return (
+    <div
+      ref={viewportRef}
+      onPointerDown={event => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop };
+        suppressClickRef.current = false;
+      }}
+      onPointerMove={event => {
+        const viewport = viewportRef.current;
+        const drag = dragRef.current;
+        if (!viewport || !drag || drag.pointerId !== event.pointerId) return;
+        if (Math.abs(event.clientX - drag.x) > 5 || Math.abs(event.clientY - drag.y) > 5) {
+          suppressClickRef.current = true;
+          if (!viewport.hasPointerCapture(event.pointerId)) viewport.setPointerCapture(event.pointerId);
+          setDragging(true);
+        }
+        viewport.scrollLeft = drag.left - (event.clientX - drag.x);
+        viewport.scrollTop = drag.top - (event.clientY - drag.y);
+      }}
+      onPointerUp={event => {
+        if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+        setDragging(false);
+      }}
+      onPointerCancel={() => { dragRef.current = null; setDragging(false); }}
+      onClickCapture={event => {
+        if (!suppressClickRef.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+        suppressClickRef.current = false;
+      }}
+      style={{ maxHeight: '60vh', overflow: 'hidden', cursor: dragging ? 'grabbing' : 'grab', touchAction: 'none', userSelect: 'none', borderRadius: 12 }}
+    >
+      <div style={{ minWidth: '100%', width: 'max-content', padding: '18px 24px 28px', background: '#111c31', border: '1px solid #26364f', borderRadius: 12 }}>
+        <style>{`
+          .program-tree-diagram, .program-tree-diagram ul { margin: 0; padding: 0; list-style: none; }
+          .program-tree-diagram ul { display: flex; justify-content: center; position: relative; padding-top: 24px; }
+          .program-tree-diagram ul::before { content: ''; position: absolute; top: 0; left: 50%; height: 24px; border-left: 2px solid #64748b; }
+          .program-tree-diagram li { position: relative; padding: 24px 8px 0; text-align: center; }
+          .program-tree-diagram > li { padding-top: 0; }
+          .program-tree-diagram li::before, .program-tree-diagram li::after { content: ''; position: absolute; top: 0; width: 50%; height: 24px; border-top: 2px solid #64748b; }
+          .program-tree-diagram li::before { right: 50%; }
+          .program-tree-diagram li::after { left: 50%; border-left: 2px solid #64748b; }
+          .program-tree-diagram > li::before, .program-tree-diagram > li::after, .program-tree-diagram li:only-child::before, .program-tree-diagram li:only-child::after { display: none; }
+          .program-tree-diagram li:only-child { padding-top: 0; }
+          .program-tree-diagram li:first-child::before, .program-tree-diagram li:last-child::after { border-top: 0; }
+          .program-tree-diagram li:last-child::before { border-right: 2px solid #64748b; border-radius: 0 9px 0 0; }
+          .program-tree-diagram li:first-child::after { border-radius: 9px 0 0 0; }
+          .program-tree-circle { width: 82px; height: 82px; padding: 8px; border-radius: 50%; border: 2px solid #475569; background: #172033; color: #e2e8f0; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; position: relative; font-family: inherit; box-shadow: 0 6px 18px rgba(0,0,0,.28); transition: transform .15s, filter .15s; }
+          button.program-tree-circle { cursor: pointer; }
+          button.program-tree-circle:hover { transform: translateY(-2px); filter: brightness(1.12); }
+          .program-tree-circle.is-root { border-color: #22c55e; background: radial-gradient(circle at 35% 25%, #185b3a, #123226); }
+          .program-tree-circle.is-folder { border-color: #3b82f6; background: radial-gradient(circle at 35% 25%, #193b70, #14243e); }
+          .program-tree-circle.is-category { border-color: #a78bfa; background: radial-gradient(circle at 35% 25%, #493575, #281f45); }
+          .program-tree-circle.is-question { width: 68px; height: 68px; border-color: #f59e0b; background: #392b16; }
+          .program-tree-icon { font-size: 17px; line-height: 1; }
+          .program-tree-label { max-width: 68px; font-size: 9px; line-height: 1.15; font-weight: 800; overflow-wrap: anywhere; }
+          .program-tree-toggle { position: absolute; right: 2px; bottom: 2px; width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center; background: #0f172a; border: 1px solid #64748b; font-size: 12px; }
+        `}</style>
+        <ul className="program-tree-diagram"><ProgramTreeBranch node={visibleRoot} path={['root']} onNavigate={onNavigate} isRoot /></ul>
+      </div>
+    </div>
+  );
+}
 
 // ─── Emoji helpers ────────────────────────────────────────────────────────────
 
@@ -303,6 +434,9 @@ export default function ProgramsAdmin() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [draftRevision, setDraftRevision] = useState(0);
+  const draftRevisionRef = useRef(0);
+  const draftSaveInFlightRef = useRef(false);
 
   // View state
   const [view, setView] = useState<'list' | 'setup' | 'explorer' | 'preview' | 'worksheetEditor'>('list');
@@ -314,7 +448,11 @@ export default function ProgramsAdmin() {
 
   // Builder data model (underpins the explorer)
   const [builder, setBuilder] = useState<BuilderSpec>(() => newBuilderSpec());
+  const builderRef = useRef(builder);
   const [builderPathIds, setBuilderPathIds] = useState<string[]>(['root']);
+  const [questionImportOpen, setQuestionImportOpen] = useState(false);
+
+  useEffect(() => { builderRef.current = builder; }, [builder]);
 
   // Preview & Whiteboard drill-down
   const [previewProgramId, setPreviewProgramId] = useState<string | null>(null);
@@ -370,6 +508,9 @@ export default function ProgramsAdmin() {
 
   // Background publish tracking (programId → true means publishing in progress)
   const [publishingIds, setPublishingIds] = useState<Record<string, boolean>>({});
+  const [versionHistory, setVersionHistory] = useState<{ programId: string; title: string; versions: Array<{ versionNumber: number; publishedAt: string; publishedBy: string }> } | null>(null);
+  const [versionHistoryLoading, setVersionHistoryLoading] = useState(false);
+  const [programTreePopup, setProgramTreePopup] = useState<ProgramTreePopup | null>(null);
 
   // Dynamic Subjects
   const [personalSubjects, setPersonalSubjects] = useState<PersonalSubject[]>([]);
@@ -547,6 +688,125 @@ export default function ProgramsAdmin() {
   function getExplorerWorksheets(): BuilderQuestionTypeFile[] {
     if (builderPathIds.length === 1) return [];
     return getCurrentNode()?.questionTypes ?? [];
+  }
+
+  function getImportCategories(): ImportCategoryOption[] {
+    const normalized = ensureFixedFirstDivisionContainer(builder);
+    const fixed = normalized.root.children.find(c => c.id === FIXED_FIRST_DIVISION_NODE_ID);
+    const result: ImportCategoryOption[] = [];
+    const visit = (node: BuilderNode, parents: string[]) => {
+      const path = [...parents, node.title];
+      if (node.isCategory) result.push({ id: node.id, path: path.join(' / ') });
+      else node.children.forEach(child => visit(child, path));
+    };
+    (fixed?.children ?? normalized.root.children).forEach(node => visit(node, []));
+    return result;
+  }
+
+  function getOrganizerTree(): OrganizerTreeNode[] {
+    const normalized = ensureFixedFirstDivisionContainer(builder);
+    const fixed = normalized.root.children.find(c => c.id === FIXED_FIRST_DIVISION_NODE_ID);
+    const convert = (node: BuilderNode): OrganizerTreeNode => ({
+      id: node.id,
+      title: node.title,
+      kind: node.isCategory ? 'category' : 'folder',
+      children: node.children.map(convert),
+    });
+    return (fixed?.children ?? normalized.root.children).map(convert);
+  }
+
+  function getExistingOrganizerQuestions(): Array<{ id: string; text: string; answerText?: string }> {
+    const result: Array<{ id: string; text: string; answerText?: string }> = [];
+    const visit = (node: BuilderNode) => {
+      for (const file of node.questionTypes) {
+        try {
+          const questions = JSON.parse(file.jsonText) as Array<Record<string, unknown>>;
+          for (const question of questions) {
+            const blocks = Array.isArray(question.promptBlocks) ? question.promptBlocks as Array<Record<string, unknown>> : [];
+            const blockText = blocks.map(block => typeof block.text === 'string' ? block.text : '').filter(Boolean).join(' ');
+            const text = typeof question.question === 'string' ? question.question : blockText;
+            if (typeof question.id === 'string' && text.trim()) result.push({ id: question.id, text, answerText: typeof question.modelAnswer === 'string' ? question.modelAnswer : undefined });
+          }
+        } catch { /* malformed legacy worksheet is handled elsewhere */ }
+      }
+      node.children.forEach(visit);
+    };
+    visit(builder.root);
+    return result;
+  }
+
+  function applyImportedPlacements({ placements, previewTree, proposal }: ApprovedImport) {
+    const grouped = new Map<string, ImportPlacement[]>();
+    for (const placement of placements) {
+      const list = grouped.get(placement.categoryId) ?? [];
+      list.push(placement);
+      grouped.set(placement.categoryId, list);
+    }
+
+    const existingNodes = new Map<string, BuilderNode>();
+    const indexExisting = (node: BuilderNode) => { existingNodes.set(node.id, node); node.children.forEach(indexExisting); };
+    indexExisting(builder.root);
+    const fromPreview = (node: OrganizerTreeNode): BuilderNode => {
+      const existing = existingNodes.get(node.id);
+      return {
+        id: node.id,
+        title: node.title,
+        isCategory: node.kind === 'category',
+        questionTypes: existing?.questionTypes ?? [],
+        children: node.children.map(fromPreview),
+      };
+    };
+
+    const addToNode = (node: BuilderNode): BuilderNode => {
+      const incoming = grouped.get(node.id) ?? [];
+      let questionTypes = node.questionTypes;
+      if (node.isCategory && incoming.length > 0) {
+        const current = node.questionTypes[0];
+        let existing: unknown[] = [];
+        try { existing = current ? JSON.parse(current.jsonText) as unknown[] : []; } catch { existing = []; }
+        const imported = incoming.map(({ question }) => {
+          const choices = question.interaction.choices ?? [];
+          const correctIndex = question.interaction.correctChoiceIndex ?? -1;
+          const hasSourceAnswer = correctIndex >= 0 && correctIndex < choices.length;
+          return {
+            id: question.id,
+            promptBlocks: question.promptBlocks.length ? question.promptBlocks : [{ type: 'text', text: question.promptRawText }],
+            interaction: question.interaction,
+            difficulty: 'medium',
+            modelAnswer: hasSourceAnswer ? choices[correctIndex] : '',
+            answerFromPdf: hasSourceAnswer,
+            sourcePage: question.pageNumber,
+            sourceQuestionNumber: question.questionNumber,
+            reviewStatus: question.reviewStatus,
+            extractionFlags: question.flags,
+          };
+        });
+        questionTypes = [{
+          id: current?.id ?? makeStableId('qt'),
+          title: current?.title ?? node.title,
+          jsonText: JSON.stringify([...existing, ...imported], null, 2),
+        }];
+      }
+      return { ...node, questionTypes, children: node.children.map(addToNode) };
+    };
+
+    const normalized = ensureFixedFirstDivisionContainer(builder);
+    const rootWithPreview: BuilderNode = {
+      ...normalized.root,
+      children: normalized.root.children.map(child => child.id === FIXED_FIRST_DIVISION_NODE_ID ? { ...child, children: previewTree.map(fromPreview) } : child),
+    };
+    const next = ensureFixedFirstDivisionContainer({ ...builder, root: addToNode(rootWithPreview) });
+    setBuilder(next);
+    builderRef.current = next;
+    setQuestionImportOpen(false);
+    void saveBuilderDraft(true, next, {
+      batchId: `import_${Date.now().toString(36)}`,
+      provider: proposal.provider,
+      proposal,
+      approvedTree: previewTree,
+      placements: placements.map(item => ({ questionId: item.question.id, categoryId: item.categoryId })),
+    });
+    toast({ description: `${placements.length} questions added to the draft ✓` });
   }
 
   function getBreadcrumb(): Array<{ id: string; title: string }> {
@@ -844,6 +1104,7 @@ export default function ProgramsAdmin() {
     b.coverEmoji = emoji;
     b.divisions = ['Chapters', 'Topics'];
     setBuilder(ensureFixedFirstDivisionContainer(b));
+    setDraftRevision(0); draftRevisionRef.current = 0;
     setBuilderPathIds(['root']);
     setView('explorer');
   }
@@ -859,25 +1120,32 @@ export default function ProgramsAdmin() {
     setBuilderPathIds(['root']);
     setSetupName(''); setSetupEmoji(''); setSetupSubject('');
     setAdminWhiteboardData({});
+    setDraftRevision(0); draftRevisionRef.current = 0;
     await load();
   }
 
   // ── Save / Publish ──────────────────────────────────────────────────────────
 
-  async function saveBuilderDraft(isAuto = false) {
-    const { id: programId, title } = computeProgramIdAndTitle();
+  async function saveBuilderDraft(isAuto = false, specOverride?: BuilderSpec, organizerDecision?: Record<string, unknown>): Promise<boolean> {
+    if (draftSaveInFlightRef.current) return false;
+    draftSaveInFlightRef.current = true;
+    const source = specOverride ?? builder;
+    const title = source.programTitle.trim() || source.root.title.trim();
+    const idBase = source.programId.trim() || makeIdFromTitle(title) || 'program';
+    const programId = String(editingId || editingDraftId || idBase).trim() || idBase;
     if (!programId) { 
       if (!isAuto) toast({ variant: 'destructive', description: 'Missing program ID' }); 
-      return; 
+      draftSaveInFlightRef.current = false;
+      return false;
     }
     if (!isAuto) setSaving(true);
     try {
-      const spec = { ...builder, programId, programTitle: title };
+      const spec = { ...source, programId, programTitle: title };
       const internal = convertBuilderToInternal(spec);
       const payload: Record<string, unknown> = stripUndefinedDeep({
         title,
-        subject: builder.subject ?? 'mathematics',
-        coverEmoji: builder.coverEmoji ?? '📚',
+        subject: source.subject ?? 'mathematics',
+        coverEmoji: source.coverEmoji ?? '📚',
         toc: internal.toc,
         annotations: internal.annotations,
         programMeta: internal.programMeta,
@@ -887,9 +1155,11 @@ export default function ProgramsAdmin() {
         adminWhiteboardData,
         updatedAt: new Date().toISOString(),
       });
-      const gb = (builder.gradeBand ?? '').trim();
+      const gb = (source.gradeBand ?? '').trim();
       if (gb) payload.grade_band = gb;
-      await saveDraftProgramAdmin(programId, payload);
+      const saved = await saveDraftProgramAdmin(programId, payload, { expectedRevision: draftRevisionRef.current, organizerDecision });
+      draftRevisionRef.current = saved.revision;
+      setDraftRevision(saved.revision);
       setEditingDraftId(programId);
       if (isAuto) {
         setLastAutoSave(new Date());
@@ -897,10 +1167,14 @@ export default function ProgramsAdmin() {
         await load();
         toast({ description: 'Draft saved ✓' });
       }
-    } catch (e) { 
-      if (!isAuto) toast({ variant: 'destructive', description: formatErr(e) }); 
+      return true;
+    } catch (e) {
+      const message = formatErr(e);
+      if (!isAuto || message.includes('DRAFT_REVISION_CONFLICT')) toast({ variant: 'destructive', description: message.includes('DRAFT_REVISION_CONFLICT') ? 'This draft changed in another session. Reload it before saving again.' : message });
+      return false;
     } finally { 
-      if (!isAuto) setSaving(false); 
+      if (!isAuto) setSaving(false);
+      draftSaveInFlightRef.current = false;
     }
   }
 
@@ -911,7 +1185,7 @@ export default function ProgramsAdmin() {
     //  1. It fires reliably every minute regardless of user activity
     //  2. It doesn't restart on every keystroke / state update
     const intervalId = setInterval(() => {
-      saveBuilderDraft(true);
+      saveBuilderDraft(true, builderRef.current);
     }, 60_000);
     return () => clearInterval(intervalId);
   // Only re-run when entering/leaving explorer — saveBuilderDraft reads
@@ -929,15 +1203,17 @@ export default function ProgramsAdmin() {
 
     // 2. Save draft first — use setSaving so the Publish button shows feedback
     setSaving(true);
-    try {
-      await saveBuilderDraft(true);
-    } catch (_e) {
-      // ignore draft save errors — proceed with what we have
+    const draftSaved = await saveBuilderDraft(true);
+    if (!draftSaved) {
+      setSaving(false);
+      toast({ variant: 'destructive', description: 'The draft could not be saved. Publishing was cancelled.' });
+      return;
     }
     setSaving(false);
 
     // 3. Capture snapshots before resetting state
-    const draftIdToPublish = editingDraftId;
+    const draftIdToPublish = editingDraftId ?? (draftRevisionRef.current > 0 ? programId : null);
+    const revisionToPublish = draftRevisionRef.current;
     const specSnapshot = { ...builder, programId, programTitle: title };
     const whiteboardSnapshot = { ...adminWhiteboardData };
 
@@ -948,6 +1224,7 @@ export default function ProgramsAdmin() {
     setBuilderPathIds(['root']);
     setSetupName(''); setSetupEmoji(''); setSetupSubject('');
     setAdminWhiteboardData({});
+    setDraftRevision(0); draftRevisionRef.current = 0;
     await load();
 
     // 4. Mark as publishing (shows progress bar on the list card)
@@ -973,7 +1250,7 @@ export default function ProgramsAdmin() {
         });
         const gb = (specSnapshot.gradeBand ?? '').trim();
         if (gb) payload.grade_band = gb;
-        await publishProgramAdmin(programId, payload, draftIdToPublish);
+        await publishProgramAdmin(programId, payload, draftIdToPublish, revisionToPublish);
         await load();
         toast({ description: `"${title}" published ✓` });
       } catch (e) {
@@ -990,8 +1267,16 @@ export default function ProgramsAdmin() {
     setEditingId(p.id);
     setEditingDraftId(null);
     try {
-      const data = await getPublishedProgramAdmin(p.id);
+      const existingDraft = await getDraftProgramAdmin(p.id);
+      const data = existingDraft ?? await getPublishedProgramAdmin(p.id);
       if (!data) { toast({ variant: 'destructive', description: 'Program not found' }); return; }
+      if (existingDraft) {
+        setEditingId(null);
+        setEditingDraftId(p.id);
+        toast({ description: 'Opened the existing draft with unpublished changes.' });
+      }
+      const loadedRevision = existingDraft?.revision ?? 0;
+      setDraftRevision(loadedRevision); draftRevisionRef.current = loadedRevision;
       const spec = data.builderSpec as BuilderSpec | undefined;
       const next = spec?.version === '1.0' ? spec : (() => {
         const b = newBuilderSpec();
@@ -1014,6 +1299,8 @@ export default function ProgramsAdmin() {
     try {
       const data = await getDraftProgramAdmin(d.id);
       if (!data) { toast({ variant: 'destructive', description: 'Draft not found' }); return; }
+      const loadedRevision = data.revision ?? 0;
+      setDraftRevision(loadedRevision); draftRevisionRef.current = loadedRevision;
       const spec = data?.builderSpec as BuilderSpec | undefined;
       const next = spec?.version === '1.0' ? spec : (() => {
         const b = newBuilderSpec();
@@ -1105,6 +1392,98 @@ export default function ProgramsAdmin() {
     if (editingId === id) resetToList();
   }
 
+  async function openProgramTree(program: ProgramItem, source: 'Published' | 'Draft') {
+    setProgramTreePopup({ programId: program.id, title: program.title ?? program.id, source, spec: null, loading: true });
+    try {
+      const currentDraft = source === 'Published' ? await getDraftProgramAdmin(program.id) : null;
+      const actualSource: 'Published' | 'Draft' = source === 'Draft' || currentDraft ? 'Draft' : 'Published';
+      const data = currentDraft ?? (actualSource === 'Draft'
+        ? await getDraftProgramAdmin(program.id)
+        : await getPublishedProgramAdmin(program.id));
+      if (!data) throw new Error(`${actualSource} program not found`);
+      const storedSpec = data.builderSpec as BuilderSpec | undefined;
+      const spec = storedSpec?.version === '1.0' ? storedSpec : (() => {
+        const fallback = newBuilderSpec();
+        fallback.programId = program.id;
+        fallback.programTitle = (data.title as string) ?? program.title ?? program.id;
+        fallback.root.title = fallback.programTitle;
+        return fallback;
+      })();
+      setProgramTreePopup({ programId: program.id, title: spec.programTitle || spec.root.title || program.title || program.id, source: actualSource, spec: ensureFixedFirstDivisionContainer(spec), loading: false });
+    } catch (error) {
+      setProgramTreePopup(current => current ? { ...current, loading: false, error: formatErr(error) } : null);
+    }
+  }
+
+  async function navigateFromProgramTree(path: string[], questionTypeId?: string) {
+    const popup = programTreePopup;
+    if (!popup) return;
+    try {
+      const data = popup.source === 'Draft'
+        ? await getDraftProgramAdmin(popup.programId)
+        : await getPublishedProgramAdmin(popup.programId);
+      if (!data) throw new Error(`${popup.source} program not found`);
+      const storedSpec = data.builderSpec as BuilderSpec | undefined;
+      const next = storedSpec?.version === '1.0' ? ensureFixedFirstDivisionContainer(storedSpec) : (() => {
+        const fallback = newBuilderSpec();
+        fallback.programId = popup.programId;
+        fallback.programTitle = (data.title as string) ?? popup.title;
+        fallback.root.title = fallback.programTitle;
+        return fallback;
+      })();
+      const fixed = next.root.children.find(child => child.id === FIXED_FIRST_DIVISION_NODE_ID);
+      let current: BuilderNode | undefined;
+      for (const nodeId of path.slice(1)) {
+        const candidates = current ? current.children : fixed?.children ?? next.root.children;
+        current = candidates.find(child => child.id === nodeId);
+        if (!current) throw new Error('This tree destination no longer exists. Reopen the Tree to refresh its structure.');
+      }
+      if (questionTypeId && !current?.questionTypes.some(file => file.id === questionTypeId)) {
+        throw new Error('This question destination no longer exists. Reopen the Tree to refresh its structure.');
+      }
+      setEditingId(popup.source === 'Published' ? popup.programId : null);
+      setEditingDraftId(popup.source === 'Draft' ? popup.programId : null);
+      const revision = popup.source === 'Draft' ? data.revision ?? 0 : 0;
+      setDraftRevision(revision);
+      draftRevisionRef.current = revision;
+      setBuilder(next);
+      setBuilderPathIds(path);
+      setSelectedQuestionTypeId(questionTypeId ?? null);
+      setProgramTreePopup(null);
+      setView('explorer');
+    } catch (error) {
+      toast({ variant: 'destructive', description: formatErr(error) });
+    }
+  }
+
+  async function openVersionHistory(program: ProgramItem) {
+    setVersionHistoryLoading(true);
+    setVersionHistory({ programId: program.id, title: program.title ?? program.id, versions: [] });
+    try {
+      const versions = await listProgramVersionsAdmin(program.id);
+      setVersionHistory({ programId: program.id, title: program.title ?? program.id, versions });
+    } catch (error) {
+      toast({ variant: 'destructive', description: formatErr(error) });
+      setVersionHistory(null);
+    } finally {
+      setVersionHistoryLoading(false);
+    }
+  }
+
+  async function rollbackVersion(versionNumber: number) {
+    if (!versionHistory) return;
+    if (!(await confirm(`Create a new draft of "${versionHistory.title}" from version ${versionNumber}?\n\nThe published program will not change until you publish the restored draft.`))) return;
+    try {
+      await rollbackProgramVersionToDraftAdmin(versionHistory.programId, versionNumber);
+      toast({ description: `Version ${versionNumber} restored as a new draft ✓` });
+      setVersionHistory(null);
+      await load();
+    } catch (error) {
+      const message = formatErr(error);
+      toast({ variant: 'destructive', description: message.includes('ACTIVE_DRAFT_EXISTS') ? 'This program already has an active draft. Publish or delete it before restoring a version.' : message });
+    }
+  }
+
   async function publishDraftFromList(d: ProgramItem) {
     if (!(await confirm(`Publish "${d.title ?? d.id}"?`))) return;
     setLoading(true);
@@ -1129,7 +1508,7 @@ export default function ProgramsAdmin() {
         updatedAt: new Date().toISOString(),
       });
       if (d.grade_band) payload.grade_band = d.grade_band;
-      await publishProgramAdmin(d.id, payload, d.id);
+      await publishProgramAdmin(d.id, payload, d.id, data.revision);
       await load();
       toast({ description: 'Published ✓' });
     } catch (e) {
@@ -1664,34 +2043,21 @@ export default function ProgramsAdmin() {
                 creating={creatingSubject} 
               />
             </div>
+            <button
+              className="ll-btn"
+              onClick={() => setQuestionImportOpen(true)}
+              title="Import a question paper and optional marking schemes into this program"
+              style={{ padding: '6px 12px', fontSize: 12, background: 'linear-gradient(135deg,rgba(59,130,246,.22),rgba(139,92,246,.22))', borderColor: 'rgba(96,165,250,.55)', color: '#bfdbfe', whiteSpace: 'nowrap' }}
+            >
+              ✨ Question Import Studio
+            </button>
           </div>
 
           {/* ── Explorer toolbar ── */}
           <div style={{ background: '#0f172a', borderBottom: '1px solid #334155', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
 
-            {/* Breadcrumb navigation */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0, overflow: 'hidden', marginRight: 8 }}>
-              {breadcrumb.map((crumb, i) => (
-                <div key={crumb.id} style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                  {i > 0 && <span style={{ color: '#475569', flexShrink: 0, fontSize: 14 }}>›</span>}
-                  <button
-                    onClick={() => i < breadcrumb.length - 1 ? navigateTo(builderPathIds.slice(0, i + 1)) : undefined}
-                    style={{ background: 'none', border: 'none', padding: '3px 6px', borderRadius: 6, color: i === breadcrumb.length - 1 ? 'white' : '#a855f7', fontWeight: i === breadcrumb.length - 1 ? 900 : 400, cursor: i < breadcrumb.length - 1 ? 'pointer' : 'default', fontSize: 13, fontFamily: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}
-                    title={crumb.title}
-                  >
-                    {i === 0 ? `${builder.coverEmoji || '📚'} ${crumb.title}` : crumb.title}
-                  </button>
-                  {i === breadcrumb.length - 1 && !!getCurrentNode()?.isCategory && (
-                    <span style={{ fontSize: 10, background: 'rgba(20,184,166,0.15)', color: '#2dd4bf', padding: '2px 6px', borderRadius: 4, fontWeight: 'bold', textTransform: 'uppercase', border: '1px solid rgba(20,184,166,0.3)', marginLeft: 4 }}>
-                      Category
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-
             {/* Toolbar buttons */}
-            <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap', alignItems: 'center' }}>
               {/* New Folder — available at root and inside folders, but NOT inside categories */}
               {!(!!getCurrentNode()?.isCategory) && (
                 <button
@@ -1772,9 +2138,9 @@ export default function ProgramsAdmin() {
           {/* ── Explorer content area ── */}
           <div style={{ padding: 16, minHeight: 340 }}>
 
-            {/* Navigate up button */}
-            {!isAtRoot && (
-              <div style={{ marginBottom: 14 }}>
+            {/* Folder navigation and current location */}
+            <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+              {!isAtRoot && (
                 <button
                   onClick={navigateBack}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', transition: 'all 0.15s' }}
@@ -1783,8 +2149,22 @@ export default function ProgramsAdmin() {
                 >
                   ← Back
                 </button>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 120, maxWidth: 'min(620px, 75vw)', overflow: 'hidden', padding: '5px 8px', borderRadius: 8, background: '#111c31', border: '1px solid #334155' }}>
+                {breadcrumb.map((crumb, i) => (
+                  <div key={crumb.id} style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
+                    {i > 0 && <span style={{ color: '#475569', flexShrink: 0 }}>›</span>}
+                    <button
+                      onClick={() => i < breadcrumb.length - 1 ? navigateTo(builderPathIds.slice(0, i + 1)) : undefined}
+                      title={crumb.title}
+                      style={{ maxWidth: 150, padding: '2px 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', border: 0, background: 'transparent', color: i === breadcrumb.length - 1 ? 'white' : '#a855f7', fontSize: 12, fontWeight: i === breadcrumb.length - 1 ? 800 : 500, cursor: i < breadcrumb.length - 1 ? 'pointer' : 'default', fontFamily: 'inherit' }}
+                    >
+                      {i === 0 ? `${builder.coverEmoji || '📚'} ${crumb.title}` : crumb.title}
+                    </button>
+                  </div>
+                ))}
               </div>
-            )}
+            </div>
 
             {/* Empty state */}
             {!selectedQuestionTypeId && explorerFolders.length === 0 && explorerWorksheets.length === 0 && (
@@ -2137,6 +2517,7 @@ export default function ProgramsAdmin() {
                           </div>
                         </div>
                         <button onClick={() => previewDraft(d.id)} className="ll-btn" disabled={isPublishing} style={{ padding: '5px 10px', fontSize: 11 }}>Preview</button>
+                        <button onClick={() => openProgramTree(d, 'Draft')} className="ll-btn" disabled={isPublishing} style={{ padding: '5px 10px', fontSize: 11 }}>🌳 Tree</button>
                         <button onClick={() => startEditDraft(d)} className="ll-btn" disabled={isPublishing} style={{ padding: '5px 10px', fontSize: 11 }}>Edit</button>
                         <button onClick={() => publishDraftFromList(d)} className="ll-btn" disabled={isPublishing} style={{ padding: '5px 10px', fontSize: 11, background: '#10b981', borderColor: '#059669', color: 'white' }}>Publish</button>
                         <button onClick={() => removeDraft(d.id)} className="ll-btn" disabled={isPublishing} style={{ padding: '5px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}>Delete</button>
@@ -2162,7 +2543,9 @@ export default function ProgramsAdmin() {
                     <div style={{ color: '#64748b', fontSize: 11 }}>{p.subject ?? 'subject'}{p.grade_band ? ` • ${p.grade_band}` : ''}</div>
                   </div>
                   <button onClick={() => previewPublished(p.id)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11 }}>Preview</button>
+                  <button onClick={() => openProgramTree(p, 'Published')} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11 }}>🌳 Tree</button>
                   <button onClick={() => startEditPublished(p)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11 }}>Edit</button>
+                  <button onClick={() => openVersionHistory(p)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11 }}>History</button>
                   <button onClick={() => unpublishProgramFromList(p)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11, background: '#f59e0b', borderColor: '#d97706', color: 'white' }}>Unpublish</button>
                   <button onClick={() => removePublished(p.id)} className="ll-btn" style={{ padding: '5px 10px', fontSize: 11, borderColor: 'rgba(239,68,68,0.55)', color: '#fca5a5' }}>Delete</button>
                 </div>
@@ -2170,6 +2553,52 @@ export default function ProgramsAdmin() {
             )}
           </div>
         </>
+      )}
+
+      {versionHistory && (
+        <div onClick={() => !versionHistoryLoading && setVersionHistory(null)} style={{ position: 'fixed', inset: 0, zIndex: 7200, background: 'rgba(2,6,23,.85)', display: 'grid', placeItems: 'center', padding: 18 }}>
+          <div onClick={event => event.stopPropagation()} style={{ width: 'min(620px,96vw)', maxHeight: '82vh', overflow: 'auto', borderRadius: 18, background: '#0f172a', border: '1px solid #334155', boxShadow: '0 28px 90px rgba(0,0,0,.65)' }}>
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontSize: 22 }}>🕘</div>
+              <div style={{ flex: 1 }}><div style={{ color: 'white', fontWeight: 900 }}>Version history</div><div style={{ color: '#64748b', fontSize: 12 }}>{versionHistory.title}</div></div>
+              <button className="ll-btn" onClick={() => setVersionHistory(null)}>✕</button>
+            </div>
+            <div style={{ padding: 18 }}>
+              {versionHistoryLoading ? <div style={{ color: '#94a3b8' }}>Loading versions…</div> : versionHistory.versions.length === 0 ? <div style={{ color: '#94a3b8', lineHeight: 1.6 }}>No transactional versions exist yet. The first version will be recorded the next time this program is published.</div> : versionHistory.versions.map((version, index) => (
+                <div key={version.versionNumber} style={{ padding: '12px 14px', marginBottom: 8, borderRadius: 11, border: '1px solid #26364f', background: '#111c31', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 42, height: 42, borderRadius: 10, display: 'grid', placeItems: 'center', background: 'rgba(59,130,246,.12)', color: '#93c5fd', fontWeight: 900 }}>v{version.versionNumber}</div>
+                  <div style={{ flex: 1 }}><div style={{ color: 'white', fontWeight: 800, fontSize: 13 }}>{index === 0 ? 'Latest published version' : `Published version ${version.versionNumber}`}</div><div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>{new Date(version.publishedAt).toLocaleString()}</div></div>
+                  <button className="ll-btn" onClick={() => rollbackVersion(version.versionNumber)} style={{ padding: '6px 11px', fontSize: 11 }}>Restore to draft</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {programTreePopup && (
+        <div onClick={() => setProgramTreePopup(null)} style={{ position: 'fixed', inset: 0, zIndex: 7250, background: 'rgba(2,6,23,.88)', display: 'grid', placeItems: 'center', padding: 18 }}>
+          <div onClick={event => event.stopPropagation()} style={{ width: 'min(720px,96vw)', maxHeight: '86vh', display: 'flex', flexDirection: 'column', borderRadius: 18, background: '#0f172a', border: '1px solid #334155', boxShadow: '0 28px 90px rgba(0,0,0,.68)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 11 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 11, display: 'grid', placeItems: 'center', background: 'rgba(34,197,94,.12)', fontSize: 21 }}>🌳</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: 'white', fontWeight: 900 }}>Program tree</div>
+                <div style={{ color: '#64748b', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{programTreePopup.title} · {programTreePopup.source}</div>
+              </div>
+              <button className="ll-btn" onClick={() => setProgramTreePopup(null)}>✕</button>
+            </div>
+            <div style={{ padding: 18, overflow: 'auto' }}>
+              {programTreePopup.loading && <div style={{ padding: 24, color: '#94a3b8', textAlign: 'center' }}>Loading program structure…</div>}
+              {programTreePopup.error && <div style={{ padding: 14, borderRadius: 10, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: '#fca5a5' }}>{programTreePopup.error}</div>}
+              {programTreePopup.spec && (
+                <>
+                  <div style={{ marginBottom: 9, color: '#64748b', fontSize: 11, textAlign: 'center' }}>Drag anywhere to explore · Click a node to open it · Use −/+ to collapse or expand</div>
+                  <ProgramTreeCanvas spec={programTreePopup.spec} onNavigate={navigateFromProgramTree} />
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
@@ -2189,6 +2618,19 @@ export default function ProgramsAdmin() {
       {/* ═══════════════════════════════════════════════════════════════════════
           CATEGORY UPLOAD MODAL — Pipeline + Classification Review
           ═══════════════════════════════════════════════════════════════════════ */}
+      <QuestionImportStudio
+        open={questionImportOpen}
+        programTitle={builder.programTitle || builder.root.title || 'Untitled program'}
+        subject={builder.subject || ''}
+        programId={builder.programId || editingId || editingDraftId || makeIdFromTitle(builder.programTitle)}
+        baseRevision={draftRevision}
+        currentTree={getOrganizerTree()}
+        existingQuestions={getExistingOrganizerQuestions()}
+        categories={getImportCategories()}
+        onClose={() => setQuestionImportOpen(false)}
+        onApply={applyImportedPlacements}
+      />
+
       {categoryUploadOpen && (
         <div
           onClick={() => { if (!categoryUploading) { setCategoryUploadOpen(false); setClassificationResult(null); } }}
