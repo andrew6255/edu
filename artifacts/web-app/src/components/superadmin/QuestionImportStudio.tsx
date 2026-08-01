@@ -238,7 +238,11 @@ export default function QuestionImportStudio({ open, programTitle, subject, prog
     if (!window.confirm(message)) return;
     if (jobId && processing) {
       try { await cancelQuestionExtractionJob(jobId); }
-      catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); return; }
+      catch (reason) {
+        const cancelError = reason instanceof Error ? reason.message : String(reason);
+        // If the API restarted, its in-memory job is already gone and local cleanup is safe.
+        if (!/job not found/i.test(cancelError)) { setError(cancelError); return; }
+      }
     }
     localStorage.removeItem(sessionKey);
     setQuestionFiles([]); setAnswerFiles([]); setQuestions([]); setAssignments({}); setProgress(null); setProgressHistory([]); setElapsedSeconds(0); setError(''); setEditingQuestionId(null); setTree(cloneTree(currentTree)); setJobId(null); setJobStatus(null); setProcessing(false);

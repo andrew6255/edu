@@ -104,9 +104,21 @@ async function readFileAsBase64(file: File): Promise<string> {
 
 async function expectJson<T>(response: Response): Promise<T> {
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : {};
+  let payload: Record<string, unknown> = {};
+  if (text) {
+    try {
+      payload = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      const endpoint = (() => { try { return new URL(response.url).pathname; } catch { return response.url; } })();
+      const returnedHtml = /^\s*(?:<!doctype|<html)/i.test(text);
+      const explanation = returnedHtml
+        ? `The API returned an HTML page for ${endpoint}. The API server is probably running an older build without this endpoint, or the request was sent to the frontend server. Restart the API server and try again.`
+        : `The API returned a non-JSON response for ${endpoint}.`;
+      throw new Error(`${explanation} (HTTP ${response.status})`);
+    }
+  }
   if (!response.ok) {
-    const message = typeof payload?.error === 'string' ? payload.error : `Request failed with status ${response.status}`;
+    const message = typeof payload.error === 'string' ? payload.error : `Request failed with status ${response.status}`;
     throw new Error(message);
   }
   return payload as T;
