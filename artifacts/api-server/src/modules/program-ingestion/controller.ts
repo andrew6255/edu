@@ -10,6 +10,46 @@ import { evaluateQuestionAnomalies } from "./anomalyEngine";
 import { getOrganizerProvider } from "./providers.organizer";
 import type { OrganizerRequest } from "./organizer";
 
+type QuestionExtractionJob = {
+  id: string;
+  programId: string;
+  status: "running" | "complete" | "failed" | "cancelled";
+  createdAt: string;
+  updatedAt: string;
+  progress: Record<string, unknown> | null;
+  history: Array<Record<string, unknown>>;
+  result: Record<string, unknown> | null;
+  error: string | null;
+};
+
+const questionExtractionJobs = new Map<string, QuestionExtractionJob>();
+const questionExtractionAbortControllers = new Map<string, AbortController>();
+
+export async function getQuestionExtractionJob(req: Request, res: Response): Promise<void> {
+  const job = questionExtractionJobs.get(getJobId(req));
+  if (!job) {
+    res.status(404).json({ error: "Question extraction job not found." });
+    return;
+  }
+  res.json(job);
+}
+
+export async function cancelQuestionExtractionJob(req: Request, res: Response): Promise<void> {
+  const jobId = getJobId(req);
+  const job = questionExtractionJobs.get(jobId);
+  if (!job) {
+    res.status(404).json({ error: "Question extraction job not found." });
+    return;
+  }
+  if (job.status === "running") {
+    questionExtractionAbortControllers.get(jobId)?.abort(new Error("Cancelled by the super admin."));
+    job.status = "cancelled";
+    job.error = "Cancelled by the super admin.";
+    job.updatedAt = new Date().toISOString();
+  }
+  res.json(job);
+}
+
 function getJobId(req: Request): string {
   const rawJobId = req.params["jobId"];
   return typeof rawJobId === "string" ? rawJobId : Array.isArray(rawJobId) ? rawJobId[0] ?? "" : "";
@@ -245,7 +285,7 @@ Extract them into a JSON array of objects, where each object has the following s
     "correctChoiceIndex": 0
   }
 }
-If the correct answer is not explicitly given in the text, make your best guess for the correctChoiceIndex, but prioritize capturing the question and options accurately.
+If the correct answer is not explicitly present in an uploaded answer source, do not guess it. Use -1 for correctChoiceIndex and leave the model answer empty.
 Make sure the choices array only contains the text of the option, without the A) or B) prefix. Output ONLY valid JSON array and nothing else.
 
 Raw text:
@@ -306,6 +346,25 @@ ${text}
 }
 
 export async function extractIqPdf(req: Request, res: Response): Promise<void> {
+  const extractionJobId = typeof req.body?.jobId === "string" && req.body.jobId.trim()
+    ? req.body.jobId.trim()
+    : `question-extraction-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const extractionProgramId = typeof req.body?.programId === "string" ? req.body.programId : "";
+  const jobAbortController = new AbortController();
+  const now = new Date().toISOString();
+  const extractionJob: QuestionExtractionJob = {
+    id: extractionJobId,
+    programId: extractionProgramId,
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+    progress: null,
+    history: [],
+    result: null,
+    error: null,
+  };
+  questionExtractionJobs.set(extractionJobId, extractionJob);
+  questionExtractionAbortControllers.set(extractionJobId, jobAbortController);
   // ── Streaming NDJSON setup ────────────────────────────────────────────────
   // Each progress line: {"progress":{"icon":"...","message":"...","detail":"..."}}
   // Final line:          {"result":{"questions":[...]}}
@@ -314,16 +373,87 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
   res.setHeader("Transfer-Encoding", "chunked");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.socket?.setNoDelay(true);
   res.flushHeaders();
 
-  const sendProgress = (icon: string, message: string, detail?: string, stats?: { totalPages?: number; currentPage?: number; totalQuestions?: number }) => {
-    res.write(JSON.stringify({ progress: { icon, message, detail: detail ?? "", stats: stats ?? {} } }) + "\n");
+  type ExtractionProgressStats = {
+    stage?: "rendering" | "answers" | "extracting" | "building" | "reviewing" | "auditing" | "complete";
+    stageCurrent?: number;
+    stageTotal?: number;
+    totalFiles?: number;
+    processedFiles?: number;
+    totalPages?: number;
+    currentPage?: number;
+    totalQuestions?: number;
+    answersFound?: number;
+    retry?: number;
+    operation?: string;
+    model?: string;
+    fileName?: string;
+    page?: number;
+    attempt?: number;
+    maxAttempts?: number;
+    operationElapsedMs?: number;
+    httpStatus?: number;
+    rateLimitWaitSeconds?: number;
+    requestTimeoutSeconds?: number;
+    lastError?: string;
+  };
+  const AI_REQUEST_TIMEOUT_MS = 90_000;
+  const DOCUMENT_RENDER_TIMEOUT_MS = 120_000;
+  const getAiSignal = () => AbortSignal.any([AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS), jobAbortController.signal]);
+  const extractionStartedAt = Date.now();
+  let progressSequence = 0;
+  const sendProgress = (icon: string, message: string, detail?: string, stats?: ExtractionProgressStats) => {
+    const progressEvent = {
+      icon,
+      message,
+      detail: detail ?? "",
+      stats: stats ?? {},
+      sequence: ++progressSequence,
+      serverTime: new Date().toISOString(),
+      elapsedMs: Date.now() - extractionStartedAt,
+    };
+    extractionJob.progress = progressEvent;
+    extractionJob.history = [...extractionJob.history, progressEvent].slice(-100);
+    extractionJob.updatedAt = progressEvent.serverTime;
+    if (res.writableEnded || res.destroyed) return;
+    res.write(JSON.stringify({ progress: progressEvent }) + "\n");
     if (typeof (res as any).flush === "function") (res as any).flush();
   };
 
+  const withProgressHeartbeat = async <T>(
+    operation: Promise<T>,
+    icon: string,
+    message: string,
+    detail: string,
+    stats: ExtractionProgressStats,
+  ): Promise<T> => {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      const waitingSeconds = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
+      sendProgress(icon, message, `${detail} · ${waitingSeconds}s elapsed`, {
+        ...stats,
+        operationElapsedMs: Date.now() - startedAt,
+      });
+    }, 3000);
+    try {
+      return await operation;
+    } finally {
+      clearInterval(timer);
+    }
+  };
+
   const sendError = (message: string) => {
-    res.write(JSON.stringify({ error: message }) + "\n");
-    res.end();
+    if (extractionJob.status !== "cancelled") extractionJob.status = "failed";
+    extractionJob.error = message;
+    extractionJob.updatedAt = new Date().toISOString();
+    questionExtractionAbortControllers.delete(extractionJobId);
+    if (!res.writableEnded && !res.destroyed) {
+      res.write(JSON.stringify({ error: message }) + "\n");
+      res.end();
+    }
   };
 
   try {
@@ -364,21 +494,43 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
     try { await fs.access(py312Path); pythonCmd = py312Path; } catch {}
 
     // ─── Step 1: Render document pages to PNG for vision ─────────────────────────
-    sendProgress("📄", "Rendering document pages…", `Combining ${questionFiles.length} question source file(s)`);
+    const totalSourceFiles = questionFiles.length + answerFiles.length;
+    sendProgress("📄", "Rendering document pages…", `Combining ${questionFiles.length} question source file(s)`, {
+      stage: "rendering", stageCurrent: 0, stageTotal: questionFiles.length, totalFiles: totalSourceFiles, processedFiles: 0,
+    });
     logger.info({ fileCount: questionFiles.length }, "[extractIqPdf] Rendering question sources...");
     const extractedData: {
       pages: Array<{ page: number; pngBase64: string; images: Record<string, string>; imageMetadata?: Record<string, any> }>;
     } = { pages: [] };
     for (const [sourceIndex, questionFile] of questionFiles.entries()) {
       try {
-        sendProgress("📄", `Rendering question source ${sourceIndex + 1}/${questionFiles.length}…`, questionFile.originalname);
-        const { stdout } = await execFileAsync(pythonCmd, [scriptPath, questionFile.path, "--render"], {
-          maxBuffer: 100 * 1024 * 1024,
-          windowsHide: true,
-        });
+        const renderStats: ExtractionProgressStats = {
+          stage: "rendering", stageCurrent: sourceIndex, stageTotal: questionFiles.length,
+          totalFiles: totalSourceFiles, processedFiles: sourceIndex,
+          operation: "document_render", fileName: questionFile.originalname,
+          requestTimeoutSeconds: DOCUMENT_RENDER_TIMEOUT_MS / 1000,
+        };
+        sendProgress("📄", `Rendering question source ${sourceIndex + 1}/${questionFiles.length}…`, questionFile.originalname, renderStats);
+        const { stdout } = await withProgressHeartbeat(
+          execFileAsync(pythonCmd, [scriptPath, questionFile.path, "--render"], {
+            maxBuffer: 100 * 1024 * 1024,
+            windowsHide: true,
+            timeout: DOCUMENT_RENDER_TIMEOUT_MS,
+            signal: jobAbortController.signal,
+          }),
+          "📄",
+          `Rendering question source ${sourceIndex + 1}/${questionFiles.length}…`,
+          questionFile.originalname,
+          renderStats,
+        );
         const sourceData = JSON.parse(stdout) as typeof extractedData;
         const pageOffset = extractedData.pages.length;
         extractedData.pages.push(...(sourceData.pages ?? []).map((page, pageIndex) => ({ ...page, page: pageOffset + pageIndex + 1 })));
+        sendProgress("✓", `Rendered question source ${sourceIndex + 1}/${questionFiles.length}`, `${sourceData.pages?.length ?? 0} page(s) found in ${questionFile.originalname}`, {
+          stage: "rendering", stageCurrent: sourceIndex + 1, stageTotal: questionFiles.length,
+          totalFiles: totalSourceFiles, processedFiles: sourceIndex + 1,
+          totalPages: extractedData.pages.length,
+        });
       } finally {
         await fs.unlink(questionFile.path).catch(e => logger.warn({ err: e }, "Failed to unlink question source"));
       }
@@ -399,23 +551,46 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
     let answerMap: Record<number, string> = {}; // questionNumber -> "A"|"B"|"C"...
 
     if (answersFile) {
-      sendProgress("🔑", "Parsing answer key…", "Extracting answers from key file using AI");
+      sendProgress("🔑", "Parsing answer sources…", `Reading ${answerFiles.length} answer or marking-scheme file(s)`, {
+        stage: "answers", stageCurrent: 0, stageTotal: answerFiles.length,
+        totalFiles: totalSourceFiles, processedFiles: questionFiles.length, totalPages: extractedData.pages.length, answersFound: 0,
+      });
       logger.info("[extractIqPdf] Parsing answer key file...");
       let answersText = "";
 
       for (const [answerIndex, answerFile] of answerFiles.entries()) {
         try {
+          const answerStats: ExtractionProgressStats = {
+            stage: "answers", stageCurrent: answerIndex, stageTotal: answerFiles.length,
+            totalFiles: totalSourceFiles, processedFiles: questionFiles.length + answerIndex,
+            totalPages: extractedData.pages.length, answersFound: Object.keys(answerMap).length,
+            operation: "answer_source_read", fileName: answerFile.originalname,
+            requestTimeoutSeconds: DOCUMENT_RENDER_TIMEOUT_MS / 1000,
+          };
+          sendProgress("🔑", `Reading answer source ${answerIndex + 1}/${answerFiles.length}…`, answerFile.originalname, answerStats);
           let sourceText = "";
           if (answerFile.mimetype.startsWith("text/") || /\.(txt|csv|json|md)$/i.test(answerFile.originalname)) {
             sourceText = await fs.readFile(answerFile.path, "utf-8");
           } else if (answerFile.mimetype.startsWith("image/")) {
-            const { stdout: renderedStdout } = await execFileAsync(pythonCmd, [scriptPath, answerFile.path, "--render"], {
-              maxBuffer: 50 * 1024 * 1024,
-              windowsHide: true,
-            });
+            const { stdout: renderedStdout } = await withProgressHeartbeat(
+              execFileAsync(pythonCmd, [scriptPath, answerFile.path, "--render"], {
+                maxBuffer: 50 * 1024 * 1024,
+                windowsHide: true,
+                timeout: DOCUMENT_RENDER_TIMEOUT_MS,
+                signal: jobAbortController.signal,
+              }),
+              "🔑", `Rendering answer source ${answerIndex + 1}/${answerFiles.length}…`, answerFile.originalname, answerStats,
+            );
             const rendered = JSON.parse(renderedStdout) as { pages: Array<{ pngBase64: string }> };
-            for (const page of rendered.pages ?? []) {
-              const visionResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            for (const [answerPageIndex, page] of (rendered.pages ?? []).entries()) {
+              const answerPageStats = {
+                ...answerStats,
+                stageCurrent: answerIndex + ((answerPageIndex + 1) / Math.max(1, rendered.pages.length)),
+                operation: "answer_image_transcription", model: VISION_MODEL, page: answerPageIndex + 1,
+                attempt: 1, maxAttempts: 1, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
+              };
+              sendProgress("👁️", `Reading answer image ${answerPageIndex + 1}/${rendered.pages.length}`, answerFile.originalname, answerPageStats);
+              const visionResponse = await withProgressHeartbeat(fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
                 headers: { Authorization: `Bearer ${getNextApiKey()}`, "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -426,22 +601,37 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
                     { type: "image_url", image_url: { url: `data:image/png;base64,${page.pngBase64}` } },
                   ] }],
                 }),
-              });
-              if (!visionResponse.ok) throw new Error(`Could not read answer image ${answerFile.originalname}`);
+                signal: getAiSignal(),
+              }), "👁️", `Reading answer image ${answerPageIndex + 1}/${rendered.pages.length}`, "AI is transcribing the answer page", answerPageStats);
+              if (!visionResponse.ok) {
+                const answerImageError = await visionResponse.text();
+                sendProgress("⛔", `Could not read answer image ${answerPageIndex + 1}`, `HTTP ${visionResponse.status}: ${answerImageError.slice(0, 220)}`, {
+                  ...answerPageStats, httpStatus: visionResponse.status, lastError: answerImageError.slice(0, 300),
+                });
+                throw new Error(`Could not read answer image ${answerFile.originalname} (HTTP ${visionResponse.status})`);
+              }
               const visionPayload = await visionResponse.json() as any;
               sourceText += `\n${visionPayload.choices?.[0]?.message?.content ?? ""}`;
             }
           } else {
-            const { stdout: documentStdout } = await execFileAsync(pythonCmd, [scriptPath, answerFile.path], {
-              maxBuffer: 50 * 1024 * 1024,
-              windowsHide: true,
-            });
+            const { stdout: documentStdout } = await withProgressHeartbeat(
+              execFileAsync(pythonCmd, [scriptPath, answerFile.path], {
+                maxBuffer: 50 * 1024 * 1024,
+                windowsHide: true,
+                timeout: DOCUMENT_RENDER_TIMEOUT_MS,
+                signal: jobAbortController.signal,
+              }),
+              "🔑", `Reading answer source ${answerIndex + 1}/${answerFiles.length}…`, answerFile.originalname, answerStats,
+            );
             const documentData = JSON.parse(documentStdout) as { pages: Array<{ text: string }> };
             sourceText = documentData.pages.map(page => page.text).join("\n");
           }
           if (sourceText.trim()) {
             answersText += `\n\n--- ANSWER SOURCE ${answerIndex + 1}: ${answerFile.originalname} ---\n${sourceText}`;
           }
+          sendProgress("✓", `Read answer source ${answerIndex + 1}/${answerFiles.length}`, answerFile.originalname, {
+            ...answerStats, stageCurrent: answerIndex + 1, processedFiles: questionFiles.length + answerIndex + 1,
+          });
         } finally {
           await fs.unlink(answerFile.path).catch(e => logger.warn({ err: e }, "Failed to unlink answer file"));
         }
@@ -458,7 +648,14 @@ ${answersText}
 
 Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with no other text.`;
 
-        const answerRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        const answerParseStats: ExtractionProgressStats = {
+          stage: "answers", stageCurrent: answerFiles.length, stageTotal: answerFiles.length,
+          totalFiles: totalSourceFiles, processedFiles: totalSourceFiles, totalPages: extractedData.pages.length, answersFound: 0,
+          operation: "answer_key_parse", model: "llama-3.3-70b-versatile",
+          attempt: 1, maxAttempts: 1, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
+        };
+        sendProgress("🧩", "Matching answers to question numbers…", "AI is interpreting the combined answer sources", answerParseStats);
+        const answerRes = await withProgressHeartbeat(fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -473,7 +670,8 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
               { role: "user", content: answerParsePrompt },
             ],
           }),
-        });
+          signal: getAiSignal(),
+        }), "🧩", "Matching answers to question numbers…", "AI is interpreting the combined answer sources", answerParseStats);
 
         if (answerRes.ok) {
           const ansPayload = await answerRes.json() as any;
@@ -489,17 +687,28 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
                 }
               }
               logger.info({ count: Object.keys(answerMap).length }, "[extractIqPdf] Parsed answers from key");
+              sendProgress("✓", `${Object.keys(answerMap).length} answer(s) identified`, "Answers will be matched to extracted question numbers", {
+                ...answerParseStats, answersFound: Object.keys(answerMap).length,
+              });
             } catch (e) {
               logger.warn({ err: e }, "[extractIqPdf] Failed to parse answer key JSON");
             }
           }
+        } else {
+          const answerParseError = await answerRes.text();
+          sendProgress("⚠️", "Answer matching request failed", `HTTP ${answerRes.status}: ${answerParseError.slice(0, 220)}. Questions will remain without matched answers.`, {
+            ...answerParseStats, httpStatus: answerRes.status, lastError: answerParseError.slice(0, 300),
+          });
         }
       }
     }
 
     // ─── Step 3: Vision-based question extraction per page ──────────────────
     const totalPages = extractedData.pages.length;
-    sendProgress("🔍", `Starting vision extraction…`, `${totalPages} page${totalPages !== 1 ? 's' : ''} to process`, { totalPages, currentPage: 0, totalQuestions: 0 });
+    sendProgress("🔍", `Starting vision extraction…`, `${totalPages} page${totalPages !== 1 ? 's' : ''} to process`, {
+      stage: "extracting", stageCurrent: 0, stageTotal: totalPages, totalFiles: totalSourceFiles,
+      processedFiles: totalSourceFiles, totalPages, currentPage: 0, totalQuestions: 0, answersFound: Object.keys(answerMap).length,
+    });
     logger.info({ totalPages }, "[extractIqPdf] Extracting questions using vision...");
 
     const allQuestions: any[] = [];
@@ -511,7 +720,7 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
         "🧠",
         `AI Vision — Page ${page.page} of ${totalPages}`,
         `Identifying questions, choices & diagrams on page ${page.page}`,
-        { totalPages, currentPage: page.page, totalQuestions: allQuestions.length }
+        { stage: "extracting", stageCurrent: pageIdx, stageTotal: totalPages, totalFiles: totalSourceFiles, processedFiles: totalSourceFiles, totalPages, currentPage: pageIdx, totalQuestions: allQuestions.length, answersFound: Object.keys(answerMap).length }
       );
       logger.info({ page: page.page, totalPages }, "[extractIqPdf] Processing page...");
 
@@ -581,13 +790,22 @@ Additional rules:
 - Return ONLY valid JSON — no markdown fences, no commentary`;
 
       let retryCount = 0;
-      const maxRetries = 10;
+      const maxRetries = 4;
       let pageQuestions: any[] = [];
       let success = false;
 
       while (retryCount < maxRetries && !success) {
         try {
-          const visionRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          const pageProgressStats: ExtractionProgressStats = {
+            stage: "extracting", stageCurrent: pageIdx, stageTotal: totalPages,
+            totalFiles: totalSourceFiles, processedFiles: totalSourceFiles,
+            totalPages, currentPage: pageIdx, totalQuestions: allQuestions.length,
+            answersFound: Object.keys(answerMap).length, retry: retryCount,
+            operation: "question_page_extraction", model: VISION_MODEL, page: page.page,
+            attempt: retryCount + 1, maxAttempts: maxRetries, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
+          };
+          sendProgress("🧠", `Sending page ${page.page} to AI`, `Extraction attempt ${retryCount + 1}/${maxRetries} using ${VISION_MODEL}`, pageProgressStats);
+          const visionRes = await withProgressHeartbeat(fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -611,7 +829,8 @@ Additional rules:
                 },
               ],
             }),
-          });
+            signal: getAiSignal(),
+          }), "🧠", `AI Vision — Page ${page.page} of ${totalPages}`, "The model is identifying questions, choices and diagrams", pageProgressStats);
 
           if (!visionRes.ok) {
             const errText = await visionRes.text();
@@ -619,14 +838,21 @@ Additional rules:
             if (visionRes.status === 429 || visionRes.status === 413) {
               // If we haven't tried all keys yet for this page, retry almost instantly with the next key.
               // If we have exhausted all keys (retryCount >= apiKeys.length - 1), then we actually wait.
-              const waitMs = retryCount >= (apiKeys.length - 1) ? 15000 + (retryCount * 5000) : 500; 
+              const waitMs = retryCount >= (apiKeys.length - 1) ? Math.min(15_000, 5_000 + (retryCount * 2_500)) : 500;
               logger.warn({ page: page.page, status: visionRes.status, err: errText.slice(0,100) }, "[extractIqPdf] Rate limit hit. Retrying...");
+              sendProgress("↻", `Retrying page ${page.page}`, `The AI service is busy; retry ${retryCount + 1}/${maxRetries} starts in ${Math.ceil(waitMs / 1000)}s`, {
+                ...pageProgressStats, retry: retryCount + 1, httpStatus: visionRes.status,
+                rateLimitWaitSeconds: Math.ceil(waitMs / 1000), lastError: errText.slice(0, 300),
+              });
               await new Promise(r => setTimeout(r, waitMs));
               retryCount++;
               continue; // Try again
             }
 
             logger.error({ page: page.page, status: visionRes.status, err: errText }, "[extractIqPdf] Vision API error");
+            sendProgress("⛔", `AI request failed on page ${page.page}`, `HTTP ${visionRes.status}: ${errText.slice(0, 220)}`, {
+              ...pageProgressStats, httpStatus: visionRes.status, lastError: errText.slice(0, 300),
+            });
             break; // Break the while loop on fatal errors (e.g. 401 auth error)
           }
 
@@ -666,7 +892,17 @@ Additional rules:
           }
         } catch (err) {
           logger.error({ page: page.page, err }, "[extractIqPdf] Error processing page");
-          break; // Network errors
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          retryCount++;
+          sendProgress("⚠️", `Extraction request failed on page ${page.page}`, `${errorMessage}. ${retryCount < maxRetries ? "Retrying…" : "No attempts remain."}`, {
+            stage: "extracting", stageCurrent: pageIdx, stageTotal: totalPages,
+            totalPages, currentPage: pageIdx, totalQuestions: allQuestions.length,
+            operation: "question_page_extraction", model: VISION_MODEL, page: page.page,
+            attempt: retryCount, maxAttempts: maxRetries, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
+            lastError: errorMessage,
+          });
+          if (retryCount < maxRetries) continue;
+          break;
         }
       }
 
@@ -680,10 +916,14 @@ Additional rules:
           "✓",
           `Completed Page ${page.page} of ${totalPages}`,
           `Found ${pageQuestions.length} questions on this page (${allQuestions.length} total so far)`,
-          { totalPages, currentPage: page.page, totalQuestions: allQuestions.length }
+          { stage: "extracting", stageCurrent: pageIdx + 1, stageTotal: totalPages, totalFiles: totalSourceFiles, processedFiles: totalSourceFiles, totalPages, currentPage: pageIdx + 1, totalQuestions: allQuestions.length, answersFound: Object.keys(answerMap).length }
         );
       } else {
         logger.warn({ page: page.page, retries: retryCount }, "[extractIqPdf] Failed to extract questions from page after retries");
+        sendProgress("⚠️", `Could not extract page ${page.page}`, "Continuing with the remaining pages; this page may need manual review", {
+          stage: "extracting", stageCurrent: pageIdx + 1, stageTotal: totalPages, totalPages, currentPage: pageIdx + 1,
+          totalQuestions: allQuestions.length, answersFound: Object.keys(answerMap).length, retry: retryCount,
+        });
       }
     }
 
@@ -692,7 +932,10 @@ Additional rules:
     }
 
     // ─── Step 4: Build final question objects with answers & images ──────────
-    sendProgress("⚙️", `Building question objects…`, `Assembling ${allQuestions.length} extracted questions with answers & images`, { totalPages, currentPage: totalPages, totalQuestions: allQuestions.length });
+    sendProgress("⚙️", `Building question objects…`, `Assembling ${allQuestions.length} extracted questions with answers & images`, {
+      stage: "building", stageCurrent: 0, stageTotal: 1, totalFiles: totalSourceFiles, processedFiles: totalSourceFiles,
+      totalPages, currentPage: totalPages, totalQuestions: allQuestions.length, answersFound: Object.keys(answerMap).length,
+    });
     logger.info({ totalQuestions: allQuestions.length }, "[extractIqPdf] Building question objects...");
 
     // Combine all page image dictionaries and spatial metadata into global maps
@@ -901,7 +1144,10 @@ Additional rules:
     // then returns a set of corrections. This catches: wrong choice text, missing images,
     // wrong image slot assignment, mis-read question text, etc.
     const reviewTotalPages = extractedData.pages.length;
-    sendProgress("🔎", "Vision Review Pass A…", `AI comparing PDF pages vs extracted questions (${formattedQuestions.length} questions)`, { totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length });
+    sendProgress("🔎", "Vision Review Pass A…", `AI comparing PDF pages vs extracted questions (${formattedQuestions.length} questions)`, {
+      stage: "reviewing", stageCurrent: 0, stageTotal: reviewTotalPages, totalFiles: totalSourceFiles, processedFiles: totalSourceFiles,
+      totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length, answersFound: Object.keys(answerMap).length,
+    });
 
     try {
       for (let pageIdx = 0; pageIdx < extractedData.pages.length; pageIdx++) {
@@ -909,7 +1155,14 @@ Additional rules:
         const pageQs = formattedQuestions.filter((fq: any) => fq.pageNumber === reviewPage.page);
         if (pageQs.length === 0) continue;
 
-        sendProgress("🔎", `Vision Review — Page ${reviewPage.page}/${reviewTotalPages}`, `Cross-checking ${pageQs.length} question(s) on page ${reviewPage.page} against original PDF`, { totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length });
+        const reviewProgressStats: ExtractionProgressStats = {
+          stage: "reviewing", stageCurrent: pageIdx, stageTotal: reviewTotalPages,
+          totalFiles: totalSourceFiles, processedFiles: totalSourceFiles,
+          totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length, answersFound: Object.keys(answerMap).length,
+          operation: "vision_review", model: VISION_MODEL, page: reviewPage.page,
+          maxAttempts: 3, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
+        };
+        sendProgress("🔎", `Vision Review — Page ${reviewPage.page}/${reviewTotalPages}`, `Cross-checking ${pageQs.length} question(s) on page ${reviewPage.page} against original PDF`, reviewProgressStats);
 
         // Build compact question representation for the review prompt (no data URIs)
         const pageQsForReview = pageQs.map((fq: any, localIdx: number) => ({
@@ -971,8 +1224,11 @@ Rules:
 
         try {
           let reviewRetries = 0;
-          while (reviewRetries < 4) {
-            const reviewRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          while (reviewRetries < 3) {
+            sendProgress("🔎", `Sending page ${reviewPage.page} for review`, `Review attempt ${reviewRetries + 1}/3 using ${VISION_MODEL}`, {
+              ...reviewProgressStats, attempt: reviewRetries + 1,
+            });
+            const reviewRes = await withProgressHeartbeat(fetch("https://api.groq.com/openai/v1/chat/completions", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -996,15 +1252,24 @@ Rules:
                   },
                 ],
               }),
-            });
+              signal: getAiSignal(),
+            }), "🔎", `Vision Review — Page ${reviewPage.page}/${reviewTotalPages}`, `Cross-checking ${pageQs.length} question(s) against the source page`, { ...reviewProgressStats, retry: reviewRetries });
 
             if (!reviewRes.ok) {
               if (reviewRes.status === 429) {
-                const waitMs = 15000 + (reviewRetries * 5000);
+                const waitMs = Math.min(15_000, 5_000 + (reviewRetries * 2_500));
+                sendProgress("↻", `Review retry for page ${reviewPage.page}`, `The AI service is busy; retry ${reviewRetries + 1}/3 starts in ${Math.ceil(waitMs / 1000)}s`, {
+                  ...reviewProgressStats, retry: reviewRetries + 1, attempt: reviewRetries + 1,
+                  httpStatus: reviewRes.status, rateLimitWaitSeconds: Math.ceil(waitMs / 1000),
+                });
                 await new Promise(r => setTimeout(r, waitMs));
                 reviewRetries++;
                 continue;
               }
+              const reviewError = await reviewRes.text();
+              sendProgress("⚠️", `Review failed on page ${reviewPage.page}`, `HTTP ${reviewRes.status}: ${reviewError.slice(0, 220)}. Continuing without this review.`, {
+                ...reviewProgressStats, attempt: reviewRetries + 1, httpStatus: reviewRes.status, lastError: reviewError.slice(0, 300),
+              });
               break;
             }
 
@@ -1069,6 +1334,9 @@ Rules:
               }
 
               logger.info({ page: reviewPage.page, corrections: corrections.length }, "[extractIqPdf] Vision review Pass A applied corrections");
+              sendProgress("✓", `Reviewed page ${reviewPage.page}/${reviewTotalPages}`, `${corrections.length} correction(s) or review issue(s) found`, {
+                ...reviewProgressStats, stageCurrent: pageIdx + 1,
+              });
               break; // Success — move to next page
             } catch {
               logger.warn({ page: reviewPage.page }, "[extractIqPdf] Vision review Pass A: failed to parse response");
@@ -1077,6 +1345,10 @@ Rules:
           }
         } catch (pageReviewErr) {
           logger.warn({ page: reviewPage.page, err: pageReviewErr }, "[extractIqPdf] Vision review Pass A: page skipped");
+          const reviewError = pageReviewErr instanceof Error ? pageReviewErr.message : String(pageReviewErr);
+          sendProgress("⚠️", `Review timed out on page ${reviewPage.page}`, `${reviewError}. Extraction will continue without this page review.`, {
+            ...reviewProgressStats, lastError: reviewError,
+          });
         }
       }
     } catch (visionReviewErr) {
@@ -1086,7 +1358,13 @@ Rules:
     // ─── Step 5 Pass B: Text LLM audit — flag residual issues ───────────────────
     // After vision corrections, a fast text LLM does a final structural audit and
     // flags anything that still looks suspicious for human review.
-    sendProgress("✅", "Vision Review Pass B…", "Final structural audit & flagging any remaining issues", { totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length });
+    const auditProgressStats: ExtractionProgressStats = {
+      stage: "auditing", stageCurrent: 0, stageTotal: 1, totalFiles: totalSourceFiles, processedFiles: totalSourceFiles,
+      totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length, answersFound: Object.keys(answerMap).length,
+      operation: "structural_audit", model: "llama-3.3-70b-versatile",
+      attempt: 1, maxAttempts: 1, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
+    };
+    sendProgress("✅", "Vision Review Pass B…", "Final structural audit & flagging any remaining issues", auditProgressStats);
 
     try {
       const textOnlyForAudit = formattedQuestions.map((fq: any, i: number) => ({
@@ -1126,7 +1404,7 @@ Only include questions with issues. Return ONLY valid JSON, no fences.
 Questions:
 ${JSON.stringify(textOnlyForAudit, null, 2)}`;
 
-      const auditRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const auditRes = await withProgressHeartbeat(fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1142,7 +1420,8 @@ ${JSON.stringify(textOnlyForAudit, null, 2)}`;
             { role: "user", content: auditPrompt },
           ],
         }),
-      });
+        signal: getAiSignal(),
+      }), "✅", "Final structural audit…", "Checking extracted questions for residual structural or textual issues", auditProgressStats);
 
       if (auditRes.ok) {
         const auditPayload = await auditRes.json() as any;
@@ -1174,6 +1453,10 @@ ${JSON.stringify(textOnlyForAudit, null, 2)}`;
       }
     } catch (auditErr) {
       logger.warn({ err: auditErr }, "[extractIqPdf] Vision review Pass B: audit failed, continuing");
+      const auditError = auditErr instanceof Error ? auditErr.message : String(auditErr);
+      sendProgress("⚠️", "Final audit could not complete", `${auditError}. Extracted questions are still available for manual review.`, {
+        ...auditProgressStats, lastError: auditError,
+      });
     }
 
     // Post-check for orphan images across pages
@@ -1184,15 +1467,27 @@ ${JSON.stringify(textOnlyForAudit, null, 2)}`;
     }
 
     const answeredCount = Object.keys(answerMap).length;
-    sendProgress("✅", `Done! ${formattedQuestions.length} questions extracted`, answeredCount > 0 ? `${answeredCount} answers applied from key` : "No answer key applied", { totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length });
+    sendProgress("✅", `Done! ${formattedQuestions.length} questions extracted`, answeredCount > 0 ? `${answeredCount} answers applied from key` : "No answer key applied", {
+      stage: "complete", stageCurrent: 1, stageTotal: 1, totalFiles: totalSourceFiles, processedFiles: totalSourceFiles,
+      totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length, answersFound: answeredCount,
+    });
     logger.info({ questionCount: formattedQuestions.length, answerCount: answeredCount }, "[extractIqPdf] Done! Extracted questions and applied answers.");
 
-    res.write(JSON.stringify({ result: { questions: formattedQuestions } }) + "\n");
-    res.end();
+    const extractionResult = { questions: formattedQuestions };
+    extractionJob.status = "complete";
+    extractionJob.result = extractionResult;
+    extractionJob.updatedAt = new Date().toISOString();
+    questionExtractionAbortControllers.delete(extractionJobId);
+    if (!res.writableEnded && !res.destroyed) {
+      res.write(JSON.stringify({ result: extractionResult }) + "\n");
+      res.end();
+    }
 
   } catch (error) {
     logger.error({ err: error }, "extractIqPdf error");
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = extractionJob.status === "cancelled"
+      ? "Cancelled by the super admin."
+      : error instanceof Error ? error.message : "Unknown error";
     sendError(message);
   }
 }

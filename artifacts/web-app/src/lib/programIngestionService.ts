@@ -190,7 +190,44 @@ export type QuestionPdfProgress = {
   icon: string;
   message: string;
   detail?: string;
-  stats?: { totalPages?: number; currentPage?: number; totalQuestions?: number };
+  stats?: {
+    stage?: 'rendering' | 'answers' | 'extracting' | 'building' | 'reviewing' | 'auditing' | 'complete';
+    stageCurrent?: number;
+    stageTotal?: number;
+    totalFiles?: number;
+    processedFiles?: number;
+    totalPages?: number;
+    currentPage?: number;
+    totalQuestions?: number;
+    answersFound?: number;
+    retry?: number;
+    operation?: string;
+    model?: string;
+    fileName?: string;
+    page?: number;
+    attempt?: number;
+    maxAttempts?: number;
+    operationElapsedMs?: number;
+    httpStatus?: number;
+    rateLimitWaitSeconds?: number;
+    requestTimeoutSeconds?: number;
+    lastError?: string;
+  };
+  sequence?: number;
+  serverTime?: string;
+  elapsedMs?: number;
+};
+
+export type QuestionExtractionJob = {
+  id: string;
+  programId: string;
+  status: 'running' | 'complete' | 'failed' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+  progress: QuestionPdfProgress | null;
+  history: QuestionPdfProgress[];
+  result: Record<string, unknown> | null;
+  error: string | null;
 };
 
 /**
@@ -201,10 +238,15 @@ export async function extractQuestionPdfs(
   questionFiles: File[],
   answerFiles: File[],
   onProgress?: (progress: QuestionPdfProgress) => void,
+  job?: { id: string; programId: string },
 ): Promise<Record<string, unknown>> {
   const form = new FormData();
   for (const questionFile of questionFiles) form.append('file', questionFile);
   for (const answerFile of answerFiles) form.append('answersFile', answerFile);
+  if (job) {
+    form.append('jobId', job.id);
+    form.append('programId', job.programId);
+  }
 
   const extractionUrl = `${getProgramIngestionApiBase()}/extract-iq-pdf`;
   let response: Response;
@@ -238,6 +280,16 @@ export async function extractQuestionPdfs(
   }
   if (!finalResult) throw new Error('Question extraction completed without a result.');
   return finalResult;
+}
+
+export async function getQuestionExtractionJob(jobId: string): Promise<QuestionExtractionJob> {
+  const response = await fetch(`${getProgramIngestionApiBase()}/extract-iq-pdf/jobs/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
+  return expectJson<QuestionExtractionJob>(response);
+}
+
+export async function cancelQuestionExtractionJob(jobId: string): Promise<QuestionExtractionJob> {
+  const response = await fetch(`${getProgramIngestionApiBase()}/extract-iq-pdf/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+  return expectJson<QuestionExtractionJob>(response);
 }
 
 export type OrganizerTreeNode = { id: string; title: string; kind: 'folder' | 'category'; children: OrganizerTreeNode[] };

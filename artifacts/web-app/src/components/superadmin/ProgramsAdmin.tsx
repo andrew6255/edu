@@ -437,6 +437,9 @@ export default function ProgramsAdmin() {
   const [draftRevision, setDraftRevision] = useState(0);
   const draftRevisionRef = useRef(0);
   const draftSaveInFlightRef = useRef(false);
+  const queuedDraftSaveRef = useRef<{ spec: BuilderSpec; organizerDecision?: Record<string, unknown>; waiters: Array<(saved: boolean) => void> } | null>(null);
+  const draftSaveProcessorRef = useRef(false);
+  const saveSlotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // View state
   const [view, setView] = useState<'list' | 'setup' | 'explorer' | 'preview' | 'worksheetEditor'>('list');
@@ -459,6 +462,8 @@ export default function ProgramsAdmin() {
   const [selectedQuestionTypeId, setSelectedQuestionTypeId] = useState<string | null>(null);
   const [activeWhiteboardQuestion, setActiveWhiteboardQuestion] = useState<any | null>(null);
   const [adminWhiteboardData, setAdminWhiteboardData] = useState<Record<string, any>>({});
+  const adminWhiteboardDataRef = useRef(adminWhiteboardData);
+  useEffect(() => { adminWhiteboardDataRef.current = adminWhiteboardData; }, [adminWhiteboardData]);
 
   // Setup form
   const [setupName, setSetupName] = useState('');
@@ -518,6 +523,8 @@ export default function ProgramsAdmin() {
 
   // Auto-save status
   const [lastAutoSave, setLastAutoSave] = useState<Date | null>(null);
+  const [autoSaveError, setAutoSaveError] = useState('');
+  const [saveSlotState, setSaveSlotState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   useEffect(() => {
     if (user?.uid) {
@@ -735,7 +742,7 @@ export default function ProgramsAdmin() {
     return result;
   }
 
-  function applyImportedPlacements({ placements, previewTree, proposal }: ApprovedImport) {
+  async function applyImportedPlacements({ placements, previewTree, proposal }: ApprovedImport) {
     const grouped = new Map<string, ImportPlacement[]>();
     for (const placement of placements) {
       const list = grouped.get(placement.categoryId) ?? [];
@@ -773,8 +780,8 @@ export default function ProgramsAdmin() {
             promptBlocks: question.promptBlocks.length ? question.promptBlocks : [{ type: 'text', text: question.promptRawText }],
             interaction: question.interaction,
             difficulty: 'medium',
-            modelAnswer: hasSourceAnswer ? choices[correctIndex] : '',
-            answerFromPdf: hasSourceAnswer,
+            modelAnswer: question.modelAnswer || (hasSourceAnswer ? choices[correctIndex] : ''),
+            answerFromPdf: Boolean(question.modelAnswer) || hasSourceAnswer,
             sourcePage: question.pageNumber,
             sourceQuestionNumber: question.questionNumber,
             reviewStatus: question.reviewStatus,
@@ -799,14 +806,16 @@ export default function ProgramsAdmin() {
     setBuilder(next);
     builderRef.current = next;
     setQuestionImportOpen(false);
-    void saveBuilderDraft(true, next, {
+    const organizerDecision = {
       batchId: `import_${Date.now().toString(36)}`,
       provider: proposal.provider,
       proposal,
       approvedTree: previewTree,
       placements: placements.map(item => ({ questionId: item.question.id, categoryId: item.categoryId })),
-    });
-    toast({ description: `${placements.length} questions added to the draft ✓` });
+    };
+    const saved = await queueBuilderDraftSave(next, organizerDecision);
+    if (saved) toast({ description: `${placements.length} questions added and auto-saved to the draft ✓` });
+    else toast({ variant: 'destructive', description: `${placements.length} questions were added locally, but the draft could not be auto-saved. Please try saving again.` });
   }
 
   function getBreadcrumb(): Array<{ id: string; title: string }> {
@@ -1111,7 +1120,7 @@ export default function ProgramsAdmin() {
 
   async function resetToList() {
     if (view === 'explorer') {
-      await saveBuilderDraft(true);
+      await queueBuilderDraftSave(builderRef.current);
     }
     setView('list');
     setEditingId(null);
@@ -1152,7 +1161,7 @@ export default function ProgramsAdmin() {
         questionBanksByChapter: internal.questionBanksByChapter,
         rankedTotalQuestionCount: internal.rankedTotalQuestionCount,
         builderSpec: spec,
-        adminWhiteboardData,
+        adminWhiteboardData: adminWhiteboardDataRef.current,
         updatedAt: new Date().toISOString(),
       });
       const gb = (source.gradeBand ?? '').trim();
@@ -1161,6 +1170,7 @@ export default function ProgramsAdmin() {
       draftRevisionRef.current = saved.revision;
       setDraftRevision(saved.revision);
       setEditingDraftId(programId);
+      setAutoSaveError('');
       if (isAuto) {
         setLastAutoSave(new Date());
       } else {
@@ -1170,6 +1180,7 @@ export default function ProgramsAdmin() {
       return true;
     } catch (e) {
       const message = formatErr(e);
+      if (isAuto) setAutoSaveError(message.includes('DRAFT_REVISION_CONFLICT') ? 'Draft changed elsewhere. Reload before saving.' : message);
       if (!isAuto || message.includes('DRAFT_REVISION_CONFLICT')) toast({ variant: 'destructive', description: message.includes('DRAFT_REVISION_CONFLICT') ? 'This draft changed in another session. Reload it before saving again.' : message });
       return false;
     } finally { 
@@ -1178,20 +1189,71 @@ export default function ProgramsAdmin() {
     }
   }
 
+  function queueBuilderDraftSave(spec: BuilderSpec, organizerDecision?: Record<string, unknown>): Promise<boolean> {
+    return new Promise(resolve => {
+      const queued = queuedDraftSaveRef.current;
+      if (queued) {
+        // Every edit requests a save. If several edits occur before the network
+        // can write, keep the newest complete snapshot and resolve all callers
+        // only after that snapshot has been persisted.
+        queued.spec = spec;
+        queued.organizerDecision = organizerDecision ?? queued.organizerDecision;
+        queued.waiters.push(resolve);
+      } else {
+        queuedDraftSaveRef.current = { spec, organizerDecision, waiters: [resolve] };
+      }
+      void processDraftSaveQueue();
+    });
+  }
+
+  async function processDraftSaveQueue(): Promise<void> {
+    if (draftSaveProcessorRef.current) return;
+    draftSaveProcessorRef.current = true;
+    if (saveSlotTimerRef.current) clearTimeout(saveSlotTimerRef.current);
+    setSaveSlotState('saving');
+    let failed = false;
+    try {
+      while (queuedDraftSaveRef.current) {
+        const job = queuedDraftSaveRef.current;
+        queuedDraftSaveRef.current = null;
+        while (draftSaveInFlightRef.current) await new Promise(resolve => setTimeout(resolve, 50));
+        const saved = await saveBuilderDraft(true, job.spec, job.organizerDecision);
+        job.waiters.forEach(waiter => waiter(saved));
+        failed = !saved;
+        if (!saved) {
+          setSaveSlotState('error');
+          // Continue if a newer edit was queued; it may recover from a
+          // transient failure and always uses the current revision ref.
+        }
+      }
+      if (!failed) {
+        setSaveSlotState('saved');
+        saveSlotTimerRef.current = setTimeout(() => setSaveSlotState('idle'), 1600);
+      }
+    } finally {
+      draftSaveProcessorRef.current = false;
+      if (queuedDraftSaveRef.current) void processDraftSaveQueue();
+    }
+  }
+
+  async function saveNow(): Promise<void> {
+    setSaving(true);
+    const saved = await queueBuilderDraftSave(builderRef.current);
+    setSaving(false);
+    toast(saved ? { description: 'Draft saved ✓' } : { variant: 'destructive', description: 'The draft could not be saved. Check the save error and try again.' });
+  }
+
   useEffect(() => {
     if (view !== 'explorer') return;
-    // Auto-save every 60 seconds while in the explorer view.
-    // We use an interval (not a debounce on builder changes) so that:
-    //  1. It fires reliably every minute regardless of user activity
-    //  2. It doesn't restart on every keystroke / state update
-    const intervalId = setInterval(() => {
-      saveBuilderDraft(true, builderRef.current);
-    }, 60_000);
-    return () => clearInterval(intervalId);
-  // Only re-run when entering/leaving explorer — saveBuilderDraft reads
-  // the latest state via closure, so we don't need it as a dependency.
+    void queueBuilderDraftSave(builderRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, [view, builder]);
+
+  useEffect(() => {
+    if (view !== 'explorer') return;
+    void queueBuilderDraftSave(builderRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, adminWhiteboardData]);
 
   async function publishBuilder() {
     const { id: programId, title } = computeProgramIdAndTitle();
@@ -1203,7 +1265,7 @@ export default function ProgramsAdmin() {
 
     // 2. Save draft first — use setSaving so the Publish button shows feedback
     setSaving(true);
-    const draftSaved = await saveBuilderDraft(true);
+    const draftSaved = await queueBuilderDraftSave(builderRef.current);
     if (!draftSaved) {
       setSaving(false);
       toast({ variant: 'destructive', description: 'The draft could not be saved. Publishing was cancelled.' });
@@ -2057,7 +2119,7 @@ export default function ProgramsAdmin() {
           <div style={{ background: '#0f172a', borderBottom: '1px solid #334155', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
 
             {/* Toolbar buttons */}
-            <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end' }}>
               {/* New Folder — available at root and inside folders, but NOT inside categories */}
               {!(!!getCurrentNode()?.isCategory) && (
                 <button
@@ -2117,6 +2179,12 @@ export default function ProgramsAdmin() {
                 </>
               )}
               <div style={{ width: 1, height: 20, background: '#334155', margin: '0 2px' }} />
+              <div style={{ minWidth: 96, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                {saveSlotState === 'saving' ? <div style={{ minWidth: 78, padding: '6px 8px', color: '#93c5fd', fontSize: 11, textAlign: 'center' }}>Saving…</div>
+                  : saveSlotState === 'saved' ? <div title={lastAutoSave ? `Saved at ${lastAutoSave.toLocaleTimeString()}` : 'Saved'} style={{ minWidth: 78, padding: '6px 8px', color: '#86efac', fontSize: 11, textAlign: 'center' }}>Saved ✓</div>
+                  : <button className="ll-btn" onClick={() => void saveNow()} disabled={saving} title={autoSaveError || 'Save draft now'} style={{ padding: '6px 12px', fontSize: 12, color: saveSlotState === 'error' ? '#fca5a5' : undefined }}>{saveSlotState === 'error' ? '↻ Retry Save' : '💾 Save'}</button>}
+                <div title={lastAutoSave?.toLocaleString()} style={{ color: autoSaveError ? '#fca5a5' : '#64748b', fontSize: 9, whiteSpace: 'nowrap' }}>{autoSaveError ? 'Last save failed' : lastAutoSave ? `Last save: ${lastAutoSave.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Last save: —'}</div>
+              </div>
               <button className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }} onClick={previewFromExplorer}>
                 👁️ Preview
               </button>
@@ -2127,11 +2195,6 @@ export default function ProgramsAdmin() {
               >
                 {saving ? 'Saving...' : '🚀 Publish'}
               </button>
-              {lastAutoSave && (
-                <div style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic', display: 'flex', alignItems: 'center' }}>
-                  Auto-saved {lastAutoSave.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              )}
             </div>
           </div>
 

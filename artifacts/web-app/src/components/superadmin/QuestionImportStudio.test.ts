@@ -33,4 +33,13 @@ describe('Question Import Studio normalization', () => {
     const questions = normalizeImportedQuestions({ questions: [{ rawText: 'Expand and factorize x² - 9.', promptBlocks: [], interaction: { type: 'free_response' } }] });
     expect(questions[0]?.promptRawText).toBe('Expand and factorize x² - 9.');
   });
+
+  it('keeps missing answers empty and maps only explicit source answers', () => {
+    const questions = normalizeImportedQuestions({ questions: [
+      { promptRawText: 'Answered', interaction: { type: 'mcq', choices: ['A', 'B'], correctChoiceIndex: 1 } },
+      { promptRawText: 'Unanswered', interaction: { type: 'mcq', choices: ['A', 'B'], correctChoiceIndex: -1 } },
+    ] });
+    expect(questions[0]?.modelAnswer).toBe('B');
+    expect(questions[1]?.modelAnswer).toBe('');
+  });
 });
