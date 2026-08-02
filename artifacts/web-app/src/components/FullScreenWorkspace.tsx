@@ -814,20 +814,35 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   const [strokeColor, setStrokeColor] = useState('#1e293b');
   const [strokeWidth, setStrokeWidth] = useState(2.5);
   const [toolboxOpen, setToolboxOpen] = useState(false);
+  const [eraserDropdownOpen, setEraserDropdownOpen] = useState(false);
   const [showOutputModal, setShowOutputModal] = useState(false);
   const [hasUsedAiAssistance, setHasUsedAiAssistance] = useState(false);
 
+  // Measure eraser button position for dropdown placement
+  const eraserBtnRef = useRef<HTMLButtonElement>(null);
+  const [eraserRect, setEraserRect] = useState({ left: 0, bottom: 0 });
+
   useEffect(() => {
-    if (!toolboxOpen) return;
+    if (eraserDropdownOpen && eraserBtnRef.current) {
+      const rect = eraserBtnRef.current.getBoundingClientRect();
+      setEraserRect({ left: rect.left + rect.width / 2, bottom: rect.bottom });
+    }
+  }, [eraserDropdownOpen, activeTool]);
+
+  useEffect(() => {
+    if (!toolboxOpen && !eraserDropdownOpen) return;
     const handlePointerDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement;
-      if (!target.closest('.fsw-toolbox') && !target.closest('.fsw-toolbar-button[title="Drawing toolbox"]')) {
+      if (toolboxOpen && !target.closest('.fsw-toolbox') && !target.closest('.fsw-toolbar-button[title="Drawing toolbox"]')) {
         setToolboxOpen(false);
+      }
+      if (eraserDropdownOpen && !target.closest('.fsw-eraser-toggle') && !target.closest('.fsw-eraser-btn-container')) {
+        setEraserDropdownOpen(false);
       }
     };
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [toolboxOpen]);
+  }, [toolboxOpen, eraserDropdownOpen]);
 
   const questionPrompt = useMemo(() => typeof currentQuestion === 'string'
     ? currentQuestion
@@ -1951,8 +1966,16 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
           {(!isTestMode || Boolean(testGrade && showAiSwitch)) && <div className="fsw-correct-control"><button type="button" className={`fsw-ai-switch ${correctMeOn ? 'active' : ''}`} onClick={() => { setCorrectMeOn(open => { const next = !open; if (next) setHasUsedAiAssistance(true); return next; }); }} aria-pressed={correctMeOn}><span>Correct Me</span><span className="fsw-ai-switch-track"><span /></span></button>{correctMeOn && correctMeStatus !== 'idle' && <small className={correctMeStatus === 'error' ? 'error' : ''}>{correctMeStatus === 'reading' ? 'Reading…' : correctMeStatus === 'checking' ? 'Checking…' : correctMeStatus === 'checked' ? 'Checked' : 'Needs attention'}</small>}</div>}
           <button type="button" className={`fsw-toolbar-button ${toolboxOpen ? 'active' : ''}`} onClick={() => setToolboxOpen(open => !open)} aria-expanded={toolboxOpen} title="Drawing toolbox">🧰 Toolbox</button>
           <button type="button" className={`fsw-toolbar-button fsw-toolbar-icon-button ${activeTool === 'pen' ? 'active' : ''}`} onClick={() => setActiveTool(activeTool === 'pen' ? 'pan' : 'pen')} title="Pen">✏️</button>
-          <div style={{ position: 'relative', display: 'flex' }}>
-            <button type="button" className={`fsw-toolbar-button fsw-toolbar-icon-button ${activeTool === 'eraser' ? 'active' : ''}`} onClick={() => setActiveTool(activeTool === 'eraser' ? 'pan' : 'eraser')} title="Eraser">🧹</button>
+          <div className="fsw-eraser-btn-container" style={{ position: 'relative', display: 'flex' }}>
+            <button ref={eraserBtnRef} type="button" className={`fsw-toolbar-button fsw-toolbar-icon-button ${activeTool === 'eraser' ? 'active' : ''}`} onClick={() => {
+              if (activeTool === 'eraser') {
+                setActiveTool('pan');
+                setEraserDropdownOpen(false);
+              } else {
+                setActiveTool('eraser');
+                setEraserDropdownOpen(true);
+              }
+            }} title="Eraser">🧹</button>
           </div>
           <button type="button" className="fsw-toolbar-button fsw-toolbar-icon-button" onClick={handleUndo} title="Undo" aria-label="Undo" disabled={undoStack.length === 0}>↶</button>
           <button type="button" className="fsw-toolbar-button fsw-toolbar-icon-button" onClick={handleRedo} title="Redo" aria-label="Redo" disabled={redoStack.length === 0}>↷</button>
@@ -2016,14 +2039,9 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
       <div className={`fsw-toolbox ${toolboxOpen ? 'open' : ''}`}>
         {/* Fly-out dock */}
         <div className="fsw-dock">
-
-
           <button className={`fsw-dock-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool(activeTool === 'select' ? 'pan' : 'select')} title="Lasso select and move handwriting">◯</button>
           <button className={`fsw-dock-btn ${activeTool === 'text' ? 'active' : ''}`} onClick={() => setActiveTool(activeTool === 'text' ? 'pan' : 'text')} title="Insert a text box">T</button>
-
           <div className="fsw-dock-divider" />
-
-          {/* Color palette */}
           <div className="fsw-dock-colors">
             {WS_COLORS.map(c => (
               <button
@@ -2035,8 +2053,6 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
               />
             ))}
           </div>
-
-          {/* Width slider */}
           <div className="fsw-dock-width">
             <div
               className="fsw-width-preview"
@@ -2063,10 +2079,10 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
 
       </div>
 
-      {activeTool === 'eraser' && (
-        <div className="fsw-eraser-toggle" style={{ position: 'absolute', top: 58, left: '50%', transform: 'translateX(-50%)', zIndex: 130 }}>
-          <button type="button" className={`fsw-eraser-mode-btn ${eraserMode === 'pixel' ? 'active' : ''}`} onTouchStart={(e) => { e.stopPropagation(); setEraserMode('pixel'); }} onPointerDown={(e) => { e.stopPropagation(); setEraserMode('pixel'); }} onClick={(e) => { e.stopPropagation(); setEraserMode('pixel'); }}>Pixel</button>
-          <button type="button" className={`fsw-eraser-mode-btn ${eraserMode === 'stroke' ? 'active' : ''}`} onTouchStart={(e) => { e.stopPropagation(); setEraserMode('stroke'); }} onPointerDown={(e) => { e.stopPropagation(); setEraserMode('stroke'); }} onClick={(e) => { e.stopPropagation(); setEraserMode('stroke'); }}>Stroke</button>
+      {eraserDropdownOpen && eraserRect && (
+        <div className="fsw-eraser-toggle" style={{ position: 'fixed', top: eraserRect.bottom + 6, left: eraserRect.left, transform: 'translateX(-50%)', zIndex: 100000, display: 'flex', gap: '8px', background: '#fff', padding: '6px', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+          <button type="button" className={`fsw-eraser-mode-btn ${eraserMode === 'pixel' ? 'active' : ''}`} style={{ padding: '6px 12px', borderRadius: '6px' }} onTouchStart={(e) => { e.stopPropagation(); setEraserMode('pixel'); }} onPointerDown={(e) => { e.stopPropagation(); setEraserMode('pixel'); }} onClick={(e) => { e.stopPropagation(); setEraserMode('pixel'); }}>Pixel</button>
+          <button type="button" className={`fsw-eraser-mode-btn ${eraserMode === 'stroke' ? 'active' : ''}`} style={{ padding: '6px 12px', borderRadius: '6px' }} onTouchStart={(e) => { e.stopPropagation(); setEraserMode('stroke'); }} onPointerDown={(e) => { e.stopPropagation(); setEraserMode('stroke'); }} onClick={(e) => { e.stopPropagation(); setEraserMode('stroke'); }}>Stroke</button>
         </div>
       )}
 
@@ -2567,11 +2583,7 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         }
         .fsw-eraser-toggle {
           display: flex;
-          gap: 4px;
-          position: absolute;
-          top: calc(100% + 8px);
-          left: 50%;
-          transform: translateX(-50%);
+          gap: 2px;
           background: #ffffff;
           border: 1px solid #dbe3ee;
           box-shadow: 0 8px 24px rgba(15,23,42,.14);
@@ -2579,11 +2591,10 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
           padding: 4px;
           white-space: nowrap;
           animation: fsw-fadeIn 0.15s ease;
-          z-index: 1000;
         }
         .fsw-eraser-mode-btn {
-          padding: 8px 16px;
-          font-size: 13px;
+          padding: 5px 10px;
+          font-size: 11px;
           font-weight: 600;
           border: none;
           border-radius: 6px;
