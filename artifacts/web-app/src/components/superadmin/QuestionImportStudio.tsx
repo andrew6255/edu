@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { cancelQuestionExtractionJob, extractQuestionPdfs, getQuestionExtractionJob, type OrganizerResult, type OrganizerTreeNode, type QuestionPdfProgress } from '@/lib/programIngestionService';
+import { generateTutorAnswer } from '@/lib/paperTutorService';
 
 export type ImportedQuestion = {
   id: string;
@@ -11,6 +12,11 @@ export type ImportedQuestion = {
   questionNumber?: string | number;
   reviewStatus?: string;
   flags: string[];
+  solution?: string;
+  solutionPlan?: string;
+  gradingSchema?: Array<{ criterion: string; points: number }>;
+  answerProvenance?: 'source' | 'ai_generated';
+  answerReviewStatus?: 'approved' | 'pending_review';
 };
 
 export type ImportCategoryOption = { id: string; path: string };
@@ -538,7 +544,7 @@ export default function QuestionImportStudio({ open, programTitle, subject, prog
       </footer>
     </div>
 
-    {editingQuestion && <QuestionEditor question={editingQuestion} onChange={updated => setQuestions(previous => previous.map(question => question.id === updated.id ? updated : question))} onClose={() => setEditingQuestionId(null)} />}
+    {editingQuestion && <QuestionEditor programId={programId} question={editingQuestion} onChange={updated => setQuestions(previous => previous.map(question => question.id === updated.id ? updated : question))} onClose={() => setEditingQuestionId(null)} />}
   </div>;
 }
 
@@ -550,12 +556,23 @@ function PlacementTreeNode({ node, selectedId, assignments, onSelect, onAssign }
   return <li><button className={`manual-tree-node ${node.kind} ${selectedId === node.id ? 'selected' : ''} ${dragOver ? 'drag-over' : ''}`} onClick={() => onSelect(node.id)} onDragOver={onDragOver} onDragLeave={() => setDragOver(false)} onDrop={onDrop}><span>{node.kind === 'folder' ? '📁' : '🏷️'}</span><b>{node.title}</b>{node.kind === 'category' && <small>{count} question{count === 1 ? '' : 's'}</small>}</button>{node.children.length > 0 && <ul>{node.children.map(child => <PlacementTreeNode key={child.id} node={child} selectedId={selectedId} assignments={assignments} onSelect={onSelect} onAssign={onAssign} />)}</ul>}</li>;
 }
 
-function QuestionEditor({ question, onChange, onClose }: { question: ImportedQuestion; onChange: (question: ImportedQuestion) => void; onClose: () => void }) {
+function QuestionEditor({ programId, question, onChange, onClose }: { programId: string; question: ImportedQuestion; onChange: (question: ImportedQuestion) => void; onClose: () => void }) {
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
+  const generateAnswer = async () => {
+    if (!question.promptRawText.trim()) return;
+    setGenerating(true); setError('');
+    try {
+      const answer = await generateTutorAnswer({ programId, questionId: question.id, questionPrompt: question.promptRawText });
+      onChange({ ...question, modelAnswer: answer.modelAnswer, solution: answer.fullSolution.map(step => `${step.title}\n${step.body}`).join('\n\n'), solutionPlan: answer.highLevelSteps.join('\n'), gradingSchema: answer.gradingRubric, answerProvenance: 'ai_generated', answerReviewStatus: 'pending_review' });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not generate an answer.'); }
+    finally { setGenerating(false); }
+  };
   return <div onClick={event => event.stopPropagation()} style={{ position: 'fixed', inset: 0, zIndex: 8300, background: 'rgba(2,6,23,.9)', display: 'grid', placeItems: 'center', padding: 18 }}><div style={{ width: 'min(720px,96vw)', maxHeight: '88vh', overflow: 'auto', borderRadius: 17, background: '#0f172a', border: '1px solid #334155', boxShadow: '0 25px 80px rgba(0,0,0,.7)' }}>
     <div style={{ padding: '14px 17px', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center' }}><div style={{ flex: 1 }}><div style={{ color: 'white', fontWeight: 900 }}>Edit extracted question</div><div style={{ color: '#64748b', fontSize: 11 }}>Correct the extraction or source answer before applying.</div></div><button className="ll-btn" onClick={onClose}>✕</button></div>
     <div style={{ padding: 17 }}><label style={labelStyle}>Question text<textarea value={question.promptRawText} onChange={event => onChange({ ...question, promptRawText: event.target.value, promptBlocks: [{ type: 'text', text: event.target.value }, ...question.promptBlocks.filter(block => block.type !== 'text')] })} rows={8} style={textareaStyle} /></label>
       {question.interaction.choices?.length ? <div style={{ marginBottom: 14 }}><div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 800, marginBottom: 6 }}>Extracted choices</div>{question.interaction.choices.map((choice, index) => <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}><span style={{ color: '#64748b', width: 18 }}>{String.fromCharCode(65 + index)}</span><input value={choice} onChange={event => { const choices = [...(question.interaction.choices ?? [])]; choices[index] = event.target.value; onChange({ ...question, interaction: { ...question.interaction, choices } }); }} style={inputStyle} /></div>)}</div> : null}
-      <label style={labelStyle}>Model answer <span style={{ color: '#64748b', fontWeight: 400 }}>(leave empty when no source answer exists)</span><textarea value={question.modelAnswer} onChange={event => onChange({ ...question, modelAnswer: event.target.value })} rows={5} placeholder="No answer supplied" style={textareaStyle} /></label>
+      <label style={labelStyle}>Model answer <span style={{ color: '#64748b', fontWeight: 400 }}>(leave empty when no source answer exists)</span>{!question.modelAnswer.trim() && <button type="button" onClick={() => void generateAnswer()} disabled={generating} style={{ float: 'right', padding: '5px 9px', borderRadius: 7, border: '1px solid rgba(99,102,241,.55)', background: 'rgba(99,102,241,.13)', color: '#c7d2fe', fontSize: 10, fontWeight: 900, cursor: generating ? 'wait' : 'pointer' }}>{generating ? 'Generating…' : '✨ Generate Answer'}</button>}<textarea value={question.modelAnswer} onChange={event => onChange({ ...question, modelAnswer: event.target.value })} rows={5} placeholder="No answer supplied" style={textareaStyle} />{question.answerProvenance === 'ai_generated' && <span style={{ color: '#fcd34d', fontSize: 10 }}>AI-generated · review before applying</span>}{error && <span style={{ display: 'block', color: '#fca5a5', fontSize: 10, marginTop: 5 }}>{error}</span>}</label>
     </div>
     <div style={{ padding: '12px 17px', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'flex-end' }}><button onClick={onClose} style={primaryStyle(false)}>Done</button></div>
   </div></div>;

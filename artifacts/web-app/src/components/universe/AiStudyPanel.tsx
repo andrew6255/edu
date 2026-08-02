@@ -34,11 +34,11 @@ Here is the content of their study material:
 ${contentSummary}
 ---
 
-You are teaching the student HOW to solve this type of question. Pick the single BEST representative example from the material above.
+You are teaching the student HOW to solve the exact question in the material above. Do not replace it with a different representative example.
 
 Return ONLY a JSON object with this exact structure:
 {
-  "question": "The chosen example question, formatted clearly with latex if needed.",
+  "question": "The exact supplied question, formatted clearly with latex if needed.",
   "steps": [
     {
       "title": "Step 1: Short title of the action",
@@ -144,7 +144,7 @@ export default function AiStudyPanel({
             Learn How to Solve
           </div>
           <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.4 }}>
-            Step-by-step walkthrough of the key example question
+            Step-by-step walkthrough for this exact question
           </div>
         </div>
         <button

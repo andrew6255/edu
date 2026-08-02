@@ -48,6 +48,7 @@ import QuestionImportStudio, { type ApprovedImport, type ImportCategoryOption, t
 import type { OrganizerTreeNode } from '@/lib/programIngestionService';
 import { type PersonalSubject, listPersonalSubjects, createPersonalSubject, updatePersonalSubject, deletePersonalSubject } from '@/lib/personalSubjectService';
 import { generateEmojiWithLlm } from '@/lib/programIngestionService';
+import { findTutorAnswer, generateTutorAnswer, type TutorAnswerPackage } from '@/lib/paperTutorService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -511,6 +512,10 @@ export default function ProgramsAdmin() {
   const [editQText, setEditQText] = useState('');
   const [editQModelAnswer, setEditQModelAnswer] = useState('');
   const [editQNotes, setEditQNotes] = useState('');
+  const [editQAnswerPackage, setEditQAnswerPackage] = useState<TutorAnswerPackage | null>(null);
+  const [editQGeneratingAnswer, setEditQGeneratingAnswer] = useState(false);
+  const [editQAnswerError, setEditQAnswerError] = useState('');
+  const answerLookupRef = useRef(0);
 
   // Background publish tracking (programId → true means publishing in progress)
   const [publishingIds, setPublishingIds] = useState<Record<string, boolean>>({});
@@ -782,7 +787,12 @@ export default function ProgramsAdmin() {
             interaction: question.interaction,
             difficulty: 'medium',
             modelAnswer: question.modelAnswer || (hasSourceAnswer ? choices[correctIndex] : ''),
-            answerFromPdf: Boolean(question.modelAnswer) || hasSourceAnswer,
+            answerFromPdf: question.answerProvenance !== 'ai_generated' && (Boolean(question.modelAnswer) || hasSourceAnswer),
+            solution: question.solution,
+            solutionPlan: question.solutionPlan,
+            gradingSchema: question.gradingSchema,
+            answerProvenance: question.answerProvenance ?? (question.modelAnswer || hasSourceAnswer ? 'source' : 'missing'),
+            answerReviewStatus: 'approved',
             sourcePage: question.pageNumber,
             sourceQuestionNumber: question.questionNumber,
             reviewStatus: question.reviewStatus,
@@ -1040,9 +1050,42 @@ export default function ProgramsAdmin() {
     setEditingQuestionIsNew(false);
     setEditingQuestion(q);
     setEditingQuestionCategoryId(categoryNodeId);
-    setEditQText(q.promptBlocks?.[0]?.text ?? q.rawText ?? q.question ?? '');
+    const questionPrompt = q.promptBlocks?.[0]?.text ?? q.rawText ?? q.question ?? '';
+    setEditQText(questionPrompt);
     setEditQModelAnswer(q.modelAnswer ?? '');
     setEditQNotes(q.aiTutorNotes ?? '');
+    setEditQAnswerPackage(null);
+    setEditQAnswerError('');
+    setEditQGeneratingAnswer(false);
+    const lookupId = ++answerLookupRef.current;
+    if (!q.modelAnswer && questionPrompt.trim()) {
+      const { id: programId } = computeProgramIdAndTitle();
+      void findTutorAnswer({ programId, questionId: q.id, questionPrompt }).then(({ answer }) => {
+        if (lookupId !== answerLookupRef.current || !answer) return;
+        setEditQAnswerPackage(answer);
+        setEditQModelAnswer(answer.modelAnswer);
+      }).catch(() => { /* No shared answer has been generated yet. */ });
+    }
+  }
+
+  async function generateQuestionAnswer() {
+    if (!editingQuestion || !editQText.trim()) return;
+    setEditQGeneratingAnswer(true);
+    setEditQAnswerError('');
+    try {
+      const { id: programId } = computeProgramIdAndTitle();
+      const answer = await generateTutorAnswer({
+        programId,
+        questionId: editingQuestion.id,
+        questionPrompt: editQText.trim(),
+      });
+      setEditQAnswerPackage(answer);
+      setEditQModelAnswer(answer.modelAnswer);
+    } catch (error) {
+      setEditQAnswerError(error instanceof Error ? error.message : 'Could not generate an answer.');
+    } finally {
+      setEditQGeneratingAnswer(false);
+    }
   }
   async function deleteQuestion(qId: string, categoryNodeId: string) {
     if (!(await confirm('Are you sure you want to delete this question?'))) return;
@@ -1069,6 +1112,13 @@ export default function ProgramsAdmin() {
         promptBlocks: [{ type: 'text', text: editQText.trim() }],
         interaction: (editingQuestion as any).interaction ?? { type: 'free_response' },
         modelAnswer: editQModelAnswer.trim() || undefined,
+        ...(editQAnswerPackage ? {
+          solution: editQAnswerPackage.fullSolution.map(step => `${step.title}\n${step.body}`).join('\n\n'),
+          solutionPlan: editQAnswerPackage.highLevelSteps.join('\n'),
+          gradingSchema: editQAnswerPackage.gradingRubric,
+          answerProvenance: editQAnswerPackage.provenance,
+          answerReviewStatus: 'approved',
+        } : {}),
         aiTutorNotes: editQNotes.trim() || undefined,
       };
       if (n.questionTypes.length === 0) {
@@ -1102,6 +1152,8 @@ export default function ProgramsAdmin() {
     setEditQText('');
     setEditQModelAnswer('');
     setEditQNotes('');
+    setEditQAnswerPackage(null);
+    setEditQAnswerError('');
   };
 
 
@@ -2941,7 +2993,11 @@ export default function ProgramsAdmin() {
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', fontWeight: 900, letterSpacing: 0.7, marginBottom: 8, textTransform: 'uppercase' }}>Model Answer</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', fontWeight: 900, letterSpacing: 0.7, textTransform: 'uppercase' }}>Model Answer</label>
+                  {editQAnswerPackage?.provenance === 'ai_generated' && <span style={{ padding: '3px 7px', borderRadius: 99, background: 'rgba(245,158,11,.12)', color: '#fcd34d', fontSize: 9, fontWeight: 900 }}>AI-GENERATED · REVIEW BEFORE SAVING</span>}
+                  {!editQModelAnswer.trim() && <button type="button" onClick={() => void generateQuestionAnswer()} disabled={editQGeneratingAnswer || !editQText.trim()} style={{ marginLeft: 'auto', padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(99,102,241,.55)', background: 'rgba(99,102,241,.13)', color: '#c7d2fe', fontSize: 10, fontWeight: 900, cursor: editQGeneratingAnswer ? 'wait' : 'pointer', opacity: !editQText.trim() ? .45 : 1 }}>{editQGeneratingAnswer ? 'Generating…' : '✨ Generate Answer'}</button>}
+                </div>
                 <textarea
                   value={editQModelAnswer}
                   onChange={(e) => setEditQModelAnswer(e.target.value)}
@@ -2949,6 +3005,7 @@ export default function ProgramsAdmin() {
                   placeholder="The expected correct answer..."
                   style={{ width: '100%', padding: '10px 13px', borderRadius: 10, border: '1px solid #475569', background: 'rgba(0,0,0,0.3)', color: 'white', fontFamily: 'inherit', fontSize: 13, resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.6 }}
                 />
+                {editQAnswerError && <div style={{ marginTop: 7, color: '#fca5a5', fontSize: 11, lineHeight: 1.5 }}>{editQAnswerError}</div>}
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', fontWeight: 900, letterSpacing: 0.7, marginBottom: 8, textTransform: 'uppercase' }}>Notes for AI Tutor 📌</label>

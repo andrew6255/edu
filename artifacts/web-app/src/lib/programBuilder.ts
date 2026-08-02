@@ -54,6 +54,8 @@ export type BuilderQuestion = {
   // Phase 3 enrichment
   solutionPlan?: string;
   gradingSchema?: any[]; // GradingCriterion[]
+  answerProvenance?: 'source' | 'embedded_source' | 'ai_generated' | 'missing';
+  answerReviewStatus?: 'approved' | 'pending_review';
 
   // AI tutor notes — extra context for the AI tutor when helping students
   aiTutorNotes?: string;

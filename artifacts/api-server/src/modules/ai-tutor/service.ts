@@ -1,6 +1,40 @@
-import type { TutorAnnotation, TutorChatInput, TutorChatResult, TutorEvaluationInput, TutorEvaluationResult, TutorStatusResult } from './types';
+import { createHash } from 'node:crypto';
+import type {
+  TutorAnnotation,
+  TutorAnswerPackage,
+  TutorAnswerRequest,
+  TutorChatInput,
+  TutorChatResult,
+  TutorEvaluationInput,
+  TutorEvaluationResult,
+  TutorPaperGradeRequest,
+  TutorPaperGradeResult,
+  TutorPaperHelpRequest,
+  TutorPaperHelpResult,
+  TutorStatusResult,
+} from './types';
 import { getAiTutorProviderConfig, getExternalAiTutorProvider } from './providers';
 import { logger } from '../../lib/logger';
+import { readCachedAnswer, writeCachedAnswer } from './answerRepository';
+
+const pendingAnswerRequests = new Map<string, Promise<TutorAnswerPackage>>();
+
+function promptHash(prompt: string): string {
+  return createHash('sha256').update(prompt.trim().replace(/\s+/g, ' ')).digest('hex');
+}
+
+function packageFromExistingAnswer(answer: string): TutorAnswerPackage {
+  return {
+    modelAnswer: answer,
+    highLevelSteps: [],
+    fullSolution: [{ title: 'Solution', body: answer }],
+    gradingRubric: [{ criterion: 'Correct method and answer', points: 100 }],
+    provenance: 'source',
+    reviewStatus: 'approved',
+    generatedAt: null,
+    model: null,
+  };
+}
 
 function normalizeMathText(value: string): string {
   let s = value;
@@ -287,6 +321,69 @@ export class AiTutorService {
       annotations: [],
       nextExpectedStep: null,
     };
+  }
+
+  async getOrGenerateAnswer(input: TutorAnswerRequest): Promise<TutorAnswerPackage> {
+    if (input.existingAnswer) return packageFromExistingAnswer(input.existingAnswer);
+    const hash = promptHash(input.questionPrompt);
+    const cached = await readCachedAnswer(input.programId, input.questionId, hash);
+    if (cached) return cached;
+
+    const requestKey = `${input.programId || 'unscoped'}::${input.questionId}::${hash}`;
+    const inFlight = pendingAnswerRequests.get(requestKey);
+    if (inFlight) return inFlight;
+
+    const promise = (async () => {
+      const external = getExternalAiTutorProvider();
+      if (!external) throw new Error('AI answer generation is not configured on the API server.');
+      const generated = await external.generateAnswer(input.questionPrompt);
+      if (!generated) throw new Error('The AI could not generate a valid answer package.');
+      await writeCachedAnswer(input.programId, input.questionId, hash, generated);
+      return generated;
+    })();
+    pendingAnswerRequests.set(requestKey, promise);
+    try {
+      return await promise;
+    } finally {
+      pendingAnswerRequests.delete(requestKey);
+    }
+  }
+
+  async findAnswer(input: TutorAnswerRequest): Promise<TutorAnswerPackage | null> {
+    if (input.existingAnswer) return packageFromExistingAnswer(input.existingAnswer);
+    return readCachedAnswer(input.programId, input.questionId, promptHash(input.questionPrompt));
+  }
+
+  async getPaperHelp(input: TutorPaperHelpRequest): Promise<TutorPaperHelpResult> {
+    const answerPackage = input.answerPackage ?? await this.getOrGenerateAnswer({
+      programId: input.programId,
+      questionId: input.questionId,
+      questionPrompt: input.questionPrompt,
+    });
+    const external = getExternalAiTutorProvider();
+    if (!external) {
+      const steps = input.mode === 'solve'
+        ? answerPackage.fullSolution.map(step => ({ title: step.title, body: step.body }))
+        : input.mode === 'next_step'
+          ? answerPackage.highLevelSteps.slice(0, 1).map(title => ({ title, body: null }))
+          : answerPackage.highLevelSteps.map(title => ({ title, body: null }));
+      return { mode: input.mode, steps, answerPackage };
+    }
+    const result = await external.paperHelp(input, answerPackage);
+    if (!result) throw new Error('The AI could not produce worksheet guidance.');
+    return result;
+  }
+
+  async gradePaper(input: TutorPaperGradeRequest): Promise<TutorPaperGradeResult> {
+    const answerPackage = input.answerPackage ?? await this.getOrGenerateAnswer({
+      questionId: input.questionId,
+      questionPrompt: input.questionPrompt,
+    });
+    const external = getExternalAiTutorProvider();
+    if (!external) throw new Error('AI paper grading is not configured on the API server.');
+    const result = await external.gradePaper(input, answerPackage);
+    if (!result) throw new Error('The AI could not grade this paper.');
+    return result;
   }
 
   async chat(input: TutorChatInput): Promise<TutorChatResult> {

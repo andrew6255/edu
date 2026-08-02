@@ -227,7 +227,16 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
               rawText,
               chapterId: selectedSheetNode.id,
               questionTypeTitle: qt.title,
-              modelAnswer: q.modelAnswer || q.solution
+              context: q.context,
+              subQuestions: q.subQuestions,
+              promptBlocks: q.promptBlocks,
+              modelAnswer: q.modelAnswer || q.solution,
+              solution: q.solution,
+              solutionPlan: q.solutionPlan,
+              gradingSchema: q.gradingSchema,
+              aiTutorNotes: q.aiTutorNotes,
+              answerProvenance: q.answerProvenance,
+              answerReviewStatus: q.answerReviewStatus,
             });
             totalQuestions++;
           });
@@ -349,6 +358,14 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
     }
   };
 
+  const openLearnForQuestion = useCallback((event: React.MouseEvent, question: PersonalProgramQuestion, fallbackNumber: number) => {
+    event.stopPropagation();
+    setAiPanelTitle(`Question ${question.questionLabel || fallbackNumber}`);
+    setAiPanelContent(question.rawText);
+    setAiPanelMode('study_sheet');
+    setAiPanelOpen(true);
+  }, []);
+
   // Navigate to next/previous question
   const allQuestions = programData?.questions ?? [];
   const currentQuestionIndex = allQuestions.findIndex(q => q.id === activeQuestionId);
@@ -378,6 +395,7 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
             </div>
           ) : (
             <FullScreenWorkspace
+              programId={programId ?? undefined}
               currentQuestion={activeQuestion}
               onClose={closeWhiteboard}
               initialPages={(whiteboardPages as any) ?? undefined}
@@ -779,46 +797,6 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
 
                 {renderStudyTools()}
 
-                {/* Learn How to Solve button */}
-                <button
-                  onClick={() => {
-                    const topicQuestions = (selectedTopic.questionIds || [])
-                      .map(qId => questionMap.get(qId))
-                      .filter((q): q is PersonalProgramQuestion => !!q);
-                    const topicContent = topicQuestions.map((q, i) => `Q${i + 1}: ${q.rawText}`).join('\n\n');
-                    setAiPanelTitle(selectedTopic.questionTypeTitle || selectedTopic.title);
-                    setAiPanelContent(topicContent);
-                    setAiPanelMode('study_sheet');
-                    setAiPanelOpen(true);
-                  }}
-                  style={{
-                    width: '100%', background: '#10b98110',
-                    border: '1px solid #10b98130',
-                    borderRadius: 12, padding: '13px 16px',
-                    cursor: 'pointer', fontFamily: 'inherit',
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    marginBottom: 24, transition: 'all 0.2s', color: 'inherit',
-                  }}
-                  onMouseEnter={e => {
-                    const el = e.currentTarget as HTMLButtonElement;
-                    el.style.background = '#10b98120';
-                    el.style.borderColor = '#10b98160';
-                    el.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={e => {
-                    const el = e.currentTarget as HTMLButtonElement;
-                    el.style.background = '#10b98110';
-                    el.style.borderColor = '#10b98130';
-                    el.style.transform = '';
-                  }}
-                >
-                  <span style={{ fontSize: 20 }}>📚</span>
-                  <div style={{ textAlign: 'left' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981' }}>Learn How to Solve</div>
-                    <div style={{ fontSize: 11, color: 'var(--ll-text-muted)' }}>Step-by-step example for this question type</div>
-                  </div>
-                </button>
-
                 {/* Question cards vertical list */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {(selectedTopic.questionIds || []).map((qId, qIdx) => {
@@ -871,6 +849,14 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                           >
                             {isAnswered && <span style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>✓</span>}
                           </div>
+                          <button
+                            type="button"
+                            onClick={(event) => openLearnForQuestion(event, question, qIdx + 1)}
+                            title="Learn how to solve this question"
+                            style={{ position: 'absolute', top: 49, right: 10, zIndex: 2, padding: '5px 8px', borderRadius: 8, border: '1px solid #10b98145', background: '#10b98112', color: '#10b981', fontFamily: 'inherit', fontSize: 9, fontWeight: 800, cursor: 'pointer' }}
+                          >
+                            📚 Learn how to solve
+                          </button>
 
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, paddingRight: 40 }}>
                             <span style={{
@@ -888,7 +874,7 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                           </div>
                           <div style={{
                             fontSize: 14, color: 'var(--ll-text-soft)', lineHeight: 1.6,
-                            fontFamily: 'inherit', overflowWrap: 'break-word', wordBreak: 'break-word',
+                            fontFamily: 'inherit', overflowWrap: 'break-word', wordBreak: 'break-word', paddingRight: 125,
                           }}>
                             {renderWithMath(displayPreview)}
                           </div>
@@ -921,11 +907,12 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                   style={{
                     background: isAnswered ? 'rgba(59,130,246,0.08)' : 'var(--ll-surface-1)',
                     border: `1px solid ${isAnswered ? 'rgba(59,130,246,0.3)' : 'var(--ll-border)'}`,
-                    borderRadius: 12, padding: '14px', cursor: 'pointer', transition: 'all 0.2s',
+                    borderRadius: 12, padding: '14px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative',
                   }}
                   onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ''; }}
                 >
+                  <div onClick={(event) => handleToggleSolved(event, question.id)} style={{ position: 'absolute', top: 12, right: 14, width: 24, height: 24, borderRadius: 6, border: `2px solid ${isAnswered ? '#3b82f6' : 'var(--ll-border)'}`, background: isAnswered ? '#3b82f6' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 2 }}>{isAnswered && <span style={{ color: 'white', fontWeight: 900 }}>✓</span>}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                     <span style={{
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -937,9 +924,9 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
                       {isAnswered ? '✓' : qIdx + 1}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--ll-text-muted)' }}>Question {qIdx + 1}</span>
-                    <span style={{ fontSize: 14, marginLeft: 'auto' }}>{isAnswered ? '📝' : '✏️'}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--ll-text-soft)', lineHeight: 1.5, maxHeight: 54, overflow: 'hidden', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                  <button type="button" onClick={(event) => openLearnForQuestion(event, question, qIdx + 1)} title="Learn how to solve this question" style={{ position: 'absolute', top: 44, right: 8, padding: '5px 8px', borderRadius: 8, border: '1px solid #10b98145', background: '#10b98112', color: '#10b981', fontFamily: 'inherit', fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>📚 Learn how to solve</button>
+                  <div style={{ fontSize: 12, color: 'var(--ll-text-soft)', lineHeight: 1.5, maxHeight: 54, overflow: 'hidden', overflowWrap: 'break-word', wordBreak: 'break-word', paddingRight: 125 }}>
                     {renderWithMath(displayPreview)}
                   </div>
                 </div>

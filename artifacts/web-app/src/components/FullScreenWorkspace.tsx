@@ -1,8 +1,19 @@
 import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
-import AiTutorPanel from '@/components/AiTutorPanel';
 import CryptoJS from 'crypto-js';
+import PaperPageCanvas from '@/components/PaperPageCanvas';
+import { buildPaperQuestionShape } from '@/lib/paperQuestionParts';
+import {
+  evaluatePaperWork,
+  explainPaperCorrection,
+  generateTutorAnswer,
+  gradeTutorPaper,
+  requestPaperHelp,
+  type PaperGradeResult,
+  type PaperHelpMode,
+  type TutorAnswerPackage,
+} from '@/lib/paperTutorService';
 
 /* ═══════════════════════════════════════════════════════════════
    DATA MODEL — Completely isolated from MyScript state
@@ -19,6 +30,7 @@ export interface Stroke {
   points: StrokePoint[];
   color: string;
   width: number;
+  regionId?: string;
 }
 
 export interface TextAnnotation {
@@ -28,18 +40,46 @@ export interface TextAnnotation {
   text: string;
   width: number;
   height: number;
+  regionId?: string;
+}
+
+export interface PaperAiMark {
+  id: string;
+  regionId: string;
+  type: 'circle' | 'highlight' | 'note';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  targetText?: string;
+  correctionText: string;
+  explanation: string;
+  targetStrokeIds: string[];
+  status: 'active' | 'checking';
+}
+
+export interface PaperAiBlock {
+  id: string;
+  regionId: string;
+  mode: PaperHelpMode;
+  y: number;
+  title: string;
+  body?: string | null;
 }
 
 export interface PageData {
   id: string;
   strokes: Stroke[];
   annotations: TextAnnotation[];
+  aiMarks?: PaperAiMark[];
+  aiBlocks?: PaperAiBlock[];
+  answerRegionHeights?: Record<string, number>;
 }
 
 type EraserMode = 'pixel' | 'stroke';
 
 interface UndoAction {
-  type: 'add-stroke' | 'remove-stroke' | 'add-annotation' | 'remove-annotation' | 'clear';
+  type: 'add-stroke' | 'remove-stroke' | 'add-annotation' | 'remove-annotation' | 'move-strokes' | 'layout' | 'ai-blocks' | 'clear';
   pageId: string;
   data: any;
 }
@@ -84,6 +124,16 @@ const uid = () => `ws-${Date.now()}-${++_idCounter}`;
 
 function distSq(ax: number, ay: number, bx: number, by: number) {
   return (ax - bx) ** 2 + (ay - by) ** 2;
+}
+
+function getStrokeBounds(strokes: Stroke[]): { x: number; y: number; width: number; height: number } | null {
+  if (strokes.length === 0) return null;
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  strokes.forEach(stroke => stroke.points.forEach(point => {
+    left = Math.min(left, point.x); top = Math.min(top, point.y);
+    right = Math.max(right, point.x); bottom = Math.max(bottom, point.y);
+  }));
+  return Number.isFinite(left) ? { x: left, y: top, width: Math.max(18, right - left), height: Math.max(18, bottom - top) } : null;
 }
 
 function parseJIIXAbsolute(jiix: any, directLatex: string): ConvertedBlock[] {
@@ -234,7 +284,7 @@ interface PageCanvasProps {
   page: PageData;
   pageIndex: number;
   currentQuestion?: import('@/lib/personalProgramService').PersonalProgramQuestion | string;
-  activeTool: 'pen' | 'eraser';
+  activeTool: 'pen' | 'eraser' | 'select';
   eraserMode: EraserMode;
   strokeColor: string;
   strokeWidth: number;
@@ -242,6 +292,12 @@ interface PageCanvasProps {
   onStrokeRemove: (pageId: string, strokeId: string) => void;
   onAnnotationAdd: (pageId: string, ann: TextAnnotation) => void;
   onAnnotationUpdate: (pageId: string, annId: string, text: string) => void;
+  onMoveStrokes: (pageId: string, strokeIds: string[], dx: number, dy: number) => void;
+  onAnswerSpaceChange: (pageId: string, regionId: string, delta: number) => void;
+  onAiHelp: (regionId: string, mode: PaperHelpMode) => void;
+  onAiMarkClick: (mark: PaperAiMark) => void;
+  aiHelpBusyRegion: string | null;
+  disableAiHelp: boolean;
   scale: number;
 }
 
@@ -288,6 +344,7 @@ const PageCanvas = memo(function PageCanvas({
   onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, scale, testGrade
 }: PageCanvasProps & { testGrade?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const questionRef = useRef<HTMLDivElement>(null);
   
   // Calculate lowest point of content to position the AI box dynamically
   const maxY = useMemo(() => {
@@ -320,10 +377,19 @@ const PageCanvas = memo(function PageCanvas({
     };
   }, [scale]);
 
+  const getWritingStartY = useCallback(() => {
+    if (pageIndex !== 0 || !currentQuestion || !canvasRef.current || !questionRef.current) return 0;
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const questionRect = questionRef.current.getBoundingClientRect();
+    return (questionRect.bottom - canvasRect.top) / scale + 16;
+  }, [currentQuestion, pageIndex, scale]);
+
   const handleDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
     const pos = getPos(e);
+    if (pos.y < getWritingStartY()) return;
+
+    e.currentTarget.setPointerCapture(e.pointerId);
     const now = Date.now();
 
     // ── Double-tap detection ──
@@ -364,11 +430,27 @@ const PageCanvas = memo(function PageCanvas({
         ctx.restore();
       }
     }
-  }, [activeTool, eraserMode, page, getPos, onStrokeRemove, onAnnotationAdd]);
+  }, [activeTool, eraserMode, page, getPos, getWritingStartY, onStrokeRemove, onAnnotationAdd]);
 
   const handleMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing.current) return;
     const pos = getPos(e);
+
+    if (pos.y < getWritingStartY()) {
+      if (activeTool === 'pen') {
+        if (activeStroke.current.length >= 2) {
+          onStrokeAdd(page.id, {
+            id: uid(),
+            points: [...activeStroke.current],
+            color: strokeColor,
+            width: strokeWidth,
+          });
+        }
+        activeStroke.current = [];
+        isDrawing.current = false;
+      }
+      return;
+    }
 
     if (activeTool === 'pen') {
       activeStroke.current.push({ x: pos.x, y: pos.y, pressure: e.pressure || 0.5 });
@@ -405,7 +487,7 @@ const PageCanvas = memo(function PageCanvas({
         ctx.restore();
       }
     }
-  }, [activeTool, eraserMode, strokeColor, strokeWidth, page, getPos, onStrokeRemove]);
+  }, [activeTool, eraserMode, strokeColor, strokeWidth, page, getPos, getWritingStartY, onStrokeAdd, onStrokeRemove]);
 
   const handleUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -486,7 +568,7 @@ const PageCanvas = memo(function PageCanvas({
         }
 
         return (
-          <div className="fsw-static-question" style={{ position: 'relative', zIndex: 10, pointerEvents: 'none' }}>
+          <div ref={questionRef} className="fsw-static-question" style={{ position: 'relative', zIndex: 10, pointerEvents: 'none' }}>
             {/* Main Context / Given */}
             <div style={{ marginBottom: 8, background: isMulti ? 'rgba(255,255,255,0.7)' : 'transparent', padding: isMulti ? '12px' : 0, borderRadius: 8 }}>
               <div style={{ flex: 1, paddingRight: 16 }}>
@@ -596,6 +678,7 @@ const PageCanvas = memo(function PageCanvas({
 
 interface FullScreenWorkspaceProps {
   onClose: () => void;
+  programId?: string;
   currentQuestion?: import('@/lib/personalProgramService').PersonalProgramQuestion | string;
   initialPages?: PageData[];
   onPagesChange?: (pages: PageData[]) => void;
@@ -614,17 +697,34 @@ interface FullScreenWorkspaceProps {
   };
 }
 
-export default function FullScreenWorkspace({ onClose, currentQuestion, initialPages, onPagesChange, isTestMode, onTestDone, testGrade, showAiSwitch, questionNavigation }: FullScreenWorkspaceProps) {
-  // ── AI Panel State ──
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+export default function FullScreenWorkspace({ onClose, programId, currentQuestion, initialPages, onPagesChange, isTestMode, onTestDone, testGrade, showAiSwitch, questionNavigation }: FullScreenWorkspaceProps) {
+  const [correctMeOn, setCorrectMeOn] = useState(false);
+  const [correctMeStatus, setCorrectMeStatus] = useState<'idle' | 'reading' | 'checking' | 'checked' | 'error'>('idle');
+  const [correctMeError, setCorrectMeError] = useState('');
+  const [aiHelpBusyRegion, setAiHelpBusyRegion] = useState<string | null>(null);
+  const [answerPackage, setAnswerPackage] = useState<TutorAnswerPackage | null>(null);
+  const [gradeBusy, setGradeBusy] = useState(false);
+  const [gradeResult, setGradeResult] = useState<PaperGradeResult | null>(null);
+  const [activeAiMark, setActiveAiMark] = useState<PaperAiMark | null>(null);
+  const [aiMarkExplanation, setAiMarkExplanation] = useState('');
+  const [aiMarkExplanationBusy, setAiMarkExplanationBusy] = useState(false);
+  const correctionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const correctionRunRef = useRef(0);
+  const questionRunRef = useRef(0);
+  const answerRequestRef = useRef<{ key: string; promise: Promise<TutorAnswerPackage> } | null>(null);
 
   // ── Pages State ──
   const [pages, setPages] = useState<PageData[]>(
     initialPages && initialPages.length > 0 ? (initialPages as PageData[]) : [{ id: uid(), strokes: [], annotations: [] }]
   );
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
 
   // Reset pages whenever a new question is loaded
   useEffect(() => {
+    questionRunRef.current += 1;
+    correctionRunRef.current += 1;
+    answerRequestRef.current = null;
     setPages(
       initialPages && initialPages.length > 0
         ? (initialPages as PageData[])
@@ -632,6 +732,26 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
     );
     setUndoStack([]);
     setRedoStack([]);
+    setGradeResult(null);
+    setGradeBusy(false);
+    setAiHelpBusyRegion(null);
+    setActiveAiMark(null);
+    setCorrectMeError('');
+    setCorrectMeStatus('idle');
+    setHasUsedAiAssistance(Boolean(initialPages?.some(page => (page.aiBlocks?.length ?? 0) > 0 || (page.aiMarks?.length ?? 0) > 0)));
+    const question = typeof currentQuestion === 'string' ? null : currentQuestion;
+    if (question?.modelAnswer) {
+      const highLevelSteps = question.solutionPlan?.split(/\r?\n/).map(step => step.replace(/^[•*-]\s*/, '').trim()).filter(Boolean) ?? [];
+      const solutionBody = question.solution || question.modelAnswer;
+      setAnswerPackage({
+        modelAnswer: question.modelAnswer,
+        highLevelSteps,
+        fullSolution: [{ title: 'Solution', body: solutionBody }],
+        gradingRubric: question.gradingSchema?.map(item => ({ criterion: item.criterion, points: item.points })) ?? [{ criterion: 'Correct method and answer', points: 100 }],
+        provenance: question.answerProvenance === 'ai_generated' ? 'ai_generated' : 'source',
+        reviewStatus: question.answerReviewStatus === 'pending_review' ? 'pending_review' : 'approved',
+      });
+    } else setAnswerPackage(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeof currentQuestion === 'string' ? currentQuestion : currentQuestion?.id]);
 
@@ -653,12 +773,24 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
   }[]>([]);
 
   // ── Tool State ──
-  const [activeTool, setActiveTool] = useState<'pen' | 'eraser'>('pen');
+  const [activeTool, setActiveTool] = useState<'pen' | 'eraser' | 'select'>('pen');
   const [eraserMode, setEraserMode] = useState<EraserMode>('pixel');
   const [strokeColor, setStrokeColor] = useState('#1e293b');
   const [strokeWidth, setStrokeWidth] = useState(2.5);
   const [toolboxOpen, setToolboxOpen] = useState(false);
   const [showOutputModal, setShowOutputModal] = useState(false);
+  const [hasUsedAiAssistance, setHasUsedAiAssistance] = useState(false);
+
+  const questionPrompt = useMemo(() => typeof currentQuestion === 'string'
+    ? currentQuestion
+    : currentQuestion?.rawText || currentQuestion?.context || currentQuestion?.promptBlocks?.[0]?.text || '', [currentQuestion]);
+  const paperQuestionShape = useMemo(() => buildPaperQuestionShape(currentQuestion), [currentQuestion]);
+  const questionRegionIds = useMemo(() => paperQuestionShape.parts.map(part => part.id), [paperQuestionShape]);
+
+  const promptForRegion = useCallback((regionId: string) => {
+    const part = paperQuestionShape.parts.find(candidate => candidate.id === regionId);
+    return [paperQuestionShape.context, part ? `${part.label} ${part.prompt}`.trim() : questionPrompt].filter(Boolean).join('\n');
+  }, [paperQuestionShape, questionPrompt]);
 
   // ── Undo/Redo ──
   const [undoStack, setUndoStack] = useState<UndoAction[]>([]);
@@ -745,17 +877,15 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
   }, []);
 
   const handleStrokeRemove = useCallback((pageId: string, strokeId: string) => {
-    let removed: Stroke | undefined;
+    const removed = pages.find(page => page.id === pageId)?.strokes.find(stroke => stroke.id === strokeId);
+    if (!removed) return;
     setPages(prev => prev.map(p => {
       if (p.id !== pageId) return p;
-      removed = p.strokes.find(s => s.id === strokeId);
       return { ...p, strokes: p.strokes.filter(s => s.id !== strokeId) };
     }));
-    if (removed) {
-      setUndoStack(prev => [...prev, { type: 'remove-stroke', pageId, data: removed }]);
-      setRedoStack([]);
-    }
-  }, []);
+    setUndoStack(prev => [...prev, { type: 'remove-stroke', pageId, data: removed }]);
+    setRedoStack([]);
+  }, [pages]);
 
   const handleAnnotationAdd = useCallback((pageId: string, ann: TextAnnotation) => {
     setPages(prev => prev.map(p =>
@@ -776,6 +906,43 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
       };
     }));
   }, []);
+
+  const handleMoveStrokes = useCallback((pageId: string, strokeIds: string[], dx: number, dy: number) => {
+    if (strokeIds.length === 0 || (Math.abs(dx) < .01 && Math.abs(dy) < .01)) return;
+    const idSet = new Set(strokeIds);
+    setPages(previous => previous.map(page => page.id !== pageId ? page : {
+      ...page,
+      strokes: page.strokes.map(stroke => idSet.has(stroke.id) ? { ...stroke, points: stroke.points.map(point => ({ ...point, x: point.x + dx, y: point.y + dy })) } : stroke),
+      aiMarks: (page.aiMarks ?? []).map(mark => mark.targetStrokeIds.some(id => idSet.has(id)) ? { ...mark, x: mark.x + dx, y: mark.y + dy } : mark),
+    }));
+    setUndoStack(previous => [...previous, { type: 'move-strokes', pageId, data: { strokeIds, dx, dy } }]);
+    setRedoStack([]);
+  }, []);
+
+  const handleAnswerSpaceChange = useCallback((pageId: string, regionId: string, delta: number) => {
+    const defaultHeight = questionRegionIds.length === 1 ? 900 : 260;
+    const regionIndex = questionRegionIds.indexOf(regionId);
+    if (regionIndex < 0) return;
+    const laterRegions = new Set(questionRegionIds.slice(regionIndex + 1));
+    const currentPage = pages.find(page => page.id === pageId);
+    if (!currentPage) return;
+    const beforeHeight = currentPage.answerRegionHeights?.[regionId] ?? defaultHeight;
+    const afterHeight = Math.max(180, beforeHeight + delta);
+    const appliedDelta = afterHeight - beforeHeight;
+    if (appliedDelta === 0) return;
+    setPages(previous => previous.map(page => {
+      if (page.id !== pageId) return page;
+      return {
+        ...page,
+        answerRegionHeights: { ...(page.answerRegionHeights ?? {}), [regionId]: afterHeight },
+        strokes: page.strokes.map(stroke => stroke.regionId && laterRegions.has(stroke.regionId) ? { ...stroke, points: stroke.points.map(point => ({ ...point, y: point.y + appliedDelta })) } : stroke),
+        annotations: page.annotations.map(annotation => annotation.regionId && laterRegions.has(annotation.regionId) ? { ...annotation, y: annotation.y + appliedDelta } : annotation),
+        aiMarks: (page.aiMarks ?? []).map(mark => laterRegions.has(mark.regionId) ? { ...mark, y: mark.y + appliedDelta } : mark),
+      };
+    }));
+    setUndoStack(previous => [...previous, { type: 'layout', pageId, data: { regionId, beforeHeight, afterHeight, delta: appliedDelta, laterRegions: [...laterRegions] } }]);
+    setRedoStack([]);
+  }, [pages, questionRegionIds]);
 
   // ── Undo ──
   const handleUndo = useCallback(() => {
@@ -803,9 +970,27 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           ? { ...p, annotations: p.annotations.filter(a => a.id !== action.data.id) }
           : p
       ));
+    } else if (action.type === 'move-strokes') {
+      const ids = new Set<string>(action.data.strokeIds);
+      setPages(prev => prev.map(p => p.id !== action.pageId ? p : {
+        ...p,
+        strokes: p.strokes.map(s => ids.has(s.id) ? { ...s, points: s.points.map(point => ({ ...point, x: point.x - action.data.dx, y: point.y - action.data.dy })) } : s),
+        aiMarks: (p.aiMarks ?? []).map(mark => mark.targetStrokeIds.some(id => ids.has(id)) ? { ...mark, x: mark.x - action.data.dx, y: mark.y - action.data.dy } : mark),
+      }));
+    } else if (action.type === 'layout') {
+      const later = new Set<string>(action.data.laterRegions);
+      setPages(prev => prev.map(p => p.id !== action.pageId ? p : {
+        ...p,
+        answerRegionHeights: { ...(p.answerRegionHeights ?? {}), [action.data.regionId]: action.data.beforeHeight },
+        strokes: p.strokes.map(s => s.regionId && later.has(s.regionId) ? { ...s, points: s.points.map(point => ({ ...point, y: point.y - action.data.delta })) } : s),
+        annotations: p.annotations.map(a => a.regionId && later.has(a.regionId) ? { ...a, y: a.y - action.data.delta } : a),
+        aiMarks: (p.aiMarks ?? []).map(mark => later.has(mark.regionId) ? { ...mark, y: mark.y - action.data.delta } : mark),
+      }));
+    } else if (action.type === 'ai-blocks') {
+      setPages(prev => prev.map(p => p.id === action.pageId ? { ...p, aiBlocks: action.data.beforeBlocks, answerRegionHeights: action.data.beforeHeights } : p));
     } else if (action.type === 'clear') {
       setPages(prev => prev.map(p =>
-        p.id === action.pageId ? { ...p, strokes: action.data.strokes, annotations: action.data.annotations } : p
+        p.id === action.pageId ? { ...p, strokes: action.data.strokes, annotations: action.data.annotations, aiMarks: action.data.aiMarks ?? [] } : p
       ));
     }
 
@@ -836,9 +1021,27 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           ? { ...p, annotations: [...p.annotations, action.data] }
           : p
       ));
+    } else if (action.type === 'move-strokes') {
+      const ids = new Set<string>(action.data.strokeIds);
+      setPages(prev => prev.map(p => p.id !== action.pageId ? p : {
+        ...p,
+        strokes: p.strokes.map(s => ids.has(s.id) ? { ...s, points: s.points.map(point => ({ ...point, x: point.x + action.data.dx, y: point.y + action.data.dy })) } : s),
+        aiMarks: (p.aiMarks ?? []).map(mark => mark.targetStrokeIds.some(id => ids.has(id)) ? { ...mark, x: mark.x + action.data.dx, y: mark.y + action.data.dy } : mark),
+      }));
+    } else if (action.type === 'layout') {
+      const later = new Set<string>(action.data.laterRegions);
+      setPages(prev => prev.map(p => p.id !== action.pageId ? p : {
+        ...p,
+        answerRegionHeights: { ...(p.answerRegionHeights ?? {}), [action.data.regionId]: action.data.afterHeight },
+        strokes: p.strokes.map(s => s.regionId && later.has(s.regionId) ? { ...s, points: s.points.map(point => ({ ...point, y: point.y + action.data.delta })) } : s),
+        annotations: p.annotations.map(a => a.regionId && later.has(a.regionId) ? { ...a, y: a.y + action.data.delta } : a),
+        aiMarks: (p.aiMarks ?? []).map(mark => later.has(mark.regionId) ? { ...mark, y: mark.y + action.data.delta } : mark),
+      }));
+    } else if (action.type === 'ai-blocks') {
+      setPages(prev => prev.map(p => p.id === action.pageId ? { ...p, aiBlocks: action.data.afterBlocks, answerRegionHeights: action.data.afterHeights } : p));
     } else if (action.type === 'clear') {
       setPages(prev => prev.map(p =>
-        p.id === action.pageId ? { ...p, strokes: [], annotations: [] } : p
+        p.id === action.pageId ? { ...p, strokes: [], annotations: [], aiMarks: [] } : p
       ));
     }
 
@@ -866,11 +1069,11 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
 
     setUndoStack(prev => [...prev, {
       type: 'clear', pageId: targetPage.id,
-      data: { strokes: [...targetPage.strokes], annotations: [...targetPage.annotations] },
+      data: { strokes: [...targetPage.strokes], annotations: [...targetPage.annotations], aiMarks: [...(targetPage.aiMarks ?? [])] },
     }]);
     setRedoStack([]);
     setPages(prev => prev.map(p =>
-      p.id === targetPage.id ? { ...p, strokes: [], annotations: [] } : p
+      p.id === targetPage.id ? { ...p, strokes: [], annotations: [], aiMarks: [] } : p
     ));
   }, [pages]);
 
@@ -905,8 +1108,9 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         };
       });
 
+      const recognitionHeight = Math.max(PAGE_H, ...clusterStrokes.flatMap(stroke => stroke.points.map(point => Math.ceil(point.y + 80))));
       const payload = {
-        width: PAGE_W, height: PAGE_H, contentType: "Math",
+        width: PAGE_W, height: recognitionHeight, contentType: "Math",
         configuration: { math: { mimeTypes: ["application/x-latex", "application/vnd.myscript.jiix"] } },
         strokeGroups: [{ penStyle: "color: #000000;", strokes: msStrokes }]
       };
@@ -939,6 +1143,7 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         },
         body: bodyStr
       });
+      if (!res.ok) throw new Error(`Handwriting recognition failed (${res.status}): ${(await res.text()).slice(0, 180)}`);
       const jiix = await res.json();
 
       // Fetch direct LaTeX formatting
@@ -952,6 +1157,7 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         },
         body: bodyStr
       });
+      if (!resLatex.ok) throw new Error(`Handwriting math conversion failed (${resLatex.status}): ${(await resLatex.text()).slice(0, 180)}`);
       const directLatex = await resLatex.text();
 
       const parsedBlocks = parseJIIXAbsolute(jiix, directLatex);
@@ -960,6 +1166,213 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
     
     return allParsedBlocks;
   }, []);
+
+  const ensureAnswerPackage = useCallback(async (): Promise<TutorAnswerPackage> => {
+    if (answerPackage) return answerPackage;
+    const questionId = typeof currentQuestion === 'string' ? 'question' : currentQuestion?.id || 'question';
+    const requestKey = `${programId || 'unscoped'}:${questionId}:${questionPrompt}`;
+    if (answerRequestRef.current?.key === requestKey) return answerRequestRef.current.promise;
+    const existingAnswer = typeof currentQuestion === 'string' ? null : currentQuestion?.modelAnswer || null;
+    const request = generateTutorAnswer({ programId, questionId, questionPrompt, existingAnswer }).then(result => {
+      if (answerRequestRef.current?.key === requestKey) setAnswerPackage(result);
+      return result;
+    }).finally(() => { if (answerRequestRef.current?.key === requestKey) answerRequestRef.current = null; });
+    answerRequestRef.current = { key: requestKey, promise: request };
+    return request;
+  }, [answerPackage, currentQuestion, programId, questionPrompt]);
+
+  const recognizeStrokes = useCallback(async (strokes: Stroke[]) => {
+    if (strokes.length === 0) return { text: '', latex: '', blocks: [] as ConvertedBlock[] };
+    const blocks = await fetchMyScriptBlocks(strokes);
+    const ordered = [...blocks].sort((a, b) => a.y - b.y || a.x - b.x);
+    return {
+      text: ordered.map(block => block.text || block.latex).filter(Boolean).join('\n'),
+      latex: ordered.map(block => block.latex || block.text).filter(Boolean).join('\\\\'),
+      blocks: ordered,
+    };
+  }, [fetchMyScriptBlocks]);
+
+  const evaluateRegion = useCallback(async (pageId: string, regionId: string, sourcePages: PageData[], runId: number) => {
+    const page = sourcePages.find(candidate => candidate.id === pageId);
+    const strokes = page?.strokes.filter(stroke => stroke.regionId === regionId) ?? [];
+    if (!page || strokes.length === 0) return;
+    const answer = await ensureAnswerPackage();
+    const recognized = await recognizeStrokes(strokes);
+    if (!recognized.text && !recognized.latex) return;
+    const result = await evaluatePaperWork({
+      questionId: typeof currentQuestion === 'string' ? 'question' : currentQuestion?.id || 'question',
+      questionPrompt: promptForRegion(regionId),
+      activeStepId: regionId,
+      activeStepTitle: promptForRegion(regionId),
+      recognizedText: recognized.text || recognized.latex,
+      recognizedLatex: recognized.latex || null,
+      expectedAnswer: answer.modelAnswer,
+      expectedReasoning: answer.fullSolution.map(step => `${step.title}: ${step.body}`).join('\n'),
+    });
+    if (runId !== correctionRunRef.current) return;
+    const redAnnotations = result.annotations.filter(annotation => annotation.color === 'red');
+    const overallBounds = getStrokeBounds(strokes);
+    const nextMarks: PaperAiMark[] = (redAnnotations.length > 0 ? redAnnotations : result.isCorrect || !result.detectedMistake ? [] : [{ type: 'circle' as const, color: 'red' as const, targetText: null, text: result.detectedMistake }]).map((annotation, index) => {
+      const target = (annotation.targetText || '').replace(/\s+/g, '').toLowerCase();
+      const matchingBlock = target ? recognized.blocks.find(block => `${block.text}${block.latex}`.replace(/\s+/g, '').toLowerCase().includes(target)) : null;
+      const bounds = matchingBlock ? {
+        x: matchingBlock.x / 100 * PAGE_W,
+        y: matchingBlock.y / 100 * PAGE_H,
+        width: Math.max(24, matchingBlock.width / 100 * PAGE_W),
+        height: Math.max(24, matchingBlock.height / 100 * PAGE_H),
+      } : overallBounds || { x: 32, y: 160, width: 160, height: 45 };
+      const targetStrokeIds = strokes.filter(stroke => {
+        const strokeBox = getStrokeBounds([stroke]);
+        return !!strokeBox && strokeBox.x <= bounds.x + bounds.width && strokeBox.x + strokeBox.width >= bounds.x && strokeBox.y <= bounds.y + bounds.height && strokeBox.y + strokeBox.height >= bounds.y;
+      }).map(stroke => stroke.id);
+      return {
+        id: `ai-mark-${regionId}-${index}`,
+        regionId,
+        type: annotation.type === 'underline' ? 'highlight' : annotation.type === 'write_text' ? 'note' : 'circle',
+        x: Math.max(4, bounds.x - 7), y: Math.max(4, bounds.y - 7), width: bounds.width + 14, height: bounds.height + 14,
+        targetText: annotation.targetText || undefined,
+        correctionText: annotation.text || result.detectedMistake || 'Check this step',
+        explanation: result.studentMessage || result.detectedMistake || 'This step needs correction.',
+        targetStrokeIds: targetStrokeIds.length ? targetStrokeIds : strokes.map(stroke => stroke.id),
+        status: 'active' as const,
+      };
+    });
+    setPages(previous => previous.map(candidate => candidate.id === pageId ? { ...candidate, aiMarks: [...(candidate.aiMarks ?? []).filter(mark => mark.regionId !== regionId), ...nextMarks] } : candidate));
+  }, [currentQuestion, ensureAnswerPackage, promptForRegion, recognizeStrokes]);
+
+  const strokeSignature = useMemo(() => pages.map(page => `${page.id}:${page.strokes.map(stroke => {
+    const first = stroke.points[0];
+    const last = stroke.points[stroke.points.length - 1];
+    return `${stroke.id}:${stroke.points.length}:${first?.x.toFixed(1)},${first?.y.toFixed(1)}:${last?.x.toFixed(1)},${last?.y.toFixed(1)}`;
+  }).join(',')}`).join('|'), [pages]);
+  useEffect(() => {
+    if (correctionTimerRef.current) clearTimeout(correctionTimerRef.current);
+    const maintenanceRegions = new Set<string>();
+    pages.forEach(page => (page.aiMarks ?? []).forEach(mark => {
+      const ids = new Set(page.strokes.map(stroke => stroke.id));
+      if (mark.targetStrokeIds.some(id => !ids.has(id))) maintenanceRegions.add(mark.regionId);
+    }));
+    if (!correctMeOn && maintenanceRegions.size === 0) return;
+    setCorrectMeStatus('reading');
+    correctionTimerRef.current = setTimeout(() => {
+      const runId = ++correctionRunRef.current;
+      setCorrectMeStatus('checking');
+      setCorrectMeError('');
+      const jobs: Promise<void>[] = [];
+      pages.forEach(page => {
+        const regionIds = correctMeOn
+          ? [...new Set(page.strokes.map(stroke => stroke.regionId).filter((value): value is string => !!value))]
+          : [...maintenanceRegions];
+        regionIds.forEach(regionId => {
+          if (page.strokes.some(stroke => stroke.regionId === regionId)) jobs.push(evaluateRegion(page.id, regionId, pages, runId));
+        });
+      });
+      void Promise.all(jobs).then(() => { if (runId === correctionRunRef.current) setCorrectMeStatus('checked'); }).catch(error => {
+        if (runId !== correctionRunRef.current) return;
+        setCorrectMeStatus('error'); setCorrectMeError(error instanceof Error ? error.message : 'Live correction failed.');
+      });
+    }, 900);
+    return () => { if (correctionTimerRef.current) clearTimeout(correctionTimerRef.current); };
+  // Pages are intentionally represented by the stable stroke signature so AI-mark updates do not retrigger recognition.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strokeSignature, correctMeOn, evaluateRegion]);
+
+  const handleAiHelp = useCallback(async (regionId: string, mode: PaperHelpMode) => {
+    if (isTestMode || aiHelpBusyRegion) return;
+    if (mode === 'solve' && !window.confirm('Show the complete solution? This will reveal the final answer.')) return;
+    const page = pages[0];
+    if (!page) return;
+    const studentStrokes = page.strokes.filter(stroke => stroke.regionId === regionId);
+    if (mode === 'steps' && studentStrokes.length > 0) return;
+    setAiHelpBusyRegion(regionId);
+    setHasUsedAiAssistance(true);
+    const questionRun = questionRunRef.current;
+    try {
+      const answer = await ensureAnswerPackage();
+      if (questionRun !== questionRunRef.current) return;
+      const recognized = await recognizeStrokes(studentStrokes);
+      if (questionRun !== questionRunRef.current) return;
+      const result = await requestPaperHelp({
+        mode, programId,
+        questionId: typeof currentQuestion === 'string' ? 'question' : currentQuestion?.id || 'question',
+        questionPrompt,
+        subQuestionId: regionId,
+        subQuestionPrompt: promptForRegion(regionId),
+        recognizedWork: recognized.text || recognized.latex || null,
+        answerPackage: answer,
+      });
+      if (questionRun !== questionRunRef.current) return;
+      setAnswerPackage(result.answerPackage);
+      const regionElement = document.querySelector(`[data-answer-region="${CSS.escape(regionId)}"]`) as HTMLElement | null;
+      const pageElement = regionElement?.closest('.fsw-page') as HTMLElement | null;
+      const regionTop = regionElement && pageElement ? (regionElement.getBoundingClientRect().top - pageElement.getBoundingClientRect().top) / scale : 0;
+      const studentBounds = getStrokeBounds(studentStrokes);
+      const inkBottom = studentBounds ? studentBounds.y + studentBounds.height - regionTop : 0;
+      let y = Math.max(20, inkBottom + 32);
+      const additions: PaperAiBlock[] = result.steps.map(step => {
+        const block = { id: uid(), regionId, mode, y, title: step.title, body: step.body };
+        y += step.body ? 135 : 78;
+        return block;
+      });
+      const latestPages = pagesRef.current;
+      const targetPage = latestPages[0];
+      if (!targetPage) return;
+      const beforeBlocks = targetPage.aiBlocks ?? [];
+      const beforeHeights = targetPage.answerRegionHeights ?? {};
+      const defaultHeight = questionRegionIds.length === 1 ? 900 : 260;
+      const currentHeight = beforeHeights[regionId] ?? defaultHeight;
+      const neededHeight = Math.max(currentHeight, y + 35);
+      const afterBlocks = [...beforeBlocks, ...additions];
+      const afterHeights = { ...beforeHeights, [regionId]: neededHeight };
+      setPages(latestPages.map((candidate, pageIndex) => pageIndex === 0 ? { ...candidate, aiBlocks: afterBlocks, answerRegionHeights: afterHeights } : candidate));
+      setUndoStack(stack => [...stack, { type: 'ai-blocks', pageId: targetPage.id, data: { beforeBlocks, afterBlocks, beforeHeights, afterHeights } }]);
+      setRedoStack([]);
+    } catch (error) {
+      if (questionRun === questionRunRef.current) setCorrectMeError(error instanceof Error ? error.message : 'AI Help failed.');
+    } finally {
+      if (questionRun === questionRunRef.current) setAiHelpBusyRegion(null);
+    }
+  }, [aiHelpBusyRegion, currentQuestion, ensureAnswerPackage, isTestMode, pages, programId, promptForRegion, questionPrompt, questionRegionIds.length, recognizeStrokes, scale]);
+
+  const handleGradePaper = useCallback(async () => {
+    if (gradeBusy) return;
+    setGradeBusy(true);
+    const questionRun = questionRunRef.current;
+    try {
+      const answer = await ensureAnswerPackage();
+      if (questionRun !== questionRunRef.current) return;
+      const parts = await Promise.all(questionRegionIds.map(async regionId => {
+        const pageGroups = pages.map(page => page.strokes.filter(stroke => stroke.regionId === regionId)).filter(strokes => strokes.length > 0);
+        const recognizedPages = await Promise.all(pageGroups.map(strokes => recognizeStrokes(strokes)));
+        const recognizedWork = recognizedPages.map(recognized => recognized.text || recognized.latex).filter(Boolean).join('\n');
+        return { id: regionId, prompt: promptForRegion(regionId), recognizedWork, hasStudentWork: pageGroups.length > 0 };
+      }));
+      if (questionRun !== questionRunRef.current) return;
+      const result = await gradeTutorPaper({
+        questionId: typeof currentQuestion === 'string' ? 'question' : currentQuestion?.id || 'question',
+        questionPrompt,
+        assisted: hasUsedAiAssistance || correctMeOn,
+        answerPackage: answer,
+        parts,
+      });
+      if (questionRun !== questionRunRef.current) return;
+      setGradeResult(result);
+    } catch (error) {
+      if (questionRun === questionRunRef.current) setCorrectMeError(error instanceof Error ? error.message : 'Grading failed.');
+    } finally { if (questionRun === questionRunRef.current) setGradeBusy(false); }
+  }, [correctMeOn, currentQuestion, ensureAnswerPackage, gradeBusy, hasUsedAiAssistance, pages, promptForRegion, questionPrompt, questionRegionIds, recognizeStrokes]);
+
+  const handleAiMarkClick = useCallback((mark: PaperAiMark) => {
+    setActiveAiMark(mark); setAiMarkExplanation(mark.explanation); setAiMarkExplanationBusy(true);
+    void explainPaperCorrection({
+      questionId: typeof currentQuestion === 'string' ? 'question' : currentQuestion?.id || 'question',
+      questionPrompt: promptForRegion(mark.regionId),
+      activeStepId: mark.regionId,
+      activeStepTitle: promptForRegion(mark.regionId),
+      recognizedText: mark.targetText || null,
+      message: `Explain why this correction is needed: ${mark.correctionText}`,
+    }).then(result => setAiMarkExplanation(result.reply)).catch(() => { /* The concise explanation remains available. */ }).finally(() => setAiMarkExplanationBusy(false));
+  }, [currentQuestion, promptForRegion]);
 
   // ── Capture live canvas snapshots when output modal opens ──
   const captureSnapshots = useCallback(() => {
@@ -1004,41 +1417,43 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
 
   }, [pages, fetchMyScriptBlocks]);
 
-  // Grade submission is now handled by AiTutorPanel
-
   const handleOpenOutput = useCallback(() => {
     captureSnapshots();
     setShowOutputModal(true);
   }, [captureSnapshots]);
 
-  const totalStrokes = pages.reduce((s, p) => s + p.strokes.length, 0);
-  const totalAnnotations = pages.reduce((s, p) => s + p.annotations.filter(a => a.text).length, 0);
-
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', background: '#fff' }}>
 
       <div className="fsw-workspace-toolbar">
-        <button type="button" onClick={onClose} className="fsw-toolbar-button">← Back</button>
-        <div className="fsw-toolbar-status">
-          {questionNavigation && <span>Question {questionNavigation.current} of {questionNavigation.total}</span>}
-          {questionNavigation?.saveStatus === 'saving' && <span className="fsw-saving">Saving…</span>}
-          {questionNavigation?.saveStatus === 'saved' && <span className="fsw-saved">Saved</span>}
+        <div className="fsw-toolbar-left">
+          <button type="button" onClick={onClose} className="fsw-toolbar-button">← Back</button>
+          <div className="fsw-toolbar-status">
+            {questionNavigation && <span>Question {questionNavigation.current} of {questionNavigation.total}</span>}
+            {questionNavigation?.saveStatus === 'saving' && <span className="fsw-saving">Saving…</span>}
+            {questionNavigation?.saveStatus === 'saved' && <span className="fsw-saved">Saved</span>}
+          </div>
         </div>
-        <div className="fsw-toolbar-actions">
+        <div className="fsw-toolbar-center">
+          {(!isTestMode || Boolean(testGrade && showAiSwitch)) && <div className="fsw-correct-control"><button type="button" className={`fsw-ai-switch ${correctMeOn ? 'active' : ''}`} onClick={() => { setCorrectMeOn(open => { const next = !open; if (next) setHasUsedAiAssistance(true); return next; }); }} aria-pressed={correctMeOn}><span>Correct Me</span><span className="fsw-ai-switch-track"><span /></span></button>{correctMeOn && correctMeStatus !== 'idle' && <small className={correctMeStatus === 'error' ? 'error' : ''}>{correctMeStatus === 'reading' ? 'Reading…' : correctMeStatus === 'checking' ? 'Checking…' : correctMeStatus === 'checked' ? 'Checked' : 'Needs attention'}</small>}</div>}
+          <button type="button" className={`fsw-toolbar-button ${toolboxOpen ? 'active' : ''}`} onClick={() => setToolboxOpen(open => !open)} aria-expanded={toolboxOpen} title="Drawing toolbox">🧰 Toolbox</button>
+          <button type="button" className="fsw-toolbar-button fsw-toolbar-icon-button" onClick={handleUndo} title="Undo" aria-label="Undo" disabled={undoStack.length === 0}>↶</button>
+          <button type="button" className="fsw-toolbar-button fsw-toolbar-icon-button" onClick={handleRedo} title="Redo" aria-label="Redo" disabled={redoStack.length === 0}>↷</button>
+          {!isTestMode && <button type="button" className="fsw-toolbar-button fsw-grade-button" onClick={() => void handleGradePaper()} disabled={gradeBusy}>{gradeBusy ? 'Grading…' : '📊 Grade'}</button>}
+        </div>
+        <div className="fsw-toolbar-navigation">
           {questionNavigation && <>
             <button type="button" className="fsw-toolbar-button" onClick={questionNavigation.onPrevious} disabled={!questionNavigation.canPrevious}>‹ Prev</button>
             <button type="button" className="fsw-toolbar-button" onClick={questionNavigation.onNext} disabled={!questionNavigation.canNext}>Next ›</button>
           </>}
-          <button type="button" className={`fsw-toolbar-button ${toolboxOpen ? 'active' : ''}`} onClick={() => setToolboxOpen(open => !open)} aria-expanded={toolboxOpen} title="Drawing toolbox">🧰 Toolbox</button>
-          {(showAiSwitch || !isTestMode) && <button type="button" className={`fsw-ai-switch ${aiPanelOpen ? 'active' : ''}`} onClick={() => setAiPanelOpen(open => !open)} aria-pressed={aiPanelOpen}><span>AI Tutor</span><span className="fsw-ai-switch-track"><span /></span></button>}
         </div>
       </div>
 
       {/* ═══ SCROLLABLE PAGE CONTAINER ═══ */}
-      <div className="fsw-scroll" ref={scrollRef} style={{ paddingBottom: aiPanelOpen ? 370 : 0 }}>
+      <div className="fsw-scroll" ref={scrollRef}>
         <div className="fsw-pages-stack">
           {pages.map((page, idx) => (
-            <PageCanvas
+            <PaperPageCanvas
               key={page.id}
               page={page}
               pageIndex={idx}
@@ -1051,6 +1466,12 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
               onStrokeRemove={handleStrokeRemove}
               onAnnotationAdd={handleAnnotationAdd}
               onAnnotationUpdate={handleAnnotationUpdate}
+              onMoveStrokes={handleMoveStrokes}
+              onAnswerSpaceChange={handleAnswerSpaceChange}
+              onAiHelp={(regionId, mode) => void handleAiHelp(regionId, mode)}
+              onAiMarkClick={handleAiMarkClick}
+              aiHelpBusyRegion={aiHelpBusyRegion}
+              disableAiHelp={Boolean(isTestMode && !testGrade)}
               scale={scale}
               testGrade={testGrade}
             />
@@ -1100,6 +1521,8 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
             )}
           </div>
 
+          <button className={`fsw-dock-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')} title="Lasso select and move handwriting">◯</button>
+
           <div className="fsw-dock-divider" />
 
           {/* Color palette */}
@@ -1136,9 +1559,7 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
 
           <div className="fsw-dock-divider" />
 
-          {/* Actions */}
-          <button className="fsw-dock-btn" onClick={handleUndo} title="Undo" disabled={undoStack.length === 0}>↶</button>
-          <button className="fsw-dock-btn" onClick={handleRedo} title="Redo" disabled={redoStack.length === 0}>↷</button>
+          {/* Destructive action stays inside the toolbox */}
           <button className="fsw-dock-btn fsw-dock-btn-clear" onClick={handleClearPage} title="Clear Page">🗑️</button>
         </div>
 
@@ -1242,28 +1663,19 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
       )}
 
 
-      {/* ═══ AI TUTOR PANEL ═══ */}
-      <AiTutorPanel
-        currentQuestion={currentQuestion}
-        pages={pages}
-        fetchMyScriptBlocks={fetchMyScriptBlocks}
-        getCanvasImages={() => {
-          const container = scrollRef.current;
-          if (!container) return [];
-          const canvases = container.querySelectorAll('.fsw-page canvas');
-          const images: string[] = [];
-          canvases.forEach(c => images.push((c as HTMLCanvasElement).toDataURL('image/jpeg', 0.8)));
-          return images;
-        }}
-        hasStrokes={totalStrokes > 0}
-        isOpen={aiPanelOpen}
-        onClose={() => setAiPanelOpen(false)}
-        precomputedSolution={typeof currentQuestion !== 'string' ? (currentQuestion as any)?.solution : undefined}
-        precomputedSolutionPlan={typeof currentQuestion !== 'string' ? (currentQuestion as any)?.solutionPlan : undefined}
-        precomputedHint={typeof currentQuestion !== 'string' ? (currentQuestion as any)?.hint : undefined}
-        precomputedGradingSchema={typeof currentQuestion !== 'string' ? (currentQuestion as any)?.gradingSchema : undefined}
-        modelAnswer={typeof currentQuestion !== 'string' ? (currentQuestion as any)?.modelAnswer : undefined}
-      />
+      {correctMeError && <div className="fsw-ai-error"><span>{correctMeError}</span><button type="button" onClick={() => setCorrectMeError('')}>×</button></div>}
+
+      {activeAiMark && <div className="fsw-paper-modal-backdrop" onClick={() => setActiveAiMark(null)}><div className="fsw-paper-modal fsw-correction-modal" onClick={event => event.stopPropagation()}>
+        <div className="fsw-paper-modal-header"><div><small>Correction</small><strong>{activeAiMark.correctionText}</strong></div><button type="button" onClick={() => setActiveAiMark(null)}>×</button></div>
+        <div className="fsw-paper-modal-body">{aiMarkExplanationBusy && <span className="fsw-inline-spinner" />}<LatexRenderer content={aiMarkExplanation || activeAiMark.explanation} /></div>
+        <div className="fsw-correction-actions"><button type="button" onClick={() => { setCorrectMeOn(true); setActiveAiMark(null); }}>Check again</button><button type="button" onClick={() => setActiveAiMark(null)}>I’ll correct it</button></div>
+      </div></div>}
+
+      {gradeResult && <div className="fsw-paper-modal-backdrop" onClick={() => setGradeResult(null)}><div className="fsw-paper-modal fsw-grade-modal" onClick={event => event.stopPropagation()}>
+        <div className="fsw-paper-modal-header"><div><small>{gradeResult.assisted ? 'Assisted paper' : 'Paper grade'}</small><strong>{Math.round(gradeResult.score)} / {Math.round(gradeResult.totalPoints)}</strong></div><button type="button" onClick={() => setGradeResult(null)}>×</button></div>
+        <div className="fsw-grade-summary">{gradeResult.feedback}</div>
+        <div className="fsw-grade-parts">{gradeResult.parts.map((part, index) => <div key={part.id} className={part.unanswered ? 'unanswered' : ''}><div><strong>Question {index + 1}</strong><span>{Math.round(part.score)} / {Math.round(part.maxPoints)}</span></div><p>{part.unanswered ? 'Question not answered.' : part.feedback}</p></div>)}</div>
+      </div></div>}
 
       {/* ═══ STYLES ═══ */}
       <style>{`
@@ -1374,7 +1786,8 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         /* ── Scroll Container ── */
         .fsw-workspace-toolbar {
           min-height: 54px;
-          display: flex;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
           align-items: center;
           gap: 10px;
           padding: 8px 12px;
@@ -1385,17 +1798,25 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
           z-index: 120;
           box-shadow: 0 2px 10px rgba(15,23,42,0.05);
         }
-        .fsw-toolbar-status {
-          flex: 1;
+        .fsw-toolbar-left,
+        .fsw-toolbar-center,
+        .fsw-toolbar-navigation {
           display: flex;
-          justify-content: center;
+          align-items: center;
+          gap: 7px;
+        }
+        .fsw-toolbar-left { min-width: 0; justify-content: flex-start; }
+        .fsw-toolbar-center { justify-content: center; }
+        .fsw-toolbar-navigation { justify-content: flex-end; }
+        .fsw-toolbar-status {
+          display: flex;
           align-items: center;
           gap: 10px;
           color: #64748b;
           font-size: 12px;
           font-weight: 700;
+          white-space: nowrap;
         }
-        .fsw-toolbar-actions { display: flex; align-items: center; gap: 7px; }
         .fsw-toolbar-button {
           min-height: 36px;
           padding: 7px 11px;
@@ -1412,6 +1833,7 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         }
         .fsw-toolbar-button:hover:not(:disabled), .fsw-toolbar-button.active { border-color: #818cf8; color: #4338ca; background: #eef2ff; }
         .fsw-toolbar-button:disabled { opacity: 0.38; cursor: not-allowed; }
+        .fsw-toolbar-icon-button { width: 36px; padding-left: 0; padding-right: 0; font-size: 18px; }
         .fsw-saving { color: #d97706; }
         .fsw-saved { color: #059669; }
         .fsw-ai-switch {
@@ -1500,9 +1922,7 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
               rgba(59,130,246,0.06) 31px,
               rgba(59,130,246,0.06) 32px
             );
-          /* Left margin line */
-          border-left: 2px solid rgba(239,68,68,0.08);
-          margin-left: 72px;
+          margin-left: 0;
         }
         .fsw-page-number {
           position: absolute;
@@ -1553,7 +1973,8 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         .fsw-toolbox {
           position: absolute;
           top: 58px;
-          right: 12px;
+          left: 50%;
+          transform: translateX(-50%);
           z-index: 130;
         }
         .fsw-dock {
@@ -1879,15 +2300,77 @@ export default function FullScreenWorkspace({ onClose, currentQuestion, initialP
         @keyframes fsw-spin {
           to { transform: rotate(360deg); }
         }
+        .fsw-correct-control { display: flex; align-items: center; gap: 6px; }
+        .fsw-correct-control small { color: #64748b; font-size: 9px; font-weight: 800; white-space: nowrap; }
+        .fsw-correct-control small.error { color: #dc2626; }
+        .fsw-grade-button { border-color: #86efac; color: #047857; background: #ecfdf5; }
+        .fsw-question-sheet { position: absolute; top: 10px; left: 20px; right: 20px; z-index: 4; pointer-events: none; color: #172033; font-family: Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+        .fsw-question-context { padding: 14px 18px; margin-bottom: 15px; border-left: 4px solid #6366f1; border-radius: 0 10px 10px 0; background: #fff; box-shadow: 0 4px 18px rgba(15,23,42,.07); font-size: 18px; line-height: 1.6; }
+        .fsw-question-context p, .fsw-question-part-prompt p, .fsw-ai-paper-block p { margin: 0; }
+        .fsw-question-part { position: relative; }
+        .fsw-question-part-header { position: relative; min-height: 48px; display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid #dbe3ee; border-left: 4px solid #818cf8; border-radius: 0 10px 10px 0; background: rgba(255,255,255,.98); box-shadow: 0 3px 12px rgba(15,23,42,.06); font-size: 16px; line-height: 1.55; }
+        .fsw-question-part-label { color: #4f46e5; font-weight: 900; flex-shrink: 0; }
+        .fsw-question-part-prompt { flex: 1; min-width: 0; padding-right: 210px; }
+        .fsw-question-actions { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; gap: 5px; pointer-events: auto; }
+        .fsw-question-action, .fsw-question-nudge { min-height: 30px; border: 1px solid #c7d2fe; border-radius: 8px; background: #eef2ff; color: #4338ca; font: 800 10px/1 Inter,sans-serif; cursor: pointer; }
+        .fsw-question-action { padding: 6px 9px; }
+        .fsw-question-nudge { width: 30px; padding: 0; font-size: 15px; }
+        .fsw-question-action:disabled, .fsw-question-nudge:disabled { opacity: .4; cursor: not-allowed; }
+        .fsw-ai-help-menu { position: absolute; top: 36px; right: 64px; width: 235px; padding: 6px; border: 1px solid #cbd5e1; border-radius: 11px; background: #fff; box-shadow: 0 14px 35px rgba(15,23,42,.2); z-index: 30; }
+        .fsw-ai-help-menu button { width: 100%; padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; color: #334155; text-align: left; font: 750 11px/1.35 Inter,sans-serif; cursor: pointer; }
+        .fsw-ai-help-menu button:hover:not(:disabled) { background: #eef2ff; color: #4338ca; }
+        .fsw-ai-help-menu button:disabled { color: #94a3b8; cursor: not-allowed; }
+        .fsw-answer-region { position: relative; transition: height .22s ease; }
+        .fsw-ai-paper-block { position: absolute; left: 18px; right: 18px; display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 10px; background: rgba(239,246,255,.96); color: #1e3a8a; box-shadow: 0 3px 12px rgba(37,99,235,.08); pointer-events: none; }
+        .fsw-ai-paper-block > span { padding: 3px 5px; border-radius: 5px; background: #2563eb; color: #fff; font-size: 8px; font-weight: 900; }
+        .fsw-ai-paper-block strong { font-size: 13px; }
+        .fsw-ai-paper-body { margin-top: 6px; color: #334155; font-size: 12px; line-height: 1.55; }
+        .fsw-test-grade { margin: 8px 12px; color: #dc2626; font-size: 14px; font-weight: 800; }
+        .fsw-selection-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 6; overflow: visible; }
+        .fsw-ai-mark { position: absolute; z-index: 8; padding: 0; border: 3px solid #ef4444; border-radius: 50%; background: rgba(254,226,226,.12); cursor: pointer; pointer-events: auto; }
+        .fsw-ai-mark.highlight { border-radius: 6px; border-width: 0 0 3px; background: rgba(248,113,113,.2); }
+        .fsw-ai-mark.note { border-style: dashed; border-radius: 8px; }
+        .fsw-ai-mark > span { position: absolute; left: 50%; bottom: calc(100% + 5px); transform: translateX(-50%); width: max-content; max-width: 260px; padding: 5px 8px; border-radius: 7px; background: #fff; border: 1px solid #fecaca; color: #dc2626; box-shadow: 0 4px 14px rgba(127,29,29,.14); font: 850 11px/1.25 Inter,sans-serif; white-space: normal; }
+        .fsw-ai-error { position: fixed; left: 50%; top: 68px; transform: translateX(-50%); z-index: 700; max-width: min(620px,90vw); display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid #fecaca; border-radius: 10px; background: #fff1f2; color: #be123c; box-shadow: 0 10px 30px rgba(15,23,42,.16); font-size: 11px; font-weight: 700; }
+        .fsw-ai-error button { border: 0; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
+        .fsw-paper-modal-backdrop { position: fixed; inset: 0; z-index: 900; display: grid; place-items: center; padding: 18px; background: rgba(15,23,42,.38); backdrop-filter: blur(4px); }
+        .fsw-paper-modal { width: min(620px,96vw); max-height: 84vh; overflow: auto; border: 1px solid #dbe3ee; border-radius: 18px; background: #fff; color: #172033; box-shadow: 0 28px 80px rgba(15,23,42,.28); }
+        .fsw-paper-modal-header { display: flex; align-items: center; gap: 14px; padding: 15px 18px; border-bottom: 1px solid #e2e8f0; }
+        .fsw-paper-modal-header > div { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+        .fsw-paper-modal-header small { color: #64748b; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+        .fsw-paper-modal-header strong { color: #0f172a; font-size: 20px; }
+        .fsw-paper-modal-header > button { width: 32px; height: 32px; border: 1px solid #cbd5e1; border-radius: 50%; background: #fff; color: #64748b; cursor: pointer; font-size: 18px; }
+        .fsw-paper-modal-body, .fsw-grade-summary { padding: 18px; color: #334155; font-size: 14px; line-height: 1.7; }
+        .fsw-correction-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 18px 18px; }
+        .fsw-correction-actions button { padding: 8px 11px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; font-weight: 800; cursor: pointer; }
+        .fsw-grade-parts { display: grid; gap: 9px; padding: 0 18px 18px; }
+        .fsw-grade-parts > div { padding: 11px 12px; border: 1px solid #dbe3ee; border-radius: 10px; background: #f8fafc; }
+        .fsw-grade-parts > div.unanswered { border-color: #fecaca; background: #fff1f2; }
+        .fsw-grade-parts > div > div { display: flex; justify-content: space-between; color: #0f172a; }
+        .fsw-grade-parts p { margin: 6px 0 0; color: #64748b; font-size: 12px; line-height: 1.5; }
+        .fsw-inline-spinner { display: inline-block; width: 14px; height: 14px; margin-right: 8px; border: 2px solid #c7d2fe; border-top-color: #4f46e5; border-radius: 50%; animation: fsw-spin .7s linear infinite; }
         @media (max-width: 760px) {
-          .fsw-workspace-toolbar { flex-wrap: wrap; gap: 6px; padding: 7px 8px; }
-          .fsw-toolbar-status { order: 3; flex-basis: 100%; min-height: 20px; }
-          .fsw-toolbar-actions { margin-left: auto; gap: 5px; }
+          .fsw-workspace-toolbar {
+            grid-template-columns: minmax(0, 1fr) auto;
+            grid-template-areas: "left navigation" "center center";
+            gap: 6px;
+            padding: 7px 8px;
+          }
+          .fsw-toolbar-left { grid-area: left; }
+          .fsw-toolbar-center { grid-area: center; }
+          .fsw-toolbar-navigation { grid-area: navigation; }
+          .fsw-toolbar-status { min-height: 20px; }
           .fsw-toolbar-button, .fsw-ai-switch { padding: 6px 8px; }
           .fsw-ai-switch > span:first-child { display: none; }
-          .fsw-toolbox { top: 94px; right: 8px; max-width: calc(100vw - 16px); }
+          .fsw-toolbox { top: 94px; max-width: calc(100vw - 16px); }
           .fsw-dock { max-width: calc(100vw - 16px); overflow-x: auto; padding: 7px 9px; }
           .fsw-static-question { left: 12px; right: 12px; padding: 12px 14px; font-size: 16px; }
+          .fsw-question-sheet { left: 10px; right: 10px; }
+          .fsw-question-context { padding: 11px 13px; font-size: 15px; }
+          .fsw-question-part-header { padding: 48px 10px 10px; font-size: 14px; }
+          .fsw-question-part-prompt { padding-right: 0; }
+          .fsw-question-actions { top: 8px; left: 10px; right: auto; }
+          .fsw-ai-help-menu { left: 0; right: auto; width: min(235px, calc(100vw - 48px)); }
         }
       `}</style>
     </div>

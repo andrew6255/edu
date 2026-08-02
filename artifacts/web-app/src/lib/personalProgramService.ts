@@ -58,6 +58,13 @@ export interface PersonalProgramQuestion {
   }>;
   promptBlocks?: Array<{ type: string; text?: string; latex?: string }>;
   normalizedQuestion?: Record<string, unknown> | null;
+  modelAnswer?: string;
+  solution?: string;
+  solutionPlan?: string;
+  gradingSchema?: Array<{ criterion: string; points: number; deductionOnError?: string }>;
+  aiTutorNotes?: string;
+  answerProvenance?: 'source' | 'embedded_source' | 'ai_generated' | 'missing';
+  answerReviewStatus?: 'approved' | 'pending_review';
 }
 
 export interface PersonalProgramChapter {
@@ -83,6 +90,9 @@ export interface WhiteboardPageData {
   id: string;
   strokes: unknown[];
   annotations?: unknown[];
+  aiMarks?: unknown[];
+  aiBlocks?: unknown[];
+  answerRegionHeights?: Record<string, number>;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
