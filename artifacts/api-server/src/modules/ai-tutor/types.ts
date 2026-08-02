@@ -77,7 +77,7 @@ export type TutorAnswerRequest = {
   existingAnswer?: string | null;
 };
 
-export type TutorPaperHelpMode = 'steps' | 'next_step' | 'solve';
+export type TutorPaperHelpMode = 'steps' | 'hint' | 'solve';
 
 export type TutorPaperHelpRequest = {
   mode: TutorPaperHelpMode;

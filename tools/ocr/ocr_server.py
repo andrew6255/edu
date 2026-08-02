@@ -24,6 +24,7 @@ No cloud APIs are used.
 
 import base64
 import io
+import importlib.util
 import json
 import os
 import re
@@ -75,8 +76,11 @@ PIX2TEXT_AVAILABLE = False
 _pix2text_instance = None
 
 try:
-    import pix2text as _pix2text_module
-    PIX2TEXT_AVAILABLE = True
+    # Detect the optional package without importing its ML stack during server
+    # startup. The first scanned page loads the models through get_pix2text().
+    PIX2TEXT_AVAILABLE = importlib.util.find_spec("pix2text") is not None
+    if not PIX2TEXT_AVAILABLE:
+        raise ImportError
     print("[OCR Server] pix2text is installed. Models will be loaded on first request.", flush=True)
 except ImportError:
     print("[OCR Server] pix2text not found — falling back to Tesseract only.", flush=True)
@@ -101,15 +105,34 @@ OUTPUT_FILE = OUTPUT_DIR / "output_phase_1.json"
 OUTPUT_PHASE_2_FILE = OUTPUT_DIR / "output_phase_2.json"
 
 def _load_groq_key() -> str:
-    env_file = ROOT_DIR / "artifacts" / "web-app" / ".env.local"
-    if env_file.exists():
+    server_values = []
+    legacy_values = []
+
+    process_value = os.environ.get("GROQ_API_KEY", "").strip()
+    if process_value:
+        server_values.extend(part.strip() for part in process_value.split(",") if part.strip())
+
+    env_files = [
+        ROOT_DIR / "artifacts" / "api-server" / ".env.local",
+        ROOT_DIR / ".env.local",
+        ROOT_DIR / "artifacts" / "web-app" / ".env.local",
+    ]
+    for env_file in env_files:
+        if not env_file.exists():
+            continue
         for line in env_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
-            if line.startswith("VITE_GROQ_API_KEY="):
-                return line.split("=", 1)[1].strip()
             if line.startswith("GROQ_API_KEY="):
-                return line.split("=", 1)[1].strip()
-    return os.environ.get("GROQ_API_KEY", "")
+                value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                server_values.extend(part.strip() for part in value.split(",") if part.strip())
+            elif line.startswith("VITE_GROQ_API_KEY="):
+                value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if value:
+                    legacy_values.append(value)
+
+    # Prefer a server-only credential. The Vite key remains a migration
+    # fallback until the exposed browser credential has been rotated.
+    return next(iter(server_values or legacy_values), "")
 
 GROQ_API_KEY = _load_groq_key()
 

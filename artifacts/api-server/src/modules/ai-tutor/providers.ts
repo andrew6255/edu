@@ -23,16 +23,15 @@ type ChatContentPart =
   | { type: 'image_url'; image_url: { url: string } };
 
 export function getAiTutorProviderConfig() {
-  const serverGroqKey = (process.env['GROQ_API_KEY'] ?? '').trim();
+  const serverGroqKey = (process.env['GROQ_API_KEY'] ?? '')
+    .split(',')
+    .map(value => value.trim())
+    .find(Boolean) ?? '';
   const legacyGroqKey = (process.env['VITE_GROQ_API_KEY'] ?? '').trim();
-  // Groq keys are compact `gsk_...` values. A common local-env failure is an
-  // accidentally concatenated value in GROQ_API_KEY while the legacy Vite
-  // variable still contains the valid key. Prefer a structurally valid key so
-  // the server can recover without ever sending the malformed credential.
-  const isPlausibleGroqKey = (value: string) => value.startsWith('gsk_') && value.length >= 40 && value.length <= 120;
-  const groqKey = isPlausibleGroqKey(serverGroqKey)
-    ? serverGroqKey
-    : isPlausibleGroqKey(legacyGroqKey) ? legacyGroqKey : serverGroqKey;
+  // GROQ_API_KEY may be a comma-separated server-side failover pool. The tutor
+  // uses its first key; ingestion owns pool failover. Keep the Vite variable as
+  // a temporary migration fallback only, never as the preferred credential.
+  const groqKey = serverGroqKey || legacyGroqKey;
   const apiKey = (process.env['AI_TUTOR_API_KEY'] ?? process.env['OPENAI_API_KEY'] ?? groqKey).trim();
   const defaultBaseUrl = groqKey && !process.env['AI_TUTOR_API_KEY'] && !process.env['OPENAI_API_KEY']
     ? 'https://api.groq.com/openai/v1'
@@ -41,6 +40,11 @@ export function getAiTutorProviderConfig() {
   const defaultModel = defaultBaseUrl.includes('groq.com') ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini';
   const model = (process.env['AI_TUTOR_MODEL'] ?? defaultModel).trim();
   return { apiKey, baseUrl, model };
+}
+
+function getTutorTaskModel(envName: string, groqDefault: string): string {
+  const config = getAiTutorProviderConfig();
+  return (process.env[envName] ?? '').trim() || (config.baseUrl.includes('groq.com') ? groqDefault : config.model);
 }
 
 function extractJsonObject(text: string): unknown {
@@ -81,37 +85,67 @@ function asChat(value: unknown): TutorChatResult | null {
   };
 }
 
-function asAnswerPackage(value: unknown): TutorAnswerPackage | null {
+function normalizeMathNotation(value: string): string {
+  return value
+    .replace(/\$([^$]+)\$/g, (_match, math: string) => `$${math.replace(/\s*\*\s*/g, ' \\times ')}$`)
+    .replace(/([\p{L}\p{N})])\s*\*\s*(?=[\p{L}\p{N}(])/gu, '$1 × ');
+}
+
+export function parseProviderAnswerPackage(value: unknown): TutorAnswerPackage | null {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
-  const modelAnswer = typeof record.modelAnswer === 'string' ? record.modelAnswer.trim() : '';
-  if (!modelAnswer) return null;
-  const highLevelSteps = Array.isArray(record.highLevelSteps)
-    ? record.highLevelSteps.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).slice(0, 12)
-    : [];
-  const fullSolution = Array.isArray(record.fullSolution)
-    ? record.fullSolution.map((entry) => {
+  const textField = (...keys: string[]): string => {
+    for (const key of keys) {
+      const candidate = record[key];
+      if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+    }
+    return '';
+  };
+  const highLevelSource = record.highLevelSteps ?? record.solutionPlan ?? record.stepsPlan ?? record.plan;
+  const highLevelSteps = Array.isArray(highLevelSource)
+    ? highLevelSource.map(entry => typeof entry === 'string' ? normalizeMathNotation(entry.trim()) : '').filter(Boolean).slice(0, 5)
+    : typeof highLevelSource === 'string'
+      ? highLevelSource.split(/\r?\n/).map(entry => normalizeMathNotation(entry.replace(/^[\s•*-]+/, '').trim())).filter(Boolean).slice(0, 5)
+      : [];
+  const solutionSource = record.fullSolution ?? record.solutionSteps ?? record.workedSolution ?? record.solution;
+  const fullSolution = Array.isArray(solutionSource)
+    ? solutionSource.map((entry, index) => {
+        if (typeof entry === 'string' && entry.trim()) return { title: `Step ${index + 1}`, body: normalizeMathNotation(entry.trim()) };
         if (!entry || typeof entry !== 'object') return null;
         const item = entry as Record<string, unknown>;
-        return typeof item.title === 'string' && typeof item.body === 'string'
-          ? { title: item.title, body: item.body }
-          : null;
+        const title = [item.title, item.step, item.name].find(candidate => typeof candidate === 'string' && candidate.trim()) as string | undefined;
+        const body = [item.body, item.explanation, item.content, item.work].find(candidate => typeof candidate === 'string' && candidate.trim()) as string | undefined;
+        return body ? { title: normalizeMathNotation(title?.trim() || `Step ${index + 1}`), body: normalizeMathNotation(body.trim()) } : null;
       }).filter((entry): entry is { title: string; body: string } => entry !== null).slice(0, 12)
-    : [];
-  const gradingRubric = Array.isArray(record.gradingRubric)
-    ? record.gradingRubric.map((entry) => {
+    : typeof solutionSource === 'string' && solutionSource.trim()
+      ? [{ title: 'Solution', body: solutionSource.trim() }]
+      : [];
+  const rubricSource = record.gradingRubric ?? record.gradingSchema ?? record.rubric;
+  const gradingRubric = Array.isArray(rubricSource)
+    ? rubricSource.map((entry) => {
         if (!entry || typeof entry !== 'object') return null;
         const item = entry as Record<string, unknown>;
-        return typeof item.criterion === 'string' && typeof item.points === 'number'
-          ? { criterion: item.criterion, points: item.points }
+        const criterion = [item.criterion, item.criteria, item.description, item.label].find(candidate => typeof candidate === 'string' && candidate.trim()) as string | undefined;
+        const numericPoints = typeof item.points === 'number' ? item.points : typeof item.score === 'number' ? item.score : Number(item.points ?? item.score);
+        return criterion && Number.isFinite(numericPoints)
+          ? { criterion: criterion.trim(), points: numericPoints }
           : null;
       }).filter((entry): entry is { criterion: string; points: number } => entry !== null).slice(0, 12)
     : [];
+  const nestedAnswer = record.answer && typeof record.answer === 'object' ? record.answer as Record<string, unknown> : null;
+  const nestedModelAnswer = nestedAnswer
+    ? [nestedAnswer.modelAnswer, nestedAnswer.finalAnswer, nestedAnswer.answer].find(candidate => typeof candidate === 'string' && candidate.trim()) as string | undefined
+    : undefined;
+  const modelAnswer = normalizeMathNotation(textField('modelAnswer', 'model_answer', 'finalAnswer', 'final_answer', 'answerText', 'answer')
+    || nestedModelAnswer?.trim()
+    || fullSolution[fullSolution.length - 1]?.body
+    || '');
+  if (!modelAnswer) return null;
   return {
     modelAnswer,
-    highLevelSteps,
-    fullSolution,
-    gradingRubric,
+    highLevelSteps: highLevelSteps.length ? highLevelSteps : fullSolution.map(step => step.title),
+    fullSolution: fullSolution.length ? fullSolution : [{ title: 'Solution', body: modelAnswer }],
+    gradingRubric: gradingRubric.length ? gradingRubric : [{ criterion: 'Correct method and final answer', points: 100 }],
     provenance: 'ai_generated',
     reviewStatus: 'pending_review',
     generatedAt: new Date().toISOString(),
@@ -126,10 +160,10 @@ function asPaperHelp(value: unknown, mode: TutorPaperHelpRequest['mode'], answer
     ? record.steps.map((entry) => {
         if (!entry || typeof entry !== 'object') return null;
         const item = entry as Record<string, unknown>;
-        const title = typeof item.title === 'string' ? item.title.trim() : '';
-        const body = typeof item.body === 'string' ? item.body.trim() : null;
+        const title = typeof item.title === 'string' ? normalizeMathNotation(item.title.trim()) : '';
+        const body = typeof item.body === 'string' ? normalizeMathNotation(item.body.trim()) : null;
         return title ? { title, body } : null;
-      }).filter((entry): entry is { title: string; body: string | null } => entry !== null).slice(0, mode === 'next_step' ? 1 : 12)
+      }).filter((entry): entry is { title: string; body: string | null } => entry !== null).slice(0, mode === 'hint' ? 1 : mode === 'steps' ? 5 : 10)
     : [];
   return { mode, steps, answerPackage };
 }
@@ -176,9 +210,10 @@ function asPaperGrade(value: unknown, input: TutorPaperGradeRequest): TutorPaper
 }
 
 export class OpenAiCompatibleTutorProvider implements AiTutorExternalProvider {
-  async completeJson(system: string, user: unknown): Promise<unknown | null> {
+  async completeJson(system: string, user: unknown, maxTokens = 2400, modelOverride?: string): Promise<unknown | null> {
     const { apiKey, baseUrl, model } = getAiTutorProviderConfig();
     if (!apiKey) return null;
+    const selectedModel = modelOverride?.trim() || model;
     const requestPayload = user && typeof user === 'object' ? user as Record<string, unknown> : { input: user };
     const { canvasImageBase64, ...textPayload } = requestPayload;
     const imageUrl = typeof canvasImageBase64 === 'string' ? canvasImageBase64 : null;
@@ -196,8 +231,9 @@ export class OpenAiCompatibleTutorProvider implements AiTutorExternalProvider {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model,
+        model: selectedModel,
         temperature: 0.1,
+        max_tokens: maxTokens,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: system },
@@ -230,7 +266,7 @@ export class OpenAiCompatibleTutorProvider implements AiTutorExternalProvider {
       'annotations must be an array of objects with keys: type ("circle"|"underline"|"write_text"), optional targetText, optional text, and color ("red"|"green").',
       'If the answer is correct, annotations should be empty or contain green underlines only.',
     ].join(' ');
-    const result = await this.completeJson(system, input);
+    const result = await this.completeJson(system, input, 1500, getTutorTaskModel('AI_TUTOR_EVALUATION_MODEL', 'openai/gpt-oss-120b'));
     return asEvaluation(result);
   }
 
@@ -238,10 +274,11 @@ export class OpenAiCompatibleTutorProvider implements AiTutorExternalProvider {
     const system = [
       'You are a friendly AI math tutor chatting with a student.',
       'Use the current question, current step, recognized work, and latest evaluation.',
+      'Answer only questions that are about the supplied exercise or the mathematical topic needed to solve it. Politely refuse unrelated requests and invite the student back to the exercise.',
       'Be concise and guide the student without giving away too much unless asked.',
       'Return strict JSON with keys: reply and suggestedActions.',
     ].join(' ');
-    const result = await this.completeJson(system, input);
+    const result = await this.completeJson(system, input, 1200, getTutorTaskModel('AI_TUTOR_CHAT_MODEL', 'llama-3.1-8b-instant'));
     return asChat(result);
   }
 
@@ -250,25 +287,50 @@ export class OpenAiCompatibleTutorProvider implements AiTutorExternalProvider {
       'You are an expert teacher creating the canonical answer package for one question.',
       'Solve the problem independently and verify every calculation.',
       'Use the same language as the question.',
-      'Return strict JSON with: modelAnswer (concise final answer), highLevelSteps (3-8 short strategy steps), fullSolution (array of {title,body}), and gradingRubric (array of {criterion,points}).',
+      'Return strict JSON with: modelAnswer (concise final answer), highLevelSteps (2-5 short practical actions), fullSolution (array of {title,body}), and gradingRubric (array of {criterion,points}).',
+      'Each high-level step must tell the student exactly what to do next using the actual expressions and values from this question. Combine routine operations; never split substitute, simplify, repeat, and calculate the result into redundant separate steps.',
+      'Do not refer to multiple cases, values, or subquestions unless the supplied question actually contains them.',
+      'Write every mathematical expression in Markdown LaTeX delimited by $...$. Use \\times or \\cdot for multiplication and never use the * character as a multiplication sign.',
       'Rubric points must add to exactly 100. Do not include markdown fences.',
     ].join(' ');
-    return asAnswerPackage(await this.completeJson(system, { questionPrompt }));
+    const repairSystem = [
+      system,
+      'A previous response could not be parsed. You MUST include a non-empty string field named modelAnswer.',
+      'Use exactly these top-level keys: modelAnswer, highLevelSteps, fullSolution, gradingRubric.',
+      'fullSolution must be an array of {title,body}; gradingRubric must be an array of {criterion,points}.',
+    ].join(' ');
+    const generateWithModel = async (modelOverride?: string): Promise<TutorAnswerPackage | null> => {
+      const firstAttempt = parseProviderAnswerPackage(await this.completeJson(system, { questionPrompt }, 3000, modelOverride));
+      if (firstAttempt) return modelOverride ? { ...firstAttempt, model: modelOverride } : firstAttempt;
+      const repaired = parseProviderAnswerPackage(await this.completeJson(repairSystem, { questionPrompt }, 3000, modelOverride));
+      return repaired && modelOverride ? { ...repaired, model: modelOverride } : repaired;
+    };
+    try {
+      return await generateWithModel();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('(429)')) throw error;
+      const fallbackModel = getTutorTaskModel('AI_TUTOR_ANSWER_FALLBACK_MODEL', 'openai/gpt-oss-120b');
+      return generateWithModel(fallbackModel);
+    }
   }
 
   async paperHelp(input: TutorPaperHelpRequest, answerPackage: TutorAnswerPackage): Promise<TutorPaperHelpResult | null> {
     const modeInstruction = input.mode === 'steps'
-      ? 'Return every high-level solving step with an empty body. Do not reveal calculations or the final answer.'
-      : input.mode === 'next_step'
-        ? 'Return only the single next high-level step after the student work. Its body must be empty and it must not reveal later steps.'
+      ? 'Return one complete, ordered plan of practical steps, normally 2 to 4 and never more than 5, with an empty body. Each action must be specific enough to execute immediately. For an exercise that gives values for variables and asks to evaluate one or more expressions, combine all requested expressions in the same plan: first substitute the stated values everywhere (or simplify symbolically first only when that materially helps), then evaluate while respecting the order of operations. The substitution title must repeat the actual supplied values, such as $x=-1$, instead of saying only "the values". Never create separate generic steps such as "calculate A" and "calculate B". Do not reveal calculations or the final answer.'
+      : input.mode === 'hint'
+        ? 'Return exactly one concise, actionable hint for the next thing the student should write, based on recognizedWork. Do not state the final answer and do not merely repeat the question. Put the hint in title and leave body empty.'
         : 'Return every solving step with its complete worked calculation and final answer in body.';
     const system = [
       'You are placing tutoring guidance directly on a student worksheet.',
       modeInstruction,
       'Use the same language as the question.',
+      'The subQuestionPrompt is the exact active problem. Focus only on it and ignore sibling cases or unrelated steps that may appear in the canonical answer package.',
+      'Prefer meaningful mathematical actions such as simplify first, substitute the supplied values, then evaluate in the correct order. Merge redundant micro-steps and never say to repeat a process unless repetition is explicitly required by the active problem.',
+      'Write every mathematical expression in Markdown LaTeX delimited by $...$. Use \\times or \\cdot for multiplication and never use the * character as a multiplication sign.',
       'Return strict JSON: {"steps":[{"title":"...","body":null or "..."}]}.',
     ].join(' ');
-    const result = await this.completeJson(system, { ...input, answerPackage });
+    const result = await this.completeJson(system, { ...input, answerPackage }, 2400, getTutorTaskModel('AI_TUTOR_HELP_MODEL', 'openai/gpt-oss-120b'));
     return asPaperHelp(result, input.mode, answerPackage);
   }
 
@@ -280,7 +342,7 @@ export class OpenAiCompatibleTutorProvider implements AiTutorExternalProvider {
       'AI guidance is not student work and has already been excluded.',
       'Distribute 100 total points across all parts and return strict JSON with feedback and parts [{id,score,maxPoints,feedback}].',
     ].join(' ');
-    return asPaperGrade(await this.completeJson(system, { ...input, answerPackage }), input);
+    return asPaperGrade(await this.completeJson(system, { ...input, answerPackage }, 2400, getTutorTaskModel('AI_TUTOR_GRADING_MODEL', 'openai/gpt-oss-120b')), input);
   }
 }
 

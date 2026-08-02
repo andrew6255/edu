@@ -13,6 +13,7 @@ import { useState, useCallback } from 'react';
 import type { PersonalProgramQuestion } from '@/lib/personalProgramService';
 import LatexMarkdown from '@/components/ui/LatexMarkdown';
 import FullScreenWorkspace from '@/components/FullScreenWorkspace';
+import { completeAiFeature } from '@/lib/aiFeatureService';
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -62,9 +63,6 @@ async function generateTestQuestions(
   count: number,
   mode: 'full' | 'mcq'
 ): Promise<TestQuestion[]> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) throw new Error('VITE_GROQ_API_KEY not set');
-
   const questionList = answeredQuestions
     .map((q, i) => `Q${i + 1}: ${q.rawText}`)
     .join('\n\n');
@@ -75,23 +73,13 @@ async function generateTestQuestions(
 
   const systemPrompt = `You are a test generator for the subject "${programTitle}". The student has answered the following questions from their worksheet:\n\n${questionList}\n\nGenerate exactly ${count} NEW test questions that are SIMILAR but DIFFERENT variations — change specific values (numbers, variables, names, scenarios) while keeping the same mathematical/conceptual structure and difficulty. Each question must be solvable with the same method as the original it is based on.\n\n${modeInstruction}\n\nCRITICAL: Any math equations, expressions, variables, or notations in the questionText, correctAnswer, explanation, and choices MUST be formatted in proper LaTeX wrapped in $ (inline) or $$ (block). Fix any broken powers (e.g. e^{3x} instead of e3x).\n\nCRITICAL: Generate the test questions, correct answers, explanations, and choices in the EXACT SAME LANGUAGE as the provided questions. Do not translate.\n\nFor each question ALSO generate 3 plausible but WRONG answer choices (so 4 total, first is always correct).\n\nReturn ONLY a JSON array with no other text:\n[\n  {\n    "questionText": "...",\n    "correctAnswer": "...",\n    "explanation": "Step-by-step: ...",\n    "choices": ["correct answer text", "wrong option 2", "wrong option 3", "wrong option 4"]\n  }\n]`;
 
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Generate ${count} test questions now. Return ONLY the JSON array.` },
-      ],
-      temperature: 0.7,
-      max_tokens: 2000,
-    }),
+  const { content: raw } = await completeAiFeature({
+    task: 'test_generation',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Generate ${count} test questions now. Return ONLY the JSON array.` },
+    ],
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || 'Groq API error');
-
-  const raw = data.choices[0].message.content as string;
   // Extract JSON array from response
   const match = raw.match(/\[[\s\S]*\]/);
   if (!match) throw new Error('AI returned unexpected format. Please try again.');
@@ -358,16 +346,9 @@ export default function TestMeModal({ open, onClose, answeredQuestions, programT
           throw new Error("Couldn't capture handwriting.");
         }
 
-        const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-        if (!apiKey) throw new Error('VITE_GROQ_API_KEY not set');
-
-        // We use llama-3.2-90b-vision-preview to read the canvas and grade it.
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: 'llama-3.2-90b-vision-preview',
-            messages: [
+        const { content } = await completeAiFeature({
+          task: 'test_grading',
+          messages: [
               { 
                 role: 'system', 
                 content: `You are an expert math/physics grader. The student has provided a handwritten solution (see images). 
@@ -380,18 +361,12 @@ Return ONLY JSON: {"score": 8, "feedback": "Good attempt, but missing final unit
               { 
                 role: 'user', 
                 content: [
-                  { type: 'text', text: 'Grade my work.' },
-                  ...images.map(url => ({ type: 'image_url', image_url: { url } }))
+                  { type: 'text' as const, text: 'Grade my work.' },
+                  ...images.map(url => ({ type: 'image_url' as const, image_url: { url } }))
                 ] 
               }
             ],
-            temperature: 0.2
-          })
         });
-
-        if (!res.ok) throw new Error('Vision API error');
-        const data = await res.json();
-        const content = data.choices[0]?.message?.content;
         const match = content.match(/\{[\s\S]*\}/) || [content];
         const result = JSON.parse(match[0]);
         

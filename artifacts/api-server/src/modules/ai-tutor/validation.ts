@@ -165,8 +165,8 @@ export function parseTutorAnswerRequest(value: unknown): TutorAnswerRequest {
 export function parseTutorPaperHelpRequest(value: unknown): TutorPaperHelpRequest {
   const record = asRecord(value);
   if (!record) throw new Error('Invalid paper-help payload.');
-  const mode = record.mode === 'steps' || record.mode === 'next_step' || record.mode === 'solve' ? record.mode : null;
-  if (!mode) throw new Error('mode must be steps, next_step, or solve.');
+  const mode = record.mode === 'steps' || record.mode === 'hint' || record.mode === 'solve' ? record.mode : null;
+  if (!mode) throw new Error('mode must be steps, hint, or solve.');
   return {
     mode,
     programId: stringValue(record.programId),

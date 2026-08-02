@@ -56,6 +56,7 @@ export interface PaperAiMark {
   explanation: string;
   targetStrokeIds: string[];
   status: 'active' | 'checking';
+  lineKey?: string;
 }
 
 export interface PaperAiBlock {
@@ -65,6 +66,8 @@ export interface PaperAiBlock {
   y: number;
   title: string;
   body?: string | null;
+  hidden?: boolean;
+  layoutSpace?: number;
 }
 
 export interface PageData {
@@ -74,6 +77,8 @@ export interface PageData {
   aiMarks?: PaperAiMark[];
   aiBlocks?: PaperAiBlock[];
   answerRegionHeights?: Record<string, number>;
+  questionTopOffset?: number;
+  width?: number;
 }
 
 type EraserMode = 'pixel' | 'stroke';
@@ -103,8 +108,6 @@ const PAGE_W = 794;
 const PAGE_H = 1123;
 const PAGE_GAP = 48;
 const ERASER_RADIUS = 14;
-const DOUBLE_TAP_MS = 350;
-const DOUBLE_TAP_PX = 25;
 
 const WS_COLORS = [
   { value: '#1e293b', label: 'Ink' },
@@ -134,6 +137,26 @@ function getStrokeBounds(strokes: Stroke[]): { x: number; y: number; width: numb
     right = Math.max(right, point.x); bottom = Math.max(bottom, point.y);
   }));
   return Number.isFinite(left) ? { x: left, y: top, width: Math.max(18, right - left), height: Math.max(18, bottom - top) } : null;
+}
+
+function estimateAiBlockHeight(block: PaperAiBlock): number {
+  const titleLines = Math.max(1, Math.ceil(block.title.length / 78));
+  const bodyLines = block.body ? Math.max(1, Math.ceil(block.body.length / 86)) : 0;
+  return 34 + titleLines * 22 + bodyLines * 21;
+}
+
+function shiftRegionContent(page: PageData, regionIds: Set<string>, delta: number): PageData {
+  if (delta === 0 || regionIds.size === 0) return page;
+  return {
+    ...page,
+    strokes: page.strokes.map(stroke => stroke.regionId && regionIds.has(stroke.regionId)
+      ? { ...stroke, points: stroke.points.map(point => ({ ...point, y: point.y + delta })) }
+      : stroke),
+    annotations: page.annotations.map(annotation => annotation.regionId && regionIds.has(annotation.regionId)
+      ? { ...annotation, y: annotation.y + delta }
+      : annotation),
+    aiMarks: (page.aiMarks ?? []).map(mark => regionIds.has(mark.regionId) ? { ...mark, y: mark.y + delta } : mark),
+  };
 }
 
 function parseJIIXAbsolute(jiix: any, directLatex: string): ConvertedBlock[] {
@@ -284,7 +307,7 @@ interface PageCanvasProps {
   page: PageData;
   pageIndex: number;
   currentQuestion?: import('@/lib/personalProgramService').PersonalProgramQuestion | string;
-  activeTool: 'pen' | 'eraser' | 'select';
+  activeTool: 'pen' | 'eraser' | 'select' | 'text';
   eraserMode: EraserMode;
   strokeColor: string;
   strokeWidth: number;
@@ -293,7 +316,8 @@ interface PageCanvasProps {
   onAnnotationAdd: (pageId: string, ann: TextAnnotation) => void;
   onAnnotationUpdate: (pageId: string, annId: string, text: string) => void;
   onMoveStrokes: (pageId: string, strokeIds: string[], dx: number, dy: number) => void;
-  onAnswerSpaceChange: (pageId: string, regionId: string, delta: number) => void;
+  onQuestionMove: (pageId: string, regionId: string, delta: number) => void;
+  onWritingProgress: (pageId: string, regionId: string, bottom: number) => void;
   onAiHelp: (regionId: string, mode: PaperHelpMode) => void;
   onAiMarkClick: (mark: PaperAiMark) => void;
   aiHelpBusyRegion: string | null;
@@ -361,7 +385,6 @@ const PageCanvas = memo(function PageCanvas({
   }, [page.strokes, page.annotations]);
   const activeStroke = useRef<StrokePoint[]>([]);
   const isDrawing = useRef(false);
-  const lastTap = useRef<{ time: number; x: number; y: number }>({ time: 0, x: 0, y: 0 });
   const [editingAnn, setEditingAnn] = useState<string | null>(null);
 
   // Re-render strokes whenever they change
@@ -390,22 +413,11 @@ const PageCanvas = memo(function PageCanvas({
     if (pos.y < getWritingStartY()) return;
 
     e.currentTarget.setPointerCapture(e.pointerId);
-    const now = Date.now();
-
-    // ── Double-tap detection ──
-    if (activeTool === 'pen') {
-      const dt = now - lastTap.current.time;
-      const dd = Math.sqrt(distSq(pos.x, pos.y, lastTap.current.x, lastTap.current.y));
-      if (dt < DOUBLE_TAP_MS && dd < DOUBLE_TAP_PX) {
-        lastTap.current = { time: 0, x: 0, y: 0 };
-        const ann: TextAnnotation = {
-          id: uid(), x: pos.x, y: pos.y, text: '', width: 200, height: 32,
-        };
-        onAnnotationAdd(page.id, ann);
-        setEditingAnn(ann.id);
-        return;
-      }
-      lastTap.current = { time: now, x: pos.x, y: pos.y };
+    if (activeTool === 'text') {
+      const ann: TextAnnotation = { id: uid(), x: pos.x, y: pos.y, text: '', width: 200, height: 32 };
+      onAnnotationAdd(page.id, ann);
+      setEditingAnn(ann.id);
+      return;
     }
 
     isDrawing.current = true;
@@ -708,8 +720,15 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   const [activeAiMark, setActiveAiMark] = useState<PaperAiMark | null>(null);
   const [aiMarkExplanation, setAiMarkExplanation] = useState('');
   const [aiMarkExplanationBusy, setAiMarkExplanationBusy] = useState(false);
+  const [askQuestionRegion, setAskQuestionRegion] = useState<string | null>(null);
+  const [askQuestionInput, setAskQuestionInput] = useState('');
+  const [askQuestionMessages, setAskQuestionMessages] = useState<Array<{ role: 'student' | 'tutor'; content: string }>>([]);
+  const [askQuestionBusy, setAskQuestionBusy] = useState(false);
+  const [askQuestionError, setAskQuestionError] = useState('');
   const correctionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const correctionIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const correctionRunRef = useRef(0);
+  const evaluatedLineSignaturesRef = useRef(new Map<string, string>());
   const questionRunRef = useRef(0);
   const answerRequestRef = useRef<{ key: string; promise: Promise<TutorAnswerPackage> } | null>(null);
 
@@ -724,6 +743,7 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   useEffect(() => {
     questionRunRef.current += 1;
     correctionRunRef.current += 1;
+    evaluatedLineSignaturesRef.current.clear();
     answerRequestRef.current = null;
     setPages(
       initialPages && initialPages.length > 0
@@ -735,6 +755,10 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     setGradeResult(null);
     setGradeBusy(false);
     setAiHelpBusyRegion(null);
+    setAskQuestionRegion(null);
+    setAskQuestionInput('');
+    setAskQuestionMessages([]);
+    setAskQuestionError('');
     setActiveAiMark(null);
     setCorrectMeError('');
     setCorrectMeStatus('idle');
@@ -773,7 +797,7 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   }[]>([]);
 
   // ── Tool State ──
-  const [activeTool, setActiveTool] = useState<'pen' | 'eraser' | 'select'>('pen');
+  const [activeTool, setActiveTool] = useState<'pen' | 'eraser' | 'select' | 'text'>('pen');
   const [eraserMode, setEraserMode] = useState<EraserMode>('pixel');
   const [strokeColor, setStrokeColor] = useState('#1e293b');
   const [strokeWidth, setStrokeWidth] = useState(2.5);
@@ -799,6 +823,8 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   // ── Scroll & Scale ──
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const rightDragRef = useRef<{ pointerId: number; clientX: number } | null>(null);
+  const [rightDragging, setRightDragging] = useState(false);
   const [scale, setScale] = useState(1);
 
   // ── Responsive scale ──
@@ -806,7 +832,7 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     const updateScale = () => {
       const vw = window.innerWidth;
       // Make paper take full width of screen
-      const target = vw / PAGE_W;
+      const target = Math.min(1, vw / PAGE_W);
       setScale(target);
     };
     updateScale();
@@ -821,7 +847,7 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          setPages(prev => [...prev, { id: uid(), strokes: [], annotations: [] }]);
+          setPages(prev => [...prev, { id: uid(), strokes: [], annotations: [], width: prev[0]?.width ?? PAGE_W }]);
         }
       },
       { root: scrollRef.current, threshold: 0.1 }
@@ -829,6 +855,37 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [pages.length]); // re-observe when pages change so sentinel moves
+
+  const beginRightPaperDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 2) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    rightDragRef.current = { pointerId: event.pointerId, clientX: event.clientX };
+    setRightDragging(true);
+  }, []);
+
+  const moveRightPaperDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = rightDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const movement = drag.clientX - event.clientX;
+    drag.clientX = event.clientX;
+    if (movement > 0) {
+      const extension = movement / Math.max(scale, 0.1);
+      setPages(previous => previous.map(page => ({ ...page, width: Math.max(PAGE_W, (page.width ?? PAGE_W) + extension) })));
+      requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft += movement; });
+    } else if (movement < 0 && scrollRef.current) {
+      scrollRef.current.scrollLeft = Math.max(0, scrollRef.current.scrollLeft + movement);
+    }
+  }, [scale]);
+
+  const endRightPaperDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = rightDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    rightDragRef.current = null;
+    setRightDragging(false);
+  }, []);
 
   // ── Scroll-up cleanup: aggressively prune empty trailing pages ──
   useEffect(() => {
@@ -869,9 +926,17 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
 
   // ── Stroke operations ──
   const handleStrokeAdd = useCallback((pageId: string, stroke: Stroke) => {
-    setPages(prev => prev.map(p =>
-      p.id === pageId ? { ...p, strokes: [...p.strokes, stroke] } : p
-    ));
+    const addedBounds = getStrokeBounds([stroke]);
+    setPages(prev => prev.map(p => p.id === pageId ? {
+      ...p,
+      strokes: [...p.strokes, stroke],
+      aiMarks: (p.aiMarks ?? []).map(mark => {
+        const overlaps = addedBounds && mark.regionId === stroke.regionId
+          && addedBounds.x <= mark.x + mark.width && addedBounds.x + addedBounds.width >= mark.x
+          && addedBounds.y <= mark.y + mark.height && addedBounds.y + addedBounds.height >= mark.y;
+        return overlaps ? { ...mark, status: 'checking' as const } : mark;
+      }),
+    } : p));
     setUndoStack(prev => [...prev, { type: 'add-stroke', pageId, data: stroke }]);
     setRedoStack([]);
   }, []);
@@ -881,7 +946,13 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     if (!removed) return;
     setPages(prev => prev.map(p => {
       if (p.id !== pageId) return p;
-      return { ...p, strokes: p.strokes.filter(s => s.id !== strokeId) };
+      const strokes = p.strokes.filter(s => s.id !== strokeId);
+      const remainingIds = new Set(strokes.map(stroke => stroke.id));
+      return {
+        ...p,
+        strokes,
+        aiMarks: (p.aiMarks ?? []).filter(mark => !mark.targetStrokeIds.every(id => !remainingIds.has(id))),
+      };
     }));
     setUndoStack(prev => [...prev, { type: 'remove-stroke', pageId, data: removed }]);
     setRedoStack([]);
@@ -919,30 +990,69 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     setRedoStack([]);
   }, []);
 
-  const handleAnswerSpaceChange = useCallback((pageId: string, regionId: string, delta: number) => {
+  const handleQuestionMove = useCallback((pageId: string, regionId: string, delta: number) => {
     const defaultHeight = questionRegionIds.length === 1 ? 900 : 260;
     const regionIndex = questionRegionIds.indexOf(regionId);
     if (regionIndex < 0) return;
-    const laterRegions = new Set(questionRegionIds.slice(regionIndex + 1));
     const currentPage = pages.find(page => page.id === pageId);
     if (!currentPage) return;
-    const beforeHeight = currentPage.answerRegionHeights?.[regionId] ?? defaultHeight;
+    const affectedRegions = new Set(questionRegionIds.slice(regionIndex));
+    if (regionIndex === 0) {
+      const beforeOffset = currentPage.questionTopOffset ?? 0;
+      const afterOffset = Math.max(0, beforeOffset + delta);
+      const appliedDelta = afterOffset - beforeOffset;
+      if (appliedDelta === 0) return;
+      setPages(previous => previous.map(page => page.id !== pageId ? page : {
+        ...shiftRegionContent(page, affectedRegions, appliedDelta),
+        questionTopOffset: afterOffset,
+      }));
+      setUndoStack(previous => [...previous, { type: 'layout', pageId, data: { kind: 'question-offset', beforeOffset, afterOffset, delta: appliedDelta, affectedRegions: [...affectedRegions] } }]);
+      setRedoStack([]);
+      return;
+    }
+    const previousRegionId = questionRegionIds[regionIndex - 1];
+    const beforeHeight = currentPage.answerRegionHeights?.[previousRegionId] ?? defaultHeight;
     const afterHeight = Math.max(180, beforeHeight + delta);
     const appliedDelta = afterHeight - beforeHeight;
     if (appliedDelta === 0) return;
-    setPages(previous => previous.map(page => {
-      if (page.id !== pageId) return page;
-      return {
-        ...page,
-        answerRegionHeights: { ...(page.answerRegionHeights ?? {}), [regionId]: afterHeight },
-        strokes: page.strokes.map(stroke => stroke.regionId && laterRegions.has(stroke.regionId) ? { ...stroke, points: stroke.points.map(point => ({ ...point, y: point.y + appliedDelta })) } : stroke),
-        annotations: page.annotations.map(annotation => annotation.regionId && laterRegions.has(annotation.regionId) ? { ...annotation, y: annotation.y + appliedDelta } : annotation),
-        aiMarks: (page.aiMarks ?? []).map(mark => laterRegions.has(mark.regionId) ? { ...mark, y: mark.y + appliedDelta } : mark),
-      };
+    setPages(previous => previous.map(page => page.id !== pageId ? page : {
+      ...shiftRegionContent(page, affectedRegions, appliedDelta),
+      answerRegionHeights: { ...(page.answerRegionHeights ?? {}), [previousRegionId]: afterHeight },
     }));
-    setUndoStack(previous => [...previous, { type: 'layout', pageId, data: { regionId, beforeHeight, afterHeight, delta: appliedDelta, laterRegions: [...laterRegions] } }]);
+    setUndoStack(previous => [...previous, { type: 'layout', pageId, data: { kind: 'region-height', regionId: previousRegionId, beforeHeight, afterHeight, delta: appliedDelta, affectedRegions: [...affectedRegions] } }]);
     setRedoStack([]);
   }, [pages, questionRegionIds]);
+
+  const handleWritingProgress = useCallback((pageId: string, regionId: string, bottom: number) => {
+    const defaultHeight = questionRegionIds.length === 1 ? 900 : 260;
+    const regionIndex = questionRegionIds.indexOf(regionId);
+    if (regionIndex < 0 || !Number.isFinite(bottom)) return;
+    const laterRegions = new Set(questionRegionIds.slice(regionIndex + 1));
+    setPages(previous => previous.map(page => {
+      if (page.id !== pageId) return page;
+      const currentHeight = page.answerRegionHeights?.[regionId] ?? defaultHeight;
+      const visibleBlocks = (page.aiBlocks ?? []).filter(block => block.regionId === regionId && !block.hidden).sort((a, b) => a.y - b.y);
+      const threatened = visibleBlocks.find(block => block.y > bottom && bottom + 92 >= block.y);
+      let nextBlocks = page.aiBlocks ?? [];
+      let blockShift = 0;
+      if (threatened) {
+        blockShift = Math.max(100, Math.ceil((bottom + 92 - threatened.y) / 80) * 80);
+        nextBlocks = nextBlocks.map(block => block.regionId === regionId && block.y >= threatened.y ? { ...block, y: block.y + blockShift } : block);
+      }
+      const lowestBlockBottom = nextBlocks
+        .filter(block => block.regionId === regionId && !block.hidden)
+        .reduce((maximum, block) => Math.max(maximum, block.y + estimateAiBlockHeight(block)), 0);
+      const requiredHeight = Math.max(currentHeight, bottom + 125, lowestBlockBottom + 55);
+      const nextHeight = requiredHeight > currentHeight ? Math.ceil(requiredHeight / 80) * 80 : currentHeight;
+      const heightDelta = nextHeight - currentHeight;
+      if (heightDelta === 0 && blockShift === 0) return page;
+      return {
+        ...shiftRegionContent(page, laterRegions, heightDelta),
+        aiBlocks: nextBlocks,
+        answerRegionHeights: { ...(page.answerRegionHeights ?? {}), [regionId]: nextHeight },
+      };
+    }));
+  }, [questionRegionIds]);
 
   // ── Undo ──
   const handleUndo = useCallback(() => {
@@ -978,16 +1088,24 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         aiMarks: (p.aiMarks ?? []).map(mark => mark.targetStrokeIds.some(id => ids.has(id)) ? { ...mark, x: mark.x - action.data.dx, y: mark.y - action.data.dy } : mark),
       }));
     } else if (action.type === 'layout') {
-      const later = new Set<string>(action.data.laterRegions);
-      setPages(prev => prev.map(p => p.id !== action.pageId ? p : {
-        ...p,
-        answerRegionHeights: { ...(p.answerRegionHeights ?? {}), [action.data.regionId]: action.data.beforeHeight },
-        strokes: p.strokes.map(s => s.regionId && later.has(s.regionId) ? { ...s, points: s.points.map(point => ({ ...point, y: point.y - action.data.delta })) } : s),
-        annotations: p.annotations.map(a => a.regionId && later.has(a.regionId) ? { ...a, y: a.y - action.data.delta } : a),
-        aiMarks: (p.aiMarks ?? []).map(mark => later.has(mark.regionId) ? { ...mark, y: mark.y - action.data.delta } : mark),
+      const affected = new Set<string>(action.data.affectedRegions ?? action.data.laterRegions ?? []);
+      setPages(prev => prev.map(p => {
+        if (p.id !== action.pageId) return p;
+        const shifted = shiftRegionContent(p, affected, -action.data.delta);
+        return action.data.kind === 'question-offset'
+          ? { ...shifted, questionTopOffset: action.data.beforeOffset }
+          : { ...shifted, answerRegionHeights: { ...(shifted.answerRegionHeights ?? {}), [action.data.regionId]: action.data.beforeHeight } };
       }));
     } else if (action.type === 'ai-blocks') {
-      setPages(prev => prev.map(p => p.id === action.pageId ? { ...p, aiBlocks: action.data.beforeBlocks, answerRegionHeights: action.data.beforeHeights } : p));
+      if (action.data.beforePage) setPages(prev => prev.map(p => p.id === action.pageId ? action.data.beforePage : p));
+      else {
+        const later = new Set<string>(action.data.laterRegions ?? []);
+        setPages(prev => prev.map(p => p.id === action.pageId ? {
+          ...shiftRegionContent(p, later, -(action.data.heightDelta ?? 0)),
+          aiBlocks: action.data.beforeBlocks,
+          answerRegionHeights: action.data.beforeHeights,
+        } : p));
+      }
     } else if (action.type === 'clear') {
       setPages(prev => prev.map(p =>
         p.id === action.pageId ? { ...p, strokes: action.data.strokes, annotations: action.data.annotations, aiMarks: action.data.aiMarks ?? [] } : p
@@ -1029,16 +1147,24 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         aiMarks: (p.aiMarks ?? []).map(mark => mark.targetStrokeIds.some(id => ids.has(id)) ? { ...mark, x: mark.x + action.data.dx, y: mark.y + action.data.dy } : mark),
       }));
     } else if (action.type === 'layout') {
-      const later = new Set<string>(action.data.laterRegions);
-      setPages(prev => prev.map(p => p.id !== action.pageId ? p : {
-        ...p,
-        answerRegionHeights: { ...(p.answerRegionHeights ?? {}), [action.data.regionId]: action.data.afterHeight },
-        strokes: p.strokes.map(s => s.regionId && later.has(s.regionId) ? { ...s, points: s.points.map(point => ({ ...point, y: point.y + action.data.delta })) } : s),
-        annotations: p.annotations.map(a => a.regionId && later.has(a.regionId) ? { ...a, y: a.y + action.data.delta } : a),
-        aiMarks: (p.aiMarks ?? []).map(mark => later.has(mark.regionId) ? { ...mark, y: mark.y + action.data.delta } : mark),
+      const affected = new Set<string>(action.data.affectedRegions ?? action.data.laterRegions ?? []);
+      setPages(prev => prev.map(p => {
+        if (p.id !== action.pageId) return p;
+        const shifted = shiftRegionContent(p, affected, action.data.delta);
+        return action.data.kind === 'question-offset'
+          ? { ...shifted, questionTopOffset: action.data.afterOffset }
+          : { ...shifted, answerRegionHeights: { ...(shifted.answerRegionHeights ?? {}), [action.data.regionId]: action.data.afterHeight } };
       }));
     } else if (action.type === 'ai-blocks') {
-      setPages(prev => prev.map(p => p.id === action.pageId ? { ...p, aiBlocks: action.data.afterBlocks, answerRegionHeights: action.data.afterHeights } : p));
+      if (action.data.afterPage) setPages(prev => prev.map(p => p.id === action.pageId ? action.data.afterPage : p));
+      else {
+        const later = new Set<string>(action.data.laterRegions ?? []);
+        setPages(prev => prev.map(p => p.id === action.pageId ? {
+          ...shiftRegionContent(p, later, action.data.heightDelta ?? 0),
+          aiBlocks: action.data.afterBlocks,
+          answerRegionHeights: action.data.afterHeights,
+        } : p));
+      }
     } else if (action.type === 'clear') {
       setPages(prev => prev.map(p =>
         p.id === action.pageId ? { ...p, strokes: [], annotations: [], aiMarks: [] } : p
@@ -1192,10 +1318,8 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     };
   }, [fetchMyScriptBlocks]);
 
-  const evaluateRegion = useCallback(async (pageId: string, regionId: string, sourcePages: PageData[], runId: number) => {
-    const page = sourcePages.find(candidate => candidate.id === pageId);
-    const strokes = page?.strokes.filter(stroke => stroke.regionId === regionId) ?? [];
-    if (!page || strokes.length === 0) return;
+  const evaluateLine = useCallback(async (pageId: string, regionId: string, strokes: Stroke[], lineKey: string, runId: number) => {
+    if (strokes.length === 0) return;
     const answer = await ensureAnswerPackage();
     const recognized = await recognizeStrokes(strokes);
     if (!recognized.text && !recognized.latex) return;
@@ -1235,9 +1359,23 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         explanation: result.studentMessage || result.detectedMistake || 'This step needs correction.',
         targetStrokeIds: targetStrokeIds.length ? targetStrokeIds : strokes.map(stroke => stroke.id),
         status: 'active' as const,
+        lineKey,
       };
     });
-    setPages(previous => previous.map(candidate => candidate.id === pageId ? { ...candidate, aiMarks: [...(candidate.aiMarks ?? []).filter(mark => mark.regionId !== regionId), ...nextMarks] } : candidate));
+    const lineStrokeIds = new Set(strokes.map(stroke => stroke.id));
+    const lineBounds = getStrokeBounds(strokes);
+    setPages(previous => previous.map(candidate => candidate.id === pageId ? {
+      ...candidate,
+      aiMarks: [
+        ...(candidate.aiMarks ?? []).filter(mark => {
+          if (mark.regionId !== regionId) return true;
+          if (mark.lineKey === lineKey) return false;
+          if (mark.targetStrokeIds.some(id => lineStrokeIds.has(id))) return false;
+          return !lineBounds || mark.y + mark.height < lineBounds.y - 20 || mark.y > lineBounds.y + lineBounds.height + 20;
+        }),
+        ...nextMarks,
+      ],
+    } : candidate));
   }, [currentQuestion, ensureAnswerPackage, promptForRegion, recognizeStrokes]);
 
   const strokeSignature = useMemo(() => pages.map(page => `${page.id}:${page.strokes.map(stroke => {
@@ -1247,49 +1385,178 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   }).join(',')}`).join('|'), [pages]);
   useEffect(() => {
     if (correctionTimerRef.current) clearTimeout(correctionTimerRef.current);
-    const maintenanceRegions = new Set<string>();
-    pages.forEach(page => (page.aiMarks ?? []).forEach(mark => {
-      const ids = new Set(page.strokes.map(stroke => stroke.id));
-      if (mark.targetStrokeIds.some(id => !ids.has(id))) maintenanceRegions.add(mark.regionId);
-    }));
-    if (!correctMeOn && maintenanceRegions.size === 0) return;
-    setCorrectMeStatus('reading');
-    correctionTimerRef.current = setTimeout(() => {
+    if (correctionIdleTimerRef.current) clearTimeout(correctionIdleTimerRef.current);
+    const invalidatedRun = ++correctionRunRef.current;
+    type LineJob = { pageId: string; regionId: string; strokes: Stroke[]; lineKey: string; signature: string; hasMark: boolean };
+    const jobs: LineJob[] = [];
+    pages.forEach(page => {
+      const regionIds = new Set(page.strokes.map(stroke => stroke.regionId).filter((value): value is string => !!value));
+      regionIds.forEach(regionId => {
+        const clusters = clusterStrokesByY(page.strokes.filter(stroke => stroke.regionId === regionId));
+        clusters.forEach((lineStrokes, index) => {
+          const lineKey = `${page.id}:${regionId}:line:${index}`;
+          const signature = lineStrokes.map(stroke => `${stroke.id}:${stroke.points.length}`).join('|');
+          const strokeIds = new Set(lineStrokes.map(stroke => stroke.id));
+          const bounds = getStrokeBounds(lineStrokes);
+          const hasMark = (page.aiMarks ?? []).some(mark => mark.regionId === regionId && (
+            mark.lineKey === lineKey
+            || mark.targetStrokeIds.some(id => strokeIds.has(id))
+            || (!!bounds && mark.y <= bounds.y + bounds.height + 20 && mark.y + mark.height >= bounds.y - 20)
+          ));
+          jobs.push({ pageId: page.id, regionId, strokes: lineStrokes, lineKey, signature, hasMark });
+        });
+      });
+    });
+    const changed = (job: LineJob) => evaluatedLineSignaturesRef.current.get(job.lineKey) !== job.signature;
+    const runJobs = (selected: LineJob[]) => {
+      const pending = selected.filter(job => changed(job));
+      if (pending.length === 0) return;
       const runId = ++correctionRunRef.current;
       setCorrectMeStatus('checking');
       setCorrectMeError('');
-      const jobs: Promise<void>[] = [];
-      pages.forEach(page => {
-        const regionIds = correctMeOn
-          ? [...new Set(page.strokes.map(stroke => stroke.regionId).filter((value): value is string => !!value))]
-          : [...maintenanceRegions];
-        regionIds.forEach(regionId => {
-          if (page.strokes.some(stroke => stroke.regionId === regionId)) jobs.push(evaluateRegion(page.id, regionId, pages, runId));
-        });
-      });
-      void Promise.all(jobs).then(() => { if (runId === correctionRunRef.current) setCorrectMeStatus('checked'); }).catch(error => {
+      void Promise.all(pending.map(async job => {
+        await evaluateLine(job.pageId, job.regionId, job.strokes, job.lineKey, runId);
+        if (runId === correctionRunRef.current) evaluatedLineSignaturesRef.current.set(job.lineKey, job.signature);
+      })).then(() => {
+        if (runId === correctionRunRef.current) setCorrectMeStatus('checked');
+      }).catch(error => {
         if (runId !== correctionRunRef.current) return;
-        setCorrectMeStatus('error'); setCorrectMeError(error instanceof Error ? error.message : 'Live correction failed.');
+        setCorrectMeStatus('error');
+        setCorrectMeError(error instanceof Error ? error.message : 'Live correction failed.');
       });
-    }, 900);
-    return () => { if (correctionTimerRef.current) clearTimeout(correctionTimerRef.current); };
+    };
+    const maintenanceJobs = jobs.filter(job => job.hasMark && changed(job));
+    if (!correctMeOn && maintenanceJobs.length === 0) return;
+    if (correctMeOn && jobs.every(job => !changed(job))) {
+      setCorrectMeStatus(jobs.length > 0 ? 'checked' : 'idle');
+      return;
+    }
+    setCorrectMeStatus('reading');
+    if (correctMeOn) {
+      const byRegion = new Map<string, LineJob[]>();
+      jobs.forEach(job => {
+        const key = `${job.pageId}:${job.regionId}`;
+        byRegion.set(key, [...(byRegion.get(key) ?? []), job]);
+      });
+      const genuinelyCompleted = [...byRegion.values()].flatMap(regionJobs => regionJobs.slice(0, -1)).filter(changed);
+      if (genuinelyCompleted.length > 0) correctionTimerRef.current = setTimeout(() => runJobs(genuinelyCompleted), 650);
+      correctionIdleTimerRef.current = setTimeout(() => runJobs(jobs), 3500);
+    } else {
+      correctionIdleTimerRef.current = setTimeout(() => runJobs(maintenanceJobs), 1200);
+    }
+    return () => {
+      if (correctionTimerRef.current) clearTimeout(correctionTimerRef.current);
+      if (correctionIdleTimerRef.current) clearTimeout(correctionIdleTimerRef.current);
+      if (correctionRunRef.current === invalidatedRun) correctionRunRef.current += 1;
+    };
   // Pages are intentionally represented by the stable stroke signature so AI-mark updates do not retrigger recognition.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [strokeSignature, correctMeOn, evaluateRegion]);
+  }, [strokeSignature, correctMeOn, evaluateLine]);
 
-  const handleAiHelp = useCallback(async (regionId: string, mode: PaperHelpMode) => {
+  const regionTopOnPage = useCallback((regionId: string): number => {
+    const regionElement = document.querySelector(`[data-answer-region="${CSS.escape(regionId)}"]`) as HTMLElement | null;
+    const pageElement = regionElement?.closest('.fsw-page') as HTMLElement | null;
+    return regionElement && pageElement
+      ? (regionElement.getBoundingClientRect().top - pageElement.getBoundingClientRect().top) / scale
+      : 0;
+  }, [scale]);
+
+  const commitAiPageChange = useCallback((beforePage: PageData, afterPage: PageData) => {
+    setPages(previous => previous.map(page => page.id === beforePage.id ? afterPage : page));
+    setUndoStack(stack => [...stack, { type: 'ai-blocks', pageId: beforePage.id, data: { beforePage, afterPage } }]);
+    setRedoStack([]);
+  }, []);
+
+  const handleAiBlockClose = useCallback((pageId: string, blockId: string) => {
+    const beforePage = pagesRef.current.find(page => page.id === pageId);
+    const block = beforePage?.aiBlocks?.find(candidate => candidate.id === blockId);
+    if (!beforePage || !block) return;
+    const defaultHeight = questionRegionIds.length === 1 ? 900 : 260;
+    const currentHeight = beforePage.answerRegionHeights?.[block.regionId] ?? defaultHeight;
+    const space = Math.max(0, block.layoutSpace ?? 0);
+    const afterHeight = Math.max(defaultHeight, currentHeight - space);
+    const heightDelta = afterHeight - currentHeight;
+    const regionIndex = questionRegionIds.indexOf(block.regionId);
+    const laterRegions = new Set(regionIndex >= 0 ? questionRegionIds.slice(regionIndex + 1) : []);
+    const regionTop = regionTopOnPage(block.regionId);
+    const contentThreshold = regionTop + block.y + estimateAiBlockHeight(block) - 4;
+    const shiftAllCurrentContent = block.mode === 'steps';
+    let afterPage = shiftRegionContent(beforePage, laterRegions, heightDelta);
+    if (space > 0) {
+      afterPage = {
+        ...afterPage,
+        strokes: afterPage.strokes.map(stroke => stroke.regionId === block.regionId
+          && (shiftAllCurrentContent || stroke.points.some(point => point.y >= contentThreshold))
+          ? { ...stroke, points: stroke.points.map(point => ({ ...point, y: point.y - space })) }
+          : stroke),
+        annotations: afterPage.annotations.map(annotation => annotation.regionId === block.regionId
+          && (shiftAllCurrentContent || annotation.y >= contentThreshold)
+          ? { ...annotation, y: annotation.y - space }
+          : annotation),
+        aiMarks: (afterPage.aiMarks ?? []).map(mark => mark.regionId === block.regionId
+          && (shiftAllCurrentContent || mark.y >= contentThreshold)
+          ? { ...mark, y: mark.y - space }
+          : mark),
+      };
+    }
+    afterPage = {
+      ...afterPage,
+      aiBlocks: (afterPage.aiBlocks ?? [])
+        .filter(candidate => candidate.id !== block.id)
+        .map(candidate => candidate.regionId === block.regionId && candidate.y > block.y
+          ? { ...candidate, y: Math.max(18, candidate.y - space) }
+          : candidate),
+      answerRegionHeights: { ...(afterPage.answerRegionHeights ?? {}), [block.regionId]: afterHeight },
+    };
+    commitAiPageChange(beforePage, afterPage);
+  }, [commitAiPageChange, questionRegionIds, regionTopOnPage]);
+
+  const removeVisibleAiMode = useCallback((regionId: string, mode: PaperHelpMode): boolean => {
+    const page = pagesRef.current[0];
+    const blocks = (page?.aiBlocks ?? []).filter(block => block.regionId === regionId && block.mode === mode && !block.hidden);
+    if (!page || blocks.length === 0) return false;
+    if (blocks.length === 1 && blocks[0].layoutSpace) handleAiBlockClose(page.id, blocks[0].id);
+    else {
+      const defaultHeight = questionRegionIds.length === 1 ? 900 : 260;
+      const currentHeight = page.answerRegionHeights?.[regionId] ?? defaultHeight;
+      const firstY = Math.min(...blocks.map(block => block.y));
+      const lastBottom = Math.max(...blocks.map(block => block.y + estimateAiBlockHeight(block)));
+      const requestedSpace = Math.max(0, lastBottom - firstY + 40);
+      const space = Math.min(Math.max(0, currentHeight - defaultHeight), requestedSpace);
+      const afterHeight = currentHeight - space;
+      const regionIndex = questionRegionIds.indexOf(regionId);
+      const laterRegions = new Set(regionIndex >= 0 ? questionRegionIds.slice(regionIndex + 1) : []);
+      const contentThreshold = regionTopOnPage(regionId) + firstY;
+      let afterPage = shiftRegionContent(page, laterRegions, -space);
+      afterPage = {
+        ...afterPage,
+        strokes: afterPage.strokes.map(stroke => stroke.regionId === regionId && stroke.points.some(point => point.y >= contentThreshold)
+          ? { ...stroke, points: stroke.points.map(point => ({ ...point, y: point.y - space })) }
+          : stroke),
+        annotations: afterPage.annotations.map(annotation => annotation.regionId === regionId && annotation.y >= contentThreshold ? { ...annotation, y: annotation.y - space } : annotation),
+        aiMarks: (afterPage.aiMarks ?? []).map(mark => mark.regionId === regionId && mark.y >= contentThreshold ? { ...mark, y: mark.y - space } : mark),
+        aiBlocks: (afterPage.aiBlocks ?? [])
+          .filter(block => block.regionId !== regionId || block.mode !== mode)
+          .map(block => block.regionId === regionId && block.y > firstY ? { ...block, y: Math.max(18, block.y - space) } : block),
+        answerRegionHeights: { ...(afterPage.answerRegionHeights ?? {}), [regionId]: afterHeight },
+      };
+      commitAiPageChange(page, afterPage);
+    }
+    return true;
+  }, [commitAiPageChange, handleAiBlockClose, questionRegionIds, regionTopOnPage]);
+
+  const performAiHelp = useCallback(async (regionId: string, mode: PaperHelpMode) => {
     if (isTestMode || aiHelpBusyRegion) return;
-    if (mode === 'solve' && !window.confirm('Show the complete solution? This will reveal the final answer.')) return;
-    const page = pages[0];
+    if ((mode === 'steps' || mode === 'solve') && removeVisibleAiMode(regionId, mode)) return;
+    const page = pagesRef.current[0];
     if (!page) return;
-    const studentStrokes = page.strokes.filter(stroke => stroke.regionId === regionId);
-    if (mode === 'steps' && studentStrokes.length > 0) return;
     setAiHelpBusyRegion(regionId);
     setHasUsedAiAssistance(true);
     const questionRun = questionRunRef.current;
     try {
       const answer = await ensureAnswerPackage();
       if (questionRun !== questionRunRef.current) return;
+      const studentStrokes = page.strokes.filter(stroke => stroke.regionId === regionId);
       const recognized = await recognizeStrokes(studentStrokes);
       if (questionRun !== questionRunRef.current) return;
       const result = await requestPaperHelp({
@@ -1303,36 +1570,102 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
       });
       if (questionRun !== questionRunRef.current) return;
       setAnswerPackage(result.answerPackage);
-      const regionElement = document.querySelector(`[data-answer-region="${CSS.escape(regionId)}"]`) as HTMLElement | null;
-      const pageElement = regionElement?.closest('.fsw-page') as HTMLElement | null;
-      const regionTop = regionElement && pageElement ? (regionElement.getBoundingClientRect().top - pageElement.getBoundingClientRect().top) / scale : 0;
-      const studentBounds = getStrokeBounds(studentStrokes);
-      const inkBottom = studentBounds ? studentBounds.y + studentBounds.height - regionTop : 0;
-      let y = Math.max(20, inkBottom + 32);
-      const additions: PaperAiBlock[] = result.steps.map(step => {
-        const block = { id: uid(), regionId, mode, y, title: step.title, body: step.body };
-        y += step.body ? 135 : 78;
-        return block;
-      });
-      const latestPages = pagesRef.current;
-      const targetPage = latestPages[0];
-      if (!targetPage) return;
-      const beforeBlocks = targetPage.aiBlocks ?? [];
-      const beforeHeights = targetPage.answerRegionHeights ?? {};
+      const beforePage = pagesRef.current[0];
+      if (!beforePage || result.steps.length === 0) throw new Error('The AI did not return usable guidance.');
+      const regionTop = regionTopOnPage(regionId);
+      const regionStrokes = beforePage.strokes.filter(stroke => stroke.regionId === regionId);
+      const strokeBounds = getStrokeBounds(regionStrokes);
+      const inkBottom = strokeBounds ? strokeBounds.y + strokeBounds.height - regionTop : 0;
+      const annotationBottom = beforePage.annotations
+        .filter(annotation => annotation.regionId === regionId)
+        .reduce((maximum, annotation) => Math.max(maximum, annotation.y + annotation.height - regionTop), 0);
+      const blockBottom = (beforePage.aiBlocks ?? [])
+        .filter(block => block.regionId === regionId && !block.hidden)
+        .reduce((maximum, block) => Math.max(maximum, block.y + estimateAiBlockHeight(block)), 0);
+      const body = mode === 'hint'
+        ? [result.steps[0].title, result.steps[0].body].filter(Boolean).join('\n\n')
+        : result.steps.map((step, index) => mode === 'steps'
+          ? `${index + 1}. ${step.title}`
+          : `${index + 1}. **${step.title}**\n${step.body ?? ''}`).join('\n\n');
+      const draftBlock: PaperAiBlock = {
+        id: uid(), regionId, mode,
+        y: mode === 'steps' ? 18 : Math.max(20, inkBottom + 38, annotationBottom + 38, blockBottom + 28),
+        title: mode === 'steps' ? 'AI Steps' : mode === 'hint' ? 'Hint' : 'Complete solution',
+        body,
+      };
+      const layoutSpace = estimateAiBlockHeight(draftBlock) + 30;
+      const block: PaperAiBlock = { ...draftBlock, layoutSpace };
       const defaultHeight = questionRegionIds.length === 1 ? 900 : 260;
-      const currentHeight = beforeHeights[regionId] ?? defaultHeight;
-      const neededHeight = Math.max(currentHeight, y + 35);
-      const afterBlocks = [...beforeBlocks, ...additions];
-      const afterHeights = { ...beforeHeights, [regionId]: neededHeight };
-      setPages(latestPages.map((candidate, pageIndex) => pageIndex === 0 ? { ...candidate, aiBlocks: afterBlocks, answerRegionHeights: afterHeights } : candidate));
-      setUndoStack(stack => [...stack, { type: 'ai-blocks', pageId: targetPage.id, data: { beforeBlocks, afterBlocks, beforeHeights, afterHeights } }]);
-      setRedoStack([]);
+      const currentHeight = beforePage.answerRegionHeights?.[regionId] ?? defaultHeight;
+      const regionIndex = questionRegionIds.indexOf(regionId);
+      const laterRegions = new Set(regionIndex >= 0 ? questionRegionIds.slice(regionIndex + 1) : []);
+      let afterPage: PageData;
+      if (mode === 'steps') {
+        const currentAndLaterRegions = new Set(regionIndex >= 0 ? questionRegionIds.slice(regionIndex) : [regionId]);
+        const shifted = shiftRegionContent(beforePage, currentAndLaterRegions, layoutSpace);
+        afterPage = {
+          ...shifted,
+          aiBlocks: [
+            ...(shifted.aiBlocks ?? []).map(existing => existing.regionId === regionId ? { ...existing, y: existing.y + layoutSpace } : existing),
+            block,
+          ],
+          answerRegionHeights: { ...(shifted.answerRegionHeights ?? {}), [regionId]: currentHeight + layoutSpace },
+        };
+      } else {
+        const neededHeight = Math.max(currentHeight, block.y + estimateAiBlockHeight(block) + 48);
+        const heightDelta = neededHeight - currentHeight;
+        const shifted = shiftRegionContent(beforePage, laterRegions, heightDelta);
+        afterPage = {
+          ...shifted,
+          aiBlocks: [...(shifted.aiBlocks ?? []), block],
+          answerRegionHeights: { ...(shifted.answerRegionHeights ?? {}), [regionId]: neededHeight },
+        };
+      }
+      commitAiPageChange(beforePage, afterPage);
     } catch (error) {
       if (questionRun === questionRunRef.current) setCorrectMeError(error instanceof Error ? error.message : 'AI Help failed.');
     } finally {
       if (questionRun === questionRunRef.current) setAiHelpBusyRegion(null);
     }
-  }, [aiHelpBusyRegion, currentQuestion, ensureAnswerPackage, isTestMode, pages, programId, promptForRegion, questionPrompt, questionRegionIds.length, recognizeStrokes, scale]);
+  }, [aiHelpBusyRegion, commitAiPageChange, currentQuestion, ensureAnswerPackage, isTestMode, programId, promptForRegion, questionPrompt, questionRegionIds, recognizeStrokes, regionTopOnPage, removeVisibleAiMode]);
+
+  const handleAiHelp = useCallback((regionId: string, mode: PaperHelpMode) => {
+    void performAiHelp(regionId, mode);
+  }, [performAiHelp]);
+
+  const openAskQuestion = useCallback((regionId: string) => {
+    setAskQuestionRegion(regionId);
+    setAskQuestionInput('');
+    setAskQuestionMessages([]);
+    setAskQuestionError('');
+  }, []);
+
+  const submitAskQuestion = useCallback(async () => {
+    const message = askQuestionInput.trim();
+    const regionId = askQuestionRegion;
+    if (!message || !regionId || askQuestionBusy) return;
+    const conversation = askQuestionMessages.slice(-10);
+    setAskQuestionMessages(previous => [...previous, { role: 'student', content: message }]);
+    setAskQuestionInput('');
+    setAskQuestionBusy(true);
+    setAskQuestionError('');
+    setHasUsedAiAssistance(true);
+    try {
+      const result = await explainPaperCorrection({
+        questionId: typeof currentQuestion === 'string' ? 'question' : currentQuestion?.id || 'question',
+        questionPrompt: promptForRegion(regionId),
+        activeStepId: regionId,
+        activeStepTitle: promptForRegion(regionId),
+        message,
+        conversation,
+      });
+      setAskQuestionMessages(previous => [...previous, { role: 'tutor', content: result.reply }]);
+    } catch (error) {
+      setAskQuestionError(error instanceof Error ? error.message : 'The tutor could not answer this question.');
+    } finally {
+      setAskQuestionBusy(false);
+    }
+  }, [askQuestionBusy, askQuestionInput, askQuestionMessages, askQuestionRegion, currentQuestion, promptForRegion]);
 
   const handleGradePaper = useCallback(async () => {
     if (gradeBusy) return;
@@ -1450,7 +1783,15 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
       </div>
 
       {/* ═══ SCROLLABLE PAGE CONTAINER ═══ */}
-      <div className="fsw-scroll" ref={scrollRef}>
+      <div
+        className={`fsw-scroll ${rightDragging ? 'right-dragging' : ''}`}
+        ref={scrollRef}
+        onPointerDownCapture={beginRightPaperDrag}
+        onPointerMoveCapture={moveRightPaperDrag}
+        onPointerUpCapture={endRightPaperDrag}
+        onPointerCancelCapture={endRightPaperDrag}
+        onContextMenu={event => event.preventDefault()}
+      >
         <div className="fsw-pages-stack">
           {pages.map((page, idx) => (
             <PaperPageCanvas
@@ -1467,8 +1808,11 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
               onAnnotationAdd={handleAnnotationAdd}
               onAnnotationUpdate={handleAnnotationUpdate}
               onMoveStrokes={handleMoveStrokes}
-              onAnswerSpaceChange={handleAnswerSpaceChange}
+              onQuestionMove={handleQuestionMove}
+              onWritingProgress={handleWritingProgress}
               onAiHelp={(regionId, mode) => void handleAiHelp(regionId, mode)}
+              onAiBlockClose={handleAiBlockClose}
+              onAskQuestion={openAskQuestion}
               onAiMarkClick={handleAiMarkClick}
               aiHelpBusyRegion={aiHelpBusyRegion}
               disableAiHelp={Boolean(isTestMode && !testGrade)}
@@ -1522,6 +1866,7 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
           </div>
 
           <button className={`fsw-dock-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')} title="Lasso select and move handwriting">◯</button>
+          <button className={`fsw-dock-btn ${activeTool === 'text' ? 'active' : ''}`} onClick={() => setActiveTool('text')} title="Insert a text box">T</button>
 
           <div className="fsw-dock-divider" />
 
@@ -1664,6 +2009,18 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
 
 
       {correctMeError && <div className="fsw-ai-error"><span>{correctMeError}</span><button type="button" onClick={() => setCorrectMeError('')}>×</button></div>}
+
+      {askQuestionRegion && <div className="fsw-paper-modal-backdrop" onClick={() => setAskQuestionRegion(null)}><div className="fsw-paper-modal fsw-ask-question-modal" role="dialog" aria-modal="true" aria-labelledby="fsw-ask-question-title" onClick={event => event.stopPropagation()}>
+        <div className="fsw-paper-modal-header"><div><small>Question-specific tutor</small><strong id="fsw-ask-question-title">Ask about this exercise</strong></div><button type="button" onClick={() => setAskQuestionRegion(null)}>×</button></div>
+        <div className="fsw-ask-scope">The tutor will answer only questions about this exercise or the topic needed to solve it.</div>
+        <div className="fsw-ask-messages">
+          {askQuestionMessages.length === 0 && <div className="fsw-ask-empty">Ask what a symbol means, why a method works, or how to approach part of the question.</div>}
+          {askQuestionMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`fsw-ask-message ${message.role}`}><LatexRenderer content={message.content} /></div>)}
+          {askQuestionBusy && <div className="fsw-ask-message tutor"><span className="fsw-inline-spinner" />Thinking…</div>}
+        </div>
+        {askQuestionError && <div className="fsw-ask-error">{askQuestionError}</div>}
+        <div className="fsw-ask-composer"><textarea value={askQuestionInput} onChange={event => setAskQuestionInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitAskQuestion(); } }} placeholder="Ask a question about this exercise…" autoFocus /><button type="button" onClick={() => void submitAskQuestion()} disabled={askQuestionBusy || !askQuestionInput.trim()}>Ask</button></div>
+      </div></div>}
 
       {activeAiMark && <div className="fsw-paper-modal-backdrop" onClick={() => setActiveAiMark(null)}><div className="fsw-paper-modal fsw-correction-modal" onClick={event => event.stopPropagation()}>
         <div className="fsw-paper-modal-header"><div><small>Correction</small><strong>{activeAiMark.correctionText}</strong></div><button type="button" onClick={() => setActiveAiMark(null)}>×</button></div>
@@ -1860,13 +2217,17 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         .fsw-scroll {
           flex: 1;
           overflow-y: auto;
-          overflow-x: hidden;
+          overflow-x: auto;
           background: #ffffff;
           display: flex;
-          justify-content: center;
+          justify-content: flex-start;
           padding: 0;
           overscroll-behavior: none;
+          scrollbar-width: none;
+          cursor: default;
         }
+        .fsw-scroll::-webkit-scrollbar { display: none; }
+        .fsw-scroll.right-dragging { cursor: grabbing; user-select: none; }
         
         .fsw-static-question {
           position: absolute;
@@ -1889,8 +2250,9 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         .fsw-pages-stack {
           display: flex;
           flex-direction: column;
-          align-items: center;
-          width: 100%;
+          align-items: flex-start;
+          width: max-content;
+          min-width: 100%;
           padding: 0 0 80px;
         }
 
@@ -2320,17 +2682,30 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         .fsw-ai-help-menu button { width: 100%; padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; color: #334155; text-align: left; font: 750 11px/1.35 Inter,sans-serif; cursor: pointer; }
         .fsw-ai-help-menu button:hover:not(:disabled) { background: #eef2ff; color: #4338ca; }
         .fsw-ai-help-menu button:disabled { color: #94a3b8; cursor: not-allowed; }
+        .fsw-ai-help-menu .fsw-ai-steps-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .fsw-ai-help-menu .fsw-ai-steps-toggle.active { color: #3730a3; background: #eef2ff; }
+        .fsw-mini-switch { width: 28px; height: 16px; flex: 0 0 28px; padding: 2px; border-radius: 999px; background: #cbd5e1; transition: background .18s ease; }
+        .fsw-mini-switch > span { display: block; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.3); transition: transform .18s ease; }
+        .fsw-ai-steps-toggle.active .fsw-mini-switch { background: #4f46e5; }
+        .fsw-ai-steps-toggle.active .fsw-mini-switch > span { transform: translateX(12px); }
         .fsw-answer-region { position: relative; transition: height .22s ease; }
-        .fsw-ai-paper-block { position: absolute; left: 18px; right: 18px; display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 10px; background: rgba(239,246,255,.96); color: #1e3a8a; box-shadow: 0 3px 12px rgba(37,99,235,.08); pointer-events: none; }
+        .fsw-ai-paper-block { position: absolute; left: 18px; right: 18px; display: flex; align-items: flex-start; gap: 9px; padding: 12px 14px; border: 1px solid #bfdbfe; border-radius: 12px; background: rgba(239,246,255,.98); color: #1e3a8a; box-shadow: 0 3px 12px rgba(37,99,235,.08); pointer-events: auto; }
         .fsw-ai-paper-block > span { padding: 3px 5px; border-radius: 5px; background: #2563eb; color: #fff; font-size: 8px; font-weight: 900; }
+        .fsw-ai-paper-block > div { flex: 1; min-width: 0; }
         .fsw-ai-paper-block strong { font-size: 13px; }
-        .fsw-ai-paper-body { margin-top: 6px; color: #334155; font-size: 12px; line-height: 1.55; }
+        .fsw-ai-paper-body { margin-top: 7px; color: #334155; font-size: 13px; line-height: 1.65; }
+        .fsw-ai-paper-body ol { margin: 4px 0 0; padding-left: 22px; display: grid; gap: 7px; }
+        .fsw-ai-paper-block.hint { left: 32px; right: 32px; border-color: #fde68a; background: rgba(255,251,235,.98); color: #92400e; box-shadow: 0 3px 12px rgba(217,119,6,.09); }
+        .fsw-ai-paper-block.hint > span { background: #d97706; }
+        .fsw-ai-paper-block.solve { border-color: #c4b5fd; background: rgba(245,243,255,.98); color: #5b21b6; }
+        .fsw-ai-paper-block.solve > span { background: #7c3aed; }
+        .fsw-ai-block-close { width: 25px; height: 25px; flex: 0 0 25px; padding: 0; border: 1px solid currentColor; border-radius: 50%; background: rgba(255,255,255,.8); color: inherit; cursor: pointer; font-size: 16px; line-height: 1; }
         .fsw-test-grade { margin: 8px 12px; color: #dc2626; font-size: 14px; font-weight: 800; }
         .fsw-selection-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 6; overflow: visible; }
-        .fsw-ai-mark { position: absolute; z-index: 8; padding: 0; border: 3px solid #ef4444; border-radius: 50%; background: rgba(254,226,226,.12); cursor: pointer; pointer-events: auto; }
+        .fsw-ai-mark { position: absolute; z-index: 8; padding: 0; border: 3px solid #ef4444; border-radius: 50%; background: rgba(254,226,226,.12); cursor: pointer; pointer-events: none; }
         .fsw-ai-mark.highlight { border-radius: 6px; border-width: 0 0 3px; background: rgba(248,113,113,.2); }
         .fsw-ai-mark.note { border-style: dashed; border-radius: 8px; }
-        .fsw-ai-mark > span { position: absolute; left: 50%; bottom: calc(100% + 5px); transform: translateX(-50%); width: max-content; max-width: 260px; padding: 5px 8px; border-radius: 7px; background: #fff; border: 1px solid #fecaca; color: #dc2626; box-shadow: 0 4px 14px rgba(127,29,29,.14); font: 850 11px/1.25 Inter,sans-serif; white-space: normal; }
+        .fsw-ai-mark > span { position: absolute; left: 50%; bottom: calc(100% + 5px); transform: translateX(-50%); width: max-content; max-width: 260px; padding: 5px 8px; border-radius: 7px; background: #fff; border: 1px solid #fecaca; color: #dc2626; box-shadow: 0 4px 14px rgba(127,29,29,.14); font: 850 11px/1.25 Inter,sans-serif; white-space: normal; pointer-events: auto; }
         .fsw-ai-error { position: fixed; left: 50%; top: 68px; transform: translateX(-50%); z-index: 700; max-width: min(620px,90vw); display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid #fecaca; border-radius: 10px; background: #fff1f2; color: #be123c; box-shadow: 0 10px 30px rgba(15,23,42,.16); font-size: 11px; font-weight: 700; }
         .fsw-ai-error button { border: 0; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
         .fsw-paper-modal-backdrop { position: fixed; inset: 0; z-index: 900; display: grid; place-items: center; padding: 18px; background: rgba(15,23,42,.38); backdrop-filter: blur(4px); }
@@ -2343,12 +2718,25 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         .fsw-paper-modal-body, .fsw-grade-summary { padding: 18px; color: #334155; font-size: 14px; line-height: 1.7; }
         .fsw-correction-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 18px 18px; }
         .fsw-correction-actions button { padding: 8px 11px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; font-weight: 800; cursor: pointer; }
+        .fsw-correction-actions button.primary { border-color: #4f46e5; background: #4f46e5; color: #fff; }
         .fsw-grade-parts { display: grid; gap: 9px; padding: 0 18px 18px; }
         .fsw-grade-parts > div { padding: 11px 12px; border: 1px solid #dbe3ee; border-radius: 10px; background: #f8fafc; }
         .fsw-grade-parts > div.unanswered { border-color: #fecaca; background: #fff1f2; }
         .fsw-grade-parts > div > div { display: flex; justify-content: space-between; color: #0f172a; }
         .fsw-grade-parts p { margin: 6px 0 0; color: #64748b; font-size: 12px; line-height: 1.5; }
         .fsw-inline-spinner { display: inline-block; width: 14px; height: 14px; margin-right: 8px; border: 2px solid #c7d2fe; border-top-color: #4f46e5; border-radius: 50%; animation: fsw-spin .7s linear infinite; }
+        .fsw-ask-scope { margin: 14px 18px 0; padding: 9px 11px; border-radius: 9px; background: #eef2ff; color: #4338ca; font-size: 11px; font-weight: 750; }
+        .fsw-ask-messages { min-height: 170px; max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding: 14px 18px; }
+        .fsw-ask-empty { margin: auto; max-width: 390px; color: #94a3b8; text-align: center; font-size: 12px; line-height: 1.6; }
+        .fsw-ask-message { max-width: 84%; padding: 9px 11px; border-radius: 11px; color: #334155; font-size: 13px; line-height: 1.55; }
+        .fsw-ask-message.student { align-self: flex-end; background: #4f46e5; color: #fff; border-bottom-right-radius: 3px; }
+        .fsw-ask-message.tutor { align-self: flex-start; border: 1px solid #dbeafe; background: #eff6ff; border-bottom-left-radius: 3px; }
+        .fsw-ask-message p { margin: 0; }
+        .fsw-ask-error { margin: 0 18px 10px; color: #be123c; font-size: 11px; font-weight: 700; }
+        .fsw-ask-composer { display: flex; align-items: flex-end; gap: 9px; padding: 12px 18px 18px; border-top: 1px solid #e2e8f0; }
+        .fsw-ask-composer textarea { flex: 1; min-height: 48px; max-height: 120px; resize: vertical; padding: 10px 11px; border: 1px solid #cbd5e1; border-radius: 10px; color: #172033; font: 500 13px/1.45 Inter,sans-serif; }
+        .fsw-ask-composer button { padding: 10px 16px; border: 0; border-radius: 9px; background: #4f46e5; color: #fff; font-weight: 850; cursor: pointer; }
+        .fsw-ask-composer button:disabled { opacity: .45; cursor: not-allowed; }
         @media (max-width: 760px) {
           .fsw-workspace-toolbar {
             grid-template-columns: minmax(0, 1fr) auto;

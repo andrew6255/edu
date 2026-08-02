@@ -78,7 +78,7 @@ export class GeminiNormalizationProvider extends BasePromptReadyLlmNormalization
       throw new Error("GEMINI_API_KEY is required when PROGRAM_INGESTION_NORMALIZATION_PROVIDER=gemini.");
     }
 
-    const model = process.env["PROGRAM_INGESTION_GEMINI_MODEL"] ?? "gemini-2.0-flash";
+    const model = process.env["PROGRAM_INGESTION_GEMINI_MODEL"] ?? "gemini-2.5-flash";
     const prompt = buildQuestionNormalizationPrompt(block);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 

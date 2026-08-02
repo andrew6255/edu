@@ -53,7 +53,7 @@ export class GeminiVisionPdfExtractionProvider implements DocumentExtractionProv
       throw new Error("GEMINI_API_KEY is required for Gemini Vision PDF extraction.");
     }
 
-    const model = process.env["PROGRAM_INGESTION_GEMINI_MODEL"] ?? "gemini-2.0-flash";
+    const model = process.env["PROGRAM_INGESTION_GEMINI_MODEL"] ?? "gemini-2.5-flash";
     const fileName = path.basename(filePath);
     const renderedPages = await renderPdfPagesToBase64Png(filePath);
     if (renderedPages.length === 0) {

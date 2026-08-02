@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { PersonalProgramQuestion } from '@/lib/personalProgramService';
 import LatexMarkdown from '@/components/ui/LatexMarkdown';
+import { completeAiFeature } from '@/lib/aiFeatureService';
 
 interface FeynmanModalProps {
   open: boolean;
@@ -24,31 +25,17 @@ export default function FeynmanModal({ open, onClose, answeredQuestions, program
   useEffect(() => {
     if (!q) return;
     setFormattedQuestion(q.rawText); // default
-    const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-    if (!apiKey) return;
-
-    fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{
+    completeAiFeature({
+      task: 'feynman_format',
+      messages: [{
           role: 'system',
           content: 'You are a LaTeX formatter. Format the provided raw OCR text into a beautiful math problem using LaTeX ($ and $$). Fix any broken superscripts or math notation (e.g., e3x to e^{3x}, dx, dy). CRITICAL: DO NOT TRANSLATE ANY TEXT. KEEP THE EXACT ORIGINAL LANGUAGE AND CHARACTERS. DO NOT solve the problem, DO NOT add any extra text, JUST output the formatted question.'
         }, {
           role: 'user',
           content: q.rawText
         }],
-        temperature: 0.1,
-        max_tokens: 300,
-      }),
     })
-      .then(r => r.json())
-      .then(data => {
-        if (data.choices?.[0]?.message?.content) {
-          setFormattedQuestion(data.choices[0].message.content);
-        }
-      })
+      .then(({ content }) => setFormattedQuestion(content))
       .catch(console.error);
   }, [q]);
 
@@ -85,9 +72,6 @@ export default function FeynmanModal({ open, onClose, answeredQuestions, program
     setError('');
 
     try {
-      const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-      if (!apiKey) throw new Error('VITE_GROQ_API_KEY not set');
-
       const systemPrompt = `You are a strict evaluator for the Feynman Technique. The user is trying to explain the solution to a specific math/physics problem.
 Topic: ${programTitle}
 Question: ${q.rawText}
@@ -100,23 +84,14 @@ Your instructions:
 5. Use markdown and latex ($ and $$) for any math notation.
 6. CRITICAL: Reply and evaluate the explanation in the EXACT SAME LANGUAGE as the question provided above. Do not translate.`;
 
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [
+      const { content } = await completeAiFeature({
+        task: 'feynman_feedback',
+        messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userText },
           ],
-          temperature: 0.3,
-          max_tokens: 1000,
-        }),
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || 'Error communicating with AI');
-      setFeedback(data.choices[0].message.content);
+      setFeedback(content);
     } catch (err: any) {
       setError(err.message);
     } finally {

@@ -1,4 +1,5 @@
 import { getUserDoc, setUserDoc, listUserDocs, deleteUserDoc, type DocData } from './supabaseDocStore';
+import { completeAiFeature } from './aiFeatureService';
 
 export interface PersonalSubject {
   id: string;
@@ -17,30 +18,21 @@ const _emojiCache = new Map<string, string>();
  * Uses the Groq LLM to pick the single most fitting emoji for the given subject
  * name. Works for any language (e.g. "Français", "Physik", "数学").
  * Pass `excludedEmojis` to prevent the AI from reusing an emoji already in use.
- * Falls back to 📘 silently if the API key is missing or the call fails.
+ * Falls back to 📘 silently if the server-side AI call fails.
  */
 export async function getEmojiForSubject(name: string, excludedEmojis: string[] = []): Promise<string> {
   // Cache key includes excluded emojis so different exclusion sets don't collide.
   const key = name.trim().toLowerCase() + '|' + excludedEmojis.sort().join('');
   if (_emojiCache.has(key)) return _emojiCache.get(key)!;
 
-  const apiKey = (import.meta.env.VITE_GROQ_API_KEY as string | undefined)?.trim();
-  if (!apiKey) return '📘';
-
   const exclusionLine = excludedEmojis.length > 0
     ? `\nDo NOT use any of these emojis (they are already taken): ${excludedEmojis.join(' ')}.`
     : '';
 
   try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
-        messages: [
+    const { content } = await completeAiFeature({
+      task: 'subject_emoji',
+      messages: [
           {
             role: 'system',
             content: `You are a creative emoji selector for school subjects. The user gives you a subject name (in any language). You must pick ONE emoji that is:
@@ -52,15 +44,8 @@ export async function getEmojiForSubject(name: string, excludedEmojis: string[] 
           },
           { role: 'user', content: name.trim() },
         ],
-        temperature: 0.5,
-        max_tokens: 5,
-      }),
     });
-
-    if (!res.ok) return '📘';
-
-    const data = await res.json();
-    const raw: string = data?.choices?.[0]?.message?.content?.trim() ?? '';
+    const raw = content.trim();
     // Extract the first emoji-like character from the response
     const match = raw.match(/\p{Emoji}/u);
     const emoji = match ? match[0] : '📘';

@@ -14,6 +14,8 @@
  * and also returned to the browser as JSON.
  */
 
+import { AiFeatureRequestError, completeAiFeature } from './aiFeatureService';
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface PipelineDebugLog {
@@ -301,12 +303,6 @@ export async function runPhase2Questions(
 
 // ─── Phase 3: Question Enrichment (direct Groq call) ─────────────────────────
 
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-// Use the fast 8B model for Phase 3 — it has a 500k token/day limit vs 100k
-// for the 70B model, preventing it from exhausting the shared daily budget
-// that Phase 2 (Python OCR server) also draws from.
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
-
 function buildEnrichmentPrompt(questionText: string, modelAnswer: string): string {
   return (
     'You are an expert tutor. Analyze this question and correct answer.\n\n' +
@@ -413,7 +409,6 @@ async function enrichOneQuestion(
   questionText: string,
   modelAnswer: string,
   answerFromPdf: boolean,
-  apiKey: string,
   retries = 4,
 ): Promise<{
   solution: string;
@@ -427,41 +422,28 @@ async function enrichOneQuestion(
   let delay = 8000; // start at 8s on first 429
 
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const response = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        temperature: 0.1,
-        max_tokens: 1500,
+    let raw: string;
+    try {
+      ({ content: raw } = await completeAiFeature({
+        task: 'question_enrichment',
         messages: [
           { role: 'system', content: 'Output only valid JSON with keys: solution, solutionPlan, hint, gradingSchema. BE CONCISE.' },
           { role: 'user', content: buildEnrichmentPrompt(questionText, modelAnswer) },
         ],
-        response_format: { type: 'json_object' },
-      }),
-    });
-
-    // Rate-limited or temporarily unavailable — wait and retry
-    if (response.status === 429 || response.status === 503) {
-      const retryAfter = Number(response.headers.get('retry-after') ?? 0);
-      const waitMs = retryAfter > 0 ? retryAfter * 1000 : delay;
-      console.warn(`[Phase 3] ${response.status} — waiting ${Math.round(waitMs / 1000)}s before retry ${attempt + 1}/${retries}`);
-      await sleep(waitMs);
-      delay = Math.min(delay * 2, 60000); // cap at 60s
-      lastErr = new Error(`Groq enrichment failed: ${response.status}`);
-      continue;
+      }));
+    } catch (error) {
+      if (error instanceof AiFeatureRequestError && (error.status === 429 || error.status === 503) && attempt < retries) {
+        const waitMs = error.retryAfterSeconds ? error.retryAfterSeconds * 1000 : delay;
+        console.warn(`[Phase 3] ${error.status} — waiting ${Math.round(waitMs / 1000)}s before retry ${attempt + 1}/${retries}`);
+        await sleep(waitMs);
+        delay = Math.min(delay * 2, 60000);
+        lastErr = error;
+        continue;
+      }
+      throw error;
     }
 
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`Groq 400 error payload:`, errText);
-      throw new Error(`Groq enrichment failed: ${response.status} - ${errText}`);
-    }
-
-    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    let raw = (payload.choices?.[0]?.message?.content ?? '').trim();
+    raw = raw.trim();
     // Strip markdown fences
     if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
     // Sanitise control characters before parsing
@@ -502,10 +484,10 @@ async function enrichOneQuestion(
 }
 
 /**
- * Phase 3 – Question Enrichment (runs directly in the browser via Groq API)
+ * Phase 3 – Question Enrichment (through the local API server)
  *
- * Calls Groq with VITE_GROQ_API_KEY to generate step-by-step solutions,
- * grading schemas, and hints for each question. No API server required.
+ * Generates step-by-step solutions, grading schemas, and hints without
+ * exposing provider credentials to the browser.
  *
  * @param topics       The topics+questions output from Phase 2
  * @param onProgress   Optional progress callback
@@ -530,12 +512,6 @@ export async function runPhase3Enrichment(
 
   if (allQuestions.length === 0) return topics;
 
-  const apiKey = (import.meta.env.VITE_GROQ_API_KEY as string | undefined)?.trim();
-  if (!apiKey) {
-    console.warn('[Phase 3] VITE_GROQ_API_KEY not set — skipping enrichment.');
-    return topics;
-  }
-
   onProgress?.(`⚙️ Phase 3: Generating solutions & grading schemas for ${allQuestions.length} question(s)...`);
 
   const enriched: Record<string, {
@@ -543,12 +519,11 @@ export async function runPhase3Enrichment(
     gradingSchema: GradingCriterion[]; modelAnswer: string; answerFromPdf: boolean;
   }> = {};
 
-  // Process ONE at a time with a gap to avoid Groq rate limits (6000 TPM limit)
+  // Process sequentially; the server reports real provider retry timing.
   let done = 0;
   for (const q of allQuestions) {
     try {
-      if (done > 0) await sleep(15000); // 15s between requests to stay under 6000 TPM limit
-      enriched[q.id] = await enrichOneQuestion(q.rawText, q.modelAnswer, q.answerFromPdf, apiKey);
+      enriched[q.id] = await enrichOneQuestion(q.rawText, q.modelAnswer, q.answerFromPdf);
     } catch (err) {
       console.error('[Phase 3] Failed for ' + q.id + ':', err);
       enriched[q.id] = {
@@ -647,18 +622,6 @@ export async function extractAndClassifyQuestions(
 
   onProgress?.(`🏷️ Classifying ${allQuestions.length} question(s) into categories: ${categoryNames.join(', ')}...`);
 
-  const apiKey = (import.meta.env.VITE_GROQ_API_KEY as string | undefined)?.trim();
-  if (!apiKey) {
-    console.warn('[Classification] VITE_GROQ_API_KEY not set — assigning all to first category.');
-    return {
-      questions: allQuestions.map((q) => ({
-        question: q,
-        suggestedCategory: categoryNames[0] ?? 'Uncategorized',
-        confidence: 'low' as const,
-      })),
-    };
-  }
-
   const categoriesJson = JSON.stringify(categoryNames);
   const questionsJson = JSON.stringify(
     allQuestions.map((q, i) => ({ index: i, text: q.rawText.slice(0, 400) })),
@@ -680,31 +643,19 @@ export async function extractAndClassifyQuestions(
   let classified: Array<{ index: number; category: string; confidence: string }> = [];
 
   try {
-    const response = await fetch(GROQ_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        temperature: 0.1,
-        max_tokens: 2000,
-        messages: [
+    const { content } = await completeAiFeature({
+      task: 'question_classification',
+      messages: [
           { role: 'system', content: 'Output only valid JSON. No markdown fences.' },
           { role: 'user', content: classifyPrompt },
         ],
-        response_format: { type: 'json_object' },
-      }),
-      signal: AbortSignal.timeout(60_000),
     });
-
-    if (response.ok) {
-      const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-      let raw = (payload.choices?.[0]?.message?.content ?? '').trim();
-      if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
-      raw = sanitizeJson(raw);
-      // Groq with json_object mode may wrap in {"result": [...]} — handle both
-      const parsed = JSON.parse(raw);
-      classified = Array.isArray(parsed) ? parsed : (parsed.result ?? parsed.classifications ?? []);
-    }
+    let raw = content.trim();
+    if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+    raw = sanitizeJson(raw);
+    // JSON object mode may wrap the requested array.
+    const parsed = JSON.parse(raw);
+    classified = Array.isArray(parsed) ? parsed : (parsed.result ?? parsed.classifications ?? []);
   } catch (err) {
     console.error('[Classification] Groq call failed:', err);
   }

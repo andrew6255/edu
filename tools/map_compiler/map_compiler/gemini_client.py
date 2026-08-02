@@ -10,7 +10,7 @@ from google.genai import errors
 
 @dataclass
 class GeminiConfig:
-    model: str = "gemini-1.5-flash"
+    model: str = "gemini-2.5-flash"
     api_key_env: str = "GEMINI_API_KEY"
     model_env: str = "GEMINI_MODEL"
 
@@ -38,7 +38,7 @@ class GeminiClient:
             models = list(self._client.models.list())
         except Exception:
             # If we can't list models, fall back to the requested name.
-            return req or "gemini-1.5-flash"
+            return req or "gemini-2.5-flash"
 
         supported: list[str] = []
         for m in models:
@@ -50,7 +50,7 @@ class GeminiClient:
                 supported.append(name.removeprefix("models/"))
 
         # Never auto-select 2.0 models (your quota is 0); only allow if explicitly requested.
-        supported_non2 = [n for n in supported if not n.startswith("gemini-2.")]
+        supported_nonblocked = [n for n in supported if not n.startswith("gemini-2.0")]
 
         def _is_supported(name: str) -> bool:
             nm = name.removeprefix("models/")
@@ -62,14 +62,15 @@ class GeminiClient:
         # If user explicitly requested a model but it isn't supported, fall back to best available.
         # Prefer flash over pro, and newest variants if present.
         preference_prefixes = [
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-pro",
         ]
         for pref in preference_prefixes:
-            exact = [n for n in supported_non2 if n == pref]
+            exact = [n for n in supported_nonblocked if n == pref]
             if exact:
                 return exact[0]
-            variants = [n for n in supported_non2 if n.startswith(pref)]
+            variants = [n for n in supported_nonblocked if n.startswith(pref)]
             if variants:
                 # heuristically pick a "latest" if present, else first variant
                 for v in variants:
@@ -77,14 +78,14 @@ class GeminiClient:
                         return v
                 return sorted(variants)[0]
 
-        if supported_non2:
-            return supported_non2[0]
+        if supported_nonblocked:
+            return supported_nonblocked[0]
 
         if supported:
             # Only remaining models are 2.0; return something so the error is explicit.
             return supported[0]
 
-        return req or "gemini-1.5-flash"
+        return req or "gemini-2.5-flash"
 
     def generate_json(self, *, system: str, user: str, images: Optional[Iterable[bytes]] = None) -> str:
         contents: list[Any] = []
@@ -97,8 +98,8 @@ class GeminiClient:
 
         fallback_models = [
             self._model_name,
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite",
         ]
         tried: set[str] = set()
 
@@ -108,7 +109,7 @@ class GeminiClient:
         for model in fallback_models:
             if not model or model in tried:
                 continue
-            if model.startswith("gemini-2."):
+            if model.startswith("gemini-2.0"):
                 continue
             tried.add(model)
             last_model = model
@@ -127,7 +128,7 @@ class GeminiClient:
                 if isinstance(last_err, errors.ClientError) and getattr(last_err, "status_code", None) == 429:
                     raise RuntimeError(
                         f"Gemini quota exhausted (429) for model={last_model}. "
-                        "Try waiting and retry, or set GEMINI_MODEL=gemini-1.5-flash."
+                        "Try waiting and retry, or set GEMINI_MODEL=gemini-2.5-flash."
                     ) from last_err
                 raise last_err
             raise RuntimeError("Gemini request failed with no response.")

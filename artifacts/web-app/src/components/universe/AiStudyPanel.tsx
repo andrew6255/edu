@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import LatexMarkdown from '@/components/ui/LatexMarkdown';
+import { completeAiFeature } from '@/lib/aiFeatureService';
 
 export type AiStudyMode = 'study_sheet' | 'test_me' | 'feynman';
 
@@ -25,9 +26,6 @@ interface LearnData {
 }
 
 async function fetchLearnData(programTitle: string, contentSummary: string): Promise<LearnData> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) throw new Error('VITE_GROQ_API_KEY not set');
-
   const systemPrompt = `You are an expert tutor. The student is studying: "${programTitle}".
 Here is the content of their study material:
 ---
@@ -50,25 +48,10 @@ Return ONLY a JSON object with this exact structure:
 CRITICAL: Generate all content (including titles, questions, and explanations) in the EXACT SAME LANGUAGE as the programTitle and contentSummary. Do not translate.
 NO OTHER TEXT OR MARKDOWN OUTSIDE THE JSON.`;
 
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'system', content: systemPrompt }],
-      temperature: 0.3,
-      max_tokens: 1500,
-      response_format: { type: 'json_object' }
-    }),
+  const { content } = await completeAiFeature({
+    task: 'study_sheet',
+    messages: [{ role: 'system', content: systemPrompt }],
   });
-  
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || 'Groq API error');
-  
-  const content = data.choices[0].message.content as string;
   const parsed = JSON.parse(content) as LearnData;
   return parsed;
 }

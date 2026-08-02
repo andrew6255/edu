@@ -5,6 +5,7 @@ import freeformGradingRouter from "../modules/freeform-grading/routes";
 import handwritingRecognitionRouter from "../modules/handwriting-recognition/routes";
 import symbolRecognitionRouter from "../modules/symbol-recognition/routes";
 import aiTutorRouter from "../modules/ai-tutor/routes";
+import aiFeaturesRouter from "../modules/ai-features/routes";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(freeformGradingRouter);
 router.use(handwritingRecognitionRouter);
 router.use(symbolRecognitionRouter);
 router.use(aiTutorRouter);
+router.use(aiFeaturesRouter);
 
 export default router;

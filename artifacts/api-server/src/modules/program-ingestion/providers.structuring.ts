@@ -130,7 +130,7 @@ export class GeminiDraftStructuringProvider implements DraftStructuringProvider 
       throw new Error("GEMINI_API_KEY is required when PROGRAM_INGESTION_STRUCTURING_PROVIDER=gemini.");
     }
 
-    const model = process.env["PROGRAM_INGESTION_GEMINI_MODEL"] ?? "gemini-2.0-flash";
+    const model = process.env["PROGRAM_INGESTION_GEMINI_MODEL"] ?? "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
     const extractedText = (state.draft.extractedDocument?.pages ?? [])
@@ -229,7 +229,9 @@ EXTRACTED TEXT:\n${extractedText}`;
 }
 
 export function getDraftStructuringProvider(): DraftStructuringProvider {
-  const provider = (process.env["PROGRAM_INGESTION_STRUCTURING_PROVIDER"] ?? "gemini").toLowerCase().trim();
+  // The current import workflow leaves program organization to the super
+  // admin, so AI structuring is opt-in rather than the implicit default.
+  const provider = (process.env["PROGRAM_INGESTION_STRUCTURING_PROVIDER"] ?? "fallback").toLowerCase().trim();
 
   switch (provider) {
     case "":

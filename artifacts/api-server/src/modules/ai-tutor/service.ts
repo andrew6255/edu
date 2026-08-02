@@ -360,11 +360,16 @@ export class AiTutorService {
       questionId: input.questionId,
       questionPrompt: input.questionPrompt,
     });
+    if (input.mode === 'solve') {
+      return {
+        mode: 'solve',
+        steps: answerPackage.fullSolution.map(step => ({ title: step.title, body: step.body })),
+        answerPackage,
+      };
+    }
     const external = getExternalAiTutorProvider();
     if (!external) {
-      const steps = input.mode === 'solve'
-        ? answerPackage.fullSolution.map(step => ({ title: step.title, body: step.body }))
-        : input.mode === 'next_step'
+      const steps = input.mode === 'hint'
           ? answerPackage.highLevelSteps.slice(0, 1).map(title => ({ title, body: null }))
           : answerPackage.highLevelSteps.map(title => ({ title, body: null }));
       return { mode: input.mode, steps, answerPackage };

@@ -40,6 +40,11 @@ testem.log
 /dev.err.log
 /api-dev.out.log
 /api-dev.err.log
+/ocr-dev.out.log
+/ocr-dev.err.log
+/api-current.out.log
+/api-current.err.log
+/.pnpm-store/
 
 # System Files
 .DS_Store

@@ -9,7 +9,7 @@ export type TutorAnswerPackage = {
   model?: string | null;
 };
 
-export type PaperHelpMode = 'steps' | 'next_step' | 'solve';
+export type PaperHelpMode = 'steps' | 'hint' | 'solve';
 
 export type PaperHelpResult = {
   mode: PaperHelpMode;
@@ -136,6 +136,7 @@ export function explainPaperCorrection(input: {
   activeStepTitle?: string;
   recognizedText?: string | null;
   message: string;
+  conversation?: Array<{ role: 'student' | 'tutor'; content: string }>;
 }): Promise<{ reply: string; suggestedActions: string[] }> {
   return postJson('/chat', input);
 }

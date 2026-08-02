@@ -3,6 +3,7 @@ import type { ExtractedDocument } from "./extractionTypes";
 import type { IngestionAsset } from "./types";
 import type { DocumentExtractionProvider } from "./providers.extraction";
 import { TesseractOcrExtractionProvider } from "./providers.tesseractOcr";
+import { MistralOcrExtractionProvider } from "./providers.mistralOcr";
 
 export class StubScanDocumentExtractionProvider implements DocumentExtractionProvider {
   readonly name = "stub_scan_document";
@@ -63,6 +64,7 @@ export function getConfiguredScanDocumentExtractionProvider(): DocumentExtractio
     case "tesseract":
       return new TesseractOcrExtractionProvider();
     case "mistral":
+      return new MistralOcrExtractionProvider();
     case "google":
     case "azure":
       return new UnconfiguredScanOcrProvider();

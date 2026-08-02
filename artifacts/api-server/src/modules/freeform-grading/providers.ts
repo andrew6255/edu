@@ -117,7 +117,7 @@ export class GeminiFreeformGradingProvider implements FreeformGradingProvider {
       };
     }
 
-    const model = process.env["FREEFORM_GRADING_GEMINI_MODEL"] ?? "gemini-2.0-flash";
+    const model = process.env["FREEFORM_GRADING_GEMINI_MODEL"] ?? "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
     const prompt = [
       "You are grading a student freeform answer for a math-learning product.",
