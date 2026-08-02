@@ -21,6 +21,7 @@ type Props = {
   strokeColor: string;
   strokeWidth: number;
   scale: number;
+  viewportW: number;
   testGrade?: string;
   onStrokeAdd: (pageId: string, stroke: Stroke) => void;
   onStrokeRemove: (pageId: string, strokeId: string) => void;
@@ -35,6 +36,7 @@ type Props = {
   onAiMarkClick: (mark: PaperAiMark) => void;
   aiHelpBusyRegion: string | null;
   disableAiHelp: boolean;
+  showAiContent: boolean;
 };
 
 function id(): string {
@@ -94,9 +96,9 @@ function normalizeTutorMath(content: string): string {
 
 export default memo(function PaperPageCanvas(props: Props) {
   const {
-    page, pageIndex, currentQuestion, activeTool, eraserMode, strokeColor, strokeWidth, scale, testGrade,
+    page, pageIndex, currentQuestion, activeTool, eraserMode, strokeColor, strokeWidth, scale, viewportW, testGrade,
     onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, onMoveStrokes,
-    onQuestionMove, onWritingProgress, onAiHelp, onAiBlockClose, onAskQuestion, onAiMarkClick, aiHelpBusyRegion, disableAiHelp,
+    onQuestionMove, onWritingProgress, onAiHelp, onAiBlockClose, onAskQuestion, onAiMarkClick, aiHelpBusyRegion, disableAiHelp, showAiContent
   } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const regionElements = useRef(new Map<string, HTMLDivElement>());
@@ -111,8 +113,20 @@ export default memo(function PaperPageCanvas(props: Props) {
   const [selection, setSelection] = useState<string[]>([]);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
+  useEffect(() => {
+    if (!helpMenu) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.fsw-ai-help-menu') && !target.closest('.fsw-question-action')) {
+        setHelpMenu(null);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [helpMenu]);
+
   const shape = useMemo(() => buildPaperQuestionShape(currentQuestion), [currentQuestion]);
-  const pageWidth = Math.max(PAGE_W, page.width ?? PAGE_W);
+  const pageWidth = Math.max(viewportW, page.width ?? viewportW);
   const defaultAnswerHeight = shape.parts.length === 1 ? 900 : 260;
   const heights = page.answerRegionHeights ?? {};
   const questionTopOffset = page.questionTopOffset ?? 0;
@@ -148,7 +162,7 @@ export default memo(function PaperPageCanvas(props: Props) {
     if (pageIndex !== 0) return shape.parts[shape.parts.length - 1]?.id ?? `page:${page.id}`;
     for (const [regionId, element] of regionElements.current) {
       const bounds = element.getBoundingClientRect();
-      if (clientX >= bounds.left && clientX <= bounds.right && clientY >= bounds.top && clientY <= bounds.bottom) return regionId;
+      if (clientY >= bounds.top && clientY <= bounds.bottom) return regionId;
     }
     return null;
   }, [currentQuestion, page.id, pageIndex, shape.parts]);
@@ -318,7 +332,7 @@ export default memo(function PaperPageCanvas(props: Props) {
       {shape.parts.map((part, index) => {
         const answerHeight = heights[part.id] ?? defaultAnswerHeight;
         const studentStrokes = page.strokes.filter(stroke => stroke.regionId === part.id);
-        const allAiBlocks = (page.aiBlocks ?? []).filter(block => block.regionId === part.id);
+        const allAiBlocks = showAiContent ? (page.aiBlocks ?? []).filter(block => block.regionId === part.id) : [];
         const aiBlocks = allAiBlocks.filter(block => !block.hidden);
         const stepBlocks = allAiBlocks.filter(block => block.mode === 'steps');
         const stepsVisible = stepBlocks.some(block => !block.hidden);
@@ -329,7 +343,7 @@ export default memo(function PaperPageCanvas(props: Props) {
         const previousAnnotationBottom = previousPart && previousBounds
           ? page.annotations.filter(annotation => annotation.regionId === previousPart.id).reduce((maximum, annotation) => Math.max(maximum, annotation.y + annotation.height - previousBounds.top), 0)
           : 0;
-        const previousAiBottom = previousPart
+        const previousAiBottom = previousPart && showAiContent
           ? (page.aiBlocks ?? []).filter(block => block.regionId === previousPart.id && !block.hidden).reduce((maximum, block) => Math.max(maximum, block.y + (block.body ? 135 : 70)), 0)
           : 0;
         const previousHeight = previousPart ? heights[previousPart.id] ?? defaultAnswerHeight : 0;
@@ -359,7 +373,7 @@ export default memo(function PaperPageCanvas(props: Props) {
       })}
     </div>}
     <canvas ref={canvasRef} width={pageWidth} height={resolvedPageHeight} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} style={{ position: 'absolute', inset: 0, touchAction: 'none', cursor: activeTool === 'eraser' ? 'cell' : activeTool === 'select' ? 'default' : activeTool === 'text' ? 'text' : 'crosshair', zIndex: 2 }} />
-    {(page.aiMarks ?? []).map(mark => <button key={mark.id} type="button" className={`fsw-ai-mark ${mark.type}`} onClick={() => onAiMarkClick(mark)} style={{ left: mark.x, top: mark.y, width: mark.width, height: mark.height }}><span>{mark.correctionText}</span></button>)}
+    {showAiContent && (page.aiMarks ?? []).map(mark => <button key={mark.id} type="button" className={`fsw-ai-mark ${mark.type}`} onClick={() => onAiMarkClick(mark)} style={{ left: mark.x, top: mark.y, width: mark.width, height: mark.height }}><span>{mark.correctionText}</span></button>)}
     {(lasso.length > 1 || selectedBounds) && <svg className="fsw-selection-layer" viewBox={`0 0 ${pageWidth} ${resolvedPageHeight}`}>
       {lasso.length > 1 && <polyline points={lasso.map(point => `${point.x},${point.y}`).join(' ')} fill="rgba(79,70,229,.06)" stroke="#4f46e5" strokeWidth="2" strokeDasharray="7 5" />}
       {selectedBounds && <rect x={selectedBounds.left + dragOffset.x - 8} y={selectedBounds.top + dragOffset.y - 8} width={selectedBounds.right - selectedBounds.left + 16} height={selectedBounds.bottom - selectedBounds.top + 16} rx="8" fill="rgba(79,70,229,.05)" stroke="#4f46e5" strokeWidth="2" strokeDasharray="7 5" />}
