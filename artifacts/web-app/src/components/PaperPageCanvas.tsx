@@ -16,7 +16,7 @@ type Props = {
   page: PageData;
   pageIndex: number;
   currentQuestion?: PersonalProgramQuestion | string;
-  activeTool: 'pen' | 'eraser' | 'select' | 'text';
+  activeTool: 'pen' | 'eraser' | 'select' | 'text' | 'pan';
   eraserMode: EraserMode;
   strokeColor: string;
   strokeWidth: number;
@@ -37,6 +37,7 @@ type Props = {
   aiHelpBusyRegion: string | null;
   disableAiHelp: boolean;
   showAiContent: boolean;
+  isPanning?: boolean;
 };
 
 function id(): string {
@@ -69,7 +70,7 @@ function insidePolygon(point: StrokePoint, polygon: StrokePoint[]): boolean {
 function renderStroke(context: CanvasRenderingContext2D, stroke: Stroke): void {
   if (stroke.points.length < 2) return;
   context.save();
-  context.globalCompositeOperation = 'source-over';
+  context.globalCompositeOperation = stroke.isEraser ? 'destination-out' : 'source-over';
   context.strokeStyle = stroke.color;
   context.lineWidth = stroke.width;
   context.lineCap = 'round';
@@ -98,7 +99,8 @@ export default memo(function PaperPageCanvas(props: Props) {
   const {
     page, pageIndex, currentQuestion, activeTool, eraserMode, strokeColor, strokeWidth, scale, viewportW, testGrade,
     onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, onMoveStrokes,
-    onQuestionMove, onWritingProgress, onAiHelp, onAiBlockClose, onAskQuestion, onAiMarkClick, aiHelpBusyRegion, disableAiHelp, showAiContent
+    onQuestionMove, onWritingProgress, onAiHelp, onAiBlockClose, onAskQuestion, onAiMarkClick, 
+    aiHelpBusyRegion, disableAiHelp, showAiContent, isPanning
   } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const regionElements = useRef(new Map<string, HTMLDivElement>());
@@ -160,11 +162,16 @@ export default memo(function PaperPageCanvas(props: Props) {
     // Continuation sheets belong to the final answer region, so their work is
     // included in live correction and whole-question grading.
     if (pageIndex !== 0) return shape.parts[shape.parts.length - 1]?.id ?? `page:${page.id}`;
-    for (const [regionId, element] of regionElements.current) {
+    
+    let closestRegionId = shape.parts[0]?.id ?? `page:${page.id}`;
+    for (const part of shape.parts) {
+      const element = regionElements.current.get(part.id);
+      if (!element) continue;
       const bounds = element.getBoundingClientRect();
-      if (clientY >= bounds.top && clientY <= bounds.bottom) return regionId;
+      if (clientY >= bounds.top && clientY <= bounds.bottom) return part.id;
+      if (clientY > bounds.bottom) closestRegionId = part.id;
     }
-    return null;
+    return closestRegionId;
   }, [currentQuestion, page.id, pageIndex, shape.parts]);
 
   const regionBounds = useCallback((regionId: string) => {
@@ -216,7 +223,7 @@ export default memo(function PaperPageCanvas(props: Props) {
   }, [eraserMode, onStrokeRemove, page.id, page.strokes]);
 
   const onPointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || activeTool === 'pan') return;
     event.preventDefault();
     const point = pointFromEvent(event);
     const regionId = regionAt(event.clientX, event.clientY);
@@ -248,7 +255,10 @@ export default memo(function PaperPageCanvas(props: Props) {
       return;
     }
 
-    if (activeTool === 'eraser') { eraseAt(point, regionId); return; }
+    if (activeTool === 'eraser') {
+      if (eraserMode === 'stroke') { eraseAt(point, regionId); return; }
+      erasedThisGesture.current.clear();
+    }
     activePoints.current = [point];
   }, [activeTool, eraseAt, onAnnotationAdd, onWritingProgress, page.id, page.strokes, pointFromEvent, pointIsProtected, regionAt, regionBounds, selection]);
 
@@ -260,10 +270,9 @@ export default memo(function PaperPageCanvas(props: Props) {
       if (dragStart.current) {
         const selected = page.strokes.filter(stroke => selection.includes(stroke.id));
         const bounds = strokeBounds(selected); if (!bounds) return;
-        const allowed = regionBounds(dragStart.current.regionId);
         const rawX = point.x - dragStart.current.point.x; const rawY = point.y - dragStart.current.point.y;
-        const dx = Math.max(allowed.left - bounds.left, Math.min(allowed.right - bounds.right, rawX));
-        const dy = Math.max(allowed.top - bounds.top, Math.min(allowed.bottom - bounds.bottom, rawY));
+        const dx = Math.max(-bounds.left, Math.min(pageWidth - bounds.right, rawX));
+        const dy = Math.max(-bounds.top, Math.min(resolvedPageHeight - bounds.bottom, rawY));
         if (selectionHitsProtected(bounds, dx, dy)) return;
         setDragOffset({ x: dx, y: dy });
         const preview = page.strokes.map(stroke => selection.includes(stroke.id) ? { ...stroke, points: stroke.points.map(candidate => ({ ...candidate, x: candidate.x + dx, y: candidate.y + dy })) } : stroke);
@@ -272,28 +281,41 @@ export default memo(function PaperPageCanvas(props: Props) {
       return;
     }
     if (pointIsProtected(event.clientX, event.clientY)) {
-      if (activeTool === 'pen' && activePoints.current.length >= 2) {
-        const stroke = { id: id(), points: [...activePoints.current], color: strokeColor, width: strokeWidth, regionId: activeRegion.current || undefined };
+      if ((activeTool === 'pen' || activeTool === 'eraser') && activePoints.current.length >= 2) {
+        const isEraser = activeTool === 'eraser';
+        const stroke: Stroke = { id: id(), points: [...activePoints.current], color: strokeColor, width: isEraser ? ERASER_RADIUS * 2 : strokeWidth, regionId: activeRegion.current || undefined, isEraser };
         onStrokeAdd(page.id, stroke);
-        if (activeRegion.current) onWritingProgress(page.id, activeRegion.current, Math.max(...stroke.points.map(candidate => candidate.y)) - regionBounds(activeRegion.current).top);
+        if (activeRegion.current && !isEraser) onWritingProgress(page.id, activeRegion.current, Math.max(...stroke.points.map(candidate => candidate.y)) - regionBounds(activeRegion.current).top);
       }
       activePoints.current = [];
       drawing.current = false;
       return;
     }
     if (!regionId || regionId !== activeRegion.current) {
-      if (activeTool === 'pen' && activePoints.current.length >= 2) {
-        const stroke = { id: id(), points: [...activePoints.current], color: strokeColor, width: strokeWidth, regionId: activeRegion.current || undefined };
+      if ((activeTool === 'pen' || activeTool === 'eraser') && activePoints.current.length >= 2) {
+        const isEraser = activeTool === 'eraser';
+        const stroke: Stroke = { id: id(), points: [...activePoints.current], color: strokeColor, width: isEraser ? ERASER_RADIUS * 2 : strokeWidth, regionId: activeRegion.current || undefined, isEraser };
         onStrokeAdd(page.id, stroke);
-        if (activeRegion.current) onWritingProgress(page.id, activeRegion.current, Math.max(...stroke.points.map(candidate => candidate.y)) - regionBounds(activeRegion.current).top);
+        if (activeRegion.current && !isEraser) onWritingProgress(page.id, activeRegion.current, Math.max(...stroke.points.map(candidate => candidate.y)) - regionBounds(activeRegion.current).top);
       }
       activePoints.current = []; drawing.current = false; return;
     }
-    if (activeTool === 'eraser') { eraseAt(point, regionId); return; }
+    if (activeTool === 'eraser' && eraserMode === 'stroke') { eraseAt(point, regionId); return; }
     activePoints.current.push(point);
     const context = canvasRef.current?.getContext('2d');
     const previous = activePoints.current[activePoints.current.length - 2];
-    if (context && previous) { context.save(); context.strokeStyle = strokeColor; context.lineWidth = strokeWidth; context.lineCap = 'round'; context.beginPath(); context.moveTo(previous.x, previous.y); context.lineTo(point.x, point.y); context.stroke(); context.restore(); }
+    if (context && previous) {
+      context.save();
+      context.globalCompositeOperation = activeTool === 'eraser' ? 'destination-out' : 'source-over';
+      context.strokeStyle = strokeColor;
+      context.lineWidth = activeTool === 'eraser' ? ERASER_RADIUS * 2 : strokeWidth;
+      context.lineCap = 'round';
+      context.beginPath();
+      context.moveTo(previous.x, previous.y);
+      context.lineTo(point.x, point.y);
+      context.stroke();
+      context.restore();
+    }
   }, [activeTool, eraseAt, onStrokeAdd, onWritingProgress, page.id, page.strokes, pointFromEvent, pointIsProtected, regionAt, regionBounds, selection, selectionHitsProtected, strokeColor, strokeWidth]);
 
   const onPointerUp = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -314,10 +336,11 @@ export default memo(function PaperPageCanvas(props: Props) {
       if (canvasRef.current) renderAll(canvasRef.current, page.strokes);
       return;
     }
-    if (activeTool === 'pen' && activePoints.current.length >= 2) {
-      const stroke = { id: id(), points: [...activePoints.current], color: strokeColor, width: strokeWidth, regionId: activeRegion.current || undefined };
+    if ((activeTool === 'pen' || activeTool === 'eraser') && activePoints.current.length >= 2) {
+      const isEraser = activeTool === 'eraser';
+      const stroke: Stroke = { id: id(), points: [...activePoints.current], color: strokeColor, width: isEraser ? ERASER_RADIUS * 2 : strokeWidth, regionId: activeRegion.current || undefined, isEraser };
       onStrokeAdd(page.id, stroke);
-      if (activeRegion.current) onWritingProgress(page.id, activeRegion.current, Math.max(...stroke.points.map(candidate => candidate.y)) - regionBounds(activeRegion.current).top);
+      if (activeRegion.current && !isEraser) onWritingProgress(page.id, activeRegion.current, Math.max(...stroke.points.map(candidate => candidate.y)) - regionBounds(activeRegion.current).top);
     }
     activePoints.current = [];
     erasedThisGesture.current.clear();
@@ -328,11 +351,11 @@ export default memo(function PaperPageCanvas(props: Props) {
   return <div className="fsw-page" data-page-index={pageIndex} style={{ width: pageWidth, height: resolvedPageHeight, transform: `scale(${scale})`, transformOrigin: 'top left', marginBottom: PAGE_GAP * scale }}>
     <div className="fsw-page-lines" />
     {pageIndex === 0 && currentQuestion && <div ref={questionSheetRef} className="fsw-question-sheet">
-      {shape.context && <div className="fsw-question-context"><LatexMarkdown content={shape.context} /></div>}
+      {shape.context && <div className="fsw-question-context" data-paper-protected="true"><LatexMarkdown content={shape.context} /></div>}
       {shape.parts.map((part, index) => {
         const answerHeight = heights[part.id] ?? defaultAnswerHeight;
         const studentStrokes = page.strokes.filter(stroke => stroke.regionId === part.id);
-        const allAiBlocks = showAiContent ? (page.aiBlocks ?? []).filter(block => block.regionId === part.id) : [];
+        const allAiBlocks = (page.aiBlocks ?? []).filter(block => block.regionId === part.id);
         const aiBlocks = allAiBlocks.filter(block => !block.hidden);
         const stepBlocks = allAiBlocks.filter(block => block.mode === 'steps');
         const stepsVisible = stepBlocks.some(block => !block.hidden);
@@ -343,14 +366,14 @@ export default memo(function PaperPageCanvas(props: Props) {
         const previousAnnotationBottom = previousPart && previousBounds
           ? page.annotations.filter(annotation => annotation.regionId === previousPart.id).reduce((maximum, annotation) => Math.max(maximum, annotation.y + annotation.height - previousBounds.top), 0)
           : 0;
-        const previousAiBottom = previousPart && showAiContent
+        const previousAiBottom = previousPart
           ? (page.aiBlocks ?? []).filter(block => block.regionId === previousPart.id && !block.hidden).reduce((maximum, block) => Math.max(maximum, block.y + (block.body ? 135 : 70)), 0)
           : 0;
         const previousHeight = previousPart ? heights[previousPart.id] ?? defaultAnswerHeight : 0;
         const minimumPreviousHeight = Math.max(180, previousInkBottom + 110, previousAnnotationBottom + 70, previousAiBottom + 55);
         const canMoveUp = index === 0 ? questionTopOffset > 0 : previousHeight - 80 >= minimumPreviousHeight;
         return <div className="fsw-question-part" key={part.id} style={index === 0 && questionTopOffset ? { marginTop: questionTopOffset } : undefined}>
-          <div className="fsw-question-part-header">
+          <div className="fsw-question-part-header" data-paper-protected="true">
             {part.label && <span className="fsw-question-part-label">{part.label}</span>}
             <div className="fsw-question-part-prompt"><LatexMarkdown content={part.prompt} /></div>
             {!disableAiHelp && <div className="fsw-question-actions">
@@ -372,7 +395,7 @@ export default memo(function PaperPageCanvas(props: Props) {
         </div>;
       })}
     </div>}
-    <canvas ref={canvasRef} width={pageWidth} height={resolvedPageHeight} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} style={{ position: 'absolute', inset: 0, touchAction: 'none', cursor: activeTool === 'eraser' ? 'cell' : activeTool === 'select' ? 'default' : activeTool === 'text' ? 'text' : 'crosshair', zIndex: 2 }} />
+    <canvas ref={canvasRef} width={pageWidth} height={resolvedPageHeight} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} style={{ position: 'absolute', inset: 0, touchAction: 'none', cursor: activeTool === 'pan' ? (isPanning ? 'grabbing' : 'grab') : activeTool === 'eraser' ? 'cell' : activeTool === 'select' ? 'default' : activeTool === 'text' ? 'text' : 'crosshair', zIndex: 2 }} />
     {showAiContent && (page.aiMarks ?? []).map(mark => <button key={mark.id} type="button" className={`fsw-ai-mark ${mark.type}`} onClick={() => onAiMarkClick(mark)} style={{ left: mark.x, top: mark.y, width: mark.width, height: mark.height }}><span>{mark.correctionText}</span></button>)}
     {(lasso.length > 1 || selectedBounds) && <svg className="fsw-selection-layer" viewBox={`0 0 ${pageWidth} ${resolvedPageHeight}`}>
       {lasso.length > 1 && <polyline points={lasso.map(point => `${point.x},${point.y}`).join(' ')} fill="rgba(79,70,229,.06)" stroke="#4f46e5" strokeWidth="2" strokeDasharray="7 5" />}

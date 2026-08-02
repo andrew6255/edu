@@ -31,6 +31,7 @@ export interface Stroke {
   color: string;
   width: number;
   regionId?: string;
+  isEraser?: boolean;
 }
 
 export interface TextAnnotation {
@@ -383,6 +384,7 @@ const PageCanvas = memo(function PageCanvas({
   }, [page.strokes, page.annotations]);
   const activeStroke = useRef<StrokePoint[]>([]);
   const isDrawing = useRef(false);
+  const activePointers = useRef<Set<number>>(new Set());
   const [editingAnn, setEditingAnn] = useState<string | null>(null);
 
   // Re-render strokes whenever they change
@@ -406,6 +408,14 @@ const PageCanvas = memo(function PageCanvas({
   }, [currentQuestion, pageIndex, scale]);
 
   const handleDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    activePointers.current.add(e.pointerId);
+    if (activePointers.current.size > 1) {
+      isDrawing.current = false;
+      activeStroke.current = [];
+      if (canvasRef.current) renderAllStrokes(canvasRef.current, page.strokes);
+      return;
+    }
+
     e.preventDefault();
     const pos = getPos(e);
     if (pos.y < getWritingStartY()) return;
@@ -500,6 +510,7 @@ const PageCanvas = memo(function PageCanvas({
   }, [activeTool, eraserMode, strokeColor, strokeWidth, page, getPos, getWritingStartY, onStrokeAdd, onStrokeRemove]);
 
   const handleUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    activePointers.current.delete(e.pointerId);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
@@ -729,6 +740,7 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   const evaluatedLineSignaturesRef = useRef(new Map<string, string>());
   const questionRunRef = useRef(0);
   const answerRequestRef = useRef<{ key: string; promise: Promise<TutorAnswerPackage> } | null>(null);
+  const aiHelpCache = useRef<Record<string, any>>({});
 
   // ── Pages State ──
   const sanitizeInitialPages = (pages: PageData[] | undefined) => {
@@ -797,7 +809,7 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   }[]>([]);
 
   // ── Tool State ──
-  const [activeTool, setActiveTool] = useState<'pen' | 'eraser' | 'select' | 'text'>('pen');
+  const [activeTool, setActiveTool] = useState<'pen' | 'eraser' | 'select' | 'text' | 'pan'>('pen');
   const [eraserMode, setEraserMode] = useState<EraserMode>('pixel');
   const [strokeColor, setStrokeColor] = useState('#1e293b');
   const [strokeWidth, setStrokeWidth] = useState(2.5);
@@ -835,9 +847,81 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   // ── Scroll & Scale ──
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const rightDragRef = useRef<{ pointerId: number; clientX: number } | null>(null);
+  const rightDragRef = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const [rightDragging, setRightDragging] = useState(false);
   const [scale, setScale] = useState(1);
+  
+  // ── 2-Finger Panning ──
+  const activeToolRef = useRef(activeTool);
+  useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    let lastTouchCenter: { x: number; y: number } | null = null;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      const isPan = activeToolRef.current === 'pan';
+      if (e.touches.length === 2 || (isPan && e.touches.length === 1)) {
+        let cx = 0, cy = 0;
+        for (let i = 0; i < e.touches.length; i++) {
+          cx += e.touches[i].clientX;
+          cy += e.touches[i].clientY;
+        }
+        lastTouchCenter = {
+          x: cx / e.touches.length,
+          y: cy / e.touches.length,
+        };
+      } else {
+        lastTouchCenter = null;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      const isPan = activeToolRef.current === 'pan';
+      if ((e.touches.length === 2 || (isPan && e.touches.length === 1)) && lastTouchCenter) {
+        let cx = 0, cy = 0;
+        for (let i = 0; i < e.touches.length; i++) {
+          cx += e.touches[i].clientX;
+          cy += e.touches[i].clientY;
+        }
+        const currentCenter = {
+          x: cx / e.touches.length,
+          y: cy / e.touches.length,
+        };
+        const dx = lastTouchCenter.x - currentCenter.x;
+        const dy = lastTouchCenter.y - currentCenter.y;
+        
+        container.scrollLeft += dx;
+        container.scrollTop += dy;
+
+        lastTouchCenter = currentCenter;
+        e.preventDefault();
+      } else {
+        lastTouchCenter = null;
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const isPan = activeToolRef.current === 'pan';
+      if (e.touches.length < (isPan ? 1 : 2)) {
+        lastTouchCenter = null;
+      }
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd);
+    container.addEventListener('touchcancel', handleTouchEnd);
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, []);
   const [viewportW, setViewportW] = useState(PAGE_W);
 
   // ── Responsive scale ──
@@ -871,19 +955,24 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   }, [pages.length]); // re-observe when pages change so sentinel moves
 
   const beginRightPaperDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 2) return;
+    if (event.button !== 2 && !(event.button === 0 && activeTool === 'pan')) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    rightDragRef.current = { pointerId: event.pointerId, clientX: event.clientX };
+    rightDragRef.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
     setRightDragging(true);
-  }, []);
+  }, [activeTool]);
 
   const moveRightPaperDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const drag = rightDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     const movement = drag.clientX - event.clientX;
+    const movementY = drag.clientY - event.clientY;
     drag.clientX = event.clientX;
+    drag.clientY = event.clientY;
+    
+    if (scrollRef.current) scrollRef.current.scrollTop += movementY;
+
     if (movement > 0) {
       const extension = movement / Math.max(scale, 0.1);
       setPages(previous => previous.map(page => ({ ...page, width: Math.max(viewportW, (page.width ?? viewportW) + extension) })));
@@ -1551,8 +1640,6 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
 
   const commitAiPageChange = useCallback((beforePage: PageData, afterPage: PageData) => {
     setPages(previous => previous.map(page => page.id === beforePage.id ? afterPage : page));
-    setUndoStack(stack => [...stack, { type: 'ai-blocks', pageId: beforePage.id, data: { beforePage, afterPage } }]);
-    setRedoStack([]);
   }, []);
 
   const handleAiBlockClose = useCallback((pageId: string, blockId: string) => {
@@ -1640,23 +1727,26 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     if (!page) return;
     setAiHelpBusyRegion(regionId);
     setHasUsedAiAssistance(true);
-    setCorrectMeOn(true);
     const questionRun = questionRunRef.current;
     try {
-      const answer = await ensureAnswerPackage();
-      if (questionRun !== questionRunRef.current) return;
-      const studentStrokes = page.strokes.filter(stroke => stroke.regionId === regionId);
-      const recognized = await recognizeStrokes(studentStrokes);
-      if (questionRun !== questionRunRef.current) return;
-      const result = await requestPaperHelp({
-        mode, programId,
-        questionId: typeof currentQuestion === 'string' ? 'question' : currentQuestion?.id || 'question',
-        questionPrompt,
-        subQuestionId: regionId,
-        subQuestionPrompt: promptForRegion(regionId),
-        recognizedWork: recognized.text || recognized.latex || null,
-        answerPackage: answer,
-      });
+      let result = aiHelpCache.current[`${regionId}-${mode}`];
+      if (!result) {
+        const answer = await ensureAnswerPackage();
+        if (questionRun !== questionRunRef.current) return;
+        const studentStrokes = page.strokes.filter(stroke => stroke.regionId === regionId);
+        const recognized = await recognizeStrokes(studentStrokes);
+        if (questionRun !== questionRunRef.current) return;
+        result = await requestPaperHelp({
+          mode, programId,
+          questionId: typeof currentQuestion === 'string' ? 'question' : currentQuestion?.id || 'question',
+          questionPrompt,
+          subQuestionId: regionId,
+          subQuestionPrompt: promptForRegion(regionId),
+          recognizedWork: recognized.text || recognized.latex || null,
+          answerPackage: answer,
+        });
+        aiHelpCache.current[`${regionId}-${mode}`] = result;
+      }
       if (questionRun !== questionRunRef.current) return;
       setAnswerPackage(result.answerPackage);
       const beforePage = pagesRef.current[0];
@@ -1860,6 +1950,10 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         <div className="fsw-toolbar-center">
           {(!isTestMode || Boolean(testGrade && showAiSwitch)) && <div className="fsw-correct-control"><button type="button" className={`fsw-ai-switch ${correctMeOn ? 'active' : ''}`} onClick={() => { setCorrectMeOn(open => { const next = !open; if (next) setHasUsedAiAssistance(true); return next; }); }} aria-pressed={correctMeOn}><span>Correct Me</span><span className="fsw-ai-switch-track"><span /></span></button>{correctMeOn && correctMeStatus !== 'idle' && <small className={correctMeStatus === 'error' ? 'error' : ''}>{correctMeStatus === 'reading' ? 'Reading…' : correctMeStatus === 'checking' ? 'Checking…' : correctMeStatus === 'checked' ? 'Checked' : 'Needs attention'}</small>}</div>}
           <button type="button" className={`fsw-toolbar-button ${toolboxOpen ? 'active' : ''}`} onClick={() => setToolboxOpen(open => !open)} aria-expanded={toolboxOpen} title="Drawing toolbox">🧰 Toolbox</button>
+          <button type="button" className={`fsw-toolbar-button fsw-toolbar-icon-button ${activeTool === 'pen' ? 'active' : ''}`} onClick={() => setActiveTool(activeTool === 'pen' ? 'pan' : 'pen')} title="Pen">✏️</button>
+          <div style={{ position: 'relative', display: 'flex' }}>
+            <button type="button" className={`fsw-toolbar-button fsw-toolbar-icon-button ${activeTool === 'eraser' ? 'active' : ''}`} onClick={() => setActiveTool(activeTool === 'eraser' ? 'pan' : 'eraser')} title="Eraser">🧹</button>
+          </div>
           <button type="button" className="fsw-toolbar-button fsw-toolbar-icon-button" onClick={handleUndo} title="Undo" aria-label="Undo" disabled={undoStack.length === 0}>↶</button>
           <button type="button" className="fsw-toolbar-button fsw-toolbar-icon-button" onClick={handleRedo} title="Redo" aria-label="Redo" disabled={redoStack.length === 0}>↷</button>
           {!isTestMode && <button type="button" className="fsw-toolbar-button fsw-grade-button" onClick={() => void handleGradePaper()} disabled={gradeBusy}>{gradeBusy ? 'Grading…' : '📊 Grade'}</button>}
@@ -1909,9 +2003,8 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
               onAiMarkClick={handleAiMarkClick}
               aiHelpBusyRegion={aiHelpBusyRegion}
               disableAiHelp={Boolean(isTestMode && !testGrade)}
-              scale={scale}
-              testGrade={testGrade}
               showAiContent={correctMeOn}
+              isPanning={rightDragging}
             />
           ))}
           {/* Sentinel for infinite scroll */}
@@ -1923,44 +2016,10 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
       <div className={`fsw-toolbox ${toolboxOpen ? 'open' : ''}`}>
         {/* Fly-out dock */}
         <div className="fsw-dock">
-          {/* Pen */}
-          <button
-            className={`fsw-dock-btn ${activeTool === 'pen' ? 'active' : ''}`}
-            onClick={() => { setActiveTool('pen'); }}
-            title="Pen"
-          >
-            ✏️
-          </button>
 
-          {/* Eraser group */}
-          <div className="fsw-dock-eraser-group">
-            <button
-              className={`fsw-dock-btn ${activeTool === 'eraser' ? 'active' : ''}`}
-              onClick={() => setActiveTool('eraser')}
-              title="Eraser"
-            >
-              🧹
-            </button>
-            {activeTool === 'eraser' && (
-              <div className="fsw-eraser-toggle">
-                <button
-                  className={`fsw-eraser-mode-btn ${eraserMode === 'pixel' ? 'active' : ''}`}
-                  onClick={() => setEraserMode('pixel')}
-                >
-                  Pixel
-                </button>
-                <button
-                  className={`fsw-eraser-mode-btn ${eraserMode === 'stroke' ? 'active' : ''}`}
-                  onClick={() => setEraserMode('stroke')}
-                >
-                  Stroke
-                </button>
-              </div>
-            )}
-          </div>
 
-          <button className={`fsw-dock-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')} title="Lasso select and move handwriting">◯</button>
-          <button className={`fsw-dock-btn ${activeTool === 'text' ? 'active' : ''}`} onClick={() => setActiveTool('text')} title="Insert a text box">T</button>
+          <button className={`fsw-dock-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool(activeTool === 'select' ? 'pan' : 'select')} title="Lasso select and move handwriting">◯</button>
+          <button className={`fsw-dock-btn ${activeTool === 'text' ? 'active' : ''}`} onClick={() => setActiveTool(activeTool === 'text' ? 'pan' : 'text')} title="Insert a text box">T</button>
 
           <div className="fsw-dock-divider" />
 
@@ -2003,6 +2062,13 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         </div>
 
       </div>
+
+      {activeTool === 'eraser' && (
+        <div className="fsw-eraser-toggle" style={{ position: 'absolute', top: 58, left: '50%', transform: 'translateX(-50%)', zIndex: 130 }}>
+          <button type="button" className={`fsw-eraser-mode-btn ${eraserMode === 'pixel' ? 'active' : ''}`} onTouchStart={(e) => { e.stopPropagation(); setEraserMode('pixel'); }} onPointerDown={(e) => { e.stopPropagation(); setEraserMode('pixel'); }} onClick={(e) => { e.stopPropagation(); setEraserMode('pixel'); }}>Pixel</button>
+          <button type="button" className={`fsw-eraser-mode-btn ${eraserMode === 'stroke' ? 'active' : ''}`} onTouchStart={(e) => { e.stopPropagation(); setEraserMode('stroke'); }} onPointerDown={(e) => { e.stopPropagation(); setEraserMode('stroke'); }} onClick={(e) => { e.stopPropagation(); setEraserMode('stroke'); }}>Stroke</button>
+        </div>
+      )}
 
       {/* ═══ OUTPUT MODAL — Live canvas snapshots ═══ */}
       {showOutputModal && (
@@ -2501,25 +2567,26 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         }
         .fsw-eraser-toggle {
           display: flex;
-          gap: 2px;
+          gap: 4px;
           position: absolute;
-          top: -34px;
+          top: calc(100% + 8px);
           left: 50%;
           transform: translateX(-50%);
           background: #ffffff;
           border: 1px solid #dbe3ee;
           box-shadow: 0 8px 24px rgba(15,23,42,.14);
           border-radius: 8px;
-          padding: 3px;
+          padding: 4px;
           white-space: nowrap;
           animation: fsw-fadeIn 0.15s ease;
+          z-index: 1000;
         }
         .fsw-eraser-mode-btn {
-          padding: 3px 10px;
-          font-size: 10px;
+          padding: 8px 16px;
+          font-size: 13px;
           font-weight: 600;
           border: none;
-          border-radius: 5px;
+          border-radius: 6px;
           background: transparent;
           color: #71717a;
           cursor: pointer;

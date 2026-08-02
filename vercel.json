@@ -1,3 +1,6 @@
 {
-  "installCommand": "npm i -g pnpm@11.17.0 && pnpm install --no-frozen-lockfile"
+  "installCommand": "npm i -g pnpm@11.17.0 && pnpm install --no-frozen-lockfile",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.ts" }
+  ]
 }
