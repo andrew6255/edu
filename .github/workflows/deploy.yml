@@ -43,6 +43,7 @@ jobs:
           VITE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.VITE_SUPABASE_SERVICE_ROLE_KEY }}
           VITE_GROQ_API_KEY: ${{ secrets.VITE_GROQ_API_KEY }}
           VITE_OCR_SERVER_URL: ${{ secrets.VITE_OCR_SERVER_URL }}
+          VITE_API_SERVER_URL: ${{ secrets.VITE_API_SERVER_URL }}
 
       - name: Set up SPA routing for GitHub Pages
         run: |
