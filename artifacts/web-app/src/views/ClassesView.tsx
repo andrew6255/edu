@@ -15,8 +15,21 @@ import {
   type QuizAttemptRow,
 } from '@/lib/studentService';
 import { getMyClassStats, type MyClassStats } from '@/lib/statsService';
+import {
+  getStudentClasses,
+  joinClassByCode,
+  deleteStudentClassMembership,
+  getStudentSessions,
+  getSessionSheets,
+  createSheet,
+  type TeacherClass,
+  type ClassSession,
+  type SessionSheet
+} from '@/lib/classroomService';
+import ClassroomWorkspace from '@/components/ClassroomWorkspace';
 
 const ACCENT = '#3b82f6';
+const COLOR = '#10b981'; // Green accent for live classrooms
 
 const cardStyle: React.CSSProperties = {
   background: '#1e293b', borderRadius: 10, border: '1px solid #334155', overflow: 'hidden',
@@ -61,6 +74,83 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
 
   // stats
   const [myStats, setMyStats] = useState<MyClassStats | null>(null);
+
+  // ─── Classroom System State ───
+  const [activeClassrooms, setActiveClassrooms] = useState<TeacherClass[]>([]);
+  const [archivedClassrooms, setArchivedClassrooms] = useState<TeacherClass[]>([]);
+  const [loadingClassrooms, setLoadingClassrooms] = useState(true);
+  const [joinCode, setJoinCode] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [showJoinPopup, setShowJoinPopup] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  
+  // Navigation State
+  const [selectedClassroom, setSelectedClassroom] = useState<TeacherClass | null>(null);
+  const [classroomSessions, setClassroomSessions] = useState<ClassSession[]>([]);
+  const [selectedSession, setSelectedSession] = useState<ClassSession | null>(null);
+  const [sessionSheets, setSessionSheets] = useState<SessionSheet[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<SessionSheet | null>(null);
+
+  useEffect(() => {
+    if (userData?.uid) loadClassrooms();
+  }, [userData]);
+
+  async function loadClassrooms() {
+    setLoadingClassrooms(true);
+    try {
+      const res = await getStudentClasses(userData!.uid);
+      setActiveClassrooms(res.active);
+      setArchivedClassrooms(res.archived);
+    } catch (e) { console.error(e); }
+    finally { setLoadingClassrooms(false); }
+  }
+
+  async function handleJoinClass() {
+    if (!joinCode.trim() || !userData) return;
+    setJoining(true);
+    try {
+      const res = await joinClassByCode(userData.uid, userData.username, userData.username, joinCode.trim().toUpperCase());
+      if (res) {
+        toast({ title: 'Success', description: `Joined ${res.class.name}!` });
+        setShowJoinPopup(false);
+        setJoinCode('');
+        loadClassrooms();
+      } else {
+        toast({ variant: 'destructive', description: 'Invalid or expired code.' });
+      }
+    } catch (e) {
+      toast({ variant: 'destructive', description: 'Failed to join class.' });
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  async function openClassroom(cls: TeacherClass) {
+    setSelectedClassroom(cls);
+    setSelectedSession(null);
+    try {
+      const sessions = await getStudentSessions(userData!.uid, cls.id);
+      setClassroomSessions(sessions);
+    } catch (e) { console.error(e); }
+  }
+
+  async function openSession(session: ClassSession) {
+    setSelectedSession(session);
+    try {
+      const sheets = await getSessionSheets(session.id, userData!.uid, 'student');
+      setSessionSheets(sheets);
+    } catch (e) { console.error(e); }
+  }
+
+  async function handleCreatePersonalSheet(session: ClassSession) {
+    try {
+      const sheet = await createSheet(session.id, session.classId, 'My Private Notes', 'personal', userData!.uid, 'student', userData!.uid);
+      setSessionSheets(prev => [...prev, sheet]);
+      setSelectedSheet(sheet);
+    } catch (e) {
+      toast({ variant: 'destructive', description: 'Failed to create sheet.' });
+    }
+  }
 
 
   // Handle pending content from universe deep-link
@@ -418,21 +508,191 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
     );
   }
 
+  // ─── Workspace View ───────────────────────────────────────────────────────
+  
+  if (selectedSheet && selectedSession && selectedClassroom) {
+    return (
+      <ClassroomWorkspace
+        sheet={selectedSheet}
+        session={selectedSession}
+        onClose={() => setSelectedSheet(null)}
+      />
+    );
+  }
+
+  // ─── Session Detail View ──────────────────────────────────────────────────
+
+  if (selectedSession && selectedClassroom) {
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f172a', overflow: 'hidden' }}>
+        <div style={{ padding: '12px 18px', background: '#1e293b', borderBottom: '1px solid #334155', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <button onClick={() => setSelectedSession(null)} style={{ padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', cursor: 'pointer', marginBottom: 8 }}>← Back to {selectedClassroom.name}</button>
+            <h3 style={{ margin: 0, color: 'white', fontSize: 17 }}>{selectedSession.name}</h3>
+            <div style={{ color: '#64748b', fontSize: 11 }}>{new Date(selectedSession.date).toLocaleDateString()}</div>
+          </div>
+          <div>
+            {selectedSession.status === 'active' && (
+              <button onClick={() => handleCreatePersonalSheet(selectedSession)} style={{ background: 'transparent', border: `1px solid ${COLOR}`, color: COLOR, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 'bold' }}>
+                + Personal Notes
+              </button>
+            )}
+          </div>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+          {sessionSheets.length === 0 ? (
+            <div style={{ textAlign: 'center', color: '#64748b', marginTop: 40 }}>No sheets available in this session.</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+              {sessionSheets.map(s => (
+                <div key={s.id} onClick={() => setSelectedSheet(s)} style={{ ...cardStyle, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16, padding: 16, transition: 'transform 0.1s' }}
+                  onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'} onMouseOut={e => e.currentTarget.style.transform = 'none'}>
+                  <div style={{ fontSize: 32 }}>
+                    {s.type === 'group' ? '👨‍👩‍👧‍👦' : s.type === 'individual' ? '👤' : '🔒'}
+                  </div>
+                  <div>
+                    <div style={{ color: 'white', fontWeight: 'bold', fontSize: 15, marginBottom: 4 }}>{s.name}</div>
+                    <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'capitalize' }}>{s.type} Sheet</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Classroom Detail View ────────────────────────────────────────────────
+
+  if (selectedClassroom) {
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f172a', overflow: 'hidden' }}>
+        <div style={{ padding: '12px 18px', background: '#1e293b', borderBottom: '1px solid #334155', flexShrink: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h3 style={{ margin: 0, color: 'white', fontSize: 17 }}>🏫 {selectedClassroom.name}</h3>
+              <div style={{ color: '#64748b', fontSize: 11 }}>Teacher: <span style={{ color: COLOR }}>{selectedClassroom.teacherName}</span></div>
+            </div>
+            <button onClick={() => setSelectedClassroom(null)} style={{ padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', cursor: 'pointer' }}>← Back</button>
+          </div>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+          <h3 style={{ color: 'white', fontSize: 16, marginBottom: 12 }}>Sessions</h3>
+          {classroomSessions.length === 0 ? (
+            <div style={{ textAlign: 'center', color: '#64748b', marginTop: 40 }}>No sessions available.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {classroomSessions.map(s => (
+                <div key={s.id} onClick={() => s.status !== 'scheduled' && openSession(s)} 
+                  style={{ ...cardStyle, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: s.status === 'scheduled' ? 'not-allowed' : 'pointer', opacity: s.status === 'scheduled' ? 0.7 : 1 }}>
+                  <div>
+                    <div style={{ color: 'white', fontWeight: 'bold', fontSize: 15, marginBottom: 4 }}>{s.name}</div>
+                    <div style={{ color: '#64748b', fontSize: 12 }}>{new Date(s.date).toLocaleDateString()}</div>
+                  </div>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: s.status === 'active' ? '#10b98122' : s.status === 'scheduled' ? '#f59e0b22' : '#47556955', color: s.status === 'active' ? '#10b981' : s.status === 'scheduled' ? '#f59e0b' : '#94a3b8' }}>
+                    {s.status === 'scheduled' ? '🔒 SCHEDULED' : s.status.toUpperCase()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ─── Classes List ───────────────────────────────────────────────────────
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f172a', overflow: 'hidden' }}>
       <div style={{ padding: '14px 18px', background: '#1e293b', borderBottom: '1px solid #334155', flexShrink: 0 }}>
         <h2 style={{ margin: 0, color: 'white', fontSize: 18 }}>🏫 My Classes</h2>
-        <div style={{ color: '#64748b', fontSize: 12 }}>{classes.length} enrolled class{classes.length !== 1 ? 'es' : ''}</div>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+        
+        {/* NEW CLASSROOMS SYSTEM (Live Sessions) */}
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ margin: 0, color: 'white', fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: COLOR }}>●</span> Live Classrooms
+            </h3>
+            <button onClick={() => setShowJoinPopup(true)} style={{ background: COLOR, color: 'white', border: 'none', padding: '6px 12px', borderRadius: 6, fontWeight: 'bold', cursor: 'pointer', fontSize: 12 }}>
+              + Join Code
+            </button>
+          </div>
+
+          {showJoinPopup && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+              <div style={{ background: '#1e293b', border: '1px solid #475569', borderRadius: 12, padding: 20, width: '90%', maxWidth: 320 }}>
+                <h3 style={{ margin: '0 0 16px 0', color: 'white' }}>Join Classroom</h3>
+                <input placeholder="6-digit code" value={joinCode} onChange={e => setJoinCode(e.target.value)}
+                  style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none', boxSizing: 'border-box', marginBottom: 12, fontSize: 20, letterSpacing: 4, textAlign: 'center', textTransform: 'uppercase' }} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setShowJoinPopup(false)} style={{ flex: 1, padding: 10, borderRadius: 6, border: '1px solid #475569', background: 'transparent', color: 'white', cursor: 'pointer' }}>Cancel</button>
+                  <button onClick={handleJoinClass} disabled={joining || !joinCode} style={{ flex: 1, padding: 10, borderRadius: 6, border: 'none', background: COLOR, color: 'white', cursor: (joining || !joinCode) ? 'not-allowed' : 'pointer', fontWeight: 'bold', opacity: (!joinCode) ? 0.5 : 1 }}>
+                    {joining ? 'Joining...' : 'Join'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {loadingClassrooms ? <div style={{ color: '#64748b' }}>Loading...</div> : activeClassrooms.length === 0 ? (
+            <div style={{ color: '#64748b', fontSize: 13, padding: 16, background: 'rgba(0,0,0,0.2)', borderRadius: 8, border: '1px dashed #334155' }}>
+              You haven't joined any live classrooms. Click "Join Code" and enter the 6-digit code from your teacher.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+              {activeClassrooms.map(cls => (
+                <div key={cls.id} onClick={() => openClassroom(cls)} style={{ ...cardStyle, cursor: 'pointer', padding: 16, transition: 'transform 0.1s', border: `1px solid ${COLOR}44` }} onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'} onMouseOut={e => e.currentTarget.style.transform = 'none'}>
+                  <div style={{ color: 'white', fontWeight: 'bold', fontSize: 16, marginBottom: 4 }}>{cls.name}</div>
+                  <div style={{ color: '#94a3b8', fontSize: 12 }}>{cls.subject} · Teacher: <span style={{ color: COLOR }}>{cls.teacherName}</span></div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {archivedClassrooms.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <button onClick={() => setShowArchived(!showArchived)} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12, padding: 0 }}>
+                {showArchived ? '▼' : '▶'} Archived Classrooms ({archivedClassrooms.length})
+              </button>
+              {showArchived && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                  {archivedClassrooms.map(cls => (
+                    <div key={cls.id} style={{ ...cardStyle, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.8 }}>
+                      <div>
+                        <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>{cls.name} <span style={{ fontSize: 10, background: '#475569', padding: '2px 6px', borderRadius: 4, marginLeft: 6 }}>ENDED</span></div>
+                        <div style={{ color: '#64748b', fontSize: 11 }}>Teacher: {cls.teacherName}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => openClassroom(cls)} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>View History</button>
+                        <button onClick={async () => {
+                          if (confirm('Permanently delete this archived class?')) {
+                            await deleteStudentClassMembership(cls.id, userData!.uid);
+                            loadClassrooms();
+                          }
+                        }} style={{ background: 'transparent', border: '1px solid #ef444455', color: '#ef4444', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>Delete</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* OLD CONTENT CLASSES SYSTEM */}
+        <h3 style={{ margin: '0 0 16px 0', color: 'white', fontSize: 16, display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid #334155', paddingTop: 20 }}>
+          <span style={{ color: ACCENT }}>📚</span> Content Courses
+        </h3>
+
         {classes.length === 0 ? (
-          <div style={{ textAlign: 'center', color: '#64748b', marginTop: 40 }}>
-            <div style={{ fontSize: 40, marginBottom: 10 }}>🏫</div>
-            <div>You're not enrolled in any classes yet.</div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>Ask your admin to add you to a class.</div>
+          <div style={{ textAlign: 'center', color: '#64748b', marginTop: 20, padding: 20, background: 'rgba(0,0,0,0.2)', borderRadius: 8, border: '1px dashed #334155' }}>
+            <div>You're not enrolled in any content courses yet.</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>Ask your admin to add you to a course.</div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -448,12 +708,12 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 22, fontWeight: 'bold', color: 'white',
                 }}>
-                  🏫
+                  📚
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ color: 'white', fontWeight: 'bold', fontSize: 15 }}>{cls.name}</div>
                   <div style={{ color: '#64748b', fontSize: 11 }}>
-                    Teacher: <span style={{ color: '#10b981' }}>{cls.teacher_username || cls.teacher_name}</span>
+                    Teacher: <span style={{ color: ACCENT }}>{cls.teacher_username || cls.teacher_name}</span>
                   </div>
                 </div>
                 <span style={{ color: '#475569', fontSize: 18 }}>→</span>

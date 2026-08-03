@@ -1,5 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
+import { getGlobalDoc, setGlobalDoc, queryGlobalDocs, deleteGlobalDoc, resolveArrayUnion } from '@/lib/supabaseDocStore';
+import { adminDeleteUser } from '@/lib/adminService';
+import {
+  getTeacherClassesByTeacher,
+  getClassMembers,
+  adminAddStudentToClass,
+  adminRemoveStudentFromClass,
+  type TeacherClass,
+  type ClassMember
+} from '@/lib/classroomService';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import { requireSupabase, getAdminClient } from '@/lib/supabase';
@@ -284,6 +294,13 @@ export default function SuperAdminPage() {
   const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string; energyDelta: string; streakDelta: string } | null>(null);
   const [applyingEcon, setApplyingEcon] = useState(false);
 
+  // Class Members Modal (opened on teacher rows)
+  const [classMemberModal, setClassMemberModal] = useState<{ teacherUid: string; teacherName: string } | null>(null);
+  const [teacherClasses, setTeacherClasses] = useState<TeacherClass[]>([]);
+  const [classMembers, setClassMembers] = useState<Record<string, ClassMember[]>>({});
+  const [loadingClassMembers, setLoadingClassMembers] = useState(false);
+  const [classStudentSearch, setClassStudentSearch] = useState('');
+
   // Create account modal
   const [createModal, setCreateModal] = useState(false);
   const [createRole, setCreateRole] = useState<'teacher' | 'admin'>('teacher');
@@ -476,6 +493,25 @@ export default function SuperAdminPage() {
   });
 
   const roleCounts = Object.fromEntries(ROLE_ORDER.map(r => [r, users.filter(u => u.role === r).length])) as Record<UserRole, number>;
+
+  async function handleOpenClassMemberModal(teacher: UserData & { uid: string }) {
+    setClassMemberModal({ teacherUid: teacher.uid, teacherName: teacher.username || teacher.firstName });
+    setTeacherClasses([]);
+    setClassMembers({});
+    try {
+      const classes = await getTeacherClassesByTeacher(teacher.uid);
+      setTeacherClasses(classes);
+      
+      const membersMap: Record<string, ClassMember[]> = {};
+      for (const cls of classes) {
+        membersMap[cls.id] = await getClassMembers(cls.id);
+      }
+      setClassMembers(membersMap);
+    } catch (e) {
+      console.error('Failed to load teacher classes', e);
+      toast({ variant: 'destructive', description: 'Failed to load teacher classes' });
+    }
+  }
 
   if (loading) {
     return (
@@ -679,6 +715,14 @@ export default function SuperAdminPage() {
                                 style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                               >
                                 👥 Teachers
+                              </button>
+                            )}
+                            {u.role === 'teacher' && (
+                              <button
+                                onClick={() => handleOpenClassMemberModal(u)}
+                                style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                              >
+                                👨‍🎓 Classrooms
                               </button>
                             )}
                             {isStudent && (
@@ -937,6 +981,90 @@ export default function SuperAdminPage() {
           </>
         );
       })()}
+      
+      {/* ── Class Member Modal ─────────────────────────────────────────────── */}
+      {classMemberModal && (
+        <>
+          <div onClick={() => setClassMemberModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            background: '#1e293b', border: '1px solid #475569', borderRadius: 14,
+            padding: 24, width: '90%', maxWidth: 500, zIndex: 1001,
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column',
+            maxHeight: '80vh'
+          }}>
+            <h2 style={{ margin: '0 0 4px', color: 'white', fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+              👨‍🎓 Manage Classrooms — {classMemberModal.teacherName}
+            </h2>
+            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 14 }}>
+              Add or remove students from {classMemberModal.teacherName}'s classrooms.
+            </div>
+            
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {teacherClasses.length === 0 ? (
+                <div style={{ color: '#94a3b8', textAlign: 'center', padding: 20 }}>This teacher has no classes.</div>
+              ) : (
+                teacherClasses.map(cls => (
+                  <div key={cls.id} style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid #334155', borderRadius: 8, padding: 12 }}>
+                    <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14, marginBottom: 8 }}>{cls.name}</div>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+                      {(classMembers[cls.id] || []).filter(m => !m.kickedAt).length === 0 ? (
+                        <div style={{ color: '#64748b', fontSize: 12, fontStyle: 'italic' }}>No active students.</div>
+                      ) : (
+                        (classMembers[cls.id] || []).filter(m => !m.kickedAt).map(m => (
+                          <div key={m.userId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a', padding: '6px 10px', borderRadius: 6, fontSize: 12 }}>
+                            <div>
+                              <span style={{ color: 'white', fontWeight: 'bold' }}>{m.fullName || m.username}</span>
+                              <span style={{ color: '#64748b', marginLeft: 6 }}>@{m.username}</span>
+                            </div>
+                            <button onClick={async () => {
+                              await adminRemoveStudentFromClass(cls.id, m.userId);
+                              setClassMembers(prev => ({ ...prev, [cls.id]: prev[cls.id].filter(x => x.userId !== m.userId) }));
+                            }} style={{ background: 'transparent', border: '1px solid #ef444455', color: '#ef4444', padding: '2px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}>Remove</button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input 
+                        placeholder="Search student to add..." 
+                        value={classStudentSearch} onChange={e => setClassStudentSearch(e.target.value)}
+                        style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #475569', background: '#0f172a', color: 'white', fontSize: 12, outline: 'none' }}
+                      />
+                      <button onClick={async () => {
+                        const term = classStudentSearch.toLowerCase().trim();
+                        if (!term) return;
+                        const student = users.find(u => u.role === 'student' && (u.username?.toLowerCase().includes(term) || u.email.toLowerCase().includes(term) || u.firstName?.toLowerCase().includes(term) || u.lastName?.toLowerCase().includes(term)));
+                        if (!student) {
+                          toast({ variant: 'destructive', description: 'Student not found.' });
+                          return;
+                        }
+                        const existing = (classMembers[cls.id] || []).find(m => m.userId === student.uid && !m.kickedAt);
+                        if (existing) {
+                          toast({ description: 'Student is already in this class.' });
+                          return;
+                        }
+                        await adminAddStudentToClass(cls.id, student.uid, student.username || student.firstName || 'Student');
+                        const updated = await getClassMembers(cls.id);
+                        setClassMembers(prev => ({ ...prev, [cls.id]: updated }));
+                        setClassStudentSearch('');
+                        toast({ description: `Added ${student.username || student.firstName} to ${cls.name}` });
+                      }} style={{ background: '#10b981', color: 'white', border: 'none', padding: '0 12px', borderRadius: 6, fontWeight: 'bold', cursor: 'pointer', fontSize: 12 }}>Add</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setClassMemberModal(null)} className="ll-btn" style={{ padding: '10px 22px' }}>Done</button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* ── Impersonate Confirmation Modal ───────────────────────────── */}
       {impersonateTarget && (
         <ImpersonateModal

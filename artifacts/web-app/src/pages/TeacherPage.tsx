@@ -21,6 +21,7 @@ import ChatWidget from '@/components/ChatWidget';
 import SettingsLauncher from '@/components/settings/SettingsLauncher';
 import { requireSupabase } from '@/lib/supabase';
 import { listFreeformReviewsForUsers, type FreeformReviewRow } from '@/lib/freeformReviewService';
+import TeacherClassroomView from '@/views/TeacherClassroomView';
 
 const COLOR = '#10b981';
 const COLOR_DIM = '#10b98155';
@@ -29,7 +30,7 @@ const cardStyle: React.CSSProperties = {
   background: '#1e293b', borderRadius: 10, border: '1px solid #334155',
 };
 
-type TopTab = 'classes' | 'users' | 'parents';
+type TopTab = 'classrooms' | 'classes' | 'users' | 'parents';
 type ClassTab = 'students' | 'content' | 'results' | 'leaderboard' | 'chat' | 'freeformReview';
 
 export default function TeacherPage() {
@@ -419,7 +420,7 @@ export default function TeacherPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
-          {([{ id: 'classes' as TopTab, icon: '🏫', label: `Classes (${classes.length})` }, { id: 'users' as TopTab, icon: '👥', label: `Users${allUsers.length ? ` (${allUsers.length})` : ''}` }, { id: 'parents' as TopTab, icon: '👨‍👩‍👧', label: 'Parent Reports' }]).map(t => (
+          {([{ id: 'classrooms' as TopTab, icon: '🏫', label: 'Classrooms' }, { id: 'classes' as TopTab, icon: '📚', label: `Content Classes (${classes.length})` }, { id: 'users' as TopTab, icon: '👥', label: `Users${allUsers.length ? ` (${allUsers.length})` : ''}` }, { id: 'parents' as TopTab, icon: '👨‍👩‍👧', label: 'Parent Reports' }]).map(t => (
             <button key={t.id} onClick={() => switchTopTab(t.id)} style={{
               padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit',
               background: topTab === t.id ? `${COLOR}33` : 'transparent',
@@ -431,6 +432,11 @@ export default function TeacherPage() {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+
+        {/* ── CLASSROOMS TAB ── */}
+        {topTab === 'classrooms' && (
+          <TeacherClassroomView />
+        )}
 
         {/* ── USERS TAB ── */}
         {topTab === 'users' && (

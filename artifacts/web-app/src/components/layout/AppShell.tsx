@@ -263,11 +263,11 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
   const navTabs = [
     { id: 'emporium', icon: '🕰️', label: 'Chrono Empires' },
+    { id: 'lobby', icon: '🏛️', label: 'Lobby' },
     { id: 'warmup', icon: '⚡', label: 'Warmup Games' },
     { id: 'universe', icon: '🌌', label: 'Universe' },
-    { id: 'lobby', icon: '🏛️', label: 'Lobby' },
-    { id: 'logic', icon: '🧠', label: 'IQ Games' },
     { id: 'classes', icon: '🏫', label: 'Classes' },
+    { id: 'logic', icon: '🧠', label: 'IQ Games' },
   ] as const;
 
   return (

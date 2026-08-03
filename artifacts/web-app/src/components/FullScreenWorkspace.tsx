@@ -47,6 +47,7 @@ export interface TextAnnotation {
 export interface PaperAiMark {
   id: string;
   regionId: string;
+  kind?: 'error' | 'correct';
   type: 'circle' | 'highlight' | 'note';
   x: number;
   y: number;
@@ -163,42 +164,75 @@ function shiftRegionContent(page: PageData, regionIds: Set<string>, delta: numbe
 function parseJIIXAbsolute(jiix: any, directLatex: string): ConvertedBlock[] {
   if (!jiix) return [];
   const blocks: ConvertedBlock[] = [];
-  const mmToPx = 96 / 25.4; // Convert MyScript mm to standard 96 DPI pixels
-
-  // Helper to convert px to % relative to A4 page dimensions
+  const mmToPx = 96 / 25.4;
   const toPctX = (px: number) => (px / PAGE_W) * 100;
   const toPctY = (px: number) => (px / PAGE_H) * 100;
 
-  // For MATH mode, we often just want the top-level bounding box
+  // Recursively extract every node that has a bounding-box and a label/latex,
+  // prioritising leaf nodes (numbers, identifiers, operators) for precision.
+  function extractNodes(nodes: any[], depth = 0) {
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      if (!node || typeof node !== 'object') continue;
+      const bb = node['bounding-box'];
+      const label = node.label ?? node.value ?? node.text ?? '';
+      const latex = node.latex ?? '';
+      const operands: any[] = node.operands ?? node.expressions ?? node.elements ?? node.words ?? node.children ?? [];
+      // If this node has children, recurse into them first to get finest granularity
+      if (operands.length > 0) {
+        extractNodes(operands, depth + 1);
+      }
+      // Emit this node if it has position info and a meaningful label/latex
+      if (bb && typeof bb.x === 'number' && typeof bb.width === 'number' && (label || latex)) {
+        const h = bb.height * mmToPx;
+        const w = bb.width * mmToPx;
+        blocks.push({
+          id: `node-${depth}-${i}-${label}`,
+          text: String(label),
+          latex: String(latex),
+          x: toPctX(bb.x * mmToPx),
+          y: toPctY(bb.y * mmToPx),
+          width: toPctX(w),
+          height: toPctY(h),
+          fontSize: Math.max(12, Math.min(48, Math.round(h * 0.8))),
+        });
+      }
+    }
+  }
+
+  // Try sub-expression nodes first (finest granularity)
+  const topExpressions: any[] = jiix.expressions ?? jiix.elements ?? jiix.words ?? [];
+  if (topExpressions.length > 0) {
+    extractNodes(topExpressions);
+    if (blocks.length > 0) return blocks;
+  }
+
+  // Fallback: use the top-level bounding box as a single block
   if (jiix['bounding-box']) {
     const bb = jiix['bounding-box'];
     const latex = directLatex || jiix.latex || '';
     const textLabel = jiix.label || '';
-    
-    // Sometimes math blocks are nested in expressions
     let finalLatex = latex;
     if (!finalLatex && jiix.expressions) {
       finalLatex = jiix.expressions.map((e: any) => e.label || '').join(' ');
     }
-
     if (finalLatex || textLabel) {
       const h = bb.height * mmToPx;
       blocks.push({
         id: 'root-math',
         text: textLabel,
-        latex: finalLatex,
+        latex: finalLatex || directLatex,
         x: toPctX(bb.x * mmToPx),
         y: toPctY(bb.y * mmToPx),
         width: toPctX(bb.width * mmToPx),
         height: toPctY(h),
-        fontSize: Math.max(16, Math.min(48, Math.round(h * 0.8))), // heuristic font size in px
+        fontSize: Math.max(16, Math.min(48, Math.round(h * 0.8))),
       });
       return blocks;
     }
   }
 
-  // Fallback for TEXT mode or deep nesting
-  const elements: any[] = jiix.elements || jiix.words || jiix.expressions || [];
+  // Final fallback: TEXT mode deep extraction
   function extract(items: any[], depth = 0) {
     for (let i = 0; i < items.length; i++) {
       const el = items[i];
@@ -206,7 +240,6 @@ function parseJIIXAbsolute(jiix: any, directLatex: string): ConvertedBlock[] {
       const latex = el.latex ?? '';
       const bb = el['bounding-box'] || el.boundingBox || el;
       const isTarget = bb && typeof bb.width === 'number' && (el.type === 'TextLine' || latex || (!el.elements && !el.children && !el.words && !el.expressions && label));
-
       if (isTarget && (label || latex)) {
         const h = bb.height * mmToPx;
         blocks.push({
@@ -227,7 +260,7 @@ function parseJIIXAbsolute(jiix: any, directLatex: string): ConvertedBlock[] {
       else if (el.words) extract(el.words, depth + 1);
     }
   }
-  extract(elements);
+  extract(topExpressions);
   return blocks;
 }
 
@@ -1437,7 +1470,10 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
       const recognitionHeight = Math.max(PAGE_H, ...clusterStrokes.flatMap(stroke => stroke.points.map(point => Math.ceil(point.y + 80))));
       const payload = {
         width: PAGE_W, height: recognitionHeight, contentType: "Math",
-        configuration: { math: { mimeTypes: ["application/x-latex", "application/vnd.myscript.jiix"] } },
+        configuration: {
+          math: { mimeTypes: ["application/x-latex", "application/vnd.myscript.jiix"] },
+          export: { jiix: { 'bounding-box': true } },
+        },
         strokeGroups: [{ penStyle: "color: #000000;", strokes: msStrokes }]
       };
 
@@ -1536,22 +1572,76 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     if (runId !== correctionRunRef.current) return;
     const redAnnotations = result.annotations.filter(annotation => annotation.color === 'red');
     const overallBounds = getStrokeBounds(strokes);
-    const nextMarks: PaperAiMark[] = (redAnnotations.length > 0 ? redAnnotations : result.isCorrect || !result.detectedMistake ? [] : [{ type: 'circle' as const, color: 'red' as const, targetText: null, text: result.detectedMistake }]).map((annotation, index) => {
-      const target = (annotation.targetText || '').replace(/\s+/g, '').toLowerCase();
-      const matchingBlock = target ? recognized.blocks.find(block => `${block.text}${block.latex}`.replace(/\s+/g, '').toLowerCase().includes(target)) : null;
+
+    // Normalize a string for block matching: strip LaTeX wrappers, spaces, currency symbols
+    const normForMatch = (s: string) =>
+      s.replace(/\$([^$]*)\$/g, '$1')  // strip $…$
+       .replace(/\\(?:text|mathrm)\{([^}]*)\}/g, '$1') // strip \text{…}
+       .replace(/[{}\s]/g, '')          // strip braces and whitespace
+       .replace(/\\times/g, '*').replace(/×/g, '*')
+       .replace(/\\minus/g, '-').replace(/−/g, '-') // normalize minus signs
+       .toLowerCase();
+
+    // Find the best (smallest) matching recognized block for a target string
+    const findBlock = (target: string) => {
+      if (!target) return null;
+      const norm = normForMatch(target);
+      if (!norm) return null;
+      // Filter to blocks whose text/latex includes the target
+      const candidates = recognized.blocks.filter(b => {
+        const bNorm = normForMatch(`${b.text}${b.latex}`);
+        return bNorm.includes(norm);
+      });
+      if (candidates.length > 0) {
+        // Prefer the smallest block (most specific match)
+        return candidates.reduce((best, b) => b.width < best.width ? b : best);
+      }
+      // Fallback: try unsigned match (minus sign may be a separate stroke)
+      const unsigned = norm.replace(/^-/, '');
+      if (unsigned && unsigned !== norm) {
+        const unsignedCandidates = recognized.blocks.filter(b =>
+          normForMatch(`${b.text}${b.latex}`).includes(unsigned)
+        );
+        if (unsignedCandidates.length > 0) {
+          return unsignedCandidates.reduce((best, b) => b.width < best.width ? b : best);
+        }
+      }
+      return null;
+    };
+
+    // Stroke-level fallback: when no targetText or block match, use stroke bounding boxes
+    // to find strokes near a given pixel region
+    const strokesNearBounds = (bounds: { x: number; y: number; width: number; height: number }) =>
+      strokes.filter(stroke => {
+        const sb = getStrokeBounds([stroke]);
+        return !!sb
+          && sb.x <= bounds.x + bounds.width + 10
+          && sb.x + sb.width >= bounds.x - 10
+          && sb.y <= bounds.y + bounds.height + 10
+          && sb.y + sb.height >= bounds.y - 10;
+      }).map(s => s.id);
+
+    // Build error marks (existing behaviour)
+    const errorSourceAnnotations = redAnnotations.length > 0 ? redAnnotations : (!result.isCorrect && result.detectedMistake) ? [{ type: 'circle' as const, color: 'red' as const, targetText: null, text: result.detectedMistake }] : [];
+    const errorMarks: PaperAiMark[] = errorSourceAnnotations.map((annotation, index) => {
+      const matchingBlock = annotation.targetText ? findBlock(annotation.targetText) : null;
       const bounds = matchingBlock ? {
         x: matchingBlock.x / 100 * PAGE_W,
         y: matchingBlock.y / 100 * PAGE_H,
         width: Math.max(24, matchingBlock.width / 100 * PAGE_W),
         height: Math.max(24, matchingBlock.height / 100 * PAGE_H),
       } : overallBounds || { x: 32, y: 160, width: 160, height: 45 };
-      const targetStrokeIds = strokes.filter(stroke => {
-        const strokeBox = getStrokeBounds([stroke]);
-        return !!strokeBox && strokeBox.x <= bounds.x + bounds.width && strokeBox.x + strokeBox.width >= bounds.x && strokeBox.y <= bounds.y + bounds.height && strokeBox.y + strokeBox.height >= bounds.y;
-      }).map(stroke => stroke.id);
+      // Use precise stroke targeting when we have a specific block match
+      const targetStrokeIds = matchingBlock
+        ? strokesNearBounds(bounds)
+        : strokes.filter(stroke => {
+            const strokeBox = getStrokeBounds([stroke]);
+            return !!strokeBox && strokeBox.x <= bounds.x + bounds.width && strokeBox.x + strokeBox.width >= bounds.x && strokeBox.y <= bounds.y + bounds.height && strokeBox.y + strokeBox.height >= bounds.y;
+          }).map(stroke => stroke.id);
       return {
         id: `ai-mark-${regionId}-${index}`,
         regionId,
+        kind: 'error' as const,
         type: annotation.type === 'underline' ? 'highlight' : annotation.type === 'write_text' ? 'note' : 'circle',
         x: Math.max(4, bounds.x - 7), y: Math.max(4, bounds.y - 7), width: bounds.width + 14, height: bounds.height + 14,
         targetText: annotation.targetText || undefined,
@@ -1562,6 +1652,25 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         lineKey,
       };
     });
+    // Build a green correct mark when the line is fully correct
+    const MARK_SIZE = 32;
+    const correctMark: PaperAiMark | null = (result.isCorrect && errorSourceAnnotations.length === 0 && overallBounds) ? {
+      id: `ai-mark-${regionId}-correct`,
+      regionId,
+      kind: 'correct' as const,
+      type: 'circle' as const,
+      // Place the badge to the right of the ink, clamped so it stays inside the page
+      x: Math.min(PAGE_W - MARK_SIZE - 4, Math.max(4, overallBounds.x + overallBounds.width + 8)),
+      y: Math.max(4, overallBounds.y + (overallBounds.height - MARK_SIZE) / 2),
+      width: MARK_SIZE,
+      height: MARK_SIZE,
+      correctionText: '✓',
+      explanation: 'This step is correct.',
+      targetStrokeIds: strokes.map(stroke => stroke.id),
+      status: 'active' as const,
+      lineKey,
+    } : null;
+    const nextMarks: PaperAiMark[] = [...errorMarks, ...(correctMark ? [correctMark] : [])];
     const lineStrokeIds = new Set(strokes.map(stroke => stroke.id));
     const lineBounds = getStrokeBounds(strokes);
     setPages(previous => previous.map(candidate => candidate.id === pageId ? {
@@ -1845,12 +1954,22 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     setAskQuestionBusy(true);
     setAskQuestionError('');
     setHasUsedAiAssistance(true);
+    // Recognize what the student has written in this region so the AI is aware
+    let recognizedText: string | null = null;
+    try {
+      const regionStrokes = pagesRef.current.flatMap(page => page.strokes.filter(stroke => stroke.regionId === regionId));
+      if (regionStrokes.length > 0) {
+        const recognized = await recognizeStrokes(regionStrokes);
+        recognizedText = recognized.text || recognized.latex || null;
+      }
+    } catch { /* non-fatal — proceed without recognized text */ }
     try {
       const result = await explainPaperCorrection({
         questionId: typeof currentQuestion === 'string' ? 'question' : currentQuestion?.id || 'question',
         questionPrompt: promptForRegion(regionId),
         activeStepId: regionId,
         activeStepTitle: promptForRegion(regionId),
+        recognizedText,
         message,
         conversation,
       });
@@ -1860,7 +1979,7 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     } finally {
       setAskQuestionBusy(false);
     }
-  }, [askQuestionBusy, askQuestionInput, askQuestionMessages, askQuestionRegion, currentQuestion, promptForRegion]);
+  }, [askQuestionBusy, askQuestionInput, askQuestionMessages, askQuestionRegion, currentQuestion, promptForRegion, recognizeStrokes]);
 
   const handleGradePaper = useCallback(async () => {
     if (gradeBusy) return;
@@ -2189,6 +2308,9 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
       {askQuestionRegion && <div className="fsw-paper-modal-backdrop" onClick={() => setAskQuestionRegion(null)}><div className="fsw-paper-modal fsw-ask-question-modal" role="dialog" aria-modal="true" aria-labelledby="fsw-ask-question-title" onClick={event => event.stopPropagation()}>
         <div className="fsw-paper-modal-header"><div><small>Question-specific tutor</small><strong id="fsw-ask-question-title">Ask about this exercise</strong></div><button type="button" onClick={() => setAskQuestionRegion(null)}>×</button></div>
         <div className="fsw-ask-scope">The tutor will answer only questions about this exercise or the topic needed to solve it.</div>
+        {pages.some(page => page.strokes.some(stroke => stroke.regionId === askQuestionRegion)) && (
+          <div className="fsw-ask-work-notice">✍️ The AI tutor can see what you've written on the paper.</div>
+        )}
         <div className="fsw-ask-messages">
           {askQuestionMessages.length === 0 && <div className="fsw-ask-empty">Ask what a symbol means, why a method works, or how to approach part of the question.</div>}
           {askQuestionMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`fsw-ask-message ${message.role}`}><LatexRenderer content={message.content} /></div>)}
@@ -2878,6 +3000,9 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         .fsw-ai-mark.highlight { border-radius: 6px; border-width: 0 0 3px; background: rgba(248,113,113,.2); }
         .fsw-ai-mark.note { border-style: dashed; border-radius: 8px; }
         .fsw-ai-mark > span { position: absolute; left: 50%; bottom: calc(100% + 5px); transform: translateX(-50%); width: max-content; max-width: 260px; padding: 5px 8px; border-radius: 7px; background: #fff; border: 1px solid #fecaca; color: #dc2626; box-shadow: 0 4px 14px rgba(127,29,29,.14); font: 850 11px/1.25 Inter,sans-serif; white-space: normal; pointer-events: auto; }
+        .fsw-ai-mark.correct { border-color: #22c55e; background: rgba(220,252,231,.18); cursor: default; border-radius: 50%; display: flex; align-items: center; justify-content: center; animation: fsw-correct-pop .35s cubic-bezier(.34,1.56,.64,1) both; }
+        .fsw-ai-mark.correct > span { position: static; transform: none; width: auto; max-width: none; padding: 0; border: none; background: transparent; color: #16a34a; box-shadow: none; font: 900 18px/1 Inter,sans-serif; white-space: nowrap; pointer-events: none; bottom: auto; left: auto; }
+        @keyframes fsw-correct-pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: scale(1); } }
         .fsw-ai-error { position: fixed; left: 50%; top: 68px; transform: translateX(-50%); z-index: 700; max-width: min(620px,90vw); display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid #fecaca; border-radius: 10px; background: #fff1f2; color: #be123c; box-shadow: 0 10px 30px rgba(15,23,42,.16); font-size: 11px; font-weight: 700; }
         .fsw-ai-error button { border: 0; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
         .fsw-paper-modal-backdrop { position: fixed; inset: 0; z-index: 900; display: grid; place-items: center; padding: 18px; background: rgba(15,23,42,.38); backdrop-filter: blur(4px); }
@@ -2898,6 +3023,7 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
         .fsw-grade-parts p { margin: 6px 0 0; color: #64748b; font-size: 12px; line-height: 1.5; }
         .fsw-inline-spinner { display: inline-block; width: 14px; height: 14px; margin-right: 8px; border: 2px solid #c7d2fe; border-top-color: #4f46e5; border-radius: 50%; animation: fsw-spin .7s linear infinite; }
         .fsw-ask-scope { margin: 14px 18px 0; padding: 9px 11px; border-radius: 9px; background: #eef2ff; color: #4338ca; font-size: 11px; font-weight: 750; }
+        .fsw-ask-work-notice { margin: 8px 18px 0; padding: 7px 11px; border-radius: 9px; background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; font-size: 11px; font-weight: 700; }
         .fsw-ask-messages { min-height: 170px; max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; padding: 14px 18px; }
         .fsw-ask-empty { margin: auto; max-width: 390px; color: #94a3b8; text-align: center; font-size: 12px; line-height: 1.6; }
         .fsw-ask-message { max-width: 84%; padding: 9px 11px; border-radius: 11px; color: #334155; font-size: 13px; line-height: 1.55; }

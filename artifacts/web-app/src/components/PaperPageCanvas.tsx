@@ -396,7 +396,11 @@ export default memo(function PaperPageCanvas(props: Props) {
       })}
     </div>}
     <canvas ref={canvasRef} width={pageWidth} height={resolvedPageHeight} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} style={{ position: 'absolute', inset: 0, touchAction: 'none', cursor: activeTool === 'pan' ? (isPanning ? 'grabbing' : 'grab') : activeTool === 'eraser' ? 'cell' : activeTool === 'select' ? 'default' : activeTool === 'text' ? 'text' : 'crosshair', zIndex: 2 }} />
-    {showAiContent && (page.aiMarks ?? []).map(mark => <button key={mark.id} type="button" className={`fsw-ai-mark ${mark.type}`} onClick={() => onAiMarkClick(mark)} style={{ left: mark.x, top: mark.y, width: mark.width, height: mark.height }}><span>{mark.correctionText}</span></button>)}
+    {showAiContent && (page.aiMarks ?? []).map(mark =>
+      mark.kind === 'correct'
+        ? <span key={mark.id} className="fsw-ai-mark correct" style={{ left: mark.x, top: mark.y, width: mark.width, height: mark.height }}><span>{mark.correctionText}</span></span>
+        : <button key={mark.id} type="button" className={`fsw-ai-mark ${mark.type}`} onClick={() => onAiMarkClick(mark)} style={{ left: mark.x, top: mark.y, width: mark.width, height: mark.height }}><span>{mark.correctionText}</span></button>
+    )}
     {(lasso.length > 1 || selectedBounds) && <svg className="fsw-selection-layer" viewBox={`0 0 ${pageWidth} ${resolvedPageHeight}`}>
       {lasso.length > 1 && <polyline points={lasso.map(point => `${point.x},${point.y}`).join(' ')} fill="rgba(79,70,229,.06)" stroke="#4f46e5" strokeWidth="2" strokeDasharray="7 5" />}
       {selectedBounds && <rect x={selectedBounds.left + dragOffset.x - 8} y={selectedBounds.top + dragOffset.y - 8} width={selectedBounds.right - selectedBounds.left + 16} height={selectedBounds.bottom - selectedBounds.top + 16} rx="8" fill="rgba(79,70,229,.05)" stroke="#4f46e5" strokeWidth="2" strokeDasharray="7 5" />}
