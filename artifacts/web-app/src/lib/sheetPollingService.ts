@@ -48,7 +48,7 @@ export function useSheetPolling({
   enabled,
 }: UseSheetPollingOptions): UseSheetPollingResult {
   const [remoteLayers, setRemoteLayers] = useState<SheetStrokeData[]>([]);
-  const [access, setAccess] = useState<SheetAccess>({ sheetId, masterAccess: false, studentAccess: {} });
+  const [access, setAccess] = useState<SheetAccess>({ sheetId, masterAccess: false, studentAccess: {}, sectionHeights: {} });
   const [loading, setLoading] = useState(true);
 
   const lastPollRef = useRef<string>(new Date(0).toISOString());

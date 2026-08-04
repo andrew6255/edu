@@ -92,13 +92,13 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
   const [selectedSheet, setSelectedSheet] = useState<SessionSheet | null>(null);
 
   useEffect(() => {
-    if (userData?.uid) loadClassrooms();
-  }, [userData]);
+    if (user?.uid) loadClassrooms();
+  }, [user]);
 
   async function loadClassrooms() {
     setLoadingClassrooms(true);
     try {
-      const res = await getStudentClasses(userData!.uid);
+      const res = await getStudentClasses(user!.uid);
       setActiveClassrooms(res.active);
       setArchivedClassrooms(res.archived);
     } catch (e) { console.error(e); }
@@ -106,10 +106,10 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
   }
 
   async function handleJoinClass() {
-    if (!joinCode.trim() || !userData) return;
+    if (!joinCode.trim() || !user || !userData) return;
     setJoining(true);
     try {
-      const res = await joinClassByCode(userData.uid, userData.username, userData.username, joinCode.trim().toUpperCase());
+      const res = await joinClassByCode(user.uid, userData.username, userData.username, joinCode.trim().toUpperCase());
       if (res) {
         toast({ title: 'Success', description: `Joined ${res.class.name}!` });
         setShowJoinPopup(false);
@@ -129,7 +129,7 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
     setSelectedClassroom(cls);
     setSelectedSession(null);
     try {
-      const sessions = await getStudentSessions(userData!.uid, cls.id);
+      const sessions = await getStudentSessions(user!.uid, cls.id);
       setClassroomSessions(sessions);
     } catch (e) { console.error(e); }
   }
@@ -137,14 +137,14 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
   async function openSession(session: ClassSession) {
     setSelectedSession(session);
     try {
-      const sheets = await getSessionSheets(session.id, userData!.uid, 'student');
+      const sheets = await getSessionSheets(session.id, user!.uid, 'student');
       setSessionSheets(sheets);
     } catch (e) { console.error(e); }
   }
 
   async function handleCreatePersonalSheet(session: ClassSession) {
     try {
-      const sheet = await createSheet(session.id, session.classId, 'My Private Notes', 'personal', userData!.uid, 'student', userData!.uid);
+      const sheet = await createSheet(session.id, session.classId, 'My Private Notes', 'personal', user!.uid, 'student', user!.uid);
       setSessionSheets(prev => [...prev, sheet]);
       setSelectedSheet(sheet);
     } catch (e) {
@@ -670,8 +670,8 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => openClassroom(cls)} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>View History</button>
                         <button onClick={async () => {
-                          if (confirm('Permanently delete this archived class?')) {
-                            await deleteStudentClassMembership(cls.id, userData!.uid);
+                          if (await confirm('Permanently delete this archived class? This cannot be undone.', 'Delete Class')) {
+                            await deleteStudentClassMembership(cls.id, user!.uid);
                             loadClassrooms();
                           }
                         }} style={{ background: 'transparent', border: '1px solid #ef444455', color: '#ef4444', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>Delete</button>

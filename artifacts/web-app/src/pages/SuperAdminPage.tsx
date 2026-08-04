@@ -299,7 +299,7 @@ export default function SuperAdminPage() {
   const [teacherClasses, setTeacherClasses] = useState<TeacherClass[]>([]);
   const [classMembers, setClassMembers] = useState<Record<string, ClassMember[]>>({});
   const [loadingClassMembers, setLoadingClassMembers] = useState(false);
-  const [classStudentSearch, setClassStudentSearch] = useState('');
+  const [classStudentSearch, setClassStudentSearch] = useState<Record<string, string>>({});
 
   // Create account modal
   const [createModal, setCreateModal] = useState(false);
@@ -1027,31 +1027,46 @@ export default function SuperAdminPage() {
                       )}
                     </div>
                     
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <input 
-                        placeholder="Search student to add..." 
-                        value={classStudentSearch} onChange={e => setClassStudentSearch(e.target.value)}
-                        style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #475569', background: '#0f172a', color: 'white', fontSize: 12, outline: 'none' }}
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        placeholder="Search student to add..."
+                        value={classStudentSearch[cls.id] || ''}
+                        onChange={e => setClassStudentSearch(prev => ({ ...prev, [cls.id]: e.target.value }))}
+                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid #475569', background: '#0f172a', color: 'white', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
                       />
-                      <button onClick={async () => {
-                        const term = classStudentSearch.toLowerCase().trim();
-                        if (!term) return;
-                        const student = users.find(u => u.role === 'student' && (u.username?.toLowerCase().includes(term) || u.email.toLowerCase().includes(term) || u.firstName?.toLowerCase().includes(term) || u.lastName?.toLowerCase().includes(term)));
-                        if (!student) {
-                          toast({ variant: 'destructive', description: 'Student not found.' });
-                          return;
+                      {(() => {
+                        const term = (classStudentSearch[cls.id] || '').toLowerCase().trim();
+                        if (!term) return null;
+                        const memberIds = new Set((classMembers[cls.id] || []).filter(m => !m.kickedAt).map(m => m.userId));
+                        const matches = users.filter(u =>
+                          u.role === 'student' && !memberIds.has(u.uid) &&
+                          (u.username?.toLowerCase().includes(term) || u.email.toLowerCase().includes(term) || u.firstName?.toLowerCase().includes(term) || u.lastName?.toLowerCase().includes(term))
+                        ).slice(0, 6);
+                        if (matches.length === 0) {
+                          return <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: '#0f172a', border: '1px solid #334155', borderRadius: 6, padding: '8px 10px', color: '#64748b', fontSize: 12, zIndex: 5 }}>No matching students.</div>;
                         }
-                        const existing = (classMembers[cls.id] || []).find(m => m.userId === student.uid && !m.kickedAt);
-                        if (existing) {
-                          toast({ description: 'Student is already in this class.' });
-                          return;
-                        }
-                        await adminAddStudentToClass(cls.id, student.uid, student.username || student.firstName || 'Student');
-                        const updated = await getClassMembers(cls.id);
-                        setClassMembers(prev => ({ ...prev, [cls.id]: updated }));
-                        setClassStudentSearch('');
-                        toast({ description: `Added ${student.username || student.firstName} to ${cls.name}` });
-                      }} style={{ background: '#10b981', color: 'white', border: 'none', padding: '0 12px', borderRadius: 6, fontWeight: 'bold', cursor: 'pointer', fontSize: 12 }}>Add</button>
+                        return (
+                          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: '#0f172a', border: '1px solid #334155', borderRadius: 6, overflow: 'hidden', zIndex: 5 }}>
+                            {matches.map(student => (
+                              <button
+                                key={student.uid}
+                                onClick={async () => {
+                                  const fullName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.username || 'Student';
+                                  await adminAddStudentToClass(cls.id, student.uid, student.username || fullName, fullName);
+                                  const updated = await getClassMembers(cls.id);
+                                  setClassMembers(prev => ({ ...prev, [cls.id]: updated }));
+                                  setClassStudentSearch(prev => ({ ...prev, [cls.id]: '' }));
+                                  toast({ description: `Added ${student.username || student.firstName} to ${cls.name}` });
+                                }}
+                                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', background: 'transparent', border: 'none', borderBottom: '1px solid #1e293b', color: 'white', fontSize: 12, cursor: 'pointer' }}
+                              >
+                                <span style={{ fontWeight: 'bold' }}>{student.username || student.firstName}</span>
+                                <span style={{ color: '#64748b', marginLeft: 6 }}>{student.email}</span>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))

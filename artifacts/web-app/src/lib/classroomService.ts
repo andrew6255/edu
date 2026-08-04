@@ -19,6 +19,7 @@ import {
   queryGlobalDocs,
   type DocData,
 } from '@/lib/supabaseDocStore';
+import { requireSupabase } from '@/lib/supabase';
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -97,6 +98,24 @@ export interface SheetAccess {
   sheetId: string;
   masterAccess: boolean;
   studentAccess: Record<string, boolean>;
+  /** Group-sheet per-participant section heights in px, keyed by userId ('teacher' for the teacher's own section). */
+  sectionHeights: Record<string, number>;
+}
+
+/** Layer id used for the teacher's own broadcast layer on group/individual sheets. */
+export const TEACHER_LAYER_ID = 'teacher';
+
+/** Layer id the teacher writes to when annotating directly on a specific student's individual sheet. */
+export function annotationLayerId(studentId: string): string {
+  return `annot_${studentId}`;
+}
+
+export function isAnnotationLayer(layerId: string): boolean {
+  return layerId.startsWith('annot_');
+}
+
+export function studentIdFromAnnotationLayer(layerId: string): string {
+  return layerId.slice('annot_'.length);
 }
 
 // ─── Collection Names ───────────────────────────────────────────────────────────
@@ -209,6 +228,9 @@ function docToAccess(d: DocData): SheetAccess {
     masterAccess: d.masterAccess === true,
     studentAccess: (d.studentAccess && typeof d.studentAccess === 'object' && !Array.isArray(d.studentAccess))
       ? d.studentAccess as Record<string, boolean>
+      : {},
+    sectionHeights: (d.sectionHeights && typeof d.sectionHeights === 'object' && !Array.isArray(d.sectionHeights))
+      ? d.sectionHeights as Record<string, number>
       : {},
   };
 }
@@ -378,20 +400,32 @@ export async function validateClassCode(code: string): Promise<{ classId: string
   return null; // All codes with this value are expired
 }
 
+/**
+ * Joins a class by its 6-digit code via the `join_class_by_code_rpc` security-definer
+ * function (see classroom_rls.sql) — teacher_class_codes is not directly SELECTable by
+ * students, so redemption has to happen server-side. The caller's identity is derived
+ * server-side from the authenticated session (`auth.uid()`), not from `userId`.
+ */
 export async function joinClassByCode(
   userId: string,
   username: string,
   fullName: string,
   code: string,
 ): Promise<{ class: TeacherClass; member: ClassMember } | null> {
-  const validation = await validateClassCode(code);
-  if (!validation) return null;
-
-  const cls = await getTeacherClassById(validation.classId);
-  if (!cls || cls.status === 'ended') return null;
-
-  const member = await addClassMember(validation.classId, userId, username, fullName);
-  return { class: cls, member };
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.rpc('join_class_by_code_rpc', {
+    p_code: code,
+    p_username: username,
+    p_full_name: fullName,
+  });
+  if (error) {
+    console.warn('[classroomService] joinClassByCode RPC error:', error.message);
+    return null;
+  }
+  const cls = docToClass(data as DocData);
+  const member = await getGlobalDoc(COL.MEMBERS, `tcm_${cls.id}_${userId}`);
+  if (!member) return null;
+  return { class: cls, member: docToMember(member) };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -550,7 +584,7 @@ export async function pollSheetUpdates(sheetId: string, since: string): Promise<
 export async function getSheetAccess(sheetId: string): Promise<SheetAccess> {
   const id = `sa_${sheetId}`;
   const raw = await getGlobalDoc(COL.ACCESS, id);
-  if (!raw) return { sheetId, masterAccess: false, studentAccess: {} };
+  if (!raw) return { sheetId, masterAccess: false, studentAccess: {}, sectionHeights: {} };
   return docToAccess(raw);
 }
 
@@ -558,9 +592,16 @@ export async function setSheetAccess(
   sheetId: string,
   masterAccess: boolean,
   studentAccess: Record<string, boolean>,
+  sectionHeights?: Record<string, number>,
 ): Promise<void> {
   const id = `sa_${sheetId}`;
-  const data: SheetAccess = { sheetId, masterAccess, studentAccess };
+  const existing = sectionHeights ? undefined : await getGlobalDoc(COL.ACCESS, id);
+  const data: SheetAccess = {
+    sheetId,
+    masterAccess,
+    studentAccess,
+    sectionHeights: sectionHeights ?? (existing ? docToAccess(existing).sectionHeights : {}),
+  };
   await setGlobalDoc(COL.ACCESS, id, data as unknown as DocData);
 }
 
@@ -571,7 +612,7 @@ export async function toggleStudentAccess(
 ): Promise<void> {
   const current = await getSheetAccess(sheetId);
   current.studentAccess[studentId] = hasAccess;
-  await setSheetAccess(sheetId, current.masterAccess, current.studentAccess);
+  await setSheetAccess(sheetId, current.masterAccess, current.studentAccess, current.sectionHeights);
 }
 
 export async function toggleMasterAccess(sheetId: string, masterAccess: boolean): Promise<void> {
@@ -581,7 +622,13 @@ export async function toggleMasterAccess(sheetId: string, masterAccess: boolean)
   for (const key of Object.keys(current.studentAccess)) {
     updated[key] = masterAccess;
   }
-  await setSheetAccess(sheetId, masterAccess, updated);
+  await setSheetAccess(sheetId, masterAccess, updated, current.sectionHeights);
+}
+
+export async function setSectionHeight(sheetId: string, userId: string, height: number): Promise<void> {
+  const current = await getSheetAccess(sheetId);
+  current.sectionHeights[userId] = height;
+  await setSheetAccess(sheetId, current.masterAccess, current.studentAccess, current.sectionHeights);
 }
 
 export async function canStudentWrite(sheetId: string, studentId: string): Promise<boolean> {

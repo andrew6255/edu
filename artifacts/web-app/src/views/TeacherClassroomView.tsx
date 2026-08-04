@@ -3,14 +3,19 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   getTeacherClassesByTeacher,
   createTeacherClass,
+  renameTeacherClass,
   endTeacherClass,
   generateClassCode,
   getClassMembers,
   kickStudent,
   getClassSessions,
   createSession,
+  updateSession,
+  deleteSession,
   getSessionSheets,
   createSheet,
+  renameSheet,
+  deleteSheet,
   type TeacherClass,
   type ClassMember,
   type ClassCode,
@@ -50,7 +55,7 @@ const Modal = ({ title, onClose, children }: { title: string, onClose: () => voi
 );
 
 export default function TeacherClassroomView() {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   
   // Navigation State
   const [activeClass, setActiveClass] = useState<TeacherClass | null>(null);
@@ -60,28 +65,19 @@ export default function TeacherClassroomView() {
   // Data State
   const [classes, setClasses] = useState<TeacherClass[]>([]);
   const [loading, setLoading] = useState(true);
-  const [debugMsg, setDebugMsg] = useState('Initializing...');
 
   useEffect(() => {
-    if (userData?.uid) {
-      setDebugMsg('User found, calling loadClasses...');
-      loadClasses();
-    } else {
-      setDebugMsg('No userData.uid found.');
-    }
-  }, [userData?.uid]);
+    if (user?.uid) loadClasses();
+  }, [user?.uid]);
 
   async function loadClasses() {
     setLoading(true);
-    setDebugMsg('loadClasses called, fetching...');
     try {
-      const cls = await getTeacherClassesByTeacher(userData!.uid);
-      setDebugMsg('Fetched ' + cls.length + ' classes.');
+      const cls = await getTeacherClassesByTeacher(user!.uid);
       setClasses(cls);
-      setLoading(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setDebugMsg('Error: ' + err?.message);
+    } finally {
       setLoading(false);
     }
   }
@@ -129,7 +125,7 @@ export default function TeacherClassroomView() {
         <CreateClassButton onCreated={loadClasses} />
       </div>
 
-      {loading ? <Loader msg={debugMsg} /> : classes.length === 0 ? <Empty icon="🏫" text="You haven't created any classrooms yet." /> : (
+      {loading ? <Loader /> : classes.length === 0 ? <Empty icon="🏫" text="You haven't created any classrooms yet." /> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
           {classes.map(cls => (
             <div key={cls.id} onClick={() => setActiveClass(cls)}
@@ -154,7 +150,7 @@ export default function TeacherClassroomView() {
 // CREATE CLASS BUTTON
 // ═══════════════════════════════════════════════════════════════════════════════
 function CreateClassButton({ onCreated }: { onCreated: () => void }) {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
@@ -164,7 +160,7 @@ function CreateClassButton({ onCreated }: { onCreated: () => void }) {
     if (!name.trim() || !subject.trim()) return;
     setLoading(true);
     try {
-      await createTeacherClass(userData!.uid, userData!.username, name.trim(), subject.trim());
+      await createTeacherClass(user!.uid, userData!.username, name.trim(), subject.trim());
       setOpen(false);
       setName(''); setSubject('');
       onCreated();
@@ -202,8 +198,21 @@ function ClassDetailView({ cls, onBack, onOpenSession, onClassUpdated }: { cls: 
   const [sessions, setSessions] = useState<ClassSession[]>([]);
   const [members, setMembers] = useState<ClassMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(cls.name);
+  const [displayName, setDisplayName] = useState(cls.name);
 
+  useEffect(() => { setDisplayName(cls.name); setNameDraft(cls.name); }, [cls.name]);
   useEffect(() => { loadData(); }, [cls]);
+
+  async function saveRename() {
+    const next = nameDraft.trim();
+    if (!next || next === displayName) { setEditingName(false); return; }
+    await renameTeacherClass(cls.id, next);
+    setDisplayName(next);
+    setEditingName(false);
+    onClassUpdated();
+  }
 
   async function loadData() {
     setLoading(true);
@@ -224,7 +233,26 @@ function ClassDetailView({ cls, onBack, onOpenSession, onClassUpdated }: { cls: 
         <div>
           <button onClick={onBack} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', marginBottom: 12 }}>← Back to Classrooms</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h2 style={{ color: 'white', margin: 0 }}>{cls.name}</h2>
+            {editingName ? (
+              <>
+                <input
+                  autoFocus
+                  value={nameDraft}
+                  onChange={e => setNameDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') { setNameDraft(displayName); setEditingName(false); } }}
+                  style={{ fontSize: 20, fontWeight: 'bold', background: 'rgba(0,0,0,0.3)', border: '1px solid #475569', borderRadius: 6, color: 'white', padding: '4px 8px' }}
+                />
+                <button onClick={saveRename} style={{ background: COLOR, color: 'white', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 'bold' }}>Save</button>
+                <button onClick={() => { setNameDraft(displayName); setEditingName(false); }} style={{ background: 'transparent', color: '#94a3b8', border: '1px solid #334155', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 }}>Cancel</button>
+              </>
+            ) : (
+              <>
+                <h2 style={{ color: 'white', margin: 0 }}>{displayName}</h2>
+                {cls.status === 'active' && (
+                  <button onClick={() => setEditingName(true)} title="Rename class" style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 14 }}>✏️</button>
+                )}
+              </>
+            )}
             {cls.status === 'ended' && <span style={{ fontSize: 11, background: '#475569', color: 'white', padding: '2px 8px', borderRadius: 4 }}>Ended</span>}
           </div>
           <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>{cls.subject}</div>
@@ -273,14 +301,31 @@ function ClassDetailView({ cls, onBack, onOpenSession, onClassUpdated }: { cls: 
                       <div style={{ color: 'white', fontWeight: 'bold', fontSize: 15, marginBottom: 4 }}>{s.name}</div>
                       <div style={{ color: '#64748b', fontSize: 12 }}>{new Date(s.date).toLocaleDateString()} · {s.participantIds.length} participants</div>
                     </div>
-                    <span style={{
-                      fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                      background: s.status === 'active' ? '#10b98122' : s.status === 'scheduled' ? '#f59e0b22' : '#47556955',
-                      color: s.status === 'active' ? '#10b981' : s.status === 'scheduled' ? '#f59e0b' : '#94a3b8',
-                      border: `1px solid ${s.status === 'active' ? '#10b98155' : s.status === 'scheduled' ? '#f59e0b55' : '#475569'}`
-                    }}>
-                      {s.status.toUpperCase()}
-                    </span>
+                    <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{
+                        fontSize: 11, padding: '2px 8px', borderRadius: 4,
+                        background: s.status === 'active' ? '#10b98122' : s.status === 'scheduled' ? '#f59e0b22' : '#47556955',
+                        color: s.status === 'active' ? '#10b981' : s.status === 'scheduled' ? '#f59e0b' : '#94a3b8',
+                        border: `1px solid ${s.status === 'active' ? '#10b98155' : s.status === 'scheduled' ? '#f59e0b55' : '#475569'}`
+                      }}>
+                        {s.status.toUpperCase()}
+                      </span>
+                      {s.status === 'scheduled' && (
+                        <button onClick={async e => { e.stopPropagation(); await updateSession(s.id, { status: 'active' }); loadData(); }}
+                          style={{ background: 'transparent', border: '1px solid #10b981', color: '#10b981', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 'bold' }}>Start</button>
+                      )}
+                      {s.status === 'active' && (
+                        <button onClick={async e => {
+                          e.stopPropagation();
+                          if (confirm(`End session "${s.name}"? Sheets will become read-only for students (except personal sheets).`)) { await updateSession(s.id, { status: 'ended' }); loadData(); }
+                        }} style={{ background: 'transparent', border: '1px solid #f59e0b', color: '#f59e0b', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 'bold' }}>End</button>
+                      )}
+                      <EditSessionButton session={s} members={activeMembers} onSaved={loadData} />
+                      <button onClick={async e => {
+                        e.stopPropagation();
+                        if (confirm(`Delete session "${s.name}" and all its sheets? This cannot be undone.`)) { await deleteSession(s.id); loadData(); }
+                      }} style={{ background: 'transparent', border: '1px solid #ef4444', color: '#f87171', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>Delete</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -319,12 +364,12 @@ function ClassDetailView({ cls, onBack, onOpenSession, onClassUpdated }: { cls: 
 // GENERATE CODE BUTTON
 // ═══════════════════════════════════════════════════════════════════════════════
 function GenerateCodeButton({ classId }: { classId: string }) {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const [code, setCode] = useState<ClassCode | null>(null);
   const [timeLeft, setTimeLeft] = useState(0);
 
   const generate = async () => {
-    const c = await generateClassCode(classId, userData!.uid);
+    const c = await generateClassCode(classId, user!.uid);
     setCode(c);
   };
 
@@ -363,10 +408,16 @@ function GenerateCodeButton({ classId }: { classId: string }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // CREATE SESSION BUTTON
 // ═══════════════════════════════════════════════════════════════════════════════
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function CreateSessionButton({ cls, members, onCreated }: { cls: TeacherClass, members: ClassMember[], onCreated: () => void }) {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [date, setDate] = useState(todayStr());
+  const [startMode, setStartMode] = useState<'now' | 'schedule'>('now');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(members.map(m => m.userId)));
   const [loading, setLoading] = useState(false);
 
@@ -374,11 +425,13 @@ function CreateSessionButton({ cls, members, onCreated }: { cls: TeacherClass, m
     if (!name.trim() || selectedIds.size === 0) return;
     setLoading(true);
     try {
-      await createSession(
-        cls.id, name.trim(), new Date().toISOString(), 'active', Array.from(selectedIds), userData!.uid
-      );
+      const status = startMode === 'now' ? 'active' : 'scheduled';
+      const isoDate = startMode === 'now' ? new Date().toISOString() : new Date(date + 'T00:00:00').toISOString();
+      await createSession(cls.id, name.trim(), isoDate, status, Array.from(selectedIds), user!.uid);
       setOpen(false);
       setName('');
+      setDate(todayStr());
+      setStartMode('now');
       onCreated();
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -394,7 +447,16 @@ function CreateSessionButton({ cls, members, onCreated }: { cls: TeacherClass, m
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <input placeholder="Session Name (e.g. Week 1 Worksheet)" value={name} onChange={e => setName(e.target.value)}
               style={{ padding: '10px', borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none' }} />
-            
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setStartMode('now')} style={{ flex: 1, padding: '8px', borderRadius: 6, border: `1px solid ${startMode === 'now' ? COLOR : '#334155'}`, background: startMode === 'now' ? `${COLOR}22` : 'transparent', color: startMode === 'now' ? COLOR : '#94a3b8', fontWeight: 'bold', cursor: 'pointer', fontSize: 12 }}>Start Now</button>
+              <button onClick={() => setStartMode('schedule')} style={{ flex: 1, padding: '8px', borderRadius: 6, border: `1px solid ${startMode === 'schedule' ? COLOR : '#334155'}`, background: startMode === 'schedule' ? `${COLOR}22` : 'transparent', color: startMode === 'schedule' ? COLOR : '#94a3b8', fontWeight: 'bold', cursor: 'pointer', fontSize: 12 }}>Schedule</button>
+            </div>
+            {startMode === 'schedule' && (
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                style={{ padding: '10px', borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none' }} />
+            )}
+
             <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 8 }}>Select Participants ({selectedIds.size}/{members.length})</div>
             <div style={{ maxHeight: 200, overflowY: 'auto', background: 'rgba(0,0,0,0.2)', border: '1px solid #334155', borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
               {members.length === 0 ? <div style={{ color: '#64748b', fontSize: 12, padding: 4 }}>No students in class.</div> : members.map(m => (
@@ -410,7 +472,75 @@ function CreateSessionButton({ cls, members, onCreated }: { cls: TeacherClass, m
             </div>
 
             <button onClick={handleCreate} disabled={loading || selectedIds.size === 0} style={{ background: COLOR, color: 'white', border: 'none', padding: '10px', borderRadius: 6, fontWeight: 'bold', cursor: (loading || selectedIds.size === 0) ? 'not-allowed' : 'pointer', marginTop: 8, opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
-              {loading ? 'Creating...' : 'Start Session Now'}
+              {loading ? 'Creating...' : startMode === 'now' ? 'Start Session Now' : 'Schedule Session'}
+            </button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EDIT SESSION BUTTON
+// ═══════════════════════════════════════════════════════════════════════════════
+function EditSessionButton({ session, members, onSaved }: { session: ClassSession, members: ClassMember[], onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(session.name);
+  const [date, setDate] = useState(session.date.slice(0, 10));
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(session.participantIds));
+  const [loading, setLoading] = useState(false);
+
+  function openModal(e: React.MouseEvent) {
+    e.stopPropagation();
+    setName(session.name);
+    setDate(session.date.slice(0, 10));
+    setSelectedIds(new Set(session.participantIds));
+    setOpen(true);
+  }
+
+  const handleSave = async () => {
+    if (!name.trim() || selectedIds.size === 0) return;
+    setLoading(true);
+    try {
+      await updateSession(session.id, {
+        name: name.trim(),
+        date: new Date(date + 'T00:00:00').toISOString(),
+        participantIds: Array.from(selectedIds),
+      });
+      setOpen(false);
+      onSaved();
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <>
+      <button onClick={openModal} title="Edit session" style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>Edit</button>
+      {open && (
+        <Modal title="Edit Session" onClose={() => setOpen(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }} onClick={e => e.stopPropagation()}>
+            <input placeholder="Session Name" value={name} onChange={e => setName(e.target.value)}
+              style={{ padding: '10px', borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none' }} />
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              style={{ padding: '10px', borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none' }} />
+
+            <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 8 }}>Participants ({selectedIds.size}/{members.length})</div>
+            <div style={{ maxHeight: 200, overflowY: 'auto', background: 'rgba(0,0,0,0.2)', border: '1px solid #334155', borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {members.map(m => (
+                <label key={m.userId} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'white', fontSize: 13, cursor: 'pointer', padding: '4px 8px', borderRadius: 4, background: selectedIds.has(m.userId) ? `${COLOR}22` : 'transparent' }}>
+                  <input type="checkbox" checked={selectedIds.has(m.userId)} onChange={e => {
+                    const next = new Set(selectedIds);
+                    if (e.target.checked) next.add(m.userId); else next.delete(m.userId);
+                    setSelectedIds(next);
+                  }} style={{ accentColor: COLOR }} />
+                  {m.fullName || m.username}
+                </label>
+              ))}
+            </div>
+
+            <button onClick={handleSave} disabled={loading || selectedIds.size === 0} style={{ background: COLOR, color: 'white', border: 'none', padding: '10px', borderRadius: 6, fontWeight: 'bold', cursor: (loading || selectedIds.size === 0) ? 'not-allowed' : 'pointer', marginTop: 8, opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
+              {loading ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </Modal>
@@ -425,8 +555,10 @@ function CreateSessionButton({ cls, members, onCreated }: { cls: TeacherClass, m
 function SessionDetailView({ session, cls, onBack, onOpenSheet }: { session: ClassSession, cls: TeacherClass, onBack: () => void, onOpenSheet: (s: SessionSheet) => void }) {
   const [sheets, setSheets] = useState<SessionSheet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState(session.status);
 
-  useEffect(() => { loadData(); }, [session]);
+  useEffect(() => { setStatus(session.status); }, [session.status]);
+  useEffect(() => { loadData(); }, [session.id]);
 
   async function loadData() {
     setLoading(true);
@@ -437,6 +569,19 @@ function SessionDetailView({ session, cls, onBack, onOpenSheet }: { session: Cla
     finally { setLoading(false); }
   }
 
+  async function handleRenameSheet(sheet: SessionSheet) {
+    const next = prompt('Rename sheet', sheet.name);
+    if (!next || !next.trim() || next.trim() === sheet.name) return;
+    await renameSheet(sheet.id, next.trim());
+    loadData();
+  }
+
+  async function handleDeleteSheet(sheet: SessionSheet) {
+    if (!confirm(`Delete sheet "${sheet.name}"? This cannot be undone.`)) return;
+    await deleteSheet(sheet.id);
+    loadData();
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
@@ -445,14 +590,27 @@ function SessionDetailView({ session, cls, onBack, onOpenSheet }: { session: Cla
           <button onClick={onBack} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', marginBottom: 12 }}>← Back to {cls.name}</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <h2 style={{ color: 'white', margin: 0 }}>{session.name}</h2>
-            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: session.status === 'active' ? '#10b98122' : session.status === 'scheduled' ? '#f59e0b22' : '#47556955', color: session.status === 'active' ? '#10b981' : session.status === 'scheduled' ? '#f59e0b' : '#94a3b8', border: `1px solid ${session.status === 'active' ? '#10b98155' : session.status === 'scheduled' ? '#f59e0b55' : '#475569'}` }}>
-              {session.status.toUpperCase()}
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: status === 'active' ? '#10b98122' : status === 'scheduled' ? '#f59e0b22' : '#47556955', color: status === 'active' ? '#10b981' : status === 'scheduled' ? '#f59e0b' : '#94a3b8', border: `1px solid ${status === 'active' ? '#10b98155' : status === 'scheduled' ? '#f59e0b55' : '#475569'}` }}>
+              {status.toUpperCase()}
             </span>
           </div>
           <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>{new Date(session.date).toLocaleDateString()} · {session.participantIds.length} participants</div>
         </div>
-        <div>
-          {session.status === 'active' && <CreateSheetButton session={session} onCreated={loadData} />}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {status === 'scheduled' && (
+            <button onClick={async () => { await updateSession(session.id, { status: 'active' }); setStatus('active'); }}
+              style={{ background: COLOR, color: 'white', border: 'none', padding: '8px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' }}>
+              ▶ Start Session
+            </button>
+          )}
+          {status === 'active' && (
+            <button onClick={async () => {
+              if (confirm('End this session? Group and individual sheets become read-only for students.')) { await updateSession(session.id, { status: 'ended' }); setStatus('ended'); }
+            }} style={{ background: 'transparent', color: '#f59e0b', border: '1px solid #f59e0b', padding: '8px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' }}>
+              ■ End Session
+            </button>
+          )}
+          {status !== 'ended' && <CreateSheetButton session={session} onCreated={loadData} />}
         </div>
       </div>
 
@@ -466,9 +624,13 @@ function SessionDetailView({ session, cls, onBack, onOpenSheet }: { session: Cla
               <div style={{ fontSize: 32 }}>
                 {s.type === 'group' ? '👨‍👩‍👧‍👦' : s.type === 'individual' ? '👤' : '🔒'}
               </div>
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={{ color: 'white', fontWeight: 'bold', fontSize: 15, marginBottom: 4 }}>{s.name}</div>
                 <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'capitalize' }}>{s.type} Sheet</div>
+              </div>
+              <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => handleRenameSheet(s)} title="Rename" style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>✏️</button>
+                <button onClick={() => handleDeleteSheet(s)} title="Delete" style={{ background: 'transparent', border: '1px solid #ef444455', color: '#f87171', padding: '4px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
               </div>
             </div>
           ))}
@@ -482,7 +644,7 @@ function SessionDetailView({ session, cls, onBack, onOpenSheet }: { session: Cla
 // CREATE SHEET BUTTON
 // ═══════════════════════════════════════════════════════════════════════════════
 function CreateSheetButton({ session, onCreated }: { session: ClassSession, onCreated: () => void }) {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [type, setType] = useState<SheetType>('group');
@@ -492,7 +654,7 @@ function CreateSheetButton({ session, onCreated }: { session: ClassSession, onCr
     if (!name.trim()) return;
     setLoading(true);
     try {
-      await createSheet(session.id, session.classId, name.trim(), type, userData!.uid, 'teacher', userData!.uid);
+      await createSheet(session.id, session.classId, name.trim(), type, user!.uid, 'teacher', user!.uid);
       setOpen(false);
       setName('');
       setType('group');

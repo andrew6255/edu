@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 100 npx --prefix artifacts/web-app tsc -p artifacts/web-app/tsconfig.json --noEmit)",
+      "Bash(timeout 280 npx tsc -p tsconfig.json --noEmit)",
+      "Bash(echo \"EXIT:$?\")"
+    ]
+  }
+}
