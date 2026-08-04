@@ -327,7 +327,7 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
 
   const sessionEnded = session.status === 'ended';
   const sessionScheduled = session.status === 'scheduled';
-  const sessionLocksWriting = sessionEnded && sheet.type !== 'personal';
+  const sessionLocksWriting = sessionEnded;
 
   const handleSelectTarget = useCallback((id: string | null) => {
     if (sheet.type === 'group') {
@@ -366,7 +366,7 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
   // ── Effective write permission for the toolbar / active canvas ──
   let canWriteNow: boolean;
   if (sheet.type === 'personal') {
-    canWriteNow = true;
+    canWriteNow = !sessionLocksWriting;
   } else if (isTeacher) {
     canWriteNow = !sessionLocksWriting;
   } else {
@@ -378,7 +378,7 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
     : (!isTeacher && sheet.type !== 'personal' && !layer.canWrite ? 'NO WRITE ACCESS' : null);
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, height: '100dvh', display: 'flex', flexDirection: 'column', background: '#fff' }}>
       <Header
         sheet={sheet}
         canWriteNow={canWriteNow}
@@ -394,10 +394,10 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
         onClose={onClose}
       />
 
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', padding: sheet.type === 'group' ? '24px 0' : 24 }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+        <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start', padding: 0, background: '#fff' }}>
           {sheet.type === 'personal' && (
-            <div style={{ width: PAGE_W, height: PAGE_H, background: 'white', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }}>
+            <div style={{ width: '100%', minHeight: '100%', aspectRatio: `${PAGE_W} / ${PAGE_H}`, background: 'white' }}>
               <ClassroomCanvas
                 pageWidth={PAGE_W}
                 pageHeight={PAGE_H}
@@ -408,12 +408,13 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
                 strokeWidth={strokeWidth}
                 tool={tool}
                 disabled={!canWriteNow}
+                style={{ width: '100%', height: '100%' }}
               />
             </div>
           )}
 
           {sheet.type === 'group' && (
-            <div style={{ width: PAGE_W, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 0, background: '#fff' }}>
               <GroupSection
                 label={`${teacherName} (Teacher)`}
                 accentColor={getTeacherColor()}
@@ -475,7 +476,7 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
               ];
             }
             return (
-              <div style={{ width: PAGE_W, height: PAGE_H, background: 'white', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }}>
+              <div style={{ width: '100%', minHeight: '100%', aspectRatio: `${PAGE_W} / ${PAGE_H}`, background: 'white' }}>
                 <ClassroomCanvas
                   pageWidth={PAGE_W}
                   pageHeight={PAGE_H}
@@ -486,6 +487,7 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
                   strokeWidth={strokeWidth}
                   tool={tool}
                   disabled={!canWriteNow}
+                  style={{ width: '100%', height: '100%' }}
                 />
               </div>
             );
@@ -569,6 +571,7 @@ function GroupSection({
           strokeWidth={strokeWidth}
           tool={tool}
           disabled={!writable}
+          style={{ width: '100%', height }}
         />
       </div>
       {canExpand && (

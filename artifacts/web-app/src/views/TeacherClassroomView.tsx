@@ -3,9 +3,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   getTeacherClassesByTeacher,
   createTeacherClass,
-  renameTeacherClass,
+  getTeacherClassNote,
+  addClassMember,
+  updateTeacherClassDetails,
   endTeacherClass,
-  generateClassCode,
   getClassMembers,
   kickStudent,
   getClassSessions,
@@ -18,12 +19,15 @@ import {
   deleteSheet,
   type TeacherClass,
   type ClassMember,
-  type ClassCode,
   type ClassSession,
   type SessionSheet,
   type SheetType,
 } from '@/lib/classroomService';
+import { getAssignedTeacherStudents, type TeacherUserRow } from '@/lib/teacherService';
+import { createPersonalSubject, listPersonalSubjects, type PersonalSubject } from '@/lib/personalSubjectService';
 import ClassroomWorkspace from '@/components/ClassroomWorkspace';
+import { useConfirm } from '@/contexts/ConfirmContext';
+import ClassroomHomeworkView from '@/components/classroom/ClassroomHomeworkView';
 
 const COLOR = '#10b981';
 const COLOR_DIM = '#10b98155';
@@ -56,6 +60,7 @@ const Modal = ({ title, onClose, children }: { title: string, onClose: () => voi
 
 export default function TeacherClassroomView() {
   const { user, userData } = useAuth();
+  const { confirm } = useConfirm();
   
   // Navigation State
   const [activeClass, setActiveClass] = useState<TeacherClass | null>(null);
@@ -65,6 +70,8 @@ export default function TeacherClassroomView() {
   // Data State
   const [classes, setClasses] = useState<TeacherClass[]>([]);
   const [loading, setLoading] = useState(true);
+  const [managingClass, setManagingClass] = useState<TeacherClass | null>(null);
+  const [editingClass, setEditingClass] = useState<TeacherClass | null>(null);
 
   useEffect(() => {
     if (user?.uid) loadClasses();
@@ -112,7 +119,6 @@ export default function TeacherClassroomView() {
         cls={activeClass}
         onBack={() => setActiveClass(null)}
         onOpenSession={setActiveSession}
-        onClassUpdated={loadClasses}
       />
     );
   }
@@ -138,10 +144,19 @@ export default function TeacherClassroomView() {
                 {cls.status === 'ended' && <span style={{ fontSize: 10, background: '#475569', color: 'white', padding: '2px 6px', borderRadius: 4 }}>Ended</span>}
               </div>
               <div style={{ color: '#94a3b8', fontSize: 13 }}>{cls.subject}</div>
+              {cls.status === 'active' && (
+                <div onClick={event => event.stopPropagation()} style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                  <button onClick={() => setEditingClass(cls)} style={{ flex: 1, padding: '7px 9px', borderRadius: 6, border: '1px solid #475569', background: 'transparent', color: '#cbd5e1', fontWeight: 'bold', cursor: 'pointer' }}>Edit</button>
+                  <button onClick={() => setManagingClass(cls)} style={{ flex: 2, padding: '7px 9px', borderRadius: 6, border: `1px solid ${COLOR_DIM}`, background: `${COLOR}15`, color: COLOR, fontWeight: 'bold', cursor: 'pointer' }}>Manage Participants</button>
+                  <button onClick={async () => { if (await confirm(`End "${cls.name}"? Students will keep access to previous sessions.`, 'End Classroom')) { await endTeacherClass(cls.id); await loadClasses(); } }} style={{ flex: 1, padding: '7px 9px', borderRadius: 6, border: '1px solid #ef4444', background: 'transparent', color: '#f87171', fontWeight: 'bold', cursor: 'pointer' }}>End Class</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
+      {managingClass && <ManageParticipantsModal cls={managingClass} onClose={() => setManagingClass(null)} />}
+      {editingClass && <EditClassModal cls={editingClass} onClose={() => setEditingClass(null)} onSaved={loadClasses} />}
     </div>
   );
 }
@@ -154,15 +169,19 @@ function CreateClassButton({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
+  const [subjects, setSubjects] = useState<PersonalSubject[]>([]);
+  const [subjectsOpen, setSubjectsOpen] = useState(false);
+  const [newSubject, setNewSubject] = useState('');
+  const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleCreate = async () => {
     if (!name.trim() || !subject.trim()) return;
     setLoading(true);
     try {
-      await createTeacherClass(user!.uid, userData!.username, name.trim(), subject.trim());
+      await createTeacherClass(user!.uid, userData!.username, name.trim(), subject.trim(), note.trim());
       setOpen(false);
-      setName(''); setSubject('');
+      setName(''); setSubject(''); setNote('');
       onCreated();
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -170,7 +189,7 @@ function CreateClassButton({ onCreated }: { onCreated: () => void }) {
 
   return (
     <>
-      <button onClick={() => setOpen(true)} style={{ background: COLOR, color: 'white', border: 'none', padding: '8px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' }}>
+      <button onClick={async () => { setOpen(true); if (user) setSubjects(await listPersonalSubjects(user.uid)); }} style={{ background: COLOR, color: 'white', border: 'none', padding: '8px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' }}>
         + New Classroom
       </button>
       {open && (
@@ -178,11 +197,30 @@ function CreateClassButton({ onCreated }: { onCreated: () => void }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <input placeholder="Classroom Name (e.g. Math 101)" value={name} onChange={e => setName(e.target.value)}
               style={{ padding: '10px', borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none' }} />
-            <input placeholder="Subject" value={subject} onChange={e => setSubject(e.target.value)}
-              style={{ padding: '10px', borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none' }} />
+            <button onClick={() => setSubjectsOpen(true)} style={{ padding: 10, borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,.3)', color: subject ? 'white' : '#94a3b8', textAlign: 'left', cursor: 'pointer' }}>
+              {subject ? `📚 ${subject}` : '📚 Select from My Subjects'}
+            </button>
+            <textarea placeholder="Private classroom note (optional)" value={note} onChange={e => setNote(e.target.value)} rows={3}
+              style={{ padding: 10, borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,.3)', color: 'white', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
             <button onClick={handleCreate} disabled={loading} style={{ background: COLOR, color: 'white', border: 'none', padding: '10px', borderRadius: 6, fontWeight: 'bold', cursor: loading ? 'not-allowed' : 'pointer', marginTop: 8 }}>
               {loading ? 'Creating...' : 'Create'}
             </button>
+          </div>
+        </Modal>
+      )}
+      {subjectsOpen && (
+        <Modal title="My Subjects" onClose={() => setSubjectsOpen(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {subjects.map(item => (
+              <button key={item.id} onClick={() => { setSubject(item.name); setSubjectsOpen(false); }} style={{ padding: 10, borderRadius: 7, border: `1px solid ${subject === item.name ? COLOR : '#475569'}`, background: subject === item.name ? `${COLOR}22` : 'rgba(0,0,0,.2)', color: 'white', cursor: 'pointer', textAlign: 'left' }}>
+                {item.emoji} {item.name}
+              </button>
+            ))}
+            {subjects.length === 0 && <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 8 }}>You have not created any subjects yet.</div>}
+            <div style={{ display: 'flex', gap: 6, borderTop: '1px solid #334155', paddingTop: 10, marginTop: 4 }}>
+              <input value={newSubject} onChange={e => setNewSubject(e.target.value)} placeholder="Create a subject" style={{ flex: 1, minWidth: 0, padding: 9, borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,.3)', color: 'white' }} />
+              <button disabled={!newSubject.trim()} onClick={async () => { const created = await createPersonalSubject(user!.uid, newSubject, undefined, subjects.map(s => s.emoji)); setSubjects(prev => [...prev, created]); setNewSubject(''); }} style={{ border: 'none', borderRadius: 6, background: COLOR, color: 'white', fontWeight: 'bold', padding: '0 12px', cursor: 'pointer' }}>Add</button>
+            </div>
           </div>
         </Modal>
       )}
@@ -190,36 +228,121 @@ function CreateClassButton({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+function ManageParticipantsModal({ cls, onClose }: { cls: TeacherClass; onClose: () => void }) {
+  const { user } = useAuth();
+  const [students, setStudents] = useState<TeacherUserRow[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    void (async () => {
+      if (!user) return;
+      const [available, members] = await Promise.all([getAssignedTeacherStudents(user.uid), getClassMembers(cls.id)]);
+      setStudents(available);
+      setSelected(new Set(members.filter(member => !member.kickedAt).map(member => member.userId)));
+      setLoading(false);
+    })();
+  }, [cls.id, user]);
+
+  async function toggle(student: TeacherUserRow) {
+    const isSelected = selected.has(student.user_id);
+    setSavingId(student.user_id);
+    try {
+      if (isSelected) await kickStudent(cls.id, student.user_id);
+      else await addClassMember(cls.id, student.user_id, student.username, `${student.first_name} ${student.last_name}`.trim() || student.username);
+      setSelected(prev => { const next = new Set(prev); isSelected ? next.delete(student.user_id) : next.add(student.user_id); return next; });
+    } finally { setSavingId(null); }
+  }
+
+  const query = search.trim().toLowerCase();
+  const filteredStudents = query ? students.filter(student =>
+    student.username.toLowerCase().includes(query)
+    || student.email.toLowerCase().includes(query)
+    || `${student.first_name} ${student.last_name}`.toLowerCase().includes(query)
+  ) : students;
+
+  return (
+    <Modal title={`Manage Participants — ${cls.name}`} onClose={onClose}>
+      <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 12 }}>Select the students who belong in this classroom.</div>
+      <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search students..." aria-label="Search students" style={{ width: '100%', boxSizing: 'border-box', padding: 9, marginBottom: 10, borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,.3)', color: 'white', outline: 'none' }} />
+      {loading ? <Loader /> : students.length === 0 ? <Empty icon="👥" text="Add students from the Students section first." /> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: '55vh', overflowY: 'auto' }}>
+          {filteredStudents.length === 0 && <div style={{ color: '#64748b', textAlign: 'center', padding: 18 }}>No students match your search.</div>}
+          {filteredStudents.map(student => (
+            <label key={student.user_id} style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #334155', borderRadius: 7, padding: 10, cursor: 'pointer', opacity: savingId === student.user_id ? .6 : 1 }}>
+              <input type="checkbox" checked={selected.has(student.user_id)} disabled={savingId !== null} onChange={() => void toggle(student)} style={{ width: 17, height: 17, accentColor: COLOR }} />
+              <span><strong>{student.username || `${student.first_name} ${student.last_name}`}</strong><span style={{ color: '#64748b', fontSize: 11, display: 'block' }}>{student.email}</span></span>
+            </label>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function EditClassModal({ cls, onClose, onSaved }: { cls: TeacherClass; onClose: () => void; onSaved: () => void }) {
+  const { user } = useAuth();
+  const [name, setName] = useState(cls.name);
+  const [subject, setSubject] = useState(cls.subject);
+  const [note, setNote] = useState('');
+  const [subjects, setSubjects] = useState<PersonalSubject[]>([]);
+  const [subjectsOpen, setSubjectsOpen] = useState(false);
+  const [newSubject, setNewSubject] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { if (user) void Promise.all([listPersonalSubjects(user.uid), getTeacherClassNote(cls.id)]).then(([items, privateNote]) => { setSubjects(items); setNote(privateNote); }); }, [cls.id, user]);
+
+  async function save() {
+    const next = name.trim();
+    if (!next || !subject.trim() || !user) return;
+    setSaving(true);
+    try { await updateTeacherClassDetails(cls.id, user.uid, next, subject, note); onSaved(); onClose(); }
+    finally { setSaving(false); }
+  }
+  return <>
+    <Modal title="Edit Classroom" onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <label style={{ color: '#94a3b8', fontSize: 12 }}>Classroom name<input autoFocus value={name} onChange={event => setName(event.target.value)} style={{ display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 5, padding: 10, borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,.3)', color: 'white', outline: 'none' }} /></label>
+        <div><div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 5 }}>Subject</div><button onClick={() => setSubjectsOpen(true)} style={{ width: '100%', padding: 10, borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,.3)', color: subject ? 'white' : '#94a3b8', textAlign: 'left', cursor: 'pointer' }}>{subject ? `📚 ${subject}` : '📚 Select from My Subjects'}</button></div>
+        <label style={{ color: '#94a3b8', fontSize: 12 }}>Private note<textarea value={note} onChange={event => setNote(event.target.value)} rows={4} placeholder="Optional, visible only to you" style={{ display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 5, padding: 10, borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,.3)', color: 'white', resize: 'vertical', fontFamily: 'inherit' }} /></label>
+        <button onClick={() => void save()} disabled={saving || !name.trim() || !subject.trim()} style={{ padding: 10, borderRadius: 6, border: 'none', background: COLOR, color: 'white', fontWeight: 'bold', cursor: saving ? 'wait' : 'pointer' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
+      </div>
+    </Modal>
+    {subjectsOpen && <Modal title="My Subjects" onClose={() => setSubjectsOpen(false)}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {subjects.map(item => <button key={item.id} onClick={() => { setSubject(item.name); setSubjectsOpen(false); }} style={{ padding: 10, borderRadius: 7, border: `1px solid ${subject === item.name ? COLOR : '#475569'}`, background: subject === item.name ? `${COLOR}22` : 'rgba(0,0,0,.2)', color: 'white', cursor: 'pointer', textAlign: 'left' }}>{item.emoji} {item.name}</button>)}
+        {subjects.length === 0 && <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 8 }}>You have not created any subjects yet.</div>}
+        <div style={{ display: 'flex', gap: 6, borderTop: '1px solid #334155', paddingTop: 10, marginTop: 4 }}>
+          <input value={newSubject} onChange={event => setNewSubject(event.target.value)} placeholder="Create a subject" style={{ flex: 1, minWidth: 0, padding: 9, borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,.3)', color: 'white' }} />
+          <button disabled={!newSubject.trim()} onClick={async () => { const created = await createPersonalSubject(user!.uid, newSubject, undefined, subjects.map(item => item.emoji)); setSubjects(previous => [...previous, created]); setNewSubject(''); }} style={{ border: 'none', borderRadius: 6, background: COLOR, color: 'white', fontWeight: 'bold', padding: '0 12px', cursor: 'pointer' }}>Add</button>
+        </div>
+      </div>
+    </Modal>}
+  </>;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CLASS DETAIL VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
-function ClassDetailView({ cls, onBack, onOpenSession, onClassUpdated }: { cls: TeacherClass, onBack: () => void, onOpenSession: (s: ClassSession) => void, onClassUpdated: () => void }) {
-  const [tab, setTab] = useState<'sessions' | 'students'>('sessions');
+function ClassDetailView({ cls, onBack, onOpenSession }: { cls: TeacherClass, onBack: () => void, onOpenSession: (s: ClassSession) => void }) {
+  const { confirm } = useConfirm();
+  const [tab, setTab] = useState<'sessions' | 'homeworks'>('sessions');
   const [sessions, setSessions] = useState<ClassSession[]>([]);
   const [members, setMembers] = useState<ClassMember[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState(cls.name);
-  const [displayName, setDisplayName] = useState(cls.name);
+  const [privateNote, setPrivateNote] = useState('');
 
-  useEffect(() => { setDisplayName(cls.name); setNameDraft(cls.name); }, [cls.name]);
   useEffect(() => { loadData(); }, [cls]);
-
-  async function saveRename() {
-    const next = nameDraft.trim();
-    if (!next || next === displayName) { setEditingName(false); return; }
-    await renameTeacherClass(cls.id, next);
-    setDisplayName(next);
-    setEditingName(false);
-    onClassUpdated();
-  }
 
   async function loadData() {
     setLoading(true);
     try {
-      const [s, m] = await Promise.all([getClassSessions(cls.id), getClassMembers(cls.id)]);
-      setSessions(s);
+      const [s, m, note] = await Promise.all([getClassSessions(cls.id), getClassMembers(cls.id), getTeacherClassNote(cls.id)]);
+      setSessions([...s].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
       setMembers(m);
+      setPrivateNote(note);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }
@@ -231,61 +354,16 @@ function ClassDetailView({ cls, onBack, onOpenSession, onClassUpdated }: { cls: 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <button onClick={onBack} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', marginBottom: 12 }}>← Back to Classrooms</button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {editingName ? (
-              <>
-                <input
-                  autoFocus
-                  value={nameDraft}
-                  onChange={e => setNameDraft(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') { setNameDraft(displayName); setEditingName(false); } }}
-                  style={{ fontSize: 20, fontWeight: 'bold', background: 'rgba(0,0,0,0.3)', border: '1px solid #475569', borderRadius: 6, color: 'white', padding: '4px 8px' }}
-                />
-                <button onClick={saveRename} style={{ background: COLOR, color: 'white', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 'bold' }}>Save</button>
-                <button onClick={() => { setNameDraft(displayName); setEditingName(false); }} style={{ background: 'transparent', color: '#94a3b8', border: '1px solid #334155', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12 }}>Cancel</button>
-              </>
-            ) : (
-              <>
-                <h2 style={{ color: 'white', margin: 0 }}>{displayName}</h2>
-                {cls.status === 'active' && (
-                  <button onClick={() => setEditingName(true)} title="Rename class" style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 14 }}>✏️</button>
-                )}
-              </>
-            )}
-            {cls.status === 'ended' && <span style={{ fontSize: 11, background: '#475569', color: 'white', padding: '2px 8px', borderRadius: 4 }}>Ended</span>}
-          </div>
-          <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>{cls.subject}</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {cls.status === 'active' && <GenerateCodeButton classId={cls.id} />}
-          {cls.status === 'active' && (
-            <button onClick={async () => {
-              if (confirm('Are you sure you want to end this class? Students will retain access to old sessions, but you cannot create new ones.')) {
-                await endTeacherClass(cls.id);
-                onClassUpdated();
-                onBack();
-              }
-            }} style={{ background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', padding: '8px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' }}>
-              End Class
-            </button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}><button onClick={onBack} style={{ background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '6px 12px', borderRadius: 6, cursor: 'pointer' }}>← Back to Classrooms</button><strong style={{ color: 'white' }}>{cls.name}</strong><span style={{ color: '#64748b', fontSize: 12 }}>· {cls.subject}</span>{cls.status === 'ended' && <span style={{ fontSize: 11, background: '#475569', color: 'white', padding: '2px 8px', borderRadius: 4 }}>Ended</span>}</div>
+          {privateNote && <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 7, padding: '7px 10px', borderRadius: 6, background: 'rgba(15,23,42,.7)', borderLeft: `3px solid ${COLOR}` }}>🔒 {privateNote}</div>}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #334155', paddingBottom: 8 }}>
-        <button onClick={() => setTab('sessions')} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: tab === 'sessions' ? `${COLOR}22` : 'transparent', color: tab === 'sessions' ? COLOR : '#94a3b8', fontWeight: 'bold', cursor: 'pointer' }}>
-          Sessions ({sessions.length})
-        </button>
-        <button onClick={() => setTab('students')} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: tab === 'students' ? `${COLOR}22` : 'transparent', color: tab === 'students' ? COLOR : '#94a3b8', fontWeight: 'bold', cursor: 'pointer' }}>
-          Students ({activeMembers.length})
-        </button>
-      </div>
+      <div style={{ display: 'flex', gap: 5, borderBottom: '1px solid #334155', marginBottom: 16 }}><button onClick={() => setTab('sessions')} style={{ padding: '8px 14px', border: 0, borderBottom: `2px solid ${tab === 'sessions' ? COLOR : 'transparent'}`, background: 'transparent', color: tab === 'sessions' ? COLOR : '#64748b', fontWeight: 'bold', cursor: 'pointer' }}>Sessions</button><button onClick={() => setTab('homeworks')} style={{ padding: '8px 14px', border: 0, borderBottom: `2px solid ${tab === 'homeworks' ? COLOR : 'transparent'}`, background: 'transparent', color: tab === 'homeworks' ? COLOR : '#64748b', fontWeight: 'bold', cursor: 'pointer' }}>Homeworks</button></div>
 
-      {/* Tab Content */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {loading ? <Loader /> : tab === 'sessions' ? (
+      {/* Sessions */}
+      {tab === 'sessions' ? <div style={{ flex: 1, overflowY: 'auto' }}>
+        {loading ? <Loader /> : (
           <div>
             {cls.status === 'active' && (
               <div style={{ marginBottom: 16 }}>
@@ -302,28 +380,20 @@ function ClassDetailView({ cls, onBack, onOpenSession, onClassUpdated }: { cls: 
                       <div style={{ color: '#64748b', fontSize: 12 }}>{new Date(s.date).toLocaleDateString()} · {s.participantIds.length} participants</div>
                     </div>
                     <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{
-                        fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                        background: s.status === 'active' ? '#10b98122' : s.status === 'scheduled' ? '#f59e0b22' : '#47556955',
-                        color: s.status === 'active' ? '#10b981' : s.status === 'scheduled' ? '#f59e0b' : '#94a3b8',
-                        border: `1px solid ${s.status === 'active' ? '#10b98155' : s.status === 'scheduled' ? '#f59e0b55' : '#475569'}`
-                      }}>
-                        {s.status.toUpperCase()}
-                      </span>
-                      {s.status === 'scheduled' && (
-                        <button onClick={async e => { e.stopPropagation(); await updateSession(s.id, { status: 'active' }); loadData(); }}
-                          style={{ background: 'transparent', border: '1px solid #10b981', color: '#10b981', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 'bold' }}>Start</button>
-                      )}
-                      {s.status === 'active' && (
-                        <button onClick={async e => {
-                          e.stopPropagation();
-                          if (confirm(`End session "${s.name}"? Sheets will become read-only for students (except personal sheets).`)) { await updateSession(s.id, { status: 'ended' }); loadData(); }
-                        }} style={{ background: 'transparent', border: '1px solid #f59e0b', color: '#f59e0b', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 'bold' }}>End</button>
-                      )}
+                      <select
+                        aria-label={`Status for ${s.name}`}
+                        value={s.status}
+                        onChange={async event => { await updateSession(s.id, { status: event.target.value as 'active' | 'ended' }); await loadData(); }}
+                        style={{ fontSize: 11, fontWeight: 'bold', padding: '4px 7px', borderRadius: 4, cursor: 'pointer', background: s.status === 'active' ? '#10b98122' : s.status === 'scheduled' ? '#f59e0b22' : '#47556955', color: s.status === 'active' ? '#10b981' : s.status === 'scheduled' ? '#f59e0b' : '#94a3b8', border: `1px solid ${s.status === 'active' ? '#10b98155' : s.status === 'scheduled' ? '#f59e0b55' : '#475569'}` }}
+                      >
+                        {s.status === 'scheduled' && <option value="scheduled" disabled>Scheduled</option>}
+                        <option value="active">Active</option>
+                        <option value="ended">Ended</option>
+                      </select>
                       <EditSessionButton session={s} members={activeMembers} onSaved={loadData} />
                       <button onClick={async e => {
                         e.stopPropagation();
-                        if (confirm(`Delete session "${s.name}" and all its sheets? This cannot be undone.`)) { await deleteSession(s.id); loadData(); }
+                        if (await confirm(`Delete session "${s.name}" and all its sheets? This cannot be undone.`, 'Delete Session')) { await deleteSession(s.id); loadData(); }
                       }} style={{ background: 'transparent', border: '1px solid #ef4444', color: '#f87171', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>Delete</button>
                     </div>
                   </div>
@@ -331,77 +401,9 @@ function ClassDetailView({ cls, onBack, onOpenSession, onClassUpdated }: { cls: 
               </div>
             )}
           </div>
-        ) : (
-          <div>
-            {activeMembers.length === 0 ? <Empty icon="👥" text="No students have joined yet." /> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {activeMembers.map(m => (
-                  <div key={m.userId} style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px' }}>
-                    <div>
-                      <div style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>{m.fullName || m.username}</div>
-                      <div style={{ color: '#64748b', fontSize: 12 }}>@{m.username} · Joined {new Date(m.joinedAt).toLocaleDateString()}</div>
-                    </div>
-                    {cls.status === 'active' && (
-                      <button onClick={async () => {
-                        if (confirm(`Kick ${m.username} from this class?`)) {
-                          await kickStudent(cls.id, m.userId);
-                          loadData();
-                        }
-                      }} style={{ background: 'transparent', border: '1px solid #ef4444', color: '#f87171', padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>Kick</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         )}
-      </div>
+      </div> : <div style={{ flex: 1, overflowY: 'auto' }}><ClassroomHomeworkView classId={cls.id} role="teacher" /></div>}
     </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// GENERATE CODE BUTTON
-// ═══════════════════════════════════════════════════════════════════════════════
-function GenerateCodeButton({ classId }: { classId: string }) {
-  const { user, userData } = useAuth();
-  const [code, setCode] = useState<ClassCode | null>(null);
-  const [timeLeft, setTimeLeft] = useState(0);
-
-  const generate = async () => {
-    const c = await generateClassCode(classId, user!.uid);
-    setCode(c);
-  };
-
-  useEffect(() => {
-    if (!code) return;
-    const interval = setInterval(() => {
-      const remaining = Math.max(0, Math.floor((new Date(code.expiresAt).getTime() - Date.now()) / 1000));
-      setTimeLeft(remaining);
-      if (remaining === 0) setCode(null);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [code]);
-
-  return (
-    <>
-      <button onClick={generate} style={{ background: 'transparent', color: COLOR, border: `1px solid ${COLOR}`, padding: '8px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' }}>
-        Generate Join Code
-      </button>
-      {code && (
-        <Modal title="Class Join Code" onClose={() => setCode(null)}>
-          <div style={{ textAlign: 'center', padding: 20 }}>
-            <div style={{ fontSize: 14, color: '#94a3b8', marginBottom: 12 }}>Students can use this code to join the class.</div>
-            <div style={{ fontSize: 48, fontWeight: 'bold', letterSpacing: 8, color: 'white', background: 'rgba(0,0,0,0.3)', padding: '20px', borderRadius: 12, marginBottom: 20 }}>
-              {code.code}
-            </div>
-            <div style={{ color: timeLeft <= 10 ? '#ef4444' : '#f59e0b', fontWeight: 'bold' }}>
-              Expires in {timeLeft}s
-            </div>
-          </div>
-        </Modal>
-      )}
-    </>
   );
 }
 
@@ -553,6 +555,7 @@ function EditSessionButton({ session, members, onSaved }: { session: ClassSessio
 // SESSION DETAIL VIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 function SessionDetailView({ session, cls, onBack, onOpenSheet }: { session: ClassSession, cls: TeacherClass, onBack: () => void, onOpenSheet: (s: SessionSheet) => void }) {
+  const { confirm, prompt } = useConfirm();
   const [sheets, setSheets] = useState<SessionSheet[]>([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState(session.status);
@@ -570,14 +573,14 @@ function SessionDetailView({ session, cls, onBack, onOpenSheet }: { session: Cla
   }
 
   async function handleRenameSheet(sheet: SessionSheet) {
-    const next = prompt('Rename sheet', sheet.name);
+    const next = await prompt('Enter a new name for this sheet.', sheet.name, 'Rename Sheet');
     if (!next || !next.trim() || next.trim() === sheet.name) return;
     await renameSheet(sheet.id, next.trim());
     loadData();
   }
 
   async function handleDeleteSheet(sheet: SessionSheet) {
-    if (!confirm(`Delete sheet "${sheet.name}"? This cannot be undone.`)) return;
+    if (!(await confirm(`Delete sheet "${sheet.name}"? This cannot be undone.`, 'Delete Sheet'))) return;
     await deleteSheet(sheet.id);
     loadData();
   }
@@ -605,7 +608,7 @@ function SessionDetailView({ session, cls, onBack, onOpenSheet }: { session: Cla
           )}
           {status === 'active' && (
             <button onClick={async () => {
-              if (confirm('End this session? Group and individual sheets become read-only for students.')) { await updateSession(session.id, { status: 'ended' }); setStatus('ended'); }
+              if (await confirm('End this session? Every worksheet will become read-only.', 'End Session')) { await updateSession(session.id, { status: 'ended' }); setStatus('ended'); }
             }} style={{ background: 'transparent', color: '#f59e0b', border: '1px solid #f59e0b', padding: '8px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' }}>
               ■ End Session
             </button>

@@ -27,7 +27,8 @@ const selected = candidates.find(candidate => {
 if (!selected) {
   console.error('[ocr] No Python installation has the OCR dependencies.');
   console.error('[ocr] Install them with: py -3.12 -m pip install -r tools\\ocr\\requirements.txt');
-  process.exit(1);
+  console.error('[ocr] Continuing without OCR support.');
+  process.exit(0);
 }
 
 console.log(`[ocr] Starting with ${selected.command} ${selected.prefix.join(' ')}`.trim());

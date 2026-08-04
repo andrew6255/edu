@@ -17,7 +17,7 @@ import {
 import { getMyClassStats, type MyClassStats } from '@/lib/statsService';
 import {
   getStudentClasses,
-  joinClassByCode,
+  joinTeacherByStudentCode,
   deleteStudentClassMembership,
   getStudentSessions,
   getSessionSheets,
@@ -27,6 +27,7 @@ import {
   type SessionSheet
 } from '@/lib/classroomService';
 import ClassroomWorkspace from '@/components/ClassroomWorkspace';
+import ClassroomHomeworkView from '@/components/classroom/ClassroomHomeworkView';
 
 const ACCENT = '#3b82f6';
 const COLOR = '#10b981'; // Green accent for live classrooms
@@ -90,6 +91,7 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
   const [selectedSession, setSelectedSession] = useState<ClassSession | null>(null);
   const [sessionSheets, setSessionSheets] = useState<SessionSheet[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<SessionSheet | null>(null);
+  const [classroomTab, setClassroomTab] = useState<'sessions' | 'homeworks'>('sessions');
 
   useEffect(() => {
     if (user?.uid) loadClassrooms();
@@ -109,15 +111,14 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
     if (!joinCode.trim() || !user || !userData) return;
     setJoining(true);
     try {
-      const res = await joinClassByCode(user.uid, userData.username, userData.username, joinCode.trim().toUpperCase());
-      if (res) {
-        toast({ title: 'Success', description: `Joined ${res.class.name}!` });
+      const teacherInvite = await joinTeacherByStudentCode(joinCode.trim());
+      if (teacherInvite) {
+        toast({ title: 'Teacher added', description: `You were added to ${teacherInvite.teacherName}'s student list.` });
         setShowJoinPopup(false);
         setJoinCode('');
-        loadClassrooms();
-      } else {
-        toast({ variant: 'destructive', description: 'Invalid or expired code.' });
+        return;
       }
+      toast({ variant: 'destructive', description: 'Invalid or expired teacher code.' });
     } catch (e) {
       toast({ variant: 'destructive', description: 'Failed to join class.' });
     } finally {
@@ -127,6 +128,7 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
 
   async function openClassroom(cls: TeacherClass) {
     setSelectedClassroom(cls);
+    setClassroomTab('sessions');
     setSelectedSession(null);
     try {
       const sessions = await getStudentSessions(user!.uid, cls.id);
@@ -577,7 +579,9 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
             <button onClick={() => setSelectedClassroom(null)} style={{ padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', cursor: 'pointer' }}>← Back</button>
           </div>
         </div>
+        <div style={{ display: 'flex', gap: 5, padding: '0 18px', borderBottom: '1px solid #334155' }}><button onClick={() => setClassroomTab('sessions')} style={{ padding: '9px 14px', border: 0, borderBottom: `2px solid ${classroomTab === 'sessions' ? COLOR : 'transparent'}`, background: 'transparent', color: classroomTab === 'sessions' ? COLOR : '#64748b', fontWeight: 'bold' }}>Sessions</button><button onClick={() => setClassroomTab('homeworks')} style={{ padding: '9px 14px', border: 0, borderBottom: `2px solid ${classroomTab === 'homeworks' ? COLOR : 'transparent'}`, background: 'transparent', color: classroomTab === 'homeworks' ? COLOR : '#64748b', fontWeight: 'bold' }}>Homeworks</button></div>
         <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
+          {classroomTab === 'homeworks' ? <ClassroomHomeworkView classId={selectedClassroom.id} role="student" /> : <>
           <h3 style={{ color: 'white', fontSize: 16, marginBottom: 12 }}>Sessions</h3>
           {classroomSessions.length === 0 ? (
             <div style={{ textAlign: 'center', color: '#64748b', marginTop: 40 }}>No sessions available.</div>
@@ -596,7 +600,7 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
                 </div>
               ))}
             </div>
-          )}
+          )}</>}
         </div>
       </div>
     );
@@ -619,14 +623,15 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
               <span style={{ color: COLOR }}>●</span> Live Classrooms
             </h3>
             <button onClick={() => setShowJoinPopup(true)} style={{ background: COLOR, color: 'white', border: 'none', padding: '6px 12px', borderRadius: 6, fontWeight: 'bold', cursor: 'pointer', fontSize: 12 }}>
-              + Join Code
+              + Add Teacher
             </button>
           </div>
 
           {showJoinPopup && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
               <div style={{ background: '#1e293b', border: '1px solid #475569', borderRadius: 12, padding: 20, width: '90%', maxWidth: 320 }}>
-                <h3 style={{ margin: '0 0 16px 0', color: 'white' }}>Join Classroom</h3>
+                <h3 style={{ margin: '0 0 8px 0', color: 'white' }}>Enter Invite Code</h3>
+                <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 14 }}>Enter the one-minute code generated by your teacher.</div>
                 <input placeholder="6-digit code" value={joinCode} onChange={e => setJoinCode(e.target.value)}
                   style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,0.3)', color: 'white', outline: 'none', boxSizing: 'border-box', marginBottom: 12, fontSize: 20, letterSpacing: 4, textAlign: 'center', textTransform: 'uppercase' }} />
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -641,7 +646,7 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
 
           {loadingClassrooms ? <div style={{ color: '#64748b' }}>Loading...</div> : activeClassrooms.length === 0 ? (
             <div style={{ color: '#64748b', fontSize: 13, padding: 16, background: 'rgba(0,0,0,0.2)', borderRadius: 8, border: '1px dashed #334155' }}>
-              You haven't joined any live classrooms. Click "Join Code" and enter the 6-digit code from your teacher.
+              You have not been added to any live classrooms yet. Your teacher controls classroom participants.
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
@@ -684,43 +689,6 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
           )}
         </div>
 
-        {/* OLD CONTENT CLASSES SYSTEM */}
-        <h3 style={{ margin: '0 0 16px 0', color: 'white', fontSize: 16, display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid #334155', paddingTop: 20 }}>
-          <span style={{ color: ACCENT }}>📚</span> Content Courses
-        </h3>
-
-        {classes.length === 0 ? (
-          <div style={{ textAlign: 'center', color: '#64748b', marginTop: 20, padding: 20, background: 'rgba(0,0,0,0.2)', borderRadius: 8, border: '1px dashed #334155' }}>
-            <div>You're not enrolled in any content courses yet.</div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>Ask your admin to add you to a course.</div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {classes.map(cls => (
-              <button
-                key={cls.id}
-                onClick={() => openClass(cls)}
-                style={{ ...cardStyle, padding: '16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: 'inherit' }}
-              >
-                <div style={{
-                  width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-                  background: `hsl(${(cls.name.charCodeAt(0) || 65) * 37 % 360}, 50%, 25%)`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 22, fontWeight: 'bold', color: 'white',
-                }}>
-                  📚
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: 'white', fontWeight: 'bold', fontSize: 15 }}>{cls.name}</div>
-                  <div style={{ color: '#64748b', fontSize: 11 }}>
-                    Teacher: <span style={{ color: ACCENT }}>{cls.teacher_username || cls.teacher_name}</span>
-                  </div>
-                </div>
-                <span style={{ color: '#475569', fontSize: 18 }}>→</span>
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

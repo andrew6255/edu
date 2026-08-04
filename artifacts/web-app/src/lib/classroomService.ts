@@ -39,6 +39,41 @@ export interface TeacherClass {
   updatedAt: string;
 }
 
+export interface TeacherClassNote {
+  classId: string;
+  teacherId: string;
+  note: string;
+  updatedAt: string;
+}
+
+export interface TeacherStudent {
+  id: string;
+  teacherId: string;
+  studentId: string;
+  username: string;
+  fullName: string;
+  email: string;
+  createdAt: string;
+}
+
+export interface TeacherStudentCode {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  code: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface TeacherStudentReport {
+  id: string;
+  teacherId: string;
+  studentId: string;
+  title: string;
+  report: string;
+  createdAt: string;
+}
+
 export interface ClassMember {
   id: string;
   classId: string;
@@ -128,6 +163,11 @@ const COL = {
   SHEETS: 'session_sheets',
   STROKES: 'sheet_strokes',
   ACCESS: 'sheet_access',
+  NOTES: 'teacher_class_notes',
+  STUDENTS: 'teacher_students',
+  STUDENT_CODES: 'teacher_student_codes',
+  REMOVED_STUDENTS: 'teacher_removed_students',
+  STUDENT_REPORTS: 'teacher_student_reports',
 } as const;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -244,6 +284,7 @@ export async function createTeacherClass(
   teacherName: string,
   name: string,
   subject: string,
+  privateNote = '',
 ): Promise<TeacherClass> {
   const id = `tc_${uid()}`;
   const data: TeacherClass = {
@@ -253,7 +294,77 @@ export async function createTeacherClass(
     updatedAt: now(),
   };
   await setGlobalDoc(COL.CLASSES, id, data as unknown as DocData);
+  if (privateNote.trim()) await setTeacherClassNote(id, teacherId, privateNote);
   return data;
+}
+
+export async function getTeacherClassNote(classId: string): Promise<string> {
+  const raw = await getGlobalDoc(COL.NOTES, `tcn_${classId}`);
+  return raw ? String(raw.note ?? '') : '';
+}
+
+export async function setTeacherClassNote(classId: string, teacherId: string, note: string): Promise<void> {
+  const data: TeacherClassNote = { classId, teacherId, note: note.trim(), updatedAt: now() };
+  await setGlobalDoc(COL.NOTES, `tcn_${classId}`, data as unknown as DocData);
+}
+
+export async function getTeacherStudents(teacherId: string): Promise<TeacherStudent[]> {
+  const rows = await queryGlobalDocs(COL.STUDENTS, [{ field: 'teacherId', op: 'eq', value: teacherId }]);
+  return rows.map(({ data }) => ({
+    id: String(data.id ?? ''), teacherId: String(data.teacherId ?? ''), studentId: String(data.studentId ?? ''),
+    username: String(data.username ?? ''), fullName: String(data.fullName ?? ''), email: String(data.email ?? ''),
+    createdAt: String(data.createdAt ?? ''),
+  })).sort((a, b) => (a.fullName || a.username).localeCompare(b.fullName || b.username));
+}
+
+export async function getRemovedTeacherStudentIds(teacherId: string): Promise<string[]> {
+  const rows = await queryGlobalDocs(COL.REMOVED_STUDENTS, [{ field: 'teacherId', op: 'eq', value: teacherId }]);
+  return rows.map(row => String(row.data.studentId ?? '')).filter(Boolean);
+}
+
+export async function removeTeacherStudent(teacherId: string, studentId: string): Promise<void> {
+  const id = `trs_${teacherId}_${studentId}`;
+  await setGlobalDoc(COL.REMOVED_STUDENTS, id, { id, teacherId, studentId, removedAt: now() });
+  await deleteGlobalDoc(COL.STUDENTS, `ts_${teacherId}_${studentId}`).catch(() => undefined);
+  const classes = await getTeacherClassesByTeacher(teacherId);
+  await Promise.all(classes.map(async cls => {
+    const member = await getGlobalDoc(COL.MEMBERS, `tcm_${cls.id}_${studentId}`);
+    if (member && !member.kickedAt) await kickStudent(cls.id, studentId);
+  }));
+}
+
+export async function listTeacherStudentReports(teacherId: string, studentId: string): Promise<TeacherStudentReport[]> {
+  const rows = await queryGlobalDocs(COL.STUDENT_REPORTS, [
+    { field: 'teacherId', op: 'eq', value: teacherId },
+    { field: 'studentId', op: 'eq', value: studentId },
+  ]);
+  return rows.map(({ data }) => ({
+    id: String(data.id ?? ''), teacherId: String(data.teacherId ?? ''), studentId: String(data.studentId ?? ''),
+    title: String(data.title ?? ''), report: String(data.report ?? ''), createdAt: String(data.createdAt ?? ''),
+  })).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function createTeacherStudentReport(teacherId: string, studentId: string, title: string, report: string): Promise<TeacherStudentReport> {
+  const data: TeacherStudentReport = { id: `tsr_${uid()}`, teacherId, studentId, title: title.trim(), report: report.trim(), createdAt: now() };
+  await setGlobalDoc(COL.STUDENT_REPORTS, data.id, data as unknown as DocData);
+  return data;
+}
+
+export async function generateTeacherStudentCode(teacherId: string, teacherName: string): Promise<TeacherStudentCode> {
+  const createdAt = now();
+  const data: TeacherStudentCode = {
+    id: `tsc_${teacherId}_${uid()}`, teacherId, teacherName, code: generate6DigitCode(), createdAt,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  await setGlobalDoc(COL.STUDENT_CODES, data.id, data as unknown as DocData);
+  return data;
+}
+
+export async function joinTeacherByStudentCode(code: string): Promise<{ teacherId: string; teacherName: string } | null> {
+  const { data, error } = await requireSupabase().rpc('join_teacher_by_student_code_rpc', { p_code: code });
+  if (error || !data) return null;
+  const result = data as Record<string, unknown>;
+  return { teacherId: String(result.teacherId ?? ''), teacherName: String(result.teacherName ?? 'your teacher') };
 }
 
 export async function getTeacherClassById(classId: string): Promise<TeacherClass | null> {
@@ -268,6 +379,11 @@ export async function getTeacherClassesByTeacher(teacherId: string): Promise<Tea
 
 export async function renameTeacherClass(classId: string, newName: string): Promise<void> {
   await updateGlobalDoc(COL.CLASSES, classId, { name: newName, updatedAt: now() });
+}
+
+export async function updateTeacherClassDetails(classId: string, teacherId: string, name: string, subject: string, note: string): Promise<void> {
+  await updateGlobalDoc(COL.CLASSES, classId, { name: name.trim(), subject: subject.trim(), updatedAt: now() });
+  await setTeacherClassNote(classId, teacherId, note);
 }
 
 export async function endTeacherClass(classId: string): Promise<void> {

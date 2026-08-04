@@ -76,11 +76,11 @@ export default function ClassroomCanvas({
   const pointFromEvent = useCallback((event: React.PointerEvent): StrokePoint => {
     const bounds = canvasRef.current!.getBoundingClientRect();
     return {
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
+      x: (event.clientX - bounds.left) * (pageWidth / bounds.width),
+      y: (event.clientY - bounds.top) * (pageHeight / bounds.height),
       pressure: event.pressure || 0.5,
     };
-  }, []);
+  }, [pageHeight, pageWidth]);
 
   const eraseAt = useCallback((point: StrokePoint) => {
     for (const stroke of strokes) {

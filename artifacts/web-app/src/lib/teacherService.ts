@@ -1,4 +1,5 @@
 import { requireSupabase } from './supabase';
+import { getClassMembers, getRemovedTeacherStudentIds, getTeacherClassesByTeacher, getTeacherStudents } from './classroomService';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -198,6 +199,45 @@ export async function getAllTeacherUsers(): Promise<TeacherUserRow[]> {
       class_names: info.class_ids.map(id => classNameMap.get(id) || id),
     };
   });
+}
+
+/** All students available to a teacher, from admin assignments, roster invites, and live classrooms. */
+export async function getAssignedTeacherStudents(teacherId: string): Promise<TeacherUserRow[]> {
+  const [legacy, roster, liveClasses, removedIds] = await Promise.all([
+    getAllTeacherUsers().catch(() => []),
+    getTeacherStudents(teacherId).catch(() => []),
+    getTeacherClassesByTeacher(teacherId).catch(() => []),
+    getRemovedTeacherStudentIds(teacherId).catch(() => []),
+  ]);
+  const liveMemberships = (await Promise.all(liveClasses.map(async (cls) => ({ cls, members: await getClassMembers(cls.id) })))).flatMap(({ cls, members }) =>
+    members.filter(member => !member.kickedAt).map(member => ({ cls, member }))
+  );
+  const merged = new Map<string, TeacherUserRow>();
+
+  for (const student of legacy.filter(entry => entry.role === 'student')) merged.set(student.user_id, { ...student });
+  for (const student of roster) {
+    if (!merged.has(student.studentId)) merged.set(student.studentId, {
+      user_id: student.studentId,
+      username: student.username,
+      first_name: student.fullName,
+      last_name: '',
+      email: student.email,
+      role: 'student',
+      class_ids: [],
+      class_names: [],
+    });
+  }
+  for (const { cls, member } of liveMemberships) {
+    const existing = merged.get(member.userId) ?? {
+      user_id: member.userId, username: member.username, first_name: member.fullName, last_name: '', email: '',
+      role: 'student' as const, class_ids: [], class_names: [],
+    };
+    if (!existing.class_ids.includes(cls.id)) existing.class_ids.push(cls.id);
+    if (!existing.class_names.includes(cls.name)) existing.class_names.push(cls.name);
+    merged.set(member.userId, existing);
+  }
+  const removed = new Set(removedIds);
+  return [...merged.values()].filter(student => !removed.has(student.user_id)).sort((a, b) => (a.username || a.first_name).localeCompare(b.username || b.first_name));
 }
 
 // ─── Student-Parent links for parent reports ─────────────────────────────────
