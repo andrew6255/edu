@@ -174,7 +174,11 @@ export async function ensureLogicGamesProgress(uid: string): Promise<LogicGamesP
   const now = new Date().toISOString();
   const init: LogicGamesProgressDoc = { id: 'global', iq: 80, floorIq: 80, nodeQueues: {}, updatedAt: now };
   const supabase = requireSupabase();
-  const { error } = await supabase.from('logic_game_progress').upsert({ user_id: uid, iq: 80, floor_iq: 80, node_queues: {}, updated_at: now });
+  // node_queues is deliberately not written: the column does not exist on
+  // logic_game_progress, and sending it made PostgREST reject the whole insert
+  // with 400, so no progress row was ever created for a new player. The read
+  // above already tolerates the column being absent.
+  const { error } = await supabase.from('logic_game_progress').upsert({ user_id: uid, iq: 80, floor_iq: 80, updated_at: now });
   if (error) throw error;
   return init;
 }
