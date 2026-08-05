@@ -19,6 +19,14 @@ Run or rerun in this order:
 `program_answer_confidentiality_migration.sql` is already installed and does not
 need to be rerun unless its SQL changes.
 
+No database change is needed for the personalized worksheet UI on public
+programs. `public_programs_sanitized.builder_spec` stays null, and the API server
+serves the student-safe program tree from `/api/economy/program-builder-spec`
+(structure and prompts only) with authored answers behind
+`/api/economy/program-answer-reveal`. Both require a signed-in user and read the
+authored tree with the service role, so the API server and web app must be
+deployed from the same revision (step 2).
+
 ## 2. Deploy together
 
 Deploy the API server and web application from the same revision. The API runtime

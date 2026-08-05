@@ -226,6 +226,7 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
               id: q.id,
               rawText,
               chapterId: selectedSheetNode.id,
+              questionTypeId: qt.id,
               questionTypeTitle: qt.title,
               context: q.context,
               subQuestions: q.subQuestions,
@@ -396,6 +397,7 @@ export default function PersonalProgramView({ programId, onBack, sandboxData, sa
           ) : (
             <FullScreenWorkspace
               programId={programId ?? undefined}
+              isPublicProgram={isPublicProgram}
               currentQuestion={activeQuestion}
               onClose={closeWhiteboard}
               initialPages={(whiteboardPages as any) ?? undefined}

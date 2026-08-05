@@ -47,6 +47,13 @@ export interface PersonalProgramMeta {
 
 export interface PersonalProgramQuestion {
   id: string;
+  /**
+   * Public programs only: the builder node and question-type file this question
+   * came from. Question ids repeat across sheets, so the authored answer can
+   * only be looked up server-side with the full locator.
+   */
+  chapterId?: string;
+  questionTypeId?: string;
   questionLabel?: string;
   rawText: string;
   page: number;

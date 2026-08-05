@@ -12,6 +12,7 @@ import LeaderboardView from '@/views/LeaderboardView';
 import EmporiumView from '@/views/EmporiumView';
 import LogicGamesView from '@/views/LogicGamesView';
 import ProgramMapView from '@/views/ProgramMapView';
+import { dispatchProgramView } from '@/lib/programMaps';
 import StudySessionsView from '@/views/StudySessionsView';
 import ClassesView from '@/views/ClassesView';
 import LobbyView from '@/views/LobbyView';
@@ -76,8 +77,8 @@ export default function AppPage() {
       const { contentId, contentType } = ce.detail ?? {};
       if (!contentId) return;
       if (contentType === 'program') {
-        setView('programMap');
-        setSelectedProgramId(contentId);
+        // Re-dispatches ll:setView with the view this program's format needs.
+        void dispatchProgramView(contentId);
       } else {
         // quiz or assignment — switch to classes view with pending item
         setPendingContentId(contentId);

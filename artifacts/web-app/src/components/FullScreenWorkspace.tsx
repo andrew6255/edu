@@ -7,9 +7,11 @@ import { recognizeMyScriptInk } from '@/lib/handwritingRecognitionService';
 import {
   evaluatePaperWork,
   explainPaperCorrection,
+  fetchPublicProgramAnswer,
   generateTutorAnswer,
   gradeTutorPaper,
   requestPaperHelp,
+  toTutorAnswerPackage,
   type PaperGradeResult,
   type PaperHelpMode,
   type TutorAnswerPackage,
@@ -734,6 +736,8 @@ const PageCanvas = memo(function PageCanvas({
 interface FullScreenWorkspaceProps {
   onClose: () => void;
   programId?: string;
+  /** Published program: authored answers come from the authenticated API, never the question payload. */
+  isPublicProgram?: boolean;
   currentQuestion?: import('@/lib/personalProgramService').PersonalProgramQuestion | string;
   initialPages?: PageData[];
   onPagesChange?: (pages: PageData[]) => void;
@@ -752,7 +756,7 @@ interface FullScreenWorkspaceProps {
   };
 }
 
-export default function FullScreenWorkspace({ onClose, programId, currentQuestion, initialPages, onPagesChange, isTestMode, onTestDone, testGrade, showAiSwitch, questionNavigation }: FullScreenWorkspaceProps) {
+export default function FullScreenWorkspace({ onClose, programId, isPublicProgram, currentQuestion, initialPages, onPagesChange, isTestMode, onTestDone, testGrade, showAiSwitch, questionNavigation }: FullScreenWorkspaceProps) {
   const [correctMeOn, setCorrectMeOn] = useState(false);
   const [correctMeStatus, setCorrectMeStatus] = useState<'idle' | 'reading' | 'checking' | 'checked' | 'error'>('idle');
   const [correctMeError, setCorrectMeError] = useState('');
@@ -1482,14 +1486,25 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
     const questionId = typeof currentQuestion === 'string' ? 'question' : currentQuestion?.id || 'question';
     const requestKey = `${programId || 'unscoped'}:${questionId}:${questionPrompt}`;
     if (answerRequestRef.current?.key === requestKey) return answerRequestRef.current.promise;
-    const existingAnswer = typeof currentQuestion === 'string' ? null : currentQuestion?.modelAnswer || null;
-    const request = generateTutorAnswer({ programId, questionId, questionPrompt, existingAnswer }).then(result => {
+    const question = typeof currentQuestion === 'string' ? null : currentQuestion;
+    // Published programs carry no answer key client-side, so the authored answer
+    // is fetched per question instead of being synthesized by the AI tutor.
+    const canRevealAuthored = !!isPublicProgram && !!programId && !!question?.chapterId && !!question?.questionTypeId;
+    const pending = canRevealAuthored
+      ? fetchPublicProgramAnswer({
+          programId: programId!,
+          chapterId: question!.chapterId!,
+          questionTypeId: question!.questionTypeId!,
+          questionId: question!.id,
+        }).then(toTutorAnswerPackage)
+      : generateTutorAnswer({ programId, questionId, questionPrompt, existingAnswer: question?.modelAnswer || null });
+    const request = pending.then(result => {
       if (answerRequestRef.current?.key === requestKey) setAnswerPackage(result);
       return result;
     }).finally(() => { if (answerRequestRef.current?.key === requestKey) answerRequestRef.current = null; });
     answerRequestRef.current = { key: requestKey, promise: request };
     return request;
-  }, [answerPackage, currentQuestion, programId, questionPrompt]);
+  }, [answerPackage, currentQuestion, programId, questionPrompt, isPublicProgram]);
 
   const recognizeStrokes = useCallback(async (strokes: Stroke[]) => {
     if (strokes.length === 0) return { text: '', latex: '', blocks: [] as ConvertedBlock[] };

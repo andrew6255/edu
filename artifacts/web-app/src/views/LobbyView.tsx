@@ -27,6 +27,7 @@ import { listLogicGameNodes } from '@/lib/logicGamesService';
 import type { LobbyDoc, LobbyGameMode } from '@/types/lobby';
 import type { LogicGameNode } from '@/types/logicGames';
 import { listMyPersonalPrograms, type PersonalProgramMeta } from '@/lib/personalProgramService';
+import { dispatchProgramView } from '@/lib/programMaps';
 import { useGlobalData } from '@/contexts/GlobalDataContext';
 // ─── Warmup Games catalog ─────────────────────────────────────────────────────
 const WARMUP_GAMES = [
@@ -323,8 +324,7 @@ export default function LobbyView() {
       if (id) localStorage.setItem('ll:logicGameNodeId', id);
       window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'logic' } }));
     } else if (kind === 'program') {
-      if (id) localStorage.setItem('ll:selectedProgramId', id);
-      window.dispatchEvent(new CustomEvent('ll:setView', { detail: { view: 'programMap' } }));
+      if (id) void dispatchProgramView(id);
     }
   }
 

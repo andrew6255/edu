@@ -117,10 +117,31 @@ export async function listPublicPrograms(): Promise<PublicProgram[]> {
     .filter((p): p is PublicProgram => !!p);
 }
 
+/**
+ * The sanitized database view cannot strip answers from within builder_spec, so
+ * it returns null for that column. The API server sanitizes and serves the tree
+ * instead; without it a builder-authored program would fall back to the older
+ * program map UI. Failures are non-fatal — the program still opens, just in the
+ * fallback view.
+ */
+async function withSanitizedBuilderSpec(program: PublicProgram): Promise<PublicProgram> {
+  if (program.builderSpec) return program;
+  try {
+    const { fetchPublicProgramBuilderSpec } = await import('@/lib/programStructureService');
+    const builderSpec = await fetchPublicProgramBuilderSpec(program.id);
+    if (!builderSpec) return program;
+    const rebuilt = rebuildPublicProgramFromBuilderSpec({ ...program, builderSpec });
+    return rebuilt ?? { ...program, builderSpec };
+  } catch {
+    return program;
+  }
+}
+
 export async function getPublicProgram(programId: string): Promise<PublicProgram | null> {
   const data = await getPublishedProgramPublic(programId);
   if (!data) return null;
-  return toPublicProgramWithBuilderFallback(data as Partial<PublicProgram> & { id: string; builderSpec?: unknown });
+  const program = toPublicProgramWithBuilderFallback(data as Partial<PublicProgram> & { id: string; builderSpec?: unknown });
+  return program ? withSanitizedBuilderSpec(program) : null;
 }
 
 export async function getPublicProgramOrDraft(programId: string): Promise<PublicProgram | null> {
@@ -137,6 +158,19 @@ export async function getPublicProgramOrDraft(programId: string): Promise<Public
     return getDraftProgramFromDb(id);
   }
   return getPublicProgram(programId);
+}
+
+/**
+ * Opens a program in the view that matches its authoring format: builder-authored
+ * programs use the worksheet view, older ones the program map. Keep every entry
+ * point routed through here so students and the admin preview stay in sync.
+ */
+export async function dispatchProgramView(programId: string): Promise<void> {
+  const program = await getPublicProgramOrDraft(programId);
+  const detail = program?.builderSpec
+    ? { view: 'personalProgram', personalProgramId: programId, isPublicProgram: true }
+    : { view: 'programMap', programId };
+  window.dispatchEvent(new CustomEvent('ll:setView', { detail }));
 }
 
 export async function purgeProgramFromUser(uid: string, programId: string): Promise<void> {

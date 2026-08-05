@@ -1,6 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
 import { callServiceRpc, verifySupabaseToken } from '../../lib/supabaseServer';
 import { gradePublishedQuestion, parseProgramAnswer } from './programGrading';
+import { loadBuilderSpecAnswer } from './programAnswerReveal';
+import { loadSanitizedBuilderSpec } from './programBuilderSpec';
 
 const router: IRouter = Router();
 const studyWindows = new Map<string, { startedAt: number; count: number }>();
@@ -142,6 +144,55 @@ router.post('/economy/program-grade', async (req: Request, res: Response) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Program grading failed.';
     res.status(/not found|not part|deterministic|invalid/i.test(message) ? 409 : 500).json({ error: message });
+  }
+});
+
+// Serves the student-safe program structure. The sanitized database view can
+// only null builder_spec out wholesale, so the answer-stripping happens here
+// where the service role can read the authored tree.
+router.post('/economy/program-builder-spec', async (req: Request, res: Response) => {
+  try {
+    const user = await verifySupabaseToken(req.header('authorization'));
+    if (!user) { res.status(401).json({ error: 'Authentication required.' }); return; }
+    const programId = typeof (req.body as Record<string, unknown> | null)?.programId === 'string'
+      ? String((req.body as Record<string, unknown>).programId).trim()
+      : '';
+    if (!programId || programId.length > 200) {
+      res.status(400).json({ error: 'A valid published program is required.' }); return;
+    }
+    if (!consumeStudyRateLimit(user.id)) {
+      res.setHeader('Retry-After', '60');
+      res.status(429).json({ error: 'Too many program requests. Please wait a minute.' }); return;
+    }
+    res.json({ builderSpec: await loadSanitizedBuilderSpec(programId) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Program lookup failed.';
+    res.status(/not found/i.test(message) ? 409 : 500).json({ error: message });
+  }
+});
+
+router.post('/economy/program-answer-reveal', async (req: Request, res: Response) => {
+  try {
+    const user = await verifySupabaseToken(req.header('authorization'));
+    if (!user) { res.status(401).json({ error: 'Authentication required.' }); return; }
+    const body = req.body as Record<string, unknown> | null;
+    const programId = typeof body?.programId === 'string' ? body.programId.trim() : '';
+    const chapterId = typeof body?.chapterId === 'string' ? body.chapterId.trim() : '';
+    const questionTypeId = typeof body?.questionTypeId === 'string' ? body.questionTypeId.trim() : '';
+    const questionId = typeof body?.questionId === 'string' ? body.questionId.trim() : '';
+    const locatorParts = [programId, chapterId, questionTypeId, questionId];
+    if (locatorParts.some((part) => !part || part.length > 300)) {
+      res.status(400).json({ error: 'A valid published program and question locator are required.' }); return;
+    }
+    if (!consumeStudyRateLimit(user.id)) {
+      res.setHeader('Retry-After', '60');
+      res.status(429).json({ error: 'Too many answer requests. Please wait a minute.' }); return;
+    }
+    const answer = await loadBuilderSpecAnswer(programId, { chapterId, questionTypeId, questionId });
+    res.json({ answer });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Answer lookup failed.';
+    res.status(/not found|no builder-authored|could not be read/i.test(message) ? 409 : 500).json({ error: message });
   }
 });
 
