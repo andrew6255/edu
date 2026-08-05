@@ -29,6 +29,21 @@ as $$
   );
 $$;
 
+create or replace function rls_is_parent_of(parent text, student text)
+returns boolean language sql stable security definer set search_path = public
+as $$ select exists(select 1 from parent_student_links where parent_id = parent and student_id = student); $$;
+
+create or replace function rls_parent_can_view_classroom(p_parent_uid text, p_class_id text)
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select exists(
+    select 1 from global_docs
+    where collection = 'teacher_class_members'
+      and data->>'classId' = p_class_id
+      and rls_is_parent_of(p_parent_uid, data->>'userId')
+  );
+$$;
+
 create or replace function rls_homework_class_id(p_homework_id text)
 returns text language sql stable security definer set search_path = public
 as $$ select data->>'classId' from global_docs where collection = 'class_homeworks' and doc_id = p_homework_id; $$;
@@ -43,6 +58,7 @@ using (
   collection <> 'class_homeworks'
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
   or rls_is_classroom_member(auth.uid()::text, data->>'classId')
+  or rls_parent_can_view_classroom(auth.uid()::text, data->>'classId')
   or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
 );
 drop policy if exists gd_homework_insert on global_docs;
@@ -61,8 +77,9 @@ create policy gd_homework_submission_select on global_docs as restrictive for se
 using (
   collection <> 'homework_submissions'
   or data->>'studentId' = auth.uid()::text
+  or rls_is_parent_of(auth.uid()::text, data->>'studentId')
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
 );
 drop policy if exists gd_homework_submission_insert on global_docs;
 create policy gd_homework_submission_insert on global_docs as restrictive for insert to authenticated
@@ -78,13 +95,20 @@ drop policy if exists gd_homework_submission_delete on global_docs;
 create policy gd_homework_submission_delete on global_docs as restrictive for delete to authenticated
 using (collection <> 'homework_submissions' or (data->>'studentId' = auth.uid()::text and rls_homework_open(data->>'homeworkId')));
 
--- Storage uploads. Paths are:
+-- Homework files use a dedicated private bucket. Access is granted only through
+-- RLS and short-lived signed URLs generated for authenticated classroom users.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('classroom-homework', 'classroom-homework', false, 26214400)
+on conflict (id) do update
+set public = false, file_size_limit = excluded.file_size_limit;
+
+-- Storage paths are:
 -- classrooms/{classId}/homeworks/{homeworkId}/{teacher PDF}
 -- classrooms/{classId}/homeworks/{homeworkId}/submissions/{studentId}/{attachment}
 drop policy if exists classroom_homework_asset_insert on storage.objects;
 create policy classroom_homework_asset_insert on storage.objects for insert to authenticated
 with check (
-  bucket_id = 'program-assets'
+  bucket_id = 'classroom-homework'
   and (storage.foldername(name))[1] = 'classrooms'
   and (storage.foldername(name))[3] = 'homeworks'
   and (
@@ -93,7 +117,34 @@ with check (
       (storage.foldername(name))[5] = 'submissions'
       and (storage.foldername(name))[6] = auth.uid()::text
       and rls_is_classroom_member(auth.uid()::text, (storage.foldername(name))[2])
+      and rls_homework_class_id((storage.foldername(name))[4]) = (storage.foldername(name))[2]
       and rls_homework_open((storage.foldername(name))[4])
+    )
+  )
+);
+
+drop policy if exists classroom_homework_asset_select on storage.objects;
+create policy classroom_homework_asset_select on storage.objects for select to authenticated
+using (
+  bucket_id = 'classroom-homework'
+  and (storage.foldername(name))[1] = 'classrooms'
+  and (storage.foldername(name))[3] = 'homeworks'
+  and (
+    rls_is_classroom_teacher(auth.uid()::text, (storage.foldername(name))[2])
+    or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+    or (
+      (storage.foldername(name))[5] is null
+      and (
+        rls_is_classroom_member(auth.uid()::text, (storage.foldername(name))[2])
+        or rls_parent_can_view_classroom(auth.uid()::text, (storage.foldername(name))[2])
+      )
+    )
+    or (
+      (storage.foldername(name))[5] = 'submissions'
+      and (
+        (storage.foldername(name))[6] = auth.uid()::text
+        or rls_is_parent_of(auth.uid()::text, (storage.foldername(name))[6])
+      )
     )
   )
 );
@@ -103,7 +154,7 @@ with check (
 drop policy if exists classroom_homework_asset_delete on storage.objects;
 create policy classroom_homework_asset_delete on storage.objects for delete to authenticated
 using (
-  bucket_id = 'program-assets'
+  bucket_id = 'classroom-homework'
   and (storage.foldername(name))[1] = 'classrooms'
   and (storage.foldername(name))[3] = 'homeworks'
   and (storage.foldername(name))[5] = 'submissions'

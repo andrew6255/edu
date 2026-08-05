@@ -1,6 +1,6 @@
 import { ALL_CATEGORY_CARDS, type CardCategory } from '@/lib/chronoCards';
 import { getInventory } from '@/lib/chronoInventoryService';
-import { getUserDoc, setUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';
+import { getUserDoc, setUserDoc } from '@/lib/supabaseDocStore';
 
 export interface CollectionSetReward {
   coins?: number;
@@ -136,27 +136,10 @@ export async function claimCollectionSetReward(uid: string, setId: string): Prom
   if (ownedCount < def.cardIds.length) return { ok: false, reason: 'Set not completed yet.' };
 
   try {
-    const { updateEconomy } = await import('@/lib/userService');
-    await updateEconomy(uid, {
-      gold: def.reward.coins ?? 0,
-      gems: def.reward.gems ?? 0,
-      energy: def.reward.energy ?? 0,
-    });
+    const { claimChronoCollectionSet } = await import('@/lib/economyApiService');
+    await claimChronoCollectionSet(setId);
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : 'Reward failed.' };
-  }
-
-  const nextClaimed = { ...state.claimed, [setId]: Date.now() };
-  if (await getUserDoc(uid, SETS_COL, SETS_DOC)) {
-    await updateUserDoc(uid, SETS_COL, SETS_DOC, {
-      claimed: nextClaimed,
-      updatedAt: nowIso(),
-    });
-  } else {
-    await setUserDoc(uid, SETS_COL, SETS_DOC, {
-      claimed: nextClaimed,
-      updatedAt: nowIso(),
-    } as any);
   }
 
   return { ok: true, reward: def.reward };

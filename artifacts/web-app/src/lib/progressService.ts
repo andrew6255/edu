@@ -1,4 +1,4 @@
-import { getUserData, updateEconomy, updateUserData } from './userService';
+import { getUserData } from './userService';
 
 export interface ObjectiveProgress {
   mastered: boolean;
@@ -30,22 +30,10 @@ export async function completeObjective(
   objectiveId: string,
   xp: number
 ): Promise<void> {
-  const current = await getUserData(uid);
-  if (!current) return;
-
-  const progress: UserProgress = { ...(current.progress ?? {}) };
-  const curriculum = { ...(progress[curriculumId] ?? {}) };
-  const chapter = { ...(curriculum[chapterId] ?? {}) };
-  chapter[objectiveId] = {
-    mastered: true,
-    xpAwarded: xp,
-    completedAt: new Date().toISOString(),
-  };
-  curriculum[chapterId] = chapter;
-  progress[curriculumId] = curriculum;
-
-  await updateUserData(uid, { progress });
-  await updateEconomy(uid, { gold: Math.floor(xp / 5), xp });
+  void uid;
+  void xp;
+  const { completeCurriculumObjective: complete } = await import('./economyApiService');
+  await complete(curriculumId,chapterId,objectiveId);
 }
 
 export function countCompleted(

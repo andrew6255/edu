@@ -57,7 +57,12 @@ export default function RoundTracker({ session, myUid }: Props) {
     if (now < canSendAt) return;
     setCanSendAt(now + 2500);
     setOpenPicker(null);
-    await sendQuickChat(session.id, myUid, me.username, text);
+    try {
+      await sendQuickChat(session.id, text);
+    } catch (error) {
+      setCanSendAt(0);
+      console.error('Failed to send quick chat:', error);
+    }
   }
 
   return (

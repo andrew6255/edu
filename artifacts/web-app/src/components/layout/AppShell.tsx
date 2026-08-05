@@ -18,6 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { pingPresence } from '@/lib/lobbyService';
 import TopNotificationToast from './TopNotificationToast';
 import { acceptAppNotification, dismissAppNotification } from '@/lib/notificationService';
+import { claimDailyEnergy } from '@/lib/economyApiService';
 
 type View =
   | 'emporium'
@@ -103,6 +104,16 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [notifBadgeCount, setNotifBadgeCount] = useState(0);
+  const dailyClaimAttemptedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    if (dailyClaimAttemptedRef.current === user.uid) return;
+    dailyClaimAttemptedRef.current = user.uid;
+    void claimDailyEnergy()
+      .then(result => { if (result.applied) void refreshUserData(); })
+      .catch(() => undefined);
+  }, [user?.uid, refreshUserData]);
 
   const abandonTimerRef = useRef<number | null>(null);
 
@@ -271,18 +282,18 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
   ] as const;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--ll-surface-0)', color: 'var(--ll-text)', overflow: 'hidden' }}>
+    <div className="app-viewport" style={{ display: 'flex', flexDirection: 'column', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}>
       {/* Top HUD */}
-      <div style={{
+      <div className="app-safe-header landscape-compact-header" style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         padding: '10px 16px', background: 'var(--ll-overlay)',
         borderBottom: '1px solid var(--ll-border)', zIndex: 10, flexShrink: 0,
         backdropFilter: 'blur(10px)', gap: 10
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <span style={{ fontSize: 18, fontWeight: 'bold', letterSpacing: 1 }}>⚔️ LOGIC LORDS</span>
+          <span style={{ fontSize: 18, fontWeight: 'bold', letterSpacing: 1 }}>⚔️ <span className="app-brand-word">LOGIC LORDS</span></span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 14, overflow: 'hidden' }}>
+        <div className="app-economy-hud" style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 14, overflow: 'hidden' }}>
           <span style={{ color: '#fbbf24', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🪙 {gold.toLocaleString()}</span>
           <span style={{ color: '#a78bfa', fontWeight: 'bold', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }}>
             ⚡ {Math.max(0, Math.floor(energy)).toLocaleString()}
@@ -295,7 +306,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
               <span style={{ width: 2, height: 5, borderRadius: 1, background: 'rgba(148,163,184,0.7)' }} />
             </span>
           </span>
-          <span style={{ color: '#f97316', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🔥 {streak}</span>
+          <span className="hud-secondary" style={{ color: '#f97316', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🔥 {streak}</span>
         </div>
         <button
           onClick={() => setMenuOpen(!menuOpen)}
@@ -331,7 +342,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
       </div>
 
       {/* Bottom nav */}
-      <div style={{
+      <div className="app-safe-nav" style={{
         display: 'flex', justifyContent: 'space-around', alignItems: 'center',
         background: 'var(--ll-overlay)', borderTop: '1px solid var(--ll-border)',
         paddingTop: 8, paddingBottom: 'max(8px, env(safe-area-inset-bottom, 8px))',
@@ -341,6 +352,8 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
           <button
             key={tab.id}
             onClick={() => setView(tab.id)}
+            aria-label={tab.label}
+            aria-current={view === tab.id ? 'page' : undefined}
             style={{
               flex: 1, background: 'none', border: 'none',
               color: view === tab.id ? 'var(--ll-accent)' : 'var(--ll-text-muted)',
@@ -356,7 +369,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
             }}>
               {tab.icon}
             </span>
-            <span style={{ fontSize: 10, fontWeight: 'bold' }}>{tab.label}</span>
+            <span className="app-bottom-tab-label" style={{ fontSize: 10, fontWeight: 'bold' }}>{tab.label}</span>
           </button>
         ))}
       </div>
@@ -366,7 +379,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
         <>
           <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1001 }} />
           <div style={{
-            position: 'fixed', top: 0, right: 0, width: 280, height: '100vh',
+            position: 'fixed', top: 0, right: 0, width: 'min(280px, 88vw)', height: '100dvh',
             background: 'var(--ll-surface-1)', borderLeft: '2px solid var(--ll-border)',
             zIndex: 1002, padding: 20, display: 'flex', flexDirection: 'column',
             boxShadow: '-10px 0 30px rgba(0,0,0,0.8)', animation: 'slideUp 0.2s ease',

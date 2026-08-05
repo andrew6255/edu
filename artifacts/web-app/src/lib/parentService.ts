@@ -10,6 +10,29 @@ export interface LinkedStudent {
   email: string;
 }
 
+export interface PendingGuardianConsent {
+  consentId: string;
+  studentId: string;
+  studentUsername: string;
+  requestedAt: string;
+}
+
+export async function getPendingGuardianConsents(): Promise<PendingGuardianConsent[]> {
+  const { data, error } = await requireSupabase().rpc('guardian_pending_for_me');
+  if (error) throw error;
+  return ((data ?? []) as Record<string, unknown>[]).map(row => ({
+    consentId: String(row.consent_id),
+    studentId: String(row.student_id),
+    studentUsername: String(row.student_username || 'Student'),
+    requestedAt: String(row.requested_at),
+  }));
+}
+
+export async function decideGuardianConsent(consentId: string, grant: boolean): Promise<void> {
+  const { error } = await requireSupabase().rpc('guardian_decide_consent', { p_consent_id: consentId, p_grant: grant });
+  if (error) throw error;
+}
+
 export interface ParentClassRow {
   id: string;
   name: string;

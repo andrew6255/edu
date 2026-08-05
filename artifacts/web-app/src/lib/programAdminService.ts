@@ -101,6 +101,18 @@ export async function listPublishedProgramsFull(): Promise<ProgramAdminRecord[]>
     .filter((row: ProgramAdminRecord) => !(typeof row.deletedAt === 'string' && row.deletedAt));
 }
 
+export async function listPublishedProgramsPublic(): Promise<ProgramAdminRecord[]> {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase
+    .from('public_programs_sanitized')
+    .select('*')
+    .order('title', { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as Record<string, unknown>[])
+    .map((row: Record<string, unknown>) => fromSupabaseRow(row))
+    .filter((row: ProgramAdminRecord) => !(typeof row.deletedAt === 'string' && row.deletedAt));
+}
+
 export async function getDraftProgramAdmin(programId: string): Promise<ProgramAdminRecord | null> {
   const supabase = requireSupabase();
   const { data, error } = await supabase
@@ -116,6 +128,17 @@ export async function getPublishedProgramAdmin(programId: string): Promise<Progr
   const supabase = requireSupabase();
   const { data, error } = await supabase
     .from('public_programs')
+    .select('*')
+    .eq('id', programId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? fromSupabaseRow(data as Record<string, unknown>) : null;
+}
+
+export async function getPublishedProgramPublic(programId: string): Promise<ProgramAdminRecord | null> {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase
+    .from('public_programs_sanitized')
     .select('*')
     .eq('id', programId)
     .maybeSingle();

@@ -3,8 +3,8 @@ import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGlobalData } from '@/contexts/GlobalDataContext';
 import { ensureChronoEmpiresState, getChronoEmpiresState, type ChronoEmpiresStateDoc } from '@/lib/chronoEmpiresService';
-import { BOARDS, boardToClass, gemsToClass, ALL_CATEGORY_CARDS, ALL_TRANSPORT_CARDS, CARD_UPGRADE_LEVELS, WHEEL_SEGMENTS, spinWheel, type CardCategory, type CategoryCard } from '@/lib/chronoCards';
-import { getInventory, ensureInventory, addCardCopies, upgradeCard, addToDeck, removeFromDeck, addTransportCard, addCombatCard, type ChronoInventoryDoc, type OwnedCard } from '@/lib/chronoInventoryService';
+import { BOARDS, boardToClass, gemsToClass, ALL_CATEGORY_CARDS, ALL_TRANSPORT_CARDS, CARD_UPGRADE_LEVELS, WHEEL_SEGMENTS, type CardCategory, type CategoryCard } from '@/lib/chronoCards';
+import { getInventory, ensureInventory, upgradeCard, addToDeck, removeFromDeck, buyToken, type ChronoInventoryDoc, type OwnedCard } from '@/lib/chronoInventoryService';
 import { claimIdleVault, syncIdleVault, type ChronoIdleVaultStatus } from '@/lib/chronoIdleVaultService';
 import { buildCollectionSetViewModels, claimCollectionSetReward } from '@/lib/chronoCollectionSetsService';
 import { buildDiscoveryWorkshopView, combineDiscovery } from '@/lib/chronoDiscoveryService';
@@ -62,7 +62,7 @@ function tierInfo(cls: number): { label: string; emoji: string } {
 }
 
 export default function ChronoEmpiresView() {
-  const { user, userData } = useAuth();
+  const { user, userData, refreshUserData } = useAuth();
   const uid = user?.uid ?? null;
   const [, setLocation] = useLocation();
 
@@ -98,7 +98,8 @@ export default function ChronoEmpiresView() {
     await ensureInventory(uid);
     const inv = await getInventory(uid);
     setInventory(inv);
-  }, [uid]);
+    await refreshUserData();
+  }, [uid, refreshUserData]);
 
   async function load() {
     if (!uid) return;
@@ -856,14 +857,21 @@ function WheelSection({ uid, energy, inventory, onRefresh, onReload }: {
     }
     setResult(null);
     setSpinning(true);
-    // Deduct 1 energy
+    let seg: (typeof WHEEL_SEGMENTS)[number];
     try {
-      const { getUserData, updateUserData } = await import('@/lib/userService');
-      const ud = await getUserData(uid);
-      if (ud) await updateUserData(uid, { economy: { ...ud.economy, energy: Math.max(0, energy - 1) } } as any);
-    } catch { /* best-effort */ }
-
-    const seg = spinWheel();
+      const { spinChronoWheel } = await import('@/lib/economyApiService');
+      const spinId = typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const response = await spinChronoWheel(spinId);
+      const serverSegment = WHEEL_SEGMENTS.find((item) => item.id === response.result.segmentId);
+      if (!serverSegment) throw new Error('The server returned an unknown wheel result.');
+      seg = serverSegment;
+    } catch (error) {
+      setSpinError(error instanceof Error ? error.message : 'Could not spin the wheel. Please try again.');
+      setSpinning(false);
+      return;
+    }
     const segIdx = WHEEL_SEGMENTS.findIndex((s) => s.id === seg.id);
     const segAngle = (segIdx / WHEEL_SEGMENTS.length) * 360;
     const spins = 5 * 360; // 5 full rotations
@@ -873,27 +881,6 @@ function WheelSection({ uid, energy, inventory, onRefresh, onReload }: {
     // Apply reward after animation
     setTimeout(async () => {
       try {
-        const COIN_AMOUNTS: Record<string, number> = {
-          w_1k: 1000, w_5k: 5000, w_10k: 10000, w_25k: 25000, w_50k: 50000, w_100k: 100000,
-        };
-        if (COIN_AMOUNTS[seg.id] !== undefined) {
-          const { getUserDoc, updateUserDoc, setUserDoc } = await import('@/lib/supabaseDocStore');
-          const econRaw = await getUserDoc(uid, 'chrono_economy', 'global');
-          const curGold = econRaw && typeof (econRaw as any).gold === 'number' ? (econRaw as any).gold as number : 0;
-          const next = curGold + COIN_AMOUNTS[seg.id];
-          if (econRaw) await updateUserDoc(uid, 'chrono_economy', 'global', { gold: next });
-          else await setUserDoc(uid, 'chrono_economy', 'global', { gold: next });
-        } else if (seg.id === 'w_cat') {
-          const randomCard = ALL_CATEGORY_CARDS[Math.floor(Math.random() * ALL_CATEGORY_CARDS.length)];
-          await addCardCopies(uid, randomCard.id, 1);
-        } else if (seg.id === 'w_trans') {
-          const randomTrans = ALL_TRANSPORT_CARDS[Math.floor(Math.random() * ALL_TRANSPORT_CARDS.length)];
-          await addTransportCard(uid, randomTrans.id, 1);
-        } else if (seg.id === 'w_defend') {
-          await addCombatCard(uid, 'defend', 1);
-        } else if (seg.id === 'w_attack') {
-          await addCombatCard(uid, 'attack', 1);
-        }
         try {
           const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
           await incrementTaskProgress(uid, 'wheel_spin', 1);
@@ -1477,7 +1464,7 @@ function InventorySection({ uid, currentBoard, inventory, onRefresh }: {
    ══════════════════════════════════════════════════════════ */
 const SHOP_CARD_PACKS = [
   { id: 'pack_basic', name: '📦 Basic Pack', desc: '3 random cards', cost: 500, cards: 3 },
-  { id: 'pack_premium', name: '🎁 Premium Pack', desc: '5 random cards + 1 rare', cost: 2000, cards: 5 },
+  { id: 'pack_premium', name: '🎁 Premium Pack', desc: '5 random cards', cost: 2000, cards: 5 },
   { id: 'pack_elite', name: '👑 Elite Pack', desc: '10 random cards + guaranteed transport', cost: 8000, cards: 10 },
 ];
 
@@ -1497,25 +1484,35 @@ function ShopSection({ uid, currentBoard, inventory, onRefresh }: {
   const [buying, setBuying] = useState<string | null>(null);
   const [shopMsg, setShopMsg] = useState<string | null>(null);
 
+  async function handleBuyToken(tokenId: string, cost: number) {
+    setBuying(tokenId);
+    setShopMsg(null);
+    try {
+      const purchased = await buyToken(uid, tokenId, cost);
+      if (!purchased) throw new Error('Purchase was declined. Check your coin balance.');
+      await onRefresh();
+      setShopMsg('✅ Token purchased!');
+    } catch (error) {
+      setShopMsg(`❌ ${error instanceof Error ? error.message : 'Purchase failed.'}`);
+    } finally {
+      setBuying(null);
+      setTimeout(() => setShopMsg(null), 2500);
+    }
+  }
+
   async function buyPack(pack: typeof SHOP_CARD_PACKS[0]) {
     setBuying(pack.id);
     setShopMsg(null);
     try {
-      // Give random cards (simplified — doesn't deduct coins yet, that will be added)
-      const availableCards = ALL_CATEGORY_CARDS.filter((c) => c.boardId <= currentBoard);
-      for (let i = 0; i < pack.cards; i++) {
-        if (availableCards.length === 0) break;
-        const random = availableCards[Math.floor(Math.random() * availableCards.length)];
-        await addCardCopies(uid, random.id, 1);
-      }
-      // Give transport card for elite pack
-      if (pack.id === 'pack_elite') {
-        const available = ALL_TRANSPORT_CARDS.filter((t) => currentBoard >= t.unlockBoard);
-        if (available.length > 0) {
-          const random = available[Math.floor(Math.random() * available.length)];
-          await addTransportCard(uid, random.id, 1);
-        }
-      }
+      const { purchaseChronoPack } = await import('@/lib/economyApiService');
+      const purchaseId = typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      await purchaseChronoPack(pack.id, purchaseId);
+      try {
+        const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
+        await incrementTaskProgress(uid, 'card_copies', pack.cards);
+      } catch { /* best-effort */ }
       await onRefresh();
       setShopMsg(`✅ Opened ${pack.name}!`);
     } catch {
@@ -1579,10 +1576,13 @@ function ShopSection({ uid, currentBoard, inventory, onRefresh }: {
                 {owned ? (
                   <div style={{ color: '#4ade80', fontSize: 10, fontWeight: 900, marginTop: 6 }}>✅ Owned</div>
                 ) : (
-                  <button style={{
+                  <button
+                    disabled={buying === tk.id}
+                    onClick={() => void handleBuyToken(tk.id, tk.cost)}
+                    style={{
                     marginTop: 6, padding: '5px 0', width: '100%', borderRadius: 6, fontSize: 11, fontWeight: 1000,
                     background: 'linear-gradient(135deg,#d97706,#b45309)', border: 'none',
-                    color: 'white', cursor: 'pointer',
+                    color: 'white', cursor: buying === tk.id ? 'wait' : 'pointer', opacity: buying === tk.id ? 0.6 : 1,
                   }}>
                     🪙 {tk.cost.toLocaleString()}
                   </button>

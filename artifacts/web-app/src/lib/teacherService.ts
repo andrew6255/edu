@@ -187,7 +187,7 @@ export async function getAllTeacherUsers(): Promise<TeacherUserRow[]> {
   const { data: profiles } = await supabase.from('profiles').select('id, username, first_name, last_name, email').in('id', userIds);
 
   return (profiles ?? []).map((p: Record<string, unknown>) => {
-    const info = userMap.get(String(p.id))!;
+    const info = userMap.get(String(p.id)) as { role: 'student' | 'teacher_assistant'; class_ids: string[] };
     return {
       user_id: String(p.id ?? ''),
       username: String(p.username ?? ''),
@@ -214,7 +214,7 @@ export async function getAssignedTeacherStudents(teacherId: string): Promise<Tea
   );
   const merged = new Map<string, TeacherUserRow>();
 
-  for (const student of legacy.filter(entry => entry.role === 'student')) merged.set(student.user_id, { ...student });
+  for (const student of (legacy as TeacherUserRow[]).filter(entry => entry.role === 'student')) merged.set(student.user_id, { ...student });
   for (const student of roster) {
     if (!merged.has(student.studentId)) merged.set(student.studentId, {
       user_id: student.studentId,

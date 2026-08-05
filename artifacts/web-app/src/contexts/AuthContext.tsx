@@ -5,7 +5,6 @@ import { createUserData, getUserData, UserData } from '@/lib/userService';
 import { saveRememberedAccount, getRememberedAccounts } from '@/lib/authService';
 
 type AuthUser = Pick<SupabaseUser, 'id' | 'email'> & { uid: string; displayName: string | null };
-const SUPERADMIN_EMAIL = 'god.bypass@internal.app';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -55,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const parts = fullName.trim().split(/\s+/).filter(Boolean);
     const email = authUser.email ?? '';
     const emailPrefix = email.split('@')[0] || 'user';
-    const role = email === SUPERADMIN_EMAIL ? 'superadmin' : 'student';
+    const role = 'student' as const;
 
     const baseName = (parts[0] || emailPrefix || 'Logic').replace(/[^a-zA-Z0-9]/g, '');
     const tag = Math.floor(1000 + Math.random() * 9000);
@@ -63,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return {
       firstName: parts[0] || 'Logic',
       lastName: parts.slice(1).join(' ') || 'Lord',
-      username: role === 'superadmin' ? 'superadmin' : baseName.toLowerCase(),
+      username: baseName.toLowerCase(),
       friendCode: `#${tag}`,
       email,
       role,

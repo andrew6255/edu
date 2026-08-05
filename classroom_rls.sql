@@ -43,6 +43,26 @@ as $$
   );
 $$;
 
+create or replace function rls_is_parent_of(parent text, student text)
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select exists(
+    select 1 from parent_student_links
+    where parent_id = parent and student_id = student
+  );
+$$;
+
+create or replace function rls_parent_can_view_classroom(p_parent_uid text, p_class_id text)
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select exists(
+    select 1 from global_docs
+    where collection = 'teacher_class_members'
+      and data->>'classId' = p_class_id
+      and rls_is_parent_of(p_parent_uid, data->>'userId')
+  );
+$$;
+
 create or replace function rls_is_classroom_session_participant(p_uid text, p_session_id text)
 returns boolean language sql stable security definer set search_path = public
 as $$
@@ -190,6 +210,7 @@ using (
   collection <> 'teacher_classes'
   or data->>'teacherId' = auth.uid()::text
   or rls_is_classroom_member(auth.uid()::text, doc_id)
+  or rls_parent_can_view_classroom(auth.uid()::text, doc_id)
   or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
 );
 
@@ -234,6 +255,7 @@ using (
   collection <> 'teacher_class_members'
   or data->>'userId' = auth.uid()::text
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
+  or rls_is_parent_of(auth.uid()::text, data->>'userId')
   or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
 );
 
@@ -312,6 +334,8 @@ using (
   collection <> 'class_sessions'
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
   or data->'participantIds' ? auth.uid()::text
+  or rls_parent_can_view_classroom(auth.uid()::text, data->>'classId')
+  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
 );
 
 drop policy if exists gd_classroom_cs_insert on global_docs;

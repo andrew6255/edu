@@ -4,8 +4,9 @@ import katex from 'katex';
 import { useAuth } from '@/contexts/AuthContext';
 import LatexMarkdown from '@/components/ui/LatexMarkdown';
 import { getPublicProgramOrDraft, setProgramCompletedForUser, type TocItem } from '@/lib/programMaps';
-import { applyRankedAnswer, claimRoadmapReward, getProgramProgress, markQuestionSolved, toggleUnitComplete } from '@/lib/programProgress';
-import { applyRankedEnergyProgress, getUserData, updateEconomy } from '@/lib/userService';
+import { applyRankedAnswer, getProgramProgress, toggleUnitComplete } from '@/lib/programProgress';
+import { getUserData, recordStudyActivity } from '@/lib/userService';
+import { claimRoadmapEconomyReward, gradePublishedProgramAnswer, recordStudyAnswer, type ProgramAnswerReveal } from '@/lib/economyApiService';
 import {
   createProgramFriendSession,
   joinProgramFriendSessionByCode,
@@ -100,8 +101,31 @@ function isTextSubmittedInteraction(interaction: ProgramAtomicInteractionSpec | 
   return !!interaction && (interaction.type === 'text' || interaction.type === 'line_equation' || interaction.type === 'point_list' || interaction.type === 'points_on_line');
 }
 
-function buildExplanationScenes(question: FlatProgramQuestion | null): ProgramExplanationScene[] {
+function buildExplanationScenes(question: FlatProgramQuestion | null, reveal?: ProgramAnswerReveal): ProgramExplanationScene[] {
   if (!question) return [];
+  if (Array.isArray(reveal?.explanationScenes) && reveal.explanationScenes.length > 0) {
+    return reveal.explanationScenes.map((scene, idx) => ({
+      id: typeof scene.id === 'string' ? scene.id : `scene_${idx + 1}`,
+      title: typeof scene.title === 'string' && scene.title.trim() ? scene.title : `Step ${idx + 1}`,
+      narration: typeof scene.narration === 'string' ? scene.narration : null,
+      beforeText: typeof scene.beforeText === 'string' ? scene.beforeText : null,
+      afterText: typeof scene.afterText === 'string' ? scene.afterText : null,
+      emphasis: Array.isArray(scene.emphasis) ? scene.emphasis.map(String) : undefined,
+      action: scene.action === 'highlight' || scene.action === 'transform' || scene.action === 'note' || scene.action === 'reveal' ? scene.action : undefined,
+    }));
+  }
+  if (Array.isArray(reveal?.stepExplanations) && reveal.stepExplanations.length > 0) {
+    return reveal.stepExplanations.map((step, idx) => ({
+      id: `step_scene_${step.id || idx + 1}`,
+      title: step.title || `Step ${idx + 1}`,
+      narration: step.explanation,
+      afterText: step.explanation,
+      action: 'reveal' as const,
+    }));
+  }
+  if (reveal?.solutionText) {
+    return [{ id: 'solution_scene', title: 'Solution', narration: reveal.solutionText, afterText: reveal.solutionText, action: 'note' }];
+  }
   if (Array.isArray(question.explanationScenes) && question.explanationScenes.length > 0) return question.explanationScenes;
   const fromSteps = Array.isArray(question.stepSolutions)
     ? question.stepSolutions.map((step, idx) => ({
@@ -220,7 +244,7 @@ function flattenChildren(items: TocItem[] | undefined): TocItem[] {
 }
 
 export default function ProgramMapView({ onBack, programId: programIdProp }: { onBack: () => void; programId?: string | null }) {
-  const { user, userData } = useAuth();
+  const { user, userData, refreshUserData } = useAuth();
   const uid = user?.uid ?? null;
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState<string>('Program Map');
@@ -263,7 +287,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   const [soloSeenIds, setSoloSeenIds] = useState<string[]>([]);
   const [soloHistoryIds, setSoloHistoryIds] = useState<string[]>([]);
   const [soloHistoryIndex, setSoloHistoryIndex] = useState(-1);
-  const [soloFeedback, setSoloFeedback] = useState<InteractionGradeResult | null>(null);
+  const [soloFeedback, setSoloFeedback] = useState<(InteractionGradeResult & { reveal?: ProgramAnswerReveal }) | null>(null);
   const [soloAwarding, setSoloAwarding] = useState(false);
   const [soloTextAnswer, setSoloTextAnswer] = useState('');
   const [soloStepAnswers, setSoloStepAnswers] = useState<Record<string, string>>({});
@@ -437,8 +461,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     );
   }
 
-  function renderExplanationViewer(q: FlatProgramQuestion | null, sceneIndex: number, setSceneIndex: Dispatch<SetStateAction<number>>) {
-    const scenes = buildExplanationScenes(q);
+  function renderExplanationViewer(q: FlatProgramQuestion | null, sceneIndex: number, setSceneIndex: Dispatch<SetStateAction<number>>, reveal?: ProgramAnswerReveal) {
+    const scenes = buildExplanationScenes(q, reveal);
     if (scenes.length === 0) return null;
     const current = scenes[Math.max(0, Math.min(sceneIndex, scenes.length - 1))] ?? null;
     if (!current) return null;
@@ -743,14 +767,17 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   async function answerRankedMcq(idx: number) {
     const current = rankedCurrent;
     const finalInteraction = getFinalInteraction(current);
-    if (!current || !finalInteraction || finalInteraction.type !== 'mcq' || rankedFeedback || !uid || !programId) return;
-    const g = gradeInteraction(current.interaction, { kind: 'mcq', choiceIndex: idx });
-    setRankedFeedback(g);
-
+    if (!current || !finalInteraction || finalInteraction.type !== 'mcq' || rankedFeedback || rankedSaving || !uid || !programId) return;
+    if (isDraftPreviewProgram) {
+      setRankedFeedback(gradeInteraction(current.interaction, { kind: 'mcq', choiceIndex: idx }));
+      return;
+    }
     try {
       setRankedSaving(true);
-      const r = await applyRankedAnswer(uid, programId, current.id, g.correct);
-      await applyRankedEnergyProgress(uid, g.correct);
+      const r = await applyRankedAnswer(uid, programId, current.id, { kind: 'mcq', choiceIndex: idx });
+      setRankedFeedback(r.grade);
+      const reward = r.economy;
+      if (reward.applied) { if (r.grade.correct) await recordStudyActivity(uid); await refreshUserData(); }
       setRankedTrophies(r.trophies);
       setRankedSolvedQuestionIds(r.correctIds);
       setRankedIncorrectQuestionIds(r.incorrectIds);
@@ -764,17 +791,20 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   async function answerRankedFreeform(kind: 'numeric' | 'text') {
     const current = rankedCurrent;
     const finalInteraction = getFinalInteraction(current);
-    if (!current || !current.interaction || !finalInteraction || rankedFeedback || !uid || !programId) return;
+    if (!current || !current.interaction || !finalInteraction || rankedFeedback || rankedSaving || !uid || !programId) return;
     if (kind === 'numeric' && !isNumericInteraction(finalInteraction)) return;
     if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction)) return;
-
-    const g = gradeInteraction(current.interaction, { kind, valueText: rankedTextAnswer });
-    setRankedFeedback(g);
+    if (isDraftPreviewProgram) {
+      setRankedFeedback(gradeInteraction(current.interaction, { kind, valueText: rankedTextAnswer }));
+      return;
+    }
 
     try {
       setRankedSaving(true);
-      const r = await applyRankedAnswer(uid, programId, current.id, g.correct);
-      await applyRankedEnergyProgress(uid, g.correct);
+      const r = await applyRankedAnswer(uid, programId, current.id, { kind, valueText: rankedTextAnswer });
+      setRankedFeedback(r.grade);
+      const reward = r.economy;
+      if (reward.applied) { if (r.grade.correct) await recordStudyActivity(uid); await refreshUserData(); }
       setRankedTrophies(r.trophies);
       setRankedSolvedQuestionIds(r.correctIds);
       setRankedIncorrectQuestionIds(r.incorrectIds);
@@ -1839,7 +1869,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     const already = friendSession.answers?.[qid]?.[friendMyUid];
     if (already) return;
 
-    const g = gradeInteraction(friendCurrent.interaction, { kind: 'mcq', choiceIndex: idx });
+    const g = await gradePublishedProgramAnswer(friendSession.programId, qid, { kind: 'mcq', choiceIndex: idx });
     await submitProgramFriendAnswer({
       sessionId: friendSession.id,
       uid: friendMyUid,
@@ -1849,6 +1879,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
         choiceIndex: idx,
         stepValues: compactStepValues(soloStepAnswers),
         correct: g.correct,
+        correctIndex: g.correctIndex,
         answeredAt: new Date().toISOString(),
       },
     });
@@ -1867,15 +1898,17 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
 
     let g: InteractionGradeResult;
     if (kind === 'text' && isFreeformFallbackInteraction(finalInteraction)) {
-      g = await gradeFreeformAnswer({
-        questionText: friendCurrent.promptRawText || friendCurrent.partRawText || friendCurrent.stemRawText || '',
-        answerText: soloTextAnswer,
-        grading: finalInteraction.grading,
-        rubricSummary: finalInteraction.rubricSummary ?? null,
-        solutionText: friendCurrent.solutionText ?? null,
-        hints: friendCurrent.hints,
-        stepValues: compactStepValues(soloStepAnswers) ?? null,
-      });
+      g = isDraftPreviewProgram
+        ? await gradeFreeformAnswer({
+            questionText: friendCurrent.promptRawText || friendCurrent.partRawText || friendCurrent.stemRawText || '',
+            answerText: soloTextAnswer,
+            grading: finalInteraction.grading,
+            rubricSummary: finalInteraction.rubricSummary ?? null,
+            solutionText: friendCurrent.solutionText ?? null,
+            hints: friendCurrent.hints,
+            stepValues: compactStepValues(soloStepAnswers) ?? null,
+          })
+        : await gradePublishedProgramAnswer(friendSession.programId, qid, { kind: 'text', valueText: soloTextAnswer });
       await recordFreeformSubmission({
         uid: friendMyUid,
         programId: friendSession.programId ?? null,
@@ -1887,7 +1920,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
         result: g,
       });
     } else {
-      g = gradeInteraction(friendCurrent.interaction, { kind, valueText: soloTextAnswer });
+      g = await gradePublishedProgramAnswer(friendSession.programId, qid, { kind, valueText: soloTextAnswer });
     }
     await submitProgramFriendAnswer({
       sessionId: friendSession.id,
@@ -1898,6 +1931,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
         valueText: soloTextAnswer,
         stepValues: compactStepValues(soloStepAnswers),
         correct: g.correct,
+        correctIndex: g.correctIndex,
         answeredAt: new Date().toISOString(),
       },
     });
@@ -2014,6 +2048,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     if (!qid) return;
     const already = studySession.answers?.[qid]?.[uid];
     if (already) return;
+    const grade = await gradePublishedProgramAnswer(studySession.programId, qid, { kind: 'mcq', choiceIndex: idx });
     await submitProgramStudyAnswer({
       sessionId: studySession.id,
       uid,
@@ -2022,6 +2057,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
         kind: 'mcq',
         choiceIndex: idx,
         stepValues: compactStepValues(soloStepAnswers),
+        correct: grade.correct,
+        correctIndex: grade.correctIndex,
         answeredAt: new Date().toISOString(),
       },
     });
@@ -2038,16 +2075,20 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     const already = studySession.answers?.[qid]?.[uid];
     if (already) return;
 
+    let deterministicGrade: InteractionGradeResult | null = null;
     if (kind === 'text' && isFreeformFallbackInteraction(finalInteraction)) {
-      const g = await gradeFreeformAnswer({
-        questionText: studyCurrent.promptRawText || studyCurrent.partRawText || studyCurrent.stemRawText || '',
-        answerText: soloTextAnswer,
-        grading: finalInteraction.grading,
-        rubricSummary: finalInteraction.rubricSummary ?? null,
-        solutionText: studyCurrent.solutionText ?? null,
-        hints: studyCurrent.hints,
-        stepValues: compactStepValues(soloStepAnswers) ?? null,
-      });
+      const g = isDraftPreviewProgram
+        ? await gradeFreeformAnswer({
+            questionText: studyCurrent.promptRawText || studyCurrent.partRawText || studyCurrent.stemRawText || '',
+            answerText: soloTextAnswer,
+            grading: finalInteraction.grading,
+            rubricSummary: finalInteraction.rubricSummary ?? null,
+            solutionText: studyCurrent.solutionText ?? null,
+            hints: studyCurrent.hints,
+            stepValues: compactStepValues(soloStepAnswers) ?? null,
+          })
+        : await gradePublishedProgramAnswer(studySession.programId, qid, { kind: 'text', valueText: soloTextAnswer });
+      deterministicGrade = g;
       await recordFreeformSubmission({
         uid,
         programId: studySession.programId ?? null,
@@ -2058,6 +2099,8 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
         stepValues: compactStepValues(soloStepAnswers) ?? null,
         result: g,
       });
+    } else {
+      deterministicGrade = await gradePublishedProgramAnswer(studySession.programId, qid, { kind, valueText: soloTextAnswer });
     }
 
     await submitProgramStudyAnswer({
@@ -2068,6 +2111,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
         kind,
         valueText: soloTextAnswer,
         stepValues: compactStepValues(soloStepAnswers),
+        ...(deterministicGrade ? { correct: deterministicGrade.correct, correctIndex: deterministicGrade.correctIndex } : {}),
         answeredAt: new Date().toISOString(),
       },
     });
@@ -2099,17 +2143,20 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
   async function answerSoloMcq(idx: number) {
     const finalInteraction = getFinalInteraction(soloCurrent);
     if (!soloCurrent?.interaction || !finalInteraction || finalInteraction.type !== 'mcq') return;
-    const g = gradeInteraction(soloCurrent.interaction, { kind: 'mcq', choiceIndex: idx });
-    setSoloFeedback(g);
-
-    if (g.correct && uid) {
+    if (isDraftPreviewProgram) {
+      setSoloFeedback(gradeInteraction(soloCurrent.interaction, { kind: 'mcq', choiceIndex: idx }));
+      return;
+    }
+    if (uid) {
       try {
         setSoloAwarding(true);
-        if (programId) {
-          await markQuestionSolved(uid, programId, soloCurrent.id);
+        if (!programId) return;
+        const reward = await recordStudyAnswer(`program:${programId}:solo:${soloCurrent.id}`, { kind: 'mcq', choiceIndex: idx });
+        setSoloFeedback(reward.grade);
+        if (reward.grade.correct) {
           setSolvedQuestionIds((prev) => (prev.includes(soloCurrent.id) ? prev : [...prev, soloCurrent.id]));
+          if (reward.applied) { await recordStudyActivity(uid); await refreshUserData(); }
         }
-        await updateEconomy(uid, { gold: 1, xp: 5 });
       } catch {
         // ignore
       } finally {
@@ -2123,20 +2170,27 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
     if (!soloCurrent?.interaction || !finalInteraction) return;
     if (kind === 'numeric' && !isNumericInteraction(finalInteraction)) return;
     if (kind === 'text' && !isTextSubmittedInteraction(finalInteraction) && !isFreeformFallbackInteraction(finalInteraction)) return;
+    if (isDraftPreviewProgram && !(kind === 'text' && isFreeformFallbackInteraction(finalInteraction))) {
+      setSoloFeedback(gradeInteraction(soloCurrent.interaction, { kind, valueText: soloTextAnswer }));
+      return;
+    }
 
     let g: InteractionGradeResult;
+    let deterministicReward: Awaited<ReturnType<typeof recordStudyAnswer>> | null = null;
     if (kind === 'text' && isFreeformFallbackInteraction(finalInteraction)) {
       try {
         setSoloAwarding(true);
-        g = await gradeFreeformAnswer({
-          questionText: soloCurrent.promptRawText || soloCurrent.partRawText || soloCurrent.stemRawText || '',
-          answerText: soloTextAnswer,
-          grading: finalInteraction.grading,
-          rubricSummary: finalInteraction.rubricSummary ?? null,
-          solutionText: soloCurrent.solutionText ?? null,
-          hints: soloCurrent.hints,
-          stepValues: compactStepValues(soloStepAnswers) ?? null,
-        });
+        g = isDraftPreviewProgram
+          ? await gradeFreeformAnswer({
+              questionText: soloCurrent.promptRawText || soloCurrent.partRawText || soloCurrent.stemRawText || '',
+              answerText: soloTextAnswer,
+              grading: finalInteraction.grading,
+              rubricSummary: finalInteraction.rubricSummary ?? null,
+              solutionText: soloCurrent.solutionText ?? null,
+              hints: soloCurrent.hints,
+              stepValues: compactStepValues(soloStepAnswers) ?? null,
+            })
+          : await gradePublishedProgramAnswer(programId!, soloCurrent.id, { kind: 'text', valueText: soloTextAnswer });
       } catch (error) {
         g = {
           correct: false,
@@ -2149,7 +2203,22 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
         setSoloAwarding(false);
       }
     } else {
-      g = gradeInteraction(soloCurrent.interaction, { kind, valueText: soloTextAnswer });
+      if (!uid || !programId) return;
+      try {
+        setSoloAwarding(true);
+        deterministicReward = await recordStudyAnswer(`program:${programId}:solo:${soloCurrent.id}`, { kind, valueText: soloTextAnswer });
+        g = deterministicReward.grade;
+      } catch (error) {
+        g = {
+          correct: false,
+          correctIndex: 0,
+          status: 'graded',
+          method: 'fallback',
+          feedbackText: error instanceof Error ? error.message : 'Failed to grade answer. Please try again.',
+        };
+      } finally {
+        setSoloAwarding(false);
+      }
     }
 
     setSoloFeedback(g);
@@ -2172,18 +2241,12 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
       }
     }
 
-    if (g.correct && g.status !== 'pending_review' && uid) {
+    if (g.correct && g.status !== 'pending_review' && uid && deterministicReward) {
       try {
-        setSoloAwarding(true);
-        if (programId) {
-          await markQuestionSolved(uid, programId, soloCurrent.id);
-          setSolvedQuestionIds((prev) => (prev.includes(soloCurrent.id) ? prev : [...prev, soloCurrent.id]));
-        }
-        await updateEconomy(uid, { gold: 1, xp: 5 });
+        setSolvedQuestionIds((prev) => (prev.includes(soloCurrent.id) ? prev : [...prev, soloCurrent.id]));
+        if (deterministicReward.applied) { await recordStudyActivity(uid); await refreshUserData(); }
       } catch {
         // ignore
-      } finally {
-        setSoloAwarding(false);
       }
     }
   }
@@ -2435,11 +2498,10 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                 if (claimingRewardId) return;
                 setClaimingRewardId(rewardId);
                 try {
-                  const res = await claimRoadmapReward(uid, programId, rewardId);
-                  if (!res.claimed) return;
-                  const gold = rewardGold(t);
-                  await updateEconomy(uid, { gold });
+                  const res = await claimRoadmapEconomyReward(programId, t);
+                  const gold = res.reward.gold;
                   setClaimedRewardIds((prev) => (prev.includes(rewardId) ? prev : [...prev, rewardId]));
+                  await refreshUserData();
                   setChestOverlay({ rewardId, gold, stage: 'opening' });
                 } finally {
                   setClaimingRewardId(null);
@@ -3339,7 +3401,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                 const mine = friendMyUid ? friendSession.answers?.[qid]?.[friendMyUid] : null;
                                 const disabledAll = !!mine || friendBusy;
                                 const finalInteraction = getFinalInteraction(friendCurrent);
-                                const correctIndex = finalInteraction?.type === 'mcq' ? finalInteraction.correctChoiceIndex : 0;
+                                const correctIndex = typeof (mine as any)?.correctIndex === 'number' ? Number((mine as any).correctIndex) : -1;
                                 return (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                     {renderCompositeStepCards(friendCurrent, soloStepAnswers, setSoloStepAnswers, disabledAll)}
@@ -3842,7 +3904,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                     const myAns = uid ? studySession.answers?.[qid]?.[uid] : null;
                                     const myIdx = typeof (myAns as any)?.choiceIndex === 'number' ? (myAns as any).choiceIndex : -1;
                                     const chosen = myIdx === idx;
-                                    const correctIdx = finalInteraction?.type === 'mcq' ? finalInteraction.correctChoiceIndex : 0;
+                                    const correctIdx = typeof (myAns as any)?.correctIndex === 'number' ? Number((myAns as any).correctIndex) : -1;
                                     const showCorrect = studySession.reveal;
                                     const isCorrect = showCorrect && correctIdx === idx;
                                     const border = isCorrect
@@ -4170,7 +4232,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                   ? (soloFeedback.feedbackText ?? 'Submitted for review')
                                   : (soloFeedback.correct ? 'Correct!' : 'Not quite')}
                               </div>
-                              {buildExplanationScenes(soloCurrent).length > 0 && (
+                              {buildExplanationScenes(soloCurrent, soloFeedback.reveal).length > 0 && (
                                 <button
                                   onClick={() => {
                                     setSoloShowExplanation((prev) => !prev);
@@ -4182,7 +4244,7 @@ export default function ProgramMapView({ onBack, programId: programIdProp }: { o
                                   {soloShowExplanation ? 'Hide Explanation' : 'Show Explanation'}
                                 </button>
                               )}
-                              {soloShowExplanation && renderExplanationViewer(soloCurrent, soloExplanationIndex, setSoloExplanationIndex)}
+                              {soloShowExplanation && renderExplanationViewer(soloCurrent, soloExplanationIndex, setSoloExplanationIndex, soloFeedback.reveal)}
                               <button onClick={nextSolo} className="ll-btn ll-btn-primary" style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}>
                                 Next Question
                               </button>

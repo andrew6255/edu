@@ -80,7 +80,7 @@ export interface ClassMember {
   userId: string;
   username: string;
   fullName: string;
-  role: 'student';
+  role: 'student' | 'teacher_assistant';
   joinedAt: string;
   kickedAt: string | null;
 }
@@ -204,7 +204,7 @@ function docToMember(d: DocData): ClassMember {
     userId: String(d.userId ?? ''),
     username: String(d.username ?? ''),
     fullName: String(d.fullName ?? ''),
-    role: 'student',
+    role: d.role === 'teacher_assistant' ? 'teacher_assistant' : 'student',
     joinedAt: String(d.joinedAt ?? ''),
     kickedAt: d.kickedAt ? String(d.kickedAt) : null,
   };
@@ -399,18 +399,19 @@ export async function addClassMember(
   userId: string,
   username: string,
   fullName: string,
+  role: 'student' | 'teacher_assistant' = 'student',
 ): Promise<ClassMember> {
   const id = `tcm_${classId}_${userId}`;
   // Check if already exists (re-joining after kick)
   const existing = await getGlobalDoc(COL.MEMBERS, id);
   if (existing) {
     // Re-activate if previously kicked
-    await updateGlobalDoc(COL.MEMBERS, id, { kickedAt: null, joinedAt: now() } as unknown as DocData);
-    return docToMember({ ...existing, kickedAt: null, joinedAt: now() });
+    await updateGlobalDoc(COL.MEMBERS, id, { kickedAt: null, joinedAt: now(), role } as unknown as DocData);
+    return docToMember({ ...existing, kickedAt: null, joinedAt: now(), role });
   }
   const data: ClassMember = {
     id, classId, userId, username, fullName,
-    role: 'student',
+    role,
     joinedAt: now(),
     kickedAt: null,
   };

@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  joinMatchmaking, listenMatchmakingEntry, cancelMatchmaking,
-  createSession, generateBotScore, getSession
+  listenMatchmakingEntry, getSession
 } from '@/lib/gameSessionService';
-import { updateEconomy } from '@/lib/userService';
 import { GameSession } from '@/types/warmup';
 
 interface Props {
@@ -19,8 +17,10 @@ const TIMEOUT_SEC = 8;
 export default function MatchmakingScreen({ gameId, gameLabel, onMatched, onCancel }: Props) {
   const { user, userData, refreshUserData } = useAuth();
   const [secondsLeft, setSecondsLeft] = useState(TIMEOUT_SEC);
-  const [status, setStatus] = useState<'searching' | 'found' | 'bot'>('searching');
+  const [status, setStatus] = useState<'searching' | 'found' | 'bot' | 'error'>('searching');
+  const [error, setError] = useState<string | null>(null);
   const entryIdRef = useRef<string | null>(null);
+  const attemptIdRef = useRef<string | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -28,13 +28,12 @@ export default function MatchmakingScreen({ gameId, gameLabel, onMatched, onCanc
     let cancelled = false;
 
     async function start() {
-      const goldCost = 25;
-      await updateEconomy(user!.uid, { gold: -goldCost });
+      const attemptId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      attemptIdRef.current = attemptId;
+      const { startRankedMatchmaking } = await import('@/lib/economyApiService');
+      const result = await startRankedMatchmaking(gameId, attemptId);
       await refreshUserData();
-
-      const { matched, session, entryId } = await joinMatchmaking(
-        user!.uid, userData!.username || 'Player', gameId
-      );
+      const { matched, session, entryId } = result as typeof result & { session?: GameSession };
       entryIdRef.current = entryId;
 
       if (matched && session && !cancelled) {
@@ -50,7 +49,11 @@ export default function MatchmakingScreen({ gameId, gameLabel, onMatched, onCanc
       });
     }
 
-    start();
+    start().catch((cause) => {
+      if (cancelled) return;
+      setError(cause instanceof Error ? cause.message : 'Matchmaking could not start.');
+      setStatus('error');
+    });
     return () => { cancelled = true; unsubRef.current?.(); };
   }, []);
 
@@ -70,22 +73,26 @@ export default function MatchmakingScreen({ gameId, gameLabel, onMatched, onCanc
   }, [status]);
 
   async function handleBotMatch() {
-    if (!user || !userData) return;
+    if (!user || !userData || !attemptIdRef.current) return;
     unsubRef.current?.();
-    if (entryIdRef.current) await cancelMatchmaking(entryIdRef.current);
-
-    const p1 = { uid: user.uid, username: userData.username || 'You', roundScore: null, roundWins: 0, isBot: false };
-    const p2 = { uid: 'logicbot_medium', username: '🤖 LogicBot', roundScore: null, roundWins: 0, isBot: true };
-    const session = await createSession(gameId, 'ranked', p1, p2);
-    setStatus('bot');
-    setTimeout(() => onMatched(session), 1000);
+    try {
+      const { startRankedBotMatch } = await import('@/lib/economyApiService');
+      const result = await startRankedBotMatch(gameId, attemptIdRef.current);
+      const session = result.session as GameSession;
+      entryIdRef.current = result.entryId;
+      setStatus(session.player2.isBot ? 'bot' : 'found');
+      setTimeout(() => onMatched(session), 1000);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Bot match could not start.');
+      setStatus('error');
+    }
   }
 
   async function handleCancel() {
     unsubRef.current?.();
-    if (entryIdRef.current) await cancelMatchmaking(entryIdRef.current);
-    if (user && userData) {
-      await updateEconomy(user.uid, { gold: 25 });
+    if (user && userData && attemptIdRef.current) {
+      const { cancelRankedMatchmaking } = await import('@/lib/economyApiService');
+      await cancelRankedMatchmaking(gameId, attemptIdRef.current);
       await refreshUserData();
     }
     onCancel();
@@ -98,6 +105,12 @@ export default function MatchmakingScreen({ gameId, gameLabel, onMatched, onCanc
       height: '100%', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center', gap: 28, padding: 30
     }}>
+      {status === 'error' && (
+        <div style={{ textAlign: 'center', display: 'grid', gap: 14 }}>
+          <div style={{ color: '#fca5a5', fontWeight: 800 }}>{error}</div>
+          <button onClick={onCancel} className="ll-btn">Back</button>
+        </div>
+      )}
       {status === 'searching' && (
         <>
           <div style={{ position: 'relative' }}>

@@ -51,106 +51,11 @@ export async function rollBoardTurn(
   opts?: { rng?: () => number; payBail?: boolean }
 ): Promise<ChronoEmpiresRollTurnResult | null> {
   const b = clampBoardId(boardId);
-  const count = Math.max(1, Math.floor(tilesCount));
-
-  const GO_GOLD = 200;
-  const BAIL_GOLD = 100;
-  const JAIL_TURNS = 1;
-
-  const pData = await getUserDoc(uid, 'chrono_board', String(b)) as any;
-  const uData = await getUserDoc(uid, 'chrono_economy', 'global') as any;
-  if (!uData && !pData) {
-    await setUserDoc(uid, 'chrono_board', String(b), { id: String(b), boardId: b, position: 0, jailTurnsRemaining: 0, extraRolls: 0, updatedAt: nowIso() } as any);
-    return null;
-  }
-  if (!pData) {
-    await setUserDoc(uid, 'chrono_board', String(b), { id: String(b), boardId: b, position: 0, jailTurnsRemaining: 0, extraRolls: 0, updatedAt: nowIso() } as any);
-    return null;
-  }
-
-  const curPos = typeof pData.position === 'number' && Number.isFinite(pData.position) ? Math.max(0, Math.floor(pData.position)) : 0;
-  const curJail = typeof pData.jailTurnsRemaining === 'number' && Number.isFinite(pData.jailTurnsRemaining) ? Math.max(0, Math.min(9, Math.floor(pData.jailTurnsRemaining))) : 0;
-  const curExtra = typeof pData.extraRolls === 'number' && Number.isFinite(pData.extraRolls) ? Math.max(0, Math.min(9, Math.floor(pData.extraRolls))) : 0;
-
-  const econ = (uData && typeof uData === 'object') ? uData : {};
-  const curGold = typeof (econ as any).gold === 'number' && Number.isFinite((econ as any).gold) ? Math.max(0, Math.floor((econ as any).gold)) : 0;
-
-  let nextGold = curGold;
-  let nextPos = curPos;
-  let nextJail = curJail;
-  let nextExtra = curExtra;
-  let lastRoll: number | undefined = undefined;
-  let lastEvent = '';
-
-  const payBail = Boolean(opts?.payBail);
-  if (curJail > 0) {
-    if (payBail) {
-      if (curGold < BAIL_GOLD) {
-        lastEvent = `Not enough coins to pay bail (need ${BAIL_GOLD}).`;
-        const blocked: ChronoEmpiresBoardProgressDoc = {
-          id: String(b), boardId: b, position: curPos, lastRoll: undefined,
-          jailTurnsRemaining: curJail, extraRolls: curExtra, lastEvent, updatedAt: nowIso(),
-        };
-        await setUserDoc(uid, 'chrono_board', String(b), blocked as any);
-        return { progress: blocked, gold: curGold };
-      }
-      nextGold = curGold - BAIL_GOLD;
-      nextJail = 0;
-      lastEvent = `Paid bail (-${BAIL_GOLD}).`;
-    } else {
-      nextJail = Math.max(0, curJail - 1);
-      lastEvent = 'Maintenance Mode: turn skipped.';
-      const skipped: ChronoEmpiresBoardProgressDoc = {
-        id: String(b), boardId: b, position: curPos, lastRoll: undefined,
-        jailTurnsRemaining: nextJail, extraRolls: curExtra, lastEvent, updatedAt: nowIso(),
-      };
-      await setUserDoc(uid, 'chrono_board', String(b), skipped as any);
-      return { progress: skipped, gold: curGold };
-    }
-  }
-
-  const rng = opts?.rng ?? Math.random;
-  const die1 = Math.max(1, Math.min(6, Math.floor(rng() * 6) + 1));
-  const die2 = Math.max(1, Math.min(6, Math.floor(rng() * 6) + 1));
-  const roll = die1 + die2;
-  lastRoll = roll;
-  const oldPos = curPos;
-  nextPos = (curPos + roll) % count;
-
-  if (curExtra > 0) nextExtra = Math.max(0, curExtra - 1);
-
-  if (nextPos < oldPos && nextPos !== 0) {
-    nextGold += GO_GOLD;
-    lastEvent = `Passed Main Gate: +${GO_GOLD} coins. `;
-  }
-
-  if (nextPos === 0) {
-    nextGold += GO_GOLD;
-    nextExtra += 1;
-    lastEvent = `🚪 MAIN GATE: +${GO_GOLD} coins, +1 free spin!`;
-  } else if (nextPos === 7) {
-    lastEvent = (lastEvent || '') + '🚦 Zahma — just visiting.';
-  } else if (nextPos === 14) {
-    lastEvent = (lastEvent || '') + '☕ El Ahwa — safe zone, +1 energy.';
-  } else if (nextPos === 21) {
-    nextPos = 7;
-    nextJail = Math.max(nextJail, JAIL_TURNS);
-    lastEvent = '🛑 El Lagna! Checkpoint sends you to Zahma (Traffic Jam).';
-  } else if (!lastEvent) {
-    lastEvent = 'Moved.';
-  }
-
-  const next: ChronoEmpiresBoardProgressDoc = {
-    id: String(b), boardId: b, position: nextPos, lastRoll,
-    jailTurnsRemaining: nextJail, extraRolls: nextExtra, lastEvent, updatedAt: nowIso(),
-  };
-
-  await setUserDoc(uid, 'chrono_board', String(b), next as any);
-  if (nextGold !== curGold) {
-    await updateUserDoc(uid, 'chrono_economy', 'global', { gold: nextGold });
-  }
-
-  return { progress: next, gold: nextGold };
+  void uid; void tilesCount; void opts?.rng;
+  const turnId=typeof crypto.randomUUID==='function'?crypto.randomUUID():`${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const {rollChronoBoard}=await import('@/lib/economyApiService');
+  const result=await rollChronoBoard(b,Boolean(opts?.payBail),turnId);
+  return {progress:result.progress as unknown as ChronoEmpiresBoardProgressDoc,gold:result.gold};
 }
 
 export type ChronoEmpiresStateDoc = {

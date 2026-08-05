@@ -231,8 +231,8 @@ export function flattenProgramChapter(
         const interaction: ProgramInteractionSpec | null =
           (a as any)?.interaction && typeof (a as any).interaction === 'object'
             ? ((a as any).interaction as ProgramInteractionSpec)
-            : (a?.mcq && Array.isArray(a.mcq.choices) && typeof a.mcq.correctChoiceIndex === 'number'
-              ? ({ type: 'mcq', choices: a.mcq.choices, correctChoiceIndex: a.mcq.correctChoiceIndex } satisfies ProgramInteractionSpec)
+            : (a?.mcq && Array.isArray(a.mcq.choices)
+              ? ({ type: 'mcq', choices: a.mcq.choices, correctChoiceIndex: typeof a.mcq.correctChoiceIndex === 'number' ? a.mcq.correctChoiceIndex : -1 } satisfies ProgramInteractionSpec)
               : null);
         questions.push({
           id: key,
@@ -252,7 +252,7 @@ export function flattenProgramChapter(
           annotationKey: key,
           questionTypeId: typeof a?.question_type_id === 'string' ? a.question_type_id : null,
           difficulty: (a?.difficulty as ProgramDifficulty) ?? null,
-          mcq: a?.mcq && Array.isArray(a.mcq.choices) && typeof a.mcq.correctChoiceIndex === 'number' ? a.mcq : null,
+          mcq: a?.mcq && Array.isArray(a.mcq.choices) ? { choices: a.mcq.choices, correctChoiceIndex: typeof a.mcq.correctChoiceIndex === 'number' ? a.mcq.correctChoiceIndex : -1 } : null,
           interaction,
           solutionText: getText(a?.solution?.raw_text) ?? getText(a?.solution?.latex),
           hints: Array.isArray(a?.hints) ? a.hints.map((h) => getText(h?.raw_text) ?? getText(h?.latex)).filter(Boolean) as string[] : [],
@@ -294,8 +294,8 @@ export function flattenProgramChapter(
           const interaction: ProgramInteractionSpec | null =
             (a as any)?.interaction && typeof (a as any).interaction === 'object'
               ? ((a as any).interaction as ProgramInteractionSpec)
-              : (a?.mcq && Array.isArray(a.mcq.choices) && typeof a.mcq.correctChoiceIndex === 'number'
-                ? ({ type: 'mcq', choices: a.mcq.choices, correctChoiceIndex: a.mcq.correctChoiceIndex } satisfies ProgramInteractionSpec)
+              : (a?.mcq && Array.isArray(a.mcq.choices)
+                ? ({ type: 'mcq', choices: a.mcq.choices, correctChoiceIndex: typeof a.mcq.correctChoiceIndex === 'number' ? a.mcq.correctChoiceIndex : -1 } satisfies ProgramInteractionSpec)
                 : null);
 
           const partRaw = getText(p.raw_text);
@@ -322,7 +322,7 @@ export function flattenProgramChapter(
             annotationKey: key,
             questionTypeId: typeof a?.question_type_id === 'string' ? a.question_type_id : null,
             difficulty: (a?.difficulty as ProgramDifficulty) ?? null,
-            mcq: a?.mcq && Array.isArray(a.mcq.choices) && typeof a.mcq.correctChoiceIndex === 'number' ? a.mcq : null,
+            mcq: a?.mcq && Array.isArray(a.mcq.choices) ? { choices: a.mcq.choices, correctChoiceIndex: typeof a.mcq.correctChoiceIndex === 'number' ? a.mcq.correctChoiceIndex : -1 } : null,
             interaction,
             solutionText: getText(a?.solution?.raw_text) ?? getText(a?.solution?.latex),
             hints: Array.isArray(a?.hints) ? a.hints.map((h) => getText(h?.raw_text) ?? getText(h?.latex)).filter(Boolean) as string[] : [],

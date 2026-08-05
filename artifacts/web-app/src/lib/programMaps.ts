@@ -1,8 +1,7 @@
 import { getDraftProgram } from '@/lib/draftProgramStore';
 import { ensureFixedFirstDivisionContainer, type BuilderSpec, convertBuilderToInternal } from '@/lib/programBuilder';
-import { getDraftProgramAdmin, getPublishedProgramAdmin, listPublishedProgramsFull } from '@/lib/programAdminService';
+import { getDraftProgramAdmin, getPublishedProgramPublic, listPublishedProgramsPublic } from '@/lib/programAdminService';
 import { getUserData, updateUserData } from '@/lib/userService';
-import { deleteUserDoc } from '@/lib/supabaseDocStore';
 
 export type TocItem = {
   id: string;
@@ -112,14 +111,14 @@ export async function getDraftProgramFromDb(programId: string): Promise<PublicPr
 }
 
 export async function listPublicPrograms(): Promise<PublicProgram[]> {
-  const rows = await listPublishedProgramsFull();
+  const rows = await listPublishedProgramsPublic();
   return rows
     .map((row) => toPublicProgramWithBuilderFallback(row as Partial<PublicProgram> & { id: string; builderSpec?: unknown }))
     .filter((p): p is PublicProgram => !!p);
 }
 
 export async function getPublicProgram(programId: string): Promise<PublicProgram | null> {
-  const data = await getPublishedProgramAdmin(programId);
+  const data = await getPublishedProgramPublic(programId);
   if (!data) return null;
   return toPublicProgramWithBuilderFallback(data as Partial<PublicProgram> & { id: string; builderSpec?: unknown });
 }
@@ -162,8 +161,7 @@ export async function purgeProgramFromUser(uid: string, programId: string): Prom
     completedProgramIds: nextCompleted,
   });
 
-  // Best-effort progress cleanup for this user.
-  try { await deleteUserDoc(uid, 'program_progress', programId); } catch {}
+  // Progress is retained as history so ranked rewards cannot be reset and reclaimed.
 }
 
 export async function assignProgramToUser(uid: string, programId: string): Promise<void> {

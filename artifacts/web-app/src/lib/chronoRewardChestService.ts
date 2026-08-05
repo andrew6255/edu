@@ -1,5 +1,4 @@
 import { ALL_CATEGORY_CARDS } from '@/lib/chronoCards';
-import { addCardCopies } from '@/lib/chronoInventoryService';
 import { getUserDoc, setUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';
 import { getTasksState } from '@/lib/chronoTasksService';
 
@@ -103,45 +102,17 @@ export async function claimChronoRewardChest(uid: string, currentBoard: number):
   const eligible = await canClaimChest(uid);
   if (!eligible) return { ok: false, reason: 'Answer more study questions to unlock today\'s chest.' };
 
-  const preview = buildPreview(currentBoard);
-  const availableCards = ALL_CATEGORY_CARDS.filter((card) => card.boardId <= currentBoard);
-  const randomCard = availableCards.length > 0
-    ? availableCards[Math.floor(Math.random() * availableCards.length)]
-    : null;
-
-  const reward: ChronoRewardChestReward = {
-    coins: preview.coins,
-    gems: preview.gems,
-    energy: preview.energy,
-    cardId: randomCard?.id,
-    cardName: randomCard?.name,
-    cardEmoji: randomCard?.emoji,
-  };
-
   try {
-    const { updateEconomy } = await import('@/lib/userService');
-    await updateEconomy(uid, {
-      gold: reward.coins,
-      gems: reward.gems,
-      energy: reward.energy,
-    });
-    if (reward.cardId) {
-      await addCardCopies(uid, reward.cardId, 1);
-    }
+    const { claimChronoRewardChestEconomy } = await import('@/lib/economyApiService');
+    const result = await claimChronoRewardChestEconomy();
+    const card = result.reward.cardId ? ALL_CATEGORY_CARDS.find((entry) => entry.id === result.reward.cardId) : undefined;
+    const reward: ChronoRewardChestReward = {
+      ...result.reward,
+      cardName: card?.name,
+      cardEmoji: card?.emoji,
+    };
+    return { ok: true, reward };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : 'Failed to grant chest reward.' };
   }
-
-  const nextState: ChronoRewardChestStateDoc = {
-    lastClaimedAt: nowIso(),
-    lastReward: reward,
-    updatedAt: nowIso(),
-  };
-  if (await getUserDoc(uid, CHEST_COL, CHEST_DOC)) {
-    await updateUserDoc(uid, CHEST_COL, CHEST_DOC, nextState as any);
-  } else {
-    await setUserDoc(uid, CHEST_COL, CHEST_DOC, nextState as any);
-  }
-
-  return { ok: true, reward };
 }

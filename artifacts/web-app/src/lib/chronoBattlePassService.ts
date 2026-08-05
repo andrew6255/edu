@@ -1,7 +1,7 @@
 import { getCollectionSetsState } from '@/lib/chronoCollectionSetsService';
 import { getDiscoveryState } from '@/lib/chronoDiscoveryService';
 import { getGemMilestonesState } from '@/lib/chronoGemMilestonesService';
-import { getUserDoc, setUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';
+import { getUserDoc, setUserDoc } from '@/lib/supabaseDocStore';
 import { getTasksState } from '@/lib/chronoTasksService';
 
 export interface ChronoBattlePassReward {
@@ -148,27 +148,10 @@ export async function claimChronoBattlePassReward(uid: string, tier: number): Pr
   if (xp < def.xpRequired) return { ok: false, reason: 'Tier not unlocked yet.' };
 
   try {
-    const { updateEconomy } = await import('@/lib/userService');
-    await updateEconomy(uid, {
-      gold: def.reward.coins ?? 0,
-      gems: def.reward.gems ?? 0,
-      energy: def.reward.energy ?? 0,
-    });
+    const { claimChronoBattlePassTier } = await import('@/lib/economyApiService');
+    await claimChronoBattlePassTier(tier);
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : 'Reward failed.' };
-  }
-
-  const nextClaimedTiers = [...state.claimedTiers, tier].sort((a, b) => a - b);
-  if (await getUserDoc(uid, BATTLEPASS_COL, BATTLEPASS_DOC)) {
-    await updateUserDoc(uid, BATTLEPASS_COL, BATTLEPASS_DOC, {
-      claimedTiers: nextClaimedTiers,
-      updatedAt: nowIso(),
-    });
-  } else {
-    await setUserDoc(uid, BATTLEPASS_COL, BATTLEPASS_DOC, {
-      claimedTiers: nextClaimedTiers,
-      updatedAt: nowIso(),
-    } as any);
   }
 
   return { ok: true, reward: def.reward };

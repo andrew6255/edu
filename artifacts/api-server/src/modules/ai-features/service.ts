@@ -26,12 +26,10 @@ export class AiFeatureProviderError extends Error {
 }
 
 export function getServerGroqKeys(): string[] {
-  const serverKeys = (process.env['GROQ_API_KEY'] ?? '')
+  return Array.from(new Set((process.env['GROQ_API_KEY'] ?? '')
     .split(',')
     .map(value => value.trim())
-    .filter(Boolean);
-  const migrationFallback = (process.env['VITE_GROQ_API_KEY'] ?? '').trim();
-  return Array.from(new Set([...serverKeys, ...(serverKeys.length === 0 && migrationFallback ? [migrationFallback] : [])]));
+    .filter(Boolean)));
 }
 
 export async function completeAiFeature(input: AiFeatureRequest): Promise<AiFeatureResult> {

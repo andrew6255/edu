@@ -47,56 +47,6 @@ export async function listProgramProgress(uid: string): Promise<Record<string, P
   return out;
 }
 
-export async function claimRoadmapReward(uid: string, programId: string, rewardId: string): Promise<{ claimed: boolean }> {
-  const existing = await getUserDoc(uid, 'program_progress', programId);
-  const now = new Date().toISOString();
-
-  if (!existing) {
-    await setUserDoc(uid, 'program_progress', programId, {
-      programId,
-      completedUnitIds: [],
-      solvedQuestionIds: [],
-      rankedTrophies: 0,
-      rankedSolvedQuestionIds: [],
-      rankedIncorrectQuestionIds: [],
-      claimedRewardIds: [rewardId],
-      updatedAt: now,
-    } as any);
-    return { claimed: true };
-  }
-
-  const current = Array.isArray((existing as any).claimedRewardIds) ? ((existing as any).claimedRewardIds as string[]) : [];
-  if (current.includes(rewardId)) {
-    await updateUserDoc(uid, 'program_progress', programId, { updatedAt: now });
-    return { claimed: false };
-  }
-
-  await updateUserDoc(uid, 'program_progress', programId, { claimedRewardIds: Array.from(new Set([...current, rewardId])), updatedAt: now });
-  return { claimed: true };
-}
-
-export async function markQuestionSolved(uid: string, programId: string, questionId: string): Promise<void> {
-  const existing = await getUserDoc(uid, 'program_progress', programId);
-  const now = new Date().toISOString();
-
-  if (!existing) {
-    await setUserDoc(uid, 'program_progress', programId, {
-      programId,
-      completedUnitIds: [],
-      solvedQuestionIds: [questionId],
-      updatedAt: now,
-    } as any);
-    return;
-  }
-
-  const current = Array.isArray((existing as any).solvedQuestionIds) ? ((existing as any).solvedQuestionIds as string[]) : [];
-  if (current.includes(questionId)) {
-    await updateUserDoc(uid, 'program_progress', programId, { updatedAt: now });
-    return;
-  }
-  await updateUserDoc(uid, 'program_progress', programId, { solvedQuestionIds: Array.from(new Set([...current, questionId])), updatedAt: now });
-}
-
 export async function toggleQuestionSolved(uid: string, programId: string, questionId: string): Promise<boolean> {
   const existing = await getUserDoc(uid, 'program_progress', programId);
   const now = new Date().toISOString();
@@ -129,57 +79,11 @@ export async function applyRankedAnswer(
   uid: string,
   programId: string,
   questionId: string,
-  correct: boolean
-): Promise<{ trophies: number; correctIds: string[]; incorrectIds: string[] }> {
-  const existing = await getUserDoc(uid, 'program_progress', programId);
-  const now = new Date().toISOString();
-
-  const trophyMagnitude = 14 + Math.floor(Math.random() * 3);
-  const delta = correct ? trophyMagnitude : -trophyMagnitude;
-
-  if (!existing) {
-    const trophies = Math.max(0, delta);
-    const correctIds = correct ? [questionId] : [];
-    const incorrectIds = correct ? [] : [questionId];
-    await setUserDoc(uid, 'program_progress', programId, {
-      programId,
-      completedUnitIds: [],
-      solvedQuestionIds: [],
-      rankedTrophies: trophies,
-      rankedSolvedQuestionIds: correctIds,
-      rankedIncorrectQuestionIds: incorrectIds,
-      updatedAt: now,
-    } as any);
-    return { trophies, correctIds, incorrectIds };
-  }
-
-  const data = existing as any;
-  const currentTrophies = typeof data.rankedTrophies === 'number' ? (data.rankedTrophies as number) : 0;
-  const currentSolved = Array.isArray(data.rankedSolvedQuestionIds) ? (data.rankedSolvedQuestionIds as string[]) : [];
-
-  const currentIncorrect = Array.isArray(data.rankedIncorrectQuestionIds) ? (data.rankedIncorrectQuestionIds as string[]) : [];
-
-  const checkpointFloor = Math.floor(Math.max(0, currentTrophies) / 100) * 100;
-  const raw = currentTrophies + delta;
-  const trophies = delta < 0 ? Math.max(checkpointFloor, raw, 0) : Math.max(raw, 0);
-
-  const correctIds = correct
-    ? (currentSolved.includes(questionId) ? currentSolved : Array.from(new Set([...currentSolved, questionId])))
-    : currentSolved;
-
-  const incorrectIds = correct
-    ? currentIncorrect.filter((id) => id !== questionId)
-    : (currentSolved.includes(questionId)
-      ? currentIncorrect
-      : (currentIncorrect.includes(questionId) ? currentIncorrect : Array.from(new Set([...currentIncorrect, questionId]))));
-
-  await updateUserDoc(uid, 'program_progress', programId, {
-    rankedTrophies: trophies,
-    rankedSolvedQuestionIds: correctIds,
-    rankedIncorrectQuestionIds: incorrectIds,
-    updatedAt: now,
-  });
-  return { trophies, correctIds, incorrectIds };
+  answer: import('@/lib/economyApiService').ProgramAnswer
+): Promise<import('@/lib/economyApiService').RankedProgramAnswerResult> {
+  void uid;
+  const { recordRankedProgramAnswer } = await import('@/lib/economyApiService');
+  return recordRankedProgramAnswer(programId, questionId, answer);
 }
 
 export async function toggleUnitComplete(uid: string, programId: string, unitId: string): Promise<void> {

@@ -633,7 +633,7 @@ export default function SuperAdminPage() {
                           fontSize: 10, fontWeight: 'bold', padding: '2px 8px', borderRadius: 5,
                           background: `${roleColor}22`, border: `1px solid ${roleColor}55`, color: roleColor
                         }}>{roleLabel}</span>
-                        {!isSelf && (user?.email === 'god.bypass@internal.app' || u.role !== 'superadmin') && (
+                        {!isSelf && u.role !== 'superadmin' && (
                           <>
                             {u.role === 'admin' && (
                               <button

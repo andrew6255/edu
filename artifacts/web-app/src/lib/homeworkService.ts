@@ -4,9 +4,9 @@ import type { Stroke } from '@/components/FullScreenWorkspace';
 
 export interface Homework {
   id: string; classId: string; teacherId: string; title: string; fileName: string; fileUrl: string; filePath: string;
-  dueAt: string; createdAt: string; updatedAt: string;
+  storageBucket?: string; dueAt: string; createdAt: string; updatedAt: string;
 }
-export interface HomeworkAttachment { id: string; name: string; url: string; path: string; uploadedAt: string; }
+export interface HomeworkAttachment { id: string; name: string; url: string; path: string; storageBucket?: string; uploadedAt: string; }
 export interface HomeworkSheet { id: string; name: string; strokes: Stroke[]; createdAt: string; updatedAt: string; }
 export interface HomeworkSubmission {
   id: string; homeworkId: string; classId: string; studentId: string; sheets: HomeworkSheet[]; attachments: HomeworkAttachment[];
@@ -14,15 +14,24 @@ export interface HomeworkSubmission {
 }
 const HOMEWORKS = 'class_homeworks';
 const SUBMISSIONS = 'homework_submissions';
+const PRIVATE_BUCKET = 'classroom-homework';
 const now = () => new Date().toISOString();
 const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const safe = (name: string) => name.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 90) || 'file';
 
+async function createSignedUrl(path: string, bucket = PRIVATE_BUCKET): Promise<string> {
+  const { data, error } = await requireSupabase().storage.from(bucket).createSignedUrl(path, 60 * 60);
+  if (error) throw error;
+  return data.signedUrl;
+}
+async function refreshPrivateUrl(path: string, bucket: string | undefined, currentUrl: string): Promise<string> {
+  return bucket ? createSignedUrl(path, bucket) : currentUrl;
+}
 async function upload(file: File, path: string) {
-  const storage = requireSupabase().storage.from('program-assets');
+  const storage = requireSupabase().storage.from(PRIVATE_BUCKET);
   const { error } = await storage.upload(path, file, { upsert: false, contentType: file.type || undefined });
   if (error) throw error;
-  return storage.getPublicUrl(path).data.publicUrl;
+  return createSignedUrl(path);
 }
 function toHomework(data: DocData): Homework { return data as unknown as Homework; }
 function toSubmission(data: DocData): HomeworkSubmission {
@@ -38,11 +47,17 @@ function toSubmission(data: DocData): HomeworkSubmission {
 
 export async function getHomework(id: string): Promise<Homework | null> {
   const raw = await getGlobalDoc(HOMEWORKS, id);
-  return raw ? toHomework(raw) : null;
+  if (!raw) return null;
+  const homework = toHomework(raw);
+  return { ...homework, fileUrl: await refreshPrivateUrl(homework.filePath, homework.storageBucket, homework.fileUrl) };
 }
 export async function listClassHomeworks(classId: string): Promise<Homework[]> {
   const rows = await queryGlobalDocs(HOMEWORKS, [{ field: 'classId', op: 'eq', value: classId }]);
-  return rows.map(row => toHomework(row.data)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const homeworks = await Promise.all(rows.map(async row => {
+    const homework = toHomework(row.data);
+    return { ...homework, fileUrl: await refreshPrivateUrl(homework.filePath, homework.storageBucket, homework.fileUrl) };
+  }));
+  return homeworks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 export async function createHomework(classId: string, teacherId: string, title: string, dueAt: string, pdf: File): Promise<Homework> {
   if (pdf.type !== 'application/pdf' && !pdf.name.toLowerCase().endsWith('.pdf')) throw new Error('Homework must be a PDF file.');
@@ -50,18 +65,24 @@ export async function createHomework(classId: string, teacherId: string, title: 
   const filePath = `classrooms/${classId}/homeworks/${id}/${safe(pdf.name)}`;
   const fileUrl = await upload(pdf, filePath);
   const timestamp = now();
-  const data: Homework = { id, classId, teacherId, title: title.trim() || pdf.name.replace(/\.pdf$/i, ''), fileName: pdf.name, fileUrl, filePath, dueAt, createdAt: timestamp, updatedAt: timestamp };
+  const data: Homework = { id, classId, teacherId, title: title.trim() || pdf.name.replace(/\.pdf$/i, ''), fileName: pdf.name, fileUrl, filePath, storageBucket: PRIVATE_BUCKET, dueAt, createdAt: timestamp, updatedAt: timestamp };
   await setGlobalDoc(HOMEWORKS, id, data as unknown as DocData);
   return data;
 }
 export async function updateHomeworkDeadline(id: string, dueAt: string): Promise<void> { await updateGlobalDoc(HOMEWORKS, id, { dueAt, updatedAt: now() }); }
 export async function getHomeworkSubmission(homeworkId: string, studentId: string): Promise<HomeworkSubmission | null> {
   const raw = await getGlobalDoc(SUBMISSIONS, `hws_${homeworkId}_${studentId}`);
-  return raw ? toSubmission(raw) : null;
+  if (!raw) return null;
+  const submission = toSubmission(raw);
+  return { ...submission, attachments: await Promise.all(submission.attachments.map(async file => ({ ...file, url: await refreshPrivateUrl(file.path, file.storageBucket, file.url) }))) };
 }
 export async function listHomeworkSubmissions(homeworkId: string): Promise<HomeworkSubmission[]> {
   const rows = await queryGlobalDocs(SUBMISSIONS, [{ field: 'homeworkId', op: 'eq', value: homeworkId }]);
-  return rows.map(row => toSubmission(row.data)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const submissions = await Promise.all(rows.map(async row => {
+    const submission = toSubmission(row.data);
+    return { ...submission, attachments: await Promise.all(submission.attachments.map(async file => ({ ...file, url: await refreshPrivateUrl(file.path, file.storageBucket, file.url) }))) };
+  }));
+  return submissions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 export async function saveHomeworkSubmission(homework: Homework, studentId: string, sheetsOrStrokes: HomeworkSheet[] | Stroke[], attachments: HomeworkAttachment[], _legacySubmit?: boolean): Promise<HomeworkSubmission> {
   if (Date.now() > new Date(homework.dueAt).getTime()) throw new Error('The submission deadline has passed.');
@@ -81,9 +102,9 @@ export async function uploadHomeworkAttachment(homework: Homework, studentId: st
   if (Date.now() > new Date(homework.dueAt).getTime()) throw new Error('The submission deadline has passed.');
   const id = `file_${uid()}`;
   const path = `classrooms/${homework.classId}/homeworks/${homework.id}/submissions/${studentId}/${id}_${safe(file.name)}`;
-  return { id, name: file.name, path, url: await upload(file, path), uploadedAt: now() };
+  return { id, name: file.name, path, storageBucket: PRIVATE_BUCKET, url: await upload(file, path), uploadedAt: now() };
 }
-export async function deleteHomeworkAttachment(path: string): Promise<void> {
-  const { error } = await requireSupabase().storage.from('program-assets').remove([path]);
+export async function deleteHomeworkAttachment(path: string, bucket?: string): Promise<void> {
+  const { error } = await requireSupabase().storage.from(bucket ?? 'program-assets').remove([path]);
   if (error) throw error;
 }

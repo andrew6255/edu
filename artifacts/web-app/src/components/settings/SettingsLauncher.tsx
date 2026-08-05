@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import SettingsModal from '@/components/settings/SettingsModal';
 
-export default function SettingsLauncher({ compact = false }: { compact?: boolean }) {
+export default function SettingsLauncher({ compact = false, inline = false }: { compact?: boolean; inline?: boolean }) {
   const { user, userData, refreshUserData } = useAuth();
   const [open, setOpen] = useState(false);
 
@@ -13,9 +13,9 @@ export default function SettingsLauncher({ compact = false }: { compact?: boolea
       <button
         onClick={() => setOpen(true)}
         style={{
-          position: 'fixed',
-          top: compact ? 14 : 18,
-          right: compact ? 14 : 18,
+          position: inline ? 'static' : 'fixed',
+          top: inline ? undefined : compact ? 14 : 18,
+          right: inline ? undefined : compact ? 14 : 18,
           zIndex: 1500,
           padding: compact ? '8px 10px' : '10px 14px',
           borderRadius: 999,

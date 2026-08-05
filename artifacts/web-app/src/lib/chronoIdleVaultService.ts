@@ -154,23 +154,11 @@ export async function claimIdleVault(uid: string): Promise<ClaimIdleVaultResult>
     return { ok: false, reason: `Answer ${current.warmupGoal} study questions correctly to unlock the vault.` };
   }
 
-  const econRaw = await getUserDoc(uid, 'chrono_economy', 'global');
-  const curGold = econRaw && typeof (econRaw as any).gold === 'number' ? Math.max(0, Math.floor((econRaw as any).gold as number)) : 0;
-  const nextGold = curGold + current.accruedCoins;
-  if (econRaw) {
-    await updateUserDoc(uid, 'chrono_economy', 'global', { gold: nextGold });
-  } else {
-    await setUserDoc(uid, 'chrono_economy', 'global', { gold: nextGold } as any);
+  try {
+    const { claimChronoIdleVault } = await import('@/lib/economyApiService');
+    const result = await claimChronoIdleVault();
+    return { ok: true, coins: result.coins };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : 'Idle vault claim failed.' };
   }
-
-  const nextState: ChronoIdleVaultDoc = {
-    ...current,
-    accruedCoins: 0,
-    warmupProgress: 0,
-    lastCalculatedAt: nowIso(),
-    lastClaimedAt: nowIso(),
-    updatedAt: nowIso(),
-  };
-  await setUserDoc(uid, IDLE_VAULT_COL, IDLE_VAULT_DOC, nextState as any);
-  return { ok: true, coins: current.accruedCoins };
 }

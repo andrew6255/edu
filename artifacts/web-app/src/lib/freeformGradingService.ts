@@ -1,4 +1,5 @@
 import type { InteractionGradeResult } from '@/lib/interactionGrader';
+import { requireSupabase } from '@/lib/supabase';
 
 export type FreeformGradingDetails = {
   decision: string;
@@ -55,9 +56,12 @@ async function expectJson<T>(response: Response): Promise<T> {
 }
 
 export async function gradeFreeformAnswer(input: FreeformGradingRequest): Promise<FreeformGradingResponse> {
+  const { data } = await requireSupabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error('Authentication required.');
   const response = await fetch(`${getFreeformGradingApiBase()}/grade`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   const payload = await expectJson<FreeformGradingResponse>(response);

@@ -27,11 +27,9 @@ export function getAiTutorProviderConfig() {
     .split(',')
     .map(value => value.trim())
     .find(Boolean) ?? '';
-  const legacyGroqKey = (process.env['VITE_GROQ_API_KEY'] ?? '').trim();
   // GROQ_API_KEY may be a comma-separated server-side failover pool. The tutor
-  // uses its first key; ingestion owns pool failover. Keep the Vite variable as
-  // a temporary migration fallback only, never as the preferred credential.
-  const groqKey = serverGroqKey || legacyGroqKey;
+  // uses its first key; ingestion owns pool failover.
+  const groqKey = serverGroqKey;
   const apiKey = (process.env['AI_TUTOR_API_KEY'] ?? process.env['OPENAI_API_KEY'] ?? groqKey).trim();
   const defaultBaseUrl = groqKey && !process.env['AI_TUTOR_API_KEY'] && !process.env['OPENAI_API_KEY']
     ? 'https://api.groq.com/openai/v1'

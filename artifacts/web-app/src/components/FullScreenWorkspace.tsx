@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
-import CryptoJS from 'crypto-js';
 import PaperPageCanvas from '@/components/PaperPageCanvas';
 import { buildPaperQuestionShape } from '@/lib/paperQuestionParts';
+import { recognizeMyScriptInk } from '@/lib/handwritingRecognitionService';
 import {
   evaluatePaperWork,
   explainPaperCorrection,
@@ -402,6 +402,7 @@ const PageCanvas = memo(function PageCanvas({
   onStrokeAdd, onStrokeRemove, onAnnotationAdd, onAnnotationUpdate, scale, testGrade
 }: PageCanvasProps & { testGrade?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const questionRef = useRef<HTMLDivElement>(null);
     // Calculate lowest point of content to position the AI box dynamically
   const maxY = useMemo(() => {
     let max = 60; // minimum offset below question
@@ -1450,83 +1451,30 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
   // ── Reusable MyScript Fetch Helper ──
   const fetchMyScriptBlocks = useCallback(async (strokes: Stroke[]): Promise<ConvertedBlock[]> => {
     if (strokes.length === 0) return [];
-    const applicationKey = 'a75f9183-fdc7-4c90-958b-a13c9d587db2';
-    const hmacKey = 'e07209ce-819b-4a2f-9ace-7f3b5172fade';
-    
-    const clusters = clusterStrokesByY(strokes);
-    let allParsedBlocks: ConvertedBlock[] = [];
 
-    await Promise.all(clusters.map(async (clusterStrokes) => {
-      // Format strokes for MyScript batch
-      const msStrokes = clusterStrokes.map(s => {
-        let t = 0;
+    const clusters = clusterStrokesByY(strokes);
+    const recognized = await Promise.all(clusters.map(async (clusterStrokes) => {
+      const apiStrokes = clusterStrokes.map((stroke) => {
+        let time = 0;
         return {
-          x: s.points.map(p => p.x),
-          y: s.points.map(p => p.y),
-          t: s.points.map(() => { const curr = t; t += 10; return curr; }) // fake timestamps
+          x: stroke.points.map((point) => point.x),
+          y: stroke.points.map((point) => point.y),
+          t: stroke.points.map(() => {
+            const current = time;
+            time += 10;
+            return current;
+          }),
         };
       });
-
-      const recognitionHeight = Math.max(PAGE_H, ...clusterStrokes.flatMap(stroke => stroke.points.map(point => Math.ceil(point.y + 80))));
-      const payload = {
-        width: PAGE_W, height: recognitionHeight, contentType: "Math",
-        configuration: {
-          math: { mimeTypes: ["application/x-latex", "application/vnd.myscript.jiix"] },
-          export: { jiix: { 'bounding-box': true } },
-        },
-        strokeGroups: [{ penStyle: "color: #000000;", strokes: msStrokes }]
-      };
-
-      const bodyStr = JSON.stringify(payload);
-      let hmacHex: string;
-      if (typeof window.crypto !== 'undefined' && window.crypto.subtle) {
-        try {
-          const encoder = new TextEncoder();
-          const cryptoKey = await window.crypto.subtle.importKey(
-            'raw', encoder.encode(applicationKey + hmacKey),
-            { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']
-          );
-          const signature = await window.crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(bodyStr));
-          hmacHex = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
-        } catch (err) {
-          hmacHex = CryptoJS.HmacSHA512(bodyStr, applicationKey + hmacKey).toString(CryptoJS.enc.Hex);
-        }
-      } else {
-        hmacHex = CryptoJS.HmacSHA512(bodyStr, applicationKey + hmacKey).toString(CryptoJS.enc.Hex);
-      }
-
-      const res = await fetch("https://cloud.myscript.com/api/v4.0/iink/batch", {
-        method: 'POST',
-        headers: {
-          "Accept": "application/json,application/vnd.myscript.jiix",
-          "Content-Type": "application/json",
-          "applicationKey": applicationKey,
-          "hmac": hmacHex
-        },
-        body: bodyStr
-      });
-      if (!res.ok) throw new Error(`Handwriting recognition failed (${res.status}): ${(await res.text()).slice(0, 180)}`);
-      const jiix = await res.json();
-
-      // Fetch direct LaTeX formatting
-      const resLatex = await fetch("https://cloud.myscript.com/api/v4.0/iink/batch", {
-        method: 'POST',
-        headers: {
-          "Accept": "application/x-latex",
-          "Content-Type": "application/json",
-          "applicationKey": applicationKey,
-          "hmac": hmacHex
-        },
-        body: bodyStr
-      });
-      if (!resLatex.ok) throw new Error(`Handwriting math conversion failed (${resLatex.status}): ${(await resLatex.text()).slice(0, 180)}`);
-      const directLatex = await resLatex.text();
-
-      const parsedBlocks = parseJIIXAbsolute(jiix, directLatex);
-      allParsedBlocks = [...allParsedBlocks, ...parsedBlocks];
+      const height = Math.max(
+        PAGE_H,
+        ...clusterStrokes.flatMap((stroke) => stroke.points.map((point) => Math.ceil(point.y + 80))),
+      );
+      const result = await recognizeMyScriptInk({ width: PAGE_W, height, strokes: apiStrokes });
+      return parseJIIXAbsolute(result.jiix, result.latex);
     }));
-    
-    return allParsedBlocks;
+
+    return recognized.flat();
   }, []);
 
   const ensureAnswerPackage = useCallback(async (): Promise<TutorAnswerPackage> => {
@@ -1885,10 +1833,10 @@ export default function FullScreenWorkspace({ onClose, programId, currentQuestio
       const blockBottom = (beforePage.aiBlocks ?? [])
         .filter(block => block.regionId === regionId && !block.hidden)
         .reduce((maximum, block) => Math.max(maximum, block.y + estimateAiBlockHeight(block)), 0);
-      const filteredSteps = result.steps.filter(s => !s.title.includes('Remplacer les valeurs') && !s.body?.includes('Remplacer les valeurs'));
+      const filteredSteps = result.steps.filter((step: { title: string; body?: string | null }) => !step.title.includes('Remplacer les valeurs') && !step.body?.includes('Remplacer les valeurs'));
       const body = mode === 'hint'
         ? [filteredSteps[0]?.title, filteredSteps[0]?.body].filter(Boolean).join('\n\n')
-        : filteredSteps.map((step, index) => mode === 'steps'
+        : filteredSteps.map((step: { title: string; body?: string | null }, index: number) => mode === 'steps'
           ? `${index + 1}. ${step.title}`
           : `${index + 1}. **${step.title}**\n${step.body ?? ''}`).join('\n\n');
       const draftBlock: PaperAiBlock = {

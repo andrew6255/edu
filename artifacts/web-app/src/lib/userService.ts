@@ -62,6 +62,9 @@ export interface UserData {
   curriculums: Record<string, { trophies: number }>;
   curriculumProfile?: CurriculumProfile;
   onboardingComplete?: boolean;
+  birthDate?: string;
+  countryCode?: string;
+  guardianConsentStatus?: 'not_required' | 'pending' | 'granted' | 'revoked';
   inventory: { stories: string[]; badges: string[]; banners: string[]; mapThemes: string[] };
   equipped: { mapTheme: string; banner: string; badges: string[] };
   high_scores: Record<string, number>;
@@ -103,8 +106,6 @@ export interface AppNotification {
   /** Emoji of the requester - present for lobbyJoinRequest */
   fromEmoji?: string;
 }
-
-export const SUPER_ADMIN_UID = 'SUPERADMIN_0000';
 
 const DEFAULT_USER: Partial<UserData> = {
   role: 'student',
@@ -190,6 +191,11 @@ function mapSupabaseUserRow(profile: Record<string, unknown>, economy: Record<st
     role: VALID_ROLES.includes(profile.role as UserRole) ? (profile.role as UserRole) : 'student',
     classId: typeof profile.class_id === 'string' ? profile.class_id : undefined,
     onboardingComplete: typeof profile.onboarding_complete === 'boolean' ? profile.onboarding_complete : undefined,
+    birthDate: typeof profile.birth_date === 'string' ? profile.birth_date : undefined,
+    countryCode: typeof profile.country_code === 'string' ? profile.country_code : undefined,
+    guardianConsentStatus: profile.guardian_consent_status === 'pending' || profile.guardian_consent_status === 'granted' || profile.guardian_consent_status === 'revoked'
+      ? profile.guardian_consent_status
+      : 'not_required',
     curriculumProfile: (profile.curriculum_profile && typeof profile.curriculum_profile === 'object') ? (profile.curriculum_profile as CurriculumProfile) : undefined,
     arenaStats: (profile.arena_stats && typeof profile.arena_stats === 'object') ? (profile.arena_stats as ArenaStats) : undefined,
     economy: {
@@ -198,11 +204,13 @@ function mapSupabaseUserRow(profile: Record<string, unknown>, economy: Record<st
       streak: typeof economy?.streak === 'number' ? economy.streak : ((state.economy?.streak as number | undefined) ?? 0),
       energy: typeof economy?.energy === 'number' ? economy.energy : ((state.economy?.energy as number | undefined) ?? 0),
       rankedEnergyStreak: typeof economy?.ranked_energy_streak === 'number' ? economy.ranked_energy_streak : ((state.economy?.rankedEnergyStreak as number | undefined) ?? 0),
+      gems: typeof economy?.gems === 'number' ? economy.gems : ((state.economy?.gems as number | undefined) ?? 0),
     },
   });
 }
 
 function toSupabaseProfile(uid: string, data: Partial<UserData>): Record<string, unknown> {
+  const { economy: _economy, ...profileState } = data;
   const raw: Record<string, unknown> = {
     id: uid,
     email: data.email,
@@ -212,13 +220,27 @@ function toSupabaseProfile(uid: string, data: Partial<UserData>): Record<string,
     role: data.role,
     class_id: data.classId,
     onboarding_complete: data.onboardingComplete,
+    birth_date: data.birthDate,
+    country_code: data.countryCode,
+    guardian_consent_status: data.guardianConsentStatus,
     curriculum_profile: data.curriculumProfile,
     arena_stats: data.arenaStats,
-    user_state: data,
+    user_state: profileState,
     updated_at: new Date().toISOString(),
   };
   // Strip undefined values — Supabase returns 400 when they appear in PATCH/upsert
   return Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined));
+}
+
+export async function requestGuardianConsent(studentId: string, guardianEmail: string): Promise<void> {
+  const { error } = await requireSupabase().from('guardian_consents').insert({
+    student_id: studentId,
+    guardian_email: guardianEmail.trim().toLowerCase(),
+    status: 'pending',
+    policy_version: 'egypt-launch-v1',
+    evidence: { source: 'student_registration' },
+  });
+  if (error) throw error;
 }
 
 function toSupabaseEconomy(uid: string, data: Partial<UserData>): Record<string, unknown> | null {
@@ -231,6 +253,7 @@ function toSupabaseEconomy(uid: string, data: Partial<UserData>): Record<string,
     streak: typeof econ.streak === 'number' ? econ.streak : 0,
     energy: typeof econ.energy === 'number' ? econ.energy : 0,
     ranked_energy_streak: typeof econ.rankedEnergyStreak === 'number' ? econ.rankedEnergyStreak : 0,
+    gems: typeof econ.gems === 'number' ? econ.gems : 0,
     updated_at: new Date().toISOString(),
   };
 }
@@ -323,8 +346,8 @@ export async function createUserData(uid: string, data: Partial<UserData>): Prom
   if (error) throw error;
   const econ = toSupabaseEconomy(uid, merged);
   if (econ) {
-    const { error: econError } = await supabase.from('user_economy').upsert(econ);
-    if (econError) throw econError;
+    const { error: econError } = await supabase.from('user_economy').insert(econ);
+    if (econError && econError.code !== '23505') throw econError;
   }
 }
 
@@ -344,29 +367,21 @@ export async function createUserDataAdmin(uid: string, data: Partial<UserData>):
 }
 
 export async function updateUserData(uid: string, updates: Partial<UserData>): Promise<void> {
+  if (updates.economy) throw new Error('Direct economy updates are disabled; use an authenticated economy action.');
   const supabase = requireSupabase();
   const current = await getSupabaseUserData(uid);
   const merged = mergeUserData(current ?? DEFAULT_USER, updates);
   const { error } = await supabase.from('profiles').upsert(toSupabaseProfile(uid, merged));
   if (error) throw error;
-  const econ = toSupabaseEconomy(uid, merged);
-  if (econ) {
-    const { error: econError } = await supabase.from('user_economy').upsert(econ);
-    if (econError) throw econError;
-  }
 }
 
 export async function adminUpdateUserData(uid: string, updates: Partial<UserData>): Promise<void> {
+  if (updates.economy) throw new Error('Use the audited admin economy adjustment endpoint.');
   const admin = getAdminClient();
   const current = await getSupabaseUserData(uid);
   const merged = mergeUserData(current ?? DEFAULT_USER, updates);
   const { error } = await (admin.from('profiles') as any).upsert(toSupabaseProfile(uid, merged));
   if (error) throw error;
-  const econ = toSupabaseEconomy(uid, merged);
-  if (econ) {
-    const { error: econError } = await (admin.from('user_economy') as any).upsert(econ);
-    if (econError) throw econError;
-  }
 }
 
 export async function deleteUserData(uid: string): Promise<void> {
@@ -414,7 +429,7 @@ export async function deleteUserData(uid: string): Promise<void> {
       if (pairedAuthError) console.error('Failed to delete paired auth user:', pairedAuthError);
     }
   } catch (e) {
-    console.error('Admin client error (is VITE_SUPABASE_SERVICE_ROLE_KEY set?):', e);
+    console.error('Privileged admin action must be completed through the authenticated API:', e);
   }
 }
 
@@ -434,21 +449,8 @@ export interface EconomyDeltas {
 }
 
 export async function updateEconomy(uid: string, deltas: EconomyDeltas): Promise<void> {
-  const current = await getUserData(uid);
-  if (!current) return;
-  const econ = current.economy ?? {};
-  const prevGems = typeof (econ as any).gems === 'number' ? (econ as any).gems as number : 0;
-  await updateUserData(uid, {
-    economy: {
-      ...econ,
-      gold: Math.max(0, (econ.gold || 0) + (deltas.gold || 0)),
-      global_xp: Math.max(0, (econ.global_xp || 0) + (deltas.xp || 0)),
-      energy: Math.max(0, (econ.energy || 0) + (deltas.energy || 0)),
-      streak: Math.max(0, (econ.streak || 0) + (deltas.streak || 0)),
-      gems: Math.max(0, prevGems + (deltas.gems || 0)),
-    },
-    last_active: new Date().toISOString().split('T')[0],
-  });
+  void uid; void deltas;
+  throw new Error('Direct economy updates are disabled; use an authenticated economy action.');
 }
 
 export async function adminGetStudentEconomy(uid: string): Promise<{ gold: number; global_xp: number; energy: number; streak: number }> {
@@ -463,62 +465,24 @@ export async function adminGetStudentEconomy(uid: string): Promise<{ gold: numbe
   };
 }
 
-export async function adminUpdateEconomy(uid: string, deltas: EconomyDeltas): Promise<void> {
-  const admin = getAdminClient();
-  const { data: existing } = await admin.from('user_economy').select('gold, global_xp, energy, streak').eq('user_id', uid).maybeSingle();
-  const e = (existing ?? {}) as Record<string, unknown>;
-  const cur = {
-    gold: typeof e.gold === 'number' ? e.gold : 0,
-    global_xp: typeof e.global_xp === 'number' ? e.global_xp : 0,
-    energy: typeof e.energy === 'number' ? e.energy : 0,
-    streak: typeof e.streak === 'number' ? e.streak : 0,
-  };
-  const next = {
-    user_id: uid,
-    gold: Math.max(0, cur.gold + (deltas.gold || 0)),
-    global_xp: Math.max(0, cur.global_xp + (deltas.xp || 0)),
-    energy: Math.max(0, cur.energy + (deltas.energy || 0)),
-    streak: Math.max(0, cur.streak + (deltas.streak || 0)),
-    updated_at: new Date().toISOString(),
-  };
-  await (admin.from('user_economy') as unknown as { upsert: (v: Record<string, unknown>, o?: Record<string, unknown>) => Promise<unknown> }).upsert(next, { onConflict: 'user_id' });
+export async function adminUpdateEconomy(uid: string, deltas: EconomyDeltas, reason: string): Promise<void> {
+  const { applyAdminEconomyAdjustment } = await import('@/lib/economyApiService');
+  await applyAdminEconomyAdjustment(uid,{gold:deltas.gold??0,xp:deltas.xp??0,energy:deltas.energy??0,streak:deltas.streak??0},reason);
 }
 
-export async function applyRankedEnergyProgress(uid: string, correct: boolean): Promise<{ energy: number; rankedEnergyStreak: number } | null> {
-  const current = await getUserData(uid);
-  if (!current) return null;
-  const econ = current.economy ?? { gold: 0, global_xp: 0, streak: 0, energy: 0, rankedEnergyStreak: 0 };
-  const curEnergy = typeof econ.energy === 'number' ? Math.max(0, Math.floor(econ.energy)) : 0;
-  const curStreak = typeof econ.rankedEnergyStreak === 'number' ? Math.max(0, Math.min(3, Math.floor(econ.rankedEnergyStreak))) : 0;
-  let nextEnergy = curEnergy;
-  let nextStreak = correct ? curStreak + 1 : 0;
-  if (nextStreak >= 3) {
-    nextEnergy += 1;
-    nextStreak = 0;
+export async function recordStudyActivity(uid: string): Promise<void> {
+  try {
+    const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
+    await incrementTaskProgress(uid, 'study_correct', 1);
+  } catch {
+    // Quest tracking is best-effort until its state is moved server-side.
   }
-  await updateUserData(uid, {
-    economy: {
-      ...econ,
-      energy: nextEnergy,
-      rankedEnergyStreak: nextStreak,
-    },
-    last_active: new Date().toISOString().split('T')[0],
-  });
-  if (correct) {
-    try {
-      const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
-      await incrementTaskProgress(uid, 'study_correct', 1);
-    } catch {
-      // Best-effort: never fail energy progress due to task tracking.
-    }
-    try {
-      const { recordIdleVaultStudyCorrect } = await import('@/lib/chronoIdleVaultService');
-      await recordIdleVaultStudyCorrect(uid);
-    } catch {
-      // Best-effort: never fail energy progress due to task tracking.
-    }
+  try {
+    const { recordIdleVaultStudyCorrect } = await import('@/lib/chronoIdleVaultService');
+    await recordIdleVaultStudyCorrect(uid);
+  } catch {
+    // Vault tracking is best-effort until its state is moved server-side.
   }
-  return { energy: nextEnergy, rankedEnergyStreak: nextStreak };
 }
 
 export async function findUserByUsername(username: string): Promise<{ email: string } | null> {

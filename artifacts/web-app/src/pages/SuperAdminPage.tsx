@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { getGlobalDoc, setGlobalDoc, queryGlobalDocs, deleteGlobalDoc, resolveArrayUnion } from '@/lib/supabaseDocStore';
-import { adminDeleteUser } from '@/lib/adminService';
 import {
   getTeacherClassesByTeacher,
   getClassMembers,
@@ -64,6 +63,10 @@ import ProgramMapView from '@/views/ProgramMapView';
 import LatexMarkdown from '@/components/ui/LatexMarkdown';
 import { clearDraftProgram, setDraftProgram } from '@/lib/draftProgramStore';
 import { deleteProgramQuestionAsset, uploadProgramQuestionAsset } from '@/lib/programAssetService';
+import {
+  getEconomyReconciliationReport,
+  type EconomyReconciliationReport,
+} from '@/lib/economyApiService';
 import type { LogicGameNode, LogicGameQuestionsDoc, LogicGameQuestion } from '@/types/logicGames';
 import {
   deleteDraftProgramAdmin,
@@ -291,8 +294,11 @@ export default function SuperAdminPage() {
   const [ataSaving, setAtaSaving] = useState(false);
 
   // Economy modal
-  const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string; energyDelta: string; streakDelta: string } | null>(null);
+  const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string; energyDelta: string; streakDelta: string; reason:string } | null>(null);
   const [applyingEcon, setApplyingEcon] = useState(false);
+  const [economyAudit, setEconomyAudit] = useState<EconomyReconciliationReport | null>(null);
+  const [auditingEconomy, setAuditingEconomy] = useState(false);
+  const [economyAuditError, setEconomyAuditError] = useState<string | null>(null);
 
   // Class Members Modal (opened on teacher rows)
   const [classMemberModal, setClassMemberModal] = useState<{ teacherUid: string; teacherName: string } | null>(null);
@@ -411,7 +417,8 @@ export default function SuperAdminPage() {
     const streak = parseInt(econModal.streakDelta) || 0;
     if (gold === 0 && xp === 0 && energy === 0 && streak === 0) { setEconModal(null); return; }
     setApplyingEcon(true);
-    await adminUpdateEconomy(econModal.uid, { gold, xp, energy, streak });
+    if(econModal.reason.trim().length<3){return;}
+    await adminUpdateEconomy(econModal.uid, { gold, xp, energy, streak },econModal.reason.trim());
     setUsers(prev => prev.map(u => u.uid === econModal.uid ? {
       ...u, economy: {
         ...u.economy,
@@ -423,6 +430,18 @@ export default function SuperAdminPage() {
     } : u));
     setApplyingEcon(false);
     setEconModal(null);
+  }
+
+  async function handleEconomyAudit() {
+    setAuditingEconomy(true);
+    setEconomyAuditError(null);
+    try {
+      setEconomyAudit(await getEconomyReconciliationReport());
+    } catch (error) {
+      setEconomyAuditError(error instanceof Error ? error.message : 'Economy reconciliation failed.');
+    } finally {
+      setAuditingEconomy(false);
+    }
   }
 
   async function handleCreateAccount() {
@@ -605,6 +624,58 @@ export default function SuperAdminPage() {
               ))}
             </div>
 
+            <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <h3 style={{ color: 'white', margin: '0 0 4px', fontSize: 14 }}>Economy Integrity</h3>
+                  <div style={{ color: '#94a3b8', fontSize: 11 }}>
+                    Compare every wallet with its latest immutable ledger balance.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleEconomyAudit}
+                  disabled={auditingEconomy}
+                  style={{
+                    padding: '8px 13px', borderRadius: 8, border: '1px solid rgba(168,85,247,0.45)',
+                    background: 'rgba(168,85,247,0.15)', color: '#d8b4fe', fontFamily: 'inherit',
+                    fontWeight: 'bold', fontSize: 11, cursor: auditingEconomy ? 'wait' : 'pointer',
+                    opacity: auditingEconomy ? 0.65 : 1,
+                  }}
+                >
+                  {auditingEconomy ? 'Checking…' : economyAudit ? 'Run again' : 'Run reconciliation'}
+                </button>
+              </div>
+
+              {economyAuditError && (
+                <div style={{ marginTop: 12, color: '#fca5a5', fontSize: 11 }}>{economyAuditError}</div>
+              )}
+
+              {economyAudit && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 9 }}>
+                    <div style={{ padding: 11, borderRadius: 9, background: '#0f172a', border: `1px solid ${economyAudit.mismatchCount === 0 ? '#10b98155' : '#ef444466'}` }}>
+                      <div style={{ color: economyAudit.mismatchCount === 0 ? '#34d399' : '#f87171', fontSize: 20, fontWeight: 'bold' }}>{economyAudit.mismatchCount}</div>
+                      <div style={{ color: '#94a3b8', fontSize: 10 }}>Balance mismatches</div>
+                    </div>
+                    <div style={{ padding: 11, borderRadius: 9, background: '#0f172a', border: '1px solid #334155' }}>
+                      <div style={{ color: '#fbbf24', fontSize: 20, fontWeight: 'bold' }}>{economyAudit.untrackedWalletCount}</div>
+                      <div style={{ color: '#94a3b8', fontSize: 10 }}>Wallets without ledger entries</div>
+                    </div>
+                  </div>
+                  <div style={{ color: '#64748b', fontSize: 10, marginTop: 9 }}>
+                    Checked {new Date(economyAudit.checkedAt).toLocaleString()}. A wallet without ledger entries can simply be a new account with no economy activity yet.
+                  </div>
+                  {economyAudit.mismatchCount > 0 && (
+                    <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#fecaca', fontSize: 11, overflowWrap: 'anywhere' }}>
+                      Review required for: {economyAudit.mismatches.slice(0, 5).map(item => String(item.userId ?? 'unknown user')).join(', ')}
+                      {economyAudit.mismatches.length > 5 ? ` and ${economyAudit.mismatches.length - 5} more` : ''}.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Top XP — students only */}
             <div style={{ background: '#1e293b', borderRadius: 12, padding: 16, border: '1px solid #334155', marginBottom: 14 }}>
               <h3 style={{ color: 'white', margin: '0 0 12px', fontSize: 14 }}>🏆 Top Student XP</h3>
@@ -707,7 +778,7 @@ export default function SuperAdminPage() {
                           fontSize: 10, fontWeight: 'bold', padding: '2px 8px', borderRadius: 5,
                           background: `${roleColor}22`, border: `1px solid ${roleColor}55`, color: roleColor
                         }}>{roleLabel}</span>
-                        {!isSelf && (user?.email === 'god.bypass@internal.app' || u.role !== 'superadmin') && (
+                        {!isSelf && u.role !== 'superadmin' && (
                           <>
                             {u.role === 'admin' && (
                               <button
@@ -727,7 +798,7 @@ export default function SuperAdminPage() {
                             )}
                             {isStudent && (
                               <button
-                                onClick={() => setEconModal({ uid: u.uid, name: u.username || u.firstName, goldDelta: '', xpDelta: '', energyDelta: '', streakDelta: '' })}
+                                onClick={() => setEconModal({ uid: u.uid, name: u.username || u.firstName, goldDelta: '', xpDelta: '', energyDelta: '', streakDelta: '',reason:'' })}
                                 style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', cursor: 'pointer', fontFamily: 'inherit' }}
                               >
                                 ✏️
@@ -864,9 +935,10 @@ export default function SuperAdminPage() {
                   style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', boxSizing: 'border-box', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
               </div>
             </div>
+            <input value={econModal.reason} onChange={e=>setEconModal(p=>p?{...p,reason:e.target.value}:null)} placeholder="Required adjustment reason" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1px solid #475569',background:'rgba(0,0,0,0.4)',color:'white',boxSizing:'border-box',marginBottom:14}} />
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setEconModal(null)} className="ll-btn" style={{ flex: 1, padding: '11px' }}>Cancel</button>
-              <button onClick={handleEconApply} disabled={applyingEcon} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}>
+              <button onClick={handleEconApply} disabled={applyingEcon||econModal.reason.trim().length<3} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}>
                 {applyingEcon ? 'Applying...' : 'Apply'}
               </button>
             </div>
@@ -2622,4 +2694,3 @@ function ImpersonateModal({
 
 // ProgramsAdmin has been moved to @/components/superadmin/ProgramsAdmin.tsx
 // It is imported above as ProgramsAdminComponent.
-

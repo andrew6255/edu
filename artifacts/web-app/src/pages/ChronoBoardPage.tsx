@@ -113,7 +113,7 @@ const OWNER_COLORS: Record<OwnerId, string> = {
 };
 
 export default function ChronoBoardPage() {
-  const { user, loading } = useAuth();
+  const { user, loading, refreshUserData } = useAuth();
   const [, setLocation] = useLocation();
   const [match, params] = useRoute('/chrono/board/:board');
 
@@ -264,6 +264,7 @@ export default function ChronoBoardPage() {
     setSaving(true); setErr(null); setDiceAnim(true); setLandingMsg(null);
     try {
       const res = await rollBoardTurn(user.uid, board, TILE_COUNT, { payBail: Boolean(opts?.payBail) });
+      await refreshUserData();
       if (res?.progress) {
         setProgress(res.progress);
         // Process landing effect
@@ -426,6 +427,7 @@ export default function ChronoBoardPage() {
     setSaving(true); setDiceAnim(true); setLandingMsg(null);
     try {
       const res = await rollBoardTurn(user.uid, board, TILE_COUNT);
+      await refreshUserData();
       if (res?.progress) {
         setProgress(res.progress);
         setTimeout(() => processLanding(res.progress.position), 400);

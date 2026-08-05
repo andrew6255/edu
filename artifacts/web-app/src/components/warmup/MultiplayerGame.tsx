@@ -4,7 +4,6 @@ import { useSession } from '@/contexts/SessionContext';
 import RoundTracker from './RoundTracker';
 import {
   listenSession, submitRoundScore, resolveRound,
-  generateBotScore, getSession
 } from '@/lib/gameSessionService';
 import { forfeitSession } from '@/lib/gameSessionService';
 import { GameSession, GameMode } from '@/types/warmup';
@@ -43,8 +42,6 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
   const unsubRef = useRef<(() => void) | null>(null);
 
   const isP1 = initialSession.player1.uid === user?.uid;
-  const myKey = isP1 ? 'player1' : 'player2';
-  const oppKey = isP1 ? 'player2' : 'player1';
   const opp = isP1 ? session.player2 : session.player1;
   const mode = (session.mode as GameMode) || 'ranked';
 
@@ -58,20 +55,19 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
     if (xpAwardedRef.current || !user) return;
     xpAwardedRef.current = true;
 
-    const xp = won ? 150 : drew ? 75 : 50;
-    const gold = won ? 50 : 0;
-    setXpGained(xp);
-    setGoldGained(gold);
-
     try {
+      const { claimMultiplayerReward } = await import('@/lib/economyApiService');
+      const economyResult = await claimMultiplayerReward(session.id);
+      const { xp, gold } = economyResult.reward;
+      setXpGained(xp);
+      setGoldGained(gold);
       const userService = await import('@/lib/userService');
-      await userService.updateEconomy(user.uid, { gold, xp });
       if (mode === 'ranked' || mode === 'friend') {
-        const result = won ? 'win' : drew ? 'draw' : 'loss';
-        await userService.updateRankedStats(user.uid, game.id, result);
+        await userService.updateRankedStats(user.uid, game.id, economyResult.result);
       }
       await refreshUserData();
     } catch (e) {
+      xpAwardedRef.current = false;
       console.error('Failed to award rewards:', e);
     }
   }
@@ -82,8 +78,14 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
     if (resolvedRounds.current.has(roundNum)) return;
     resolvedRounds.current.add(roundNum);
 
-    const resolved = await resolveRound(updated.id);
-    if (!resolved) return;
+    let resolved: GameSession;
+    try {
+      resolved = await resolveRound(updated.id, roundNum);
+    } catch (error) {
+      resolvedRounds.current.delete(roundNum);
+      console.error('Failed to resolve multiplayer round:', error);
+      return;
+    }
 
     const lastRound = resolved.rounds[resolved.rounds.length - 1];
     if (!lastRound) return;
@@ -151,18 +153,19 @@ export default function MultiplayerGame({ session: initialSession, game, onLeave
     setMyLastScore(score);
     updatePhase('waiting_opponent');
 
-    await submitRoundScore(session.id, myKey, score);
+    let submitted: GameSession;
+    try {
+      submitted = await submitRoundScore(session.id, session.currentRound, score);
+    } catch (error) {
+      console.error('Failed to submit multiplayer score:', error);
+      setMyLastScore(null);
+      updatePhase('playing');
+      return;
+    }
 
-    const oppPlayer = isP1 ? session.player2 : session.player1;
+    const oppPlayer = isP1 ? submitted.player2 : submitted.player1;
     if (oppPlayer.isBot) {
-      const diff = oppPlayer.uid.includes('easy') ? 'easy' : oppPlayer.uid.includes('hard') ? 'hard' : 'medium';
-      const delay = 800 + Math.random() * 1500;
-      setTimeout(async () => {
-        const botScore = generateBotScore(game.id, diff);
-        await submitRoundScore(session.id, oppKey, botScore);
-        const snap = await getSession(session.id);
-        if (snap) handleBothScoresReady(snap);
-      }, delay);
+      setTimeout(() => handleBothScoresReady(submitted), 800);
     }
   }
 

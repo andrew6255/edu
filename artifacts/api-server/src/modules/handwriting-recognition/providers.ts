@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
+import { createHmac } from 'node:crypto';
 import { promisify } from 'node:util';
-import type { HandwritingRecognitionInput, HandwritingRecognitionResult } from './types';
+import type { HandwritingRecognitionInput, HandwritingRecognitionResult, MyScriptInkInput, MyScriptInkResult } from './types';
 import { logger } from '../../lib/logger';
 
 const execFileAsync = promisify(execFile);
@@ -92,4 +93,44 @@ export function getHandwritingRecognitionProvider(): HandwritingRecognitionProvi
     default:
       return new UnconfiguredPix2TexProvider();
   }
+}
+
+export async function recognizeMyScriptInk(input: MyScriptInkInput): Promise<MyScriptInkResult> {
+  const applicationKey = (process.env['MYSCRIPT_APP_KEY'] ?? '').trim();
+  const hmacKey = (process.env['MYSCRIPT_HMAC_KEY'] ?? '').trim();
+  if (!applicationKey || !hmacKey) throw new Error('MyScript server credentials are not configured.');
+
+  const payload = {
+    width: input.width,
+    height: input.height,
+    contentType: 'Math',
+    configuration: {
+      math: { mimeTypes: ['application/x-latex', 'application/vnd.myscript.jiix'] },
+      export: { jiix: { 'bounding-box': true } },
+    },
+    strokeGroups: [{ penStyle: 'color: #000000;', strokes: input.strokes }],
+  };
+  const body = JSON.stringify(payload);
+  const hmac = createHmac('sha512', applicationKey + hmacKey).update(body).digest('hex');
+  const request = (accept: string) => fetch('https://cloud.myscript.com/api/v4.0/iink/batch', {
+    method: 'POST',
+    headers: {
+      Accept: accept,
+      'Content-Type': 'application/json',
+      applicationKey,
+      hmac,
+    },
+    body,
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  const [jiixResponse, latexResponse] = await Promise.all([
+    request('application/json,application/vnd.myscript.jiix'),
+    request('application/x-latex'),
+  ]);
+  if (!jiixResponse.ok || !latexResponse.ok) {
+    const status = !jiixResponse.ok ? jiixResponse.status : latexResponse.status;
+    throw new Error(`MyScript recognition failed with status ${status}.`);
+  }
+  return { jiix: await jiixResponse.json() as unknown, latex: await latexResponse.text() };
 }

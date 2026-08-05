@@ -200,35 +200,12 @@ export async function claimTaskReward(uid: string, taskId: string): Promise<Clai
   if (progress < def.goal) return { ok: false, reason: 'Not completed yet.' };
   if (state.claimed[taskId]) return { ok: false, reason: 'Already claimed.' };
 
-  // Apply reward via economy helpers (deferred imports to avoid cycles)
   try {
-    if ((def.reward.coins ?? 0) > 0) {
-      // Coins live in chrono_economy/global.gold
-      const econRaw = await getUserDoc(uid, 'chrono_economy', 'global');
-      const curGold = econRaw && typeof (econRaw as any).gold === 'number' ? (econRaw as any).gold as number : 0;
-      const nextGold = curGold + (def.reward.coins ?? 0);
-      if (econRaw) {
-        await updateUserDoc(uid, 'chrono_economy', 'global', { gold: nextGold });
-      } else {
-        await setUserDoc(uid, 'chrono_economy', 'global', { gold: nextGold });
-      }
-    }
-    if ((def.reward.energy ?? 0) > 0 || (def.reward.gems ?? 0) > 0) {
-      const { updateEconomy } = await import('@/lib/userService');
-      await updateEconomy(uid, {
-        energy: def.reward.energy ?? 0,
-        gems: def.reward.gems ?? 0,
-      });
-    }
+    const { claimChronoTaskEconomyReward } = await import('@/lib/economyApiService');
+    await claimChronoTaskEconomyReward(taskId);
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : 'Reward failed.' };
   }
-
-  const nextClaimed = { ...state.claimed, [taskId]: Date.now() };
-  await updateUserDoc(uid, TASK_COL, TASK_DOC, {
-    claimed: nextClaimed,
-    updatedAt: nowIso(),
-  });
   return { ok: true, reward: def.reward };
 }
 

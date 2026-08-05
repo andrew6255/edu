@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { updateEconomy, updateArenaStats, computeLevel, getAllUsers } from '@/lib/userService';
+import { computeLevel, getAllUsers } from '@/lib/userService';
 import BattleScreen, { BattleStats } from './arena/BattleScreen';
 import { Difficulty } from '@/lib/questionGenerator';
 
@@ -60,6 +60,8 @@ export default function ArenaView() {
   const [lastResult, setLastResult] = useState<{ won: boolean; xp: number; gold: number; stats: BattleStats } | null>(null);
   const [leaderboard, setLeaderboard] = useState<Array<{ username: string; wins: number; xp: number; streak: number }>>([]);
   const [loadingLb, setLoadingLb] = useState(true);
+  const [arenaSessionId, setArenaSessionId] = useState<string | null>(null);
+  const [arenaError, setArenaError] = useState<string | null>(null);
 
   const arenaStats = userData?.arenaStats ?? { wins: 0, losses: 0, highestStreak: 0 };
 
@@ -90,10 +92,10 @@ export default function ArenaView() {
 
   async function handleBattleComplete(won: boolean, xp: number, gold: number, stats: BattleStats) {
     if (!user) return;
-    await Promise.all([
-      updateEconomy(user.uid, { gold, xp }),
-      updateArenaStats(user.uid, won, stats.highestStreak)
-    ]);
+    if(!arenaSessionId) throw new Error('Arena session is missing.');
+    const {completeArenaBattle}=await import('@/lib/economyApiService');
+    const result=await completeArenaBattle(arenaSessionId,won,stats as unknown as Record<string,number>);
+    xp=result.reward.xp; gold=result.reward.gold;
     await refreshUserData();
     setLastResult({ won, xp, gold, stats });
     setScreen('result');
@@ -103,6 +105,12 @@ export default function ArenaView() {
   function handleFlee() {
     setScreen('hub');
     setSelectedEnemy(null);
+  }
+
+  async function beginBattle(enemy:Enemy){
+    setArenaError(null);
+    try{const {startArenaBattle}=await import('@/lib/economyApiService');const started=await startArenaBattle(enemy.id);setArenaSessionId(started.sessionId);setSelectedEnemy(enemy);setScreen('battle');}
+    catch(error){setArenaError(error instanceof Error?error.message:'Arena battle could not start.');}
   }
 
   const winRate = arenaStats.wins + arenaStats.losses > 0
@@ -191,7 +199,7 @@ export default function ArenaView() {
           <button
             className="ll-btn ll-btn-primary"
             style={{ flex: 1, padding: '13px' }}
-            onClick={() => setScreen('battle')}
+            onClick={() => selectedEnemy&&void beginBattle(selectedEnemy)}
           >
             ⚔️ Rematch
           </button>
@@ -237,6 +245,7 @@ export default function ArenaView() {
       </div>
 
       {/* Opponents */}
+      {arenaError&&<div style={{color:'#fca5a5',marginBottom:10,textAlign:'center'}}>{arenaError}</div>}
       <h3 style={{ color: '#94a3b8', fontSize: 13, fontWeight: 'bold', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: 1 }}>
         Choose Your Opponent
       </h3>
@@ -278,7 +287,7 @@ export default function ArenaView() {
                   <div style={{ color: '#fbbf24', fontSize: 11, marginBottom: 6 }}>+{enemy.goldReward} 🪙</div>
                   <button
                     disabled={isLocked}
-                    onClick={() => { setSelectedEnemy(enemy); setScreen('battle'); }}
+                    onClick={() => void beginBattle(enemy)}
                     style={{
                       padding: '7px 14px', borderRadius: 8, fontSize: 12,
                       fontWeight: 'bold', fontFamily: 'inherit', cursor: isLocked ? 'not-allowed' : 'pointer',

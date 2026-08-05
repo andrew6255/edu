@@ -2,7 +2,7 @@ import { ALL_CATEGORY_CARDS } from '@/lib/chronoCards';
 import { loadBoardState } from '@/lib/chronoBoardStateService';
 import { buildCollectionSetViewModels } from '@/lib/chronoCollectionSetsService';
 import { getInventory } from '@/lib/chronoInventoryService';
-import { getUserDoc, setUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';
+import { getUserDoc, setUserDoc } from '@/lib/supabaseDocStore';
 
 export interface GemMilestoneReward {
   gems: number;
@@ -133,23 +133,10 @@ export async function claimGemMilestoneReward(uid: string, milestoneId: string):
   if (progress < def.goal) return { ok: false, reason: 'Milestone not completed yet.' };
 
   try {
-    const { updateEconomy } = await import('@/lib/userService');
-    await updateEconomy(uid, { gems: def.reward.gems });
+    const { claimChronoGemMilestone } = await import('@/lib/economyApiService');
+    await claimChronoGemMilestone(milestoneId);
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : 'Reward failed.' };
-  }
-
-  const nextClaimed = { ...state.claimed, [milestoneId]: Date.now() };
-  if (await getUserDoc(uid, GEM_COL, GEM_DOC)) {
-    await updateUserDoc(uid, GEM_COL, GEM_DOC, {
-      claimed: nextClaimed,
-      updatedAt: nowIso(),
-    });
-  } else {
-    await setUserDoc(uid, GEM_COL, GEM_DOC, {
-      claimed: nextClaimed,
-      updatedAt: nowIso(),
-    } as any);
   }
 
   return { ok: true, reward: def.reward };

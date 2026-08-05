@@ -69,6 +69,8 @@ export default function TeacherClassroomView() {
 
   // Data State
   const [classes, setClasses] = useState<TeacherClass[]>([]);
+  const [classNotes, setClassNotes] = useState<Record<string, string>>({});
+  const [subjectEmojis, setSubjectEmojis] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [managingClass, setManagingClass] = useState<TeacherClass | null>(null);
   const [editingClass, setEditingClass] = useState<TeacherClass | null>(null);
@@ -80,8 +82,14 @@ export default function TeacherClassroomView() {
   async function loadClasses() {
     setLoading(true);
     try {
-      const cls = await getTeacherClassesByTeacher(user!.uid);
+      const [cls, personalSubjects] = await Promise.all([
+        getTeacherClassesByTeacher(user!.uid),
+        listPersonalSubjects(user!.uid),
+      ]);
       setClasses(cls);
+      setSubjectEmojis(Object.fromEntries(personalSubjects.map(subject => [subject.name.trim().toLowerCase(), subject.emoji])));
+      const notes = await Promise.all(cls.map(async classroom => [classroom.id, await getTeacherClassNote(classroom.id)] as const));
+      setClassNotes(Object.fromEntries(notes));
     } catch (err) {
       console.error(err);
     } finally {
@@ -128,7 +136,7 @@ export default function TeacherClassroomView() {
     <div style={{ padding: '0 20px 40px 20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2 style={{ color: 'white', margin: 0 }}>My Classrooms</h2>
-        <CreateClassButton onCreated={loadClasses} />
+        <CreateClassButton onCreated={async created => { await loadClasses(); setManagingClass(created); }} />
       </div>
 
       {loading ? <Loader /> : classes.length === 0 ? <Empty icon="🏫" text="You haven't created any classrooms yet." /> : (
@@ -139,11 +147,16 @@ export default function TeacherClassroomView() {
               onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
               onMouseOut={e => e.currentTarget.style.transform = 'none'}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ fontWeight: 'bold', color: 'white', fontSize: 16 }}>{cls.name}</div>
-                {cls.status === 'ended' && <span style={{ fontSize: 10, background: '#475569', color: 'white', padding: '2px 6px', borderRadius: 4 }}>Ended</span>}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 'bold', color: 'white', fontSize: 16 }}>{cls.name}</div>
+                  {classNotes[cls.id] && <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{classNotes[cls.id]}</div>}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
+                  <span style={{ color: '#cbd5e1', fontSize: 13, padding: '5px 8px', borderRadius: 7, background: '#0f172a', border: '1px solid #334155' }}>{subjectEmojis[cls.subject.trim().toLowerCase()] ?? '📘'} {cls.subject}</span>
+                  {cls.status === 'ended' && <span style={{ fontSize: 10, background: '#475569', color: 'white', padding: '2px 6px', borderRadius: 4 }}>Ended</span>}
+                </div>
               </div>
-              <div style={{ color: '#94a3b8', fontSize: 13 }}>{cls.subject}</div>
               {cls.status === 'active' && (
                 <div onClick={event => event.stopPropagation()} style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                   <button onClick={() => setEditingClass(cls)} style={{ flex: 1, padding: '7px 9px', borderRadius: 6, border: '1px solid #475569', background: 'transparent', color: '#cbd5e1', fontWeight: 'bold', cursor: 'pointer' }}>Edit</button>
@@ -164,7 +177,7 @@ export default function TeacherClassroomView() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // CREATE CLASS BUTTON
 // ═══════════════════════════════════════════════════════════════════════════════
-function CreateClassButton({ onCreated }: { onCreated: () => void }) {
+function CreateClassButton({ onCreated }: { onCreated: (created: TeacherClass) => void | Promise<void> }) {
   const { user, userData } = useAuth();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -179,10 +192,10 @@ function CreateClassButton({ onCreated }: { onCreated: () => void }) {
     if (!name.trim() || !subject.trim()) return;
     setLoading(true);
     try {
-      await createTeacherClass(user!.uid, userData!.username, name.trim(), subject.trim(), note.trim());
+      const created = await createTeacherClass(user!.uid, userData!.username, name.trim(), subject.trim(), note.trim());
       setOpen(false);
       setName(''); setSubject(''); setNote('');
-      onCreated();
+      await onCreated(created);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
@@ -203,7 +216,7 @@ function CreateClassButton({ onCreated }: { onCreated: () => void }) {
             <textarea placeholder="Private classroom note (optional)" value={note} onChange={e => setNote(e.target.value)} rows={3}
               style={{ padding: 10, borderRadius: 6, border: '1px solid #475569', background: 'rgba(0,0,0,.3)', color: 'white', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
             <button onClick={handleCreate} disabled={loading} style={{ background: COLOR, color: 'white', border: 'none', padding: '10px', borderRadius: 6, fontWeight: 'bold', cursor: loading ? 'not-allowed' : 'pointer', marginTop: 8 }}>
-              {loading ? 'Creating...' : 'Create'}
+              {loading ? 'Creating...' : 'Create Classroom & Add Participants'}
             </button>
           </div>
         </Modal>

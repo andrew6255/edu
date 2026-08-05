@@ -6,6 +6,7 @@ import handwritingRecognitionRouter from "../modules/handwriting-recognition/rou
 import symbolRecognitionRouter from "../modules/symbol-recognition/routes";
 import aiTutorRouter from "../modules/ai-tutor/routes";
 import aiFeaturesRouter from "../modules/ai-features/routes";
+import economyRouter from "../modules/economy/routes";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(handwritingRecognitionRouter);
 router.use(symbolRecognitionRouter);
 router.use(aiTutorRouter);
 router.use(aiFeaturesRouter);
+router.use(economyRouter);
 
 export default router;

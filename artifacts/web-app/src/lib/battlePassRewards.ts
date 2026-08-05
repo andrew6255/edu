@@ -1,7 +1,6 @@
 import type { BattlePassReward, BattlePassSeasonDoc } from '@/types/battlePass';
 import { addCredits } from '@/lib/inventoryService';
 import { addBattlePassEnergy } from '@/lib/battlePassService';
-import { updateEconomy } from '@/lib/userService';
 import { addOwnedTitle } from '@/lib/inventoryService';
 import { getUserRealmUpgrades } from '@/lib/realmUpgradesService';
 
@@ -64,8 +63,7 @@ export async function grantReward(uid: string, seasonId: string, reward: BattleP
       return;
     }
     if (payload.currency === 'gold') {
-      await updateEconomy(uid, { gold: amt });
-      return;
+      throw new Error('Shared gold battle-pass rewards require a server-defined reward catalog.');
     }
     if (payload.currency === 'energy') {
       await addBattlePassEnergy(uid, seasonId, amt);

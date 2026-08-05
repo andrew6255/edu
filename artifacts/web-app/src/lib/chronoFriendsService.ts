@@ -1,7 +1,7 @@
 import { classToBoard, gemsToClass } from '@/lib/chronoCards';
 import { getChronoEmpiresState } from '@/lib/chronoEmpiresService';
-import { getUserDoc, setUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';
-import { getUserData, updateEconomy, type UserData } from '@/lib/userService';
+import { getUserDoc, setUserDoc } from '@/lib/supabaseDocStore';
+import { getUserData, type UserData } from '@/lib/userService';
 
 export interface ChronoFriendLeaderboardEntry {
   uid: string;
@@ -122,43 +122,11 @@ export async function getChronoFriendsSnapshot(uid: string, userData: UserData):
 export async function sendChronoEnergyGift(fromUid: string, toUid: string): Promise<SendChronoEnergyGiftResult> {
   if (!fromUid || !toUid) return { ok: false, reason: 'Missing user.' };
   if (fromUid === toUid) return { ok: false, reason: 'Cannot gift yourself.' };
-
-  const [fromData, toData, giftState] = await Promise.all([
-    getUserData(fromUid),
-    getUserData(toUid),
-    getGiftState(fromUid),
-  ]);
-  if (!fromData || !toData) return { ok: false, reason: 'Friend not found.' };
-
-  const myFriends = Array.isArray(fromData.friends) ? fromData.friends : [];
-  const theirFriends = Array.isArray(toData.friends) ? toData.friends : [];
-  if (!myFriends.includes(toUid) || !theirFriends.includes(fromUid)) {
-    return { ok: false, reason: 'You are no longer friends.' };
-  }
-
-  const today = todayKey();
-  if (giftState.sent[toUid] === today) {
-    return { ok: false, reason: 'Already sent today.' };
-  }
-
   try {
-    await updateEconomy(toUid, { energy: 1 });
+    const { sendChronoEnergyGift: sendGift } = await import('@/lib/economyApiService');
+    await sendGift(toUid);
+    return { ok: true };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : 'Failed to send gift.' };
   }
-
-  const nextSent = { ...giftState.sent, [toUid]: today };
-  if (await getUserDoc(fromUid, GIFTS_COL, GIFTS_DOC)) {
-    await updateUserDoc(fromUid, GIFTS_COL, GIFTS_DOC, {
-      sent: nextSent,
-      updatedAt: nowIso(),
-    });
-  } else {
-    await setUserDoc(fromUid, GIFTS_COL, GIFTS_DOC, {
-      sent: nextSent,
-      updatedAt: nowIso(),
-    } as any);
-  }
-
-  return { ok: true };
 }

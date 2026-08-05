@@ -81,11 +81,9 @@ export default function TeacherPage() {
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0f172a', color: 'white', overflow: 'hidden' }}>
-      <SettingsLauncher compact />
-
-      <header style={{ padding: '14px 20px', background: '#1e293b', borderBottom: `2px solid ${COLOR}`, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+    <div className="app-viewport" style={{ display: 'flex', flexDirection: 'column', background: '#0f172a', color: 'white' }}>
+      <header className="app-safe-header" style={{ paddingBottom: 10, background: '#1e293b', borderBottom: `2px solid ${COLOR}`, flexShrink: 0 }}>
+        <div className="phone-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <h1 style={{ margin: 0, fontSize: 19, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>📖</span>
             Teacher
@@ -93,16 +91,19 @@ export default function TeacherPage() {
               {userData?.username || 'teacher'}
             </span>
           </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <SettingsLauncher compact inline />
           <button
             onClick={() => void performSignOut()}
             style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}
           >
             Sign Out
           </button>
+          </div>
         </div>
       </header>
 
-      <main style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 18 }}>
+      <main className="app-scroll" style={{ flex: 1, padding: 18 }}>
         {activeTab === 'classrooms' && <TeacherClassroomView />}
 
         {activeTab === 'users' && reportStudent && user && (

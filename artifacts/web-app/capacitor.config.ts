@@ -1,12 +1,14 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
 const config: CapacitorConfig = {
   appId: 'com.antigravity.iqgames',
   appName: 'IQ Games',
   webDir: 'dist',
   server: {
     androidScheme: 'https',
-    cleartext: true,
+    cleartext: isDevelopment,
   },
   plugins: {
     SplashScreen: {

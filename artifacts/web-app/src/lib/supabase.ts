@@ -23,19 +23,7 @@ export function requireSupabase() {
   return supabase;
 }
 
-// Admin client using service role key – only for superadmin operations (e.g. deleting auth users).
-const serviceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-
-let _adminClient: ReturnType<typeof createClient> | null = null;
-
-export function getAdminClient() {
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Service role key is not configured. Set VITE_SUPABASE_SERVICE_ROLE_KEY.');
-  }
-  if (!_adminClient) {
-    _adminClient = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-  }
-  return _adminClient;
+/** @deprecated Browser code must use authenticated server endpoints for privileged work. */
+export function getAdminClient(): ReturnType<typeof createClient> {
+  throw new Error('Privileged operations must use the authenticated API; service-role credentials are never available in the browser.');
 }

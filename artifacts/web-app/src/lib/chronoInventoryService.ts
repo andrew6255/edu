@@ -4,7 +4,6 @@
    ═══════════════════════════════════════════════════════════ */
 
 import { getUserDoc, setUserDoc, updateUserDoc } from '@/lib/supabaseDocStore';
-import { CARD_UPGRADE_LEVELS } from '@/lib/chronoCards';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -99,48 +98,15 @@ export type UpgradeResult =
   | { ok: false; reason: string };
 
 export async function upgradeCard(uid: string, cardId: string): Promise<UpgradeResult> {
-  const inv = await getInventory(uid);
-  const card = inv.cards[cardId];
-  if (!card || card.level === 0) return { ok: false, reason: 'Card not owned.' };
-  if (card.level >= 4) return { ok: false, reason: 'Already max level.' };
-
-  const nextDef = CARD_UPGRADE_LEVELS.find((l) => l.level === card.level + 1);
-  if (!nextDef) return { ok: false, reason: 'Invalid level.' };
-
-  if (card.copies < nextDef.copiesNeeded) {
-    return { ok: false, reason: `Need ${nextDef.copiesNeeded} copies (have ${card.copies}).` };
-  }
-
-  // Check coin cost from user economy
-  const econRaw = await getUserDoc(uid, 'chrono_economy', 'global');
-  if (!econRaw) return { ok: false, reason: 'User not found.' };
-  const gold = typeof (econRaw as any).gold === 'number' ? (econRaw as any).gold : 0;
-  if (gold < nextDef.coinCost) {
-    return { ok: false, reason: `Need ${nextDef.coinCost.toLocaleString()} coins (have ${gold.toLocaleString()}).` };
-  }
-
-  // Apply upgrade
-  const updated: OwnedCard = { copies: card.copies, level: card.level + 1 };
-  await updateUserDoc(uid, INV_COL, INV_DOC, {
-    [`cards.${cardId}`]: updated,
-    updatedAt: nowIso(),
-  });
-
-  // Deduct coins
-  if (nextDef.coinCost > 0) {
-    await updateUserDoc(uid, 'chrono_economy', 'global', {
-      gold: gold - nextDef.coinCost,
-    });
-  }
-
   try {
+    const { purchaseChronoCardUpgrade } = await import('@/lib/economyApiService');
+    const result = await purchaseChronoCardUpgrade(cardId);
     const { incrementTaskProgress } = await import('@/lib/chronoTasksService');
     await incrementTaskProgress(uid, 'card_upgrade', 1);
-  } catch {
-    // Best-effort task hook.
+    return { ok: true, card: result.card };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : 'Upgrade failed.' };
   }
-
-  return { ok: true, card: updated };
 }
 
 /* ── Deck management ───────────────────────────────────── */
@@ -210,16 +176,13 @@ export async function setActiveToken(uid: string, tokenId: string): Promise<void
 }
 
 export async function buyToken(uid: string, tokenId: string, cost: number): Promise<boolean> {
-  const inv = await getInventory(uid);
-  if (inv.ownedTokens.includes(tokenId)) return false; // already owned
-  const econRaw = await getUserDoc(uid, 'chrono_economy', 'global');
-  if (!econRaw) return false;
-  const gold = typeof (econRaw as any).gold === 'number' ? (econRaw as any).gold : 0;
-  if (gold < cost) return false;
-  await updateUserDoc(uid, INV_COL, INV_DOC, {
-    ownedTokens: [...inv.ownedTokens, tokenId],
-    updatedAt: nowIso(),
-  });
-  await updateUserDoc(uid, 'chrono_economy', 'global', { gold: gold - cost });
-  return true;
+  try {
+    void uid;
+    void cost;
+    const { purchaseChronoToken } = await import('@/lib/economyApiService');
+    await purchaseChronoToken(tokenId);
+    return true;
+  } catch {
+    return false;
+  }
 }

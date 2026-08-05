@@ -2,20 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { completeAiFeature, getServerGroqKeys } from './service';
 
 const previousServerKeys = process.env['GROQ_API_KEY'];
-const previousLegacyKey = process.env['VITE_GROQ_API_KEY'];
 
 afterEach(() => {
   vi.unstubAllGlobals();
   if (previousServerKeys === undefined) delete process.env['GROQ_API_KEY'];
   else process.env['GROQ_API_KEY'] = previousServerKeys;
-  if (previousLegacyKey === undefined) delete process.env['VITE_GROQ_API_KEY'];
-  else process.env['VITE_GROQ_API_KEY'] = previousLegacyKey;
 });
 
 describe('AI feature Groq gateway', () => {
-  it('uses the server pool and excludes the browser migration key when server keys exist', () => {
+  it('uses the server-only key pool', () => {
     process.env['GROQ_API_KEY'] = 'server-one, server-two';
-    process.env['VITE_GROQ_API_KEY'] = 'browser-key';
     expect(getServerGroqKeys()).toEqual(['server-one', 'server-two']);
   });
 
