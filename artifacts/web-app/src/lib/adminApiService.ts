@@ -9,14 +9,46 @@ async function adminRequest<T>(path: string, body: Record<string, unknown>): Pro
   const { data } = await requireSupabase().auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('Authentication required.');
-  const response = await fetch(`${apiUrl()}/api/${path}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const result = await response.json() as T & { error?: string };
-  if (!response.ok) throw new Error(result.error || 'Admin operation failed.');
-  return result;
+
+  // Without a configured base URL these POSTs go to the web origin, where the
+  // dev server or static host answers with an empty 404 — which used to surface
+  // as an unexplained JSON parse error.
+  const base = apiUrl();
+  if (!base) {
+    throw new Error('VITE_API_SERVER_URL is not set in this build, so admin actions have no API server to call.');
+  }
+
+  const endpoint = `${base}/api/${path}`;
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(`Could not reach the API server at ${base}. Check that it is running and that this origin is allowed by CORS_ALLOWED_ORIGINS.`);
+  }
+
+  // Read as text first: error responses are frequently empty or HTML, and
+  // parsing them as JSON hides the status code that explains the failure.
+  const raw = await response.text();
+  let parsed: (T & { error?: string }) | null = null;
+  if (raw) {
+    try { parsed = JSON.parse(raw) as T & { error?: string }; } catch { /* handled below */ }
+  }
+
+  if (!response.ok) {
+    if (parsed?.error) throw new Error(parsed.error);
+    const detail = raw ? `: ${raw.slice(0, 200)}` : ' with an empty body.';
+    throw new Error(`API server returned ${response.status} ${response.statusText} for /api/${path}${detail}`);
+  }
+
+  if (!parsed) {
+    throw new Error(`API server returned a non-JSON response (${response.status}) for /api/${path}.`);
+  }
+
+  return parsed;
 }
 
 export async function createManagedUserAccount(input: {

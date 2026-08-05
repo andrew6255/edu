@@ -16,7 +16,11 @@ select
   nullif(user_state->>'friendCode', '') as friend_tag
 from profiles;
 
-revoke all on profile_directory from public, anon;
+-- `authenticated` must be revoked explicitly: Supabase default privileges grant
+-- ALL on new objects in `public` to the client roles, and revoking from the
+-- PUBLIC pseudo-role does not remove those. The view is owner-run (not
+-- security_invoker), so any leftover write privilege would bypass profiles RLS.
+revoke all on profile_directory from public, anon, authenticated;
 grant select on profile_directory to authenticated;
 
 create or replace function rls_can_read_private_profile(p_target_id text)

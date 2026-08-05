@@ -15,9 +15,18 @@ Run or rerun in this order:
 6. `economy_ledger_migration.sql`
 7. `admin_server_authority_migration.sql`
 8. `profile_privacy_migration.sql`
+9. `logic_games_superadmin_rls_migration.sql`
+10. `view_write_grant_lockdown_migration.sql`
 
 `program_answer_confidentiality_migration.sql` is already installed and does not
-need to be rerun unless its SQL changes.
+need to be rerun unless its SQL changes. Its grant block was corrected, so rerun
+it (or step 10, which is enough on its own) to pick up the fix.
+
+Step 10 must run after any step that creates or replaces `profile_directory` or
+`public_programs_sanitized`. Supabase default privileges grant ALL on new objects
+in `public` to `anon`/`authenticated`, and both views are owner-run, so a
+recreated view is writable with base-table RLS bypassed until the grants are
+stripped again.
 
 No database change is needed for the personalized worksheet UI on public
 programs. `public_programs_sanitized.builder_spec` stays null, and the API server

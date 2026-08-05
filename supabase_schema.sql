@@ -37,11 +37,39 @@ alter table logic_game_progress drop constraint if exists logic_game_progress_us
 alter table question_progress drop constraint if exists question_progress_user_id_fkey;
 alter table assets drop constraint if exists assets_owner_user_id_fkey;
 
-alter table profiles alter column id type text using id::text;
-alter table user_economy alter column user_id type text using user_id::text;
-alter table logic_game_progress alter column user_id type text using user_id::text;
-alter table question_progress alter column user_id type text using user_id::text;
-alter table assets alter column owner_user_id type text using owner_user_id::text;
+-- One-time uuid -> text conversion for identity columns. Guarded so this file
+-- stays rerunnable: once RLS policies exist that reference profiles.id (for
+-- example qa_superadmin_all on quiz_attempts), an unconditional ALTER fails with
+-- "cannot alter type of a column used in a policy definition", even when the
+-- column is already text and the statement would be a no-op.
+do $$
+declare
+  t record;
+begin
+  for t in
+    select * from (values
+      ('profiles', 'id'),
+      ('user_economy', 'user_id'),
+      ('logic_game_progress', 'user_id'),
+      ('question_progress', 'user_id'),
+      ('assets', 'owner_user_id')
+    ) as v(table_name, column_name)
+  loop
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public'
+        and table_name = t.table_name
+        and column_name = t.column_name
+        and data_type <> 'text'
+    ) then
+      execute format(
+        'alter table public.%I alter column %I type text using %I::text',
+        t.table_name, t.column_name, t.column_name
+      );
+    end if;
+  end loop;
+end;
+$$;
 
 alter table user_economy add constraint user_economy_user_id_fkey foreign key (user_id) references profiles(id) on delete cascade;
 alter table logic_game_progress add constraint logic_game_progress_user_id_fkey foreign key (user_id) references profiles(id) on delete cascade;
@@ -605,8 +633,69 @@ using (exists (
 drop policy if exists logic_game_nodes_public_read_all on logic_game_nodes_public;
 create policy logic_game_nodes_public_read_all on logic_game_nodes_public for select using (true);
 
+drop policy if exists logic_game_nodes_public_superadmin_insert on logic_game_nodes_public;
+create policy logic_game_nodes_public_superadmin_insert on logic_game_nodes_public for insert to authenticated
+with check (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+));
+
+drop policy if exists logic_game_nodes_public_superadmin_update on logic_game_nodes_public;
+create policy logic_game_nodes_public_superadmin_update on logic_game_nodes_public for update to authenticated
+using (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+))
+with check (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+));
+
+drop policy if exists logic_game_nodes_public_superadmin_delete on logic_game_nodes_public;
+create policy logic_game_nodes_public_superadmin_delete on logic_game_nodes_public for delete to authenticated
+using (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+));
+
 drop policy if exists logic_game_questions_public_read_all on logic_game_questions_public;
 create policy logic_game_questions_public_read_all on logic_game_questions_public for select using (true);
+
+drop policy if exists logic_game_questions_public_superadmin_insert on logic_game_questions_public;
+create policy logic_game_questions_public_superadmin_insert on logic_game_questions_public for insert to authenticated
+with check (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+));
+
+drop policy if exists logic_game_questions_public_superadmin_update on logic_game_questions_public;
+create policy logic_game_questions_public_superadmin_update on logic_game_questions_public for update to authenticated
+using (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+))
+with check (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+));
+
+drop policy if exists logic_game_questions_public_superadmin_delete on logic_game_questions_public;
+create policy logic_game_questions_public_superadmin_delete on logic_game_questions_public for delete to authenticated
+using (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+));
+
+-- Draft authoring tables: superadmin-only, no public read.
+drop policy if exists logic_game_nodes_draft_superadmin_all on logic_game_nodes_draft;
+create policy logic_game_nodes_draft_superadmin_all on logic_game_nodes_draft for all to authenticated
+using (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+))
+with check (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+));
+
+drop policy if exists logic_game_questions_draft_superadmin_all on logic_game_questions_draft;
+create policy logic_game_questions_draft_superadmin_all on logic_game_questions_draft for all to authenticated
+using (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+))
+with check (exists (
+  select 1 from profiles where id = auth.uid()::text and role = 'superadmin'
+));
 
 drop policy if exists assets_read_all on assets;
 create policy assets_read_all on assets for select using (true);

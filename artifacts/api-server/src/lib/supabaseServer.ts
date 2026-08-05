@@ -23,7 +23,11 @@ export async function callServiceRpc<T>(name: string, body: Record<string, unkno
     body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error('Economy database operation failed: ' + await response.text());
-  return await response.json() as T;
+  // A void-returning RPC (server_admin_record_action) answers 204 with an empty
+  // body, and JSON.parse('') would throw "Unexpected end of JSON input" — failing
+  // the whole request over a call that actually succeeded.
+  const raw = await response.text();
+  return (raw ? JSON.parse(raw) : null) as T;
 }
 
 export async function fetchServiceRows<T>(table: string, query: Record<string, string>): Promise<T[]> {

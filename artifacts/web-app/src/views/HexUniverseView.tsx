@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getProgramProgress } from '@/lib/programProgress';
 import { useGlobalData } from '@/contexts/GlobalDataContext';
@@ -7,6 +7,17 @@ import { listMyPersonalPrograms, refreshPersonalProgramStatus, deletePersonalPro
 import { type PersonalSubject, listPersonalSubjects } from '@/lib/personalSubjectService';
 import ProcessingDetailsModal, { getProgressPercentage, useSmoothProgress, getStageLabel } from '@/components/universe/ProcessingDetailsModal';
 import ManageSubjectsModal from '@/components/universe/ManageSubjectsModal';
+
+// Sentinel id for the catch-all hex. Cannot collide with a real subject id,
+// which is always a uuid.
+const OTHER_SUBJECT_ID = '__ll_other__';
+
+// Programs carry a free-text subject typed on the admin side; subject hexes carry
+// a name the student typed. Compare them leniently so casing and stray whitespace
+// ("Science" vs "science ") don't hide a program.
+function normalizeSubjectName(value?: string | null): string {
+  return (value ?? '').trim().toLowerCase();
+}
 
 function PersonalProgramCard({
   p,
@@ -259,14 +270,37 @@ export default function HexUniverseView() {
         return;
       }
       const { getPublicProgram, purgeProgramFromUser } = await import('@/lib/programMaps');
-      const progs = await Promise.all(ids.map((pid) => getPublicProgram(pid).then((p) => ({ pid, p }))));
+      // allSettled, not all: one unreadable program must not blank the whole
+      // universe. getPublicProgram throws on a transport/permission error but
+      // resolves null when the program is genuinely gone, so the two cases have
+      // to stay distinguishable — see the purge below.
+      const settled = await Promise.allSettled(ids.map((pid) => getPublicProgram(pid)));
       if (cancelled) return;
 
+      const progs = ids.map((pid, idx) => {
+        const outcome = settled[idx];
+        return outcome.status === 'fulfilled'
+          ? { pid, p: outcome.value, loadFailed: false }
+          : { pid, p: null, loadFailed: true };
+      });
+
+      const failed = progs.filter(({ loadFailed }) => loadFailed);
+      if (failed.length > 0) {
+        console.error(
+          '[universe] could not load program(s):',
+          failed.map(({ pid }) => pid),
+          settled.flatMap((outcome) => (outcome.status === 'rejected' ? [outcome.reason] : [])),
+        );
+      }
+
       // Lazy cleanup: if a program is deleted, remove it from this user's profile and skip rendering it.
+      // Only programs that loaded successfully and came back empty count as deleted — a failed read is
+      // not evidence of deletion, and purging on it would destroy the student's assignment for good.
       if (user) {
-        const missing = progs.filter(({ p }) => !p).map(({ pid }) => pid);
+        const missing = progs.filter(({ p, loadFailed }) => !loadFailed && !p).map(({ pid }) => pid);
         if (missing.length > 0) {
-          await Promise.all(missing.map((pid) => purgeProgramFromUser(user.uid, pid)));
+          await Promise.allSettled(missing.map((pid) => purgeProgramFromUser(user.uid, pid)));
+          if (cancelled) return;
         }
       }
 
@@ -288,7 +322,8 @@ export default function HexUniverseView() {
       if (user) {
         const pctEntries = await Promise.all(
           visibleProgs.map(async ({ pid, p }) => {
-            const pp = await getProgramProgress(user.uid, pid);
+            // A progress read that fails should cost this card its percentage, nothing more.
+            const pp = await getProgramProgress(user.uid, pid).catch(() => null);
             const solved = pp?.rankedSolvedQuestionIds?.length ?? 0;
             const total = typeof (p as any)?.rankedTotalQuestionCount === 'number' ? ((p as any).rankedTotalQuestionCount as number) : 0;
 
@@ -314,7 +349,7 @@ export default function HexUniverseView() {
         setProgramPctById({});
       }
     }
-    load();
+    load().catch((err) => console.error('[universe] failed to load active programs', err));
     return () => {
       cancelled = true;
     };
@@ -324,10 +359,27 @@ export default function HexUniverseView() {
     ? personalPrograms.filter(p => p.subjectId === selectedSubjectId)
     : [];
 
-  const selectedSubjectName = subjects.find(s => s.id === selectedSubjectId)?.name?.toLowerCase() || '';
-  const filteredActivePrograms = selectedSubjectId
-    ? activePrograms.filter(p => p.subject?.toLowerCase() === selectedSubjectName)
-    : [];
+  // An active public program is filed under whichever of the student's own subject
+  // hexes matches the subject an admin typed on the program. Nothing guarantees a
+  // match, so anything unmatched is collected under the "Other" hex below —
+  // otherwise the program is activated but unreachable from every screen.
+  const subjectNames = useMemo(
+    () => new Set(subjects.map(s => normalizeSubjectName(s.name)).filter(Boolean)),
+    [subjects],
+  );
+  const unmatchedActivePrograms = useMemo(
+    () => activePrograms.filter(p => !subjectNames.has(normalizeSubjectName(p.subject))),
+    [activePrograms, subjectNames],
+  );
+
+  const selectedSubject = subjects.find(s => s.id === selectedSubjectId) ?? null;
+  const isOtherSubject = selectedSubjectId === OTHER_SUBJECT_ID;
+  const selectedSubjectName = normalizeSubjectName(selectedSubject?.name);
+  const filteredActivePrograms = isOtherSubject
+    ? unmatchedActivePrograms
+    : (selectedSubjectId
+      ? activePrograms.filter(p => normalizeSubjectName(p.subject) === selectedSubjectName)
+      : []);
 
   return (
     <div style={{
@@ -375,7 +427,9 @@ export default function HexUniverseView() {
               </button>
             </div>
             <h2 style={{ color: '#c4b5fd', fontSize: 'clamp(36px, 6vw, 56px)', margin: 0, textShadow: '0 0 32px rgba(139,92,246,0.6)', textAlign: 'center' }}>
-              {`${subjects.find(s => s.id === selectedSubjectId)?.emoji || '📘'} ${subjects.find(s => s.id === selectedSubjectId)?.name || 'Worksheets'}`}
+              {isOtherSubject
+                ? '📦 Other'
+                : `${selectedSubject?.emoji || '📘'} ${selectedSubject?.name || 'Worksheets'}`}
             </h2>
           </div>
 
@@ -473,11 +527,18 @@ export default function HexUniverseView() {
               No programs or worksheets in this subject yet.
             </div>
           )}
+
+          {isOtherSubject && filteredActivePrograms.length > 0 && (
+            <div style={{ color: 'var(--ll-text-muted)', textAlign: 'center', fontSize: 13, padding: '24px 0 0' }}>
+              These programs don't match any of your subjects. Create a subject with the
+              same name to file them away.
+            </div>
+          )}
         </div>
       ) : (
         <>
           {/* Subjects Grid */}
-          {(subjects.length > 0 || personalPrograms.filter(p => !p.subjectId).length > 0) && (
+          {(subjects.length > 0 || personalPrograms.filter(p => !p.subjectId).length > 0 || unmatchedActivePrograms.length > 0) && (
             <div style={{
               display: 'flex',
               flexWrap: 'wrap',
@@ -551,6 +612,52 @@ export default function HexUniverseView() {
                   </div>
                 );
               })}
+
+              {/* Catch-all hex: active programs whose subject matches no hex above.
+                  Without it they would be unreachable from every screen. */}
+              {unmatchedActivePrograms.length > 0 && (
+                <div
+                  onClick={() => handleSetSelectedSubjectId(OTHER_SUBJECT_ID)}
+                  title="Programs that don't match any of your subjects"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(148,163,184,0.15) 0%, rgba(148,163,184,0.05) 100%)',
+                    border: '1px dashed rgba(148,163,184,0.45)',
+                    borderRadius: 24,
+                    padding: '16px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    width: 220,
+                    height: 220,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+                    backdropFilter: 'blur(8px)',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform = 'translateY(-6px) scale(1.02)';
+                    e.currentTarget.style.borderColor = 'rgba(148,163,184,0.9)';
+                    e.currentTarget.style.boxShadow = '0 15px 40px rgba(148,163,184,0.25)';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.transform = 'none';
+                    e.currentTarget.style.borderColor = 'rgba(148,163,184,0.45)';
+                    e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.1)';
+                  }}
+                >
+                  <div style={{ fontSize: 64, marginBottom: 16, filter: 'drop-shadow(0 8px 16px rgba(148,163,184,0.4))' }}>
+                    📦
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: 20, color: 'var(--ll-text)', letterSpacing: '0.5px' }}>
+                    Other
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--ll-text-muted)', marginTop: 6 }}>
+                    {unmatchedActivePrograms.length} program{unmatchedActivePrograms.length === 1 ? '' : 's'}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>

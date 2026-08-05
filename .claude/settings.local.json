@@ -3,7 +3,24 @@
     "allow": [
       "Bash(timeout 100 npx --prefix artifacts/web-app tsc -p artifacts/web-app/tsconfig.json --noEmit)",
       "Bash(timeout 280 npx tsc -p tsconfig.json --noEmit)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(claude doctor *)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(echo \"exit=$?\")",
+      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/apply-logic-games-rls.mjs)",
+      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/verify-rls.mjs)",
+      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/check-view.mjs)",
+      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/audit-migrations.mjs)",
+      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/apply-profile-privacy.mjs)",
+      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/probe-view-writes.mjs)",
+      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/audit-views.mjs)",
+      "Bash(sed 's|profile_privacy_migration.sql|view_write_grant_lockdown_migration.sql|; s|profile_privacy_migration.sql applied.|lockdown applied.|' apply-profile-privacy.mjs)",
+      "Bash(node apply-lockdown.mjs)",
+      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/check-user-subjects.mjs)",
+      "Bash(pnpm run *)",
+      "Bash(curl -s -o /dev/null -w \"status=%{http_code} size=%{size_download}\\\\n\" -X POST http://localhost:3001/api/admin/users/impersonation-token -H 'Content-Type: application/json' -H 'Authorization: Bearer invalid' -d '{\"userId\":\"x\"}' --max-time 6)",
+      "Bash(node -e \"const p=require\\('./artifacts/api-server/package.json'\\);console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\)\")",
+      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/verify-rpc-parse.mjs)"
     ]
   }
 }
