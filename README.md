@@ -38,6 +38,7 @@ Environment ownership is a security boundary:
 - Browser-safe values belong in `artifacts/web-app/.env.local` and use `VITE_*`.
 - Secrets belong in `artifacts/api-server/.env.local` without a `VITE_` prefix.
 - `SUPABASE_SERVICE_ROLE_KEY`, database credentials, and AI provider keys must never be exposed to the web build or committed.
+- Optional `SUPERADMIN_USERNAME` and `SUPERADMIN_PASSWORD` values belong only in the API environment. When configured, they synchronize the single existing superadmin account on its next username login; restart or redeploy the API after changing them.
 - The root `.env.local` is only for tooling that explicitly reads it. Prefer package-local environment files for runtime configuration.
 
 ## Common commands

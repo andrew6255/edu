@@ -80,6 +80,41 @@ export async function deleteServiceAuthUser(userId: string): Promise<void> {
   if (!response.ok && response.status !== 404) throw new Error('Auth account deletion failed: ' + await response.text());
 }
 
+export async function updateServiceAuthUserPassword(userId: string, password: string): Promise<void> {
+  if (!supabaseUrl() || !serviceKey()) throw new Error('Supabase server credentials are not configured.');
+  if (!/^[A-Za-z0-9-]{8,100}$/.test(userId)) throw new Error('Invalid auth user ID.');
+  const response = await fetch(supabaseUrl() + '/auth/v1/admin/users/' + encodeURIComponent(userId), {
+    method: 'PUT',
+    headers: { apikey: serviceKey(), Authorization: 'Bearer ' + serviceKey(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) throw new Error('Superadmin credential synchronization failed.');
+}
+
+export async function updateServiceRows<T>(
+  table: string,
+  matchColumn: string,
+  matchValue: string,
+  changes: Record<string, unknown>,
+): Promise<T[]> {
+  if (!supabaseUrl() || !serviceKey()) throw new Error('Supabase server credentials are not configured.');
+  if (!/^[a-z_][a-z0-9_]*$/.test(table) || !/^[a-z_][a-z0-9_]*$/.test(matchColumn)) {
+    throw new Error('Invalid Supabase update target.');
+  }
+  const url = new URL(supabaseUrl() + '/rest/v1/' + table);
+  url.searchParams.set(matchColumn, 'eq.' + matchValue);
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      apikey: serviceKey(), Authorization: 'Bearer ' + serviceKey(), 'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(changes),
+  });
+  if (!response.ok) throw new Error('Supabase privileged update failed.');
+  return await response.json() as T[];
+}
+
 export async function generateServiceMagicLink(email: string): Promise<string> {
   if (!supabaseUrl() || !serviceKey()) throw new Error('Supabase server credentials are not configured.');
   const response = await fetch(supabaseUrl() + '/auth/v1/admin/generate_link', {

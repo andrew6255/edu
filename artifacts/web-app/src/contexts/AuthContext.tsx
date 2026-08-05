@@ -98,8 +98,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       let profile = await getUserData(authUser.id);
       if (profile) {
-        const wallet = await initializeEconomyWallet();
-        return wallet.applied ? await getUserData(authUser.id) : profile;
+        // Wallet bootstrap is useful but must never block authentication. In
+        // particular, this helper calls auth.getSession(), which deadlocks if
+        // awaited from inside Supabase's SIGNED_IN callback.
+        void initializeEconomyWallet().catch((error) => {
+          console.warn('[AuthContext] Wallet bootstrap will retry later:', error);
+        });
+        return profile;
       }
 
       const fallback = buildFallbackUserData(authUser);
@@ -216,11 +221,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await resolveAuthState(data.session ?? null, active);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Pass the current user ID so resolveAuthState can skip the DB
-      // round-trip if the event is just a token refresh.
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      // Supabase invokes this callback while its auth operation still owns an
+      // internal lock. Profile/economy requests may call auth.getSession(), so
+      // defer all asynchronous resolution until after the callback returns.
       const isTokenRefresh = event === 'TOKEN_REFRESHED';
-      await resolveAuthState(session ?? null, active, isTokenRefresh ? session?.user?.id : undefined);
+      window.setTimeout(() => {
+        if (!active) return;
+        void resolveAuthState(session ?? null, active, isTokenRefresh ? session?.user?.id : undefined);
+      }, 0);
     });
 
     return () => {
