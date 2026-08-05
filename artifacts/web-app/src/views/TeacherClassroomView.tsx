@@ -153,7 +153,7 @@ export default function TeacherClassroomView() {
                   {classNotes[cls.id] && <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{classNotes[cls.id]}</div>}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
-                  <span style={{ color: '#cbd5e1', fontSize: 13, padding: '5px 8px', borderRadius: 7, background: '#0f172a', border: '1px solid #334155' }}>{subjectEmojis[cls.subject.trim().toLowerCase()] ?? '📘'} {cls.subject}</span>
+                  <span style={{ color: '#cbd5e1', fontSize: 13, padding: '5px 8px', borderRadius: 7, background: '#0f172a', border: '1px solid #334155' }}>{cls.subjectEmoji || subjectEmojis[cls.subject.trim().toLowerCase()] || '📘'} {cls.subject}</span>
                   {cls.status === 'ended' && <span style={{ fontSize: 10, background: '#475569', color: 'white', padding: '2px 6px', borderRadius: 4 }}>Ended</span>}
                 </div>
               </div>
@@ -192,7 +192,8 @@ function CreateClassButton({ onCreated }: { onCreated: (created: TeacherClass) =
     if (!name.trim() || !subject.trim()) return;
     setLoading(true);
     try {
-      const created = await createTeacherClass(user!.uid, userData!.username, name.trim(), subject.trim(), note.trim());
+      const emoji = subjects.find(item => item.name === subject)?.emoji ?? '📘';
+      const created = await createTeacherClass(user!.uid, userData!.username, name.trim(), subject.trim(), note.trim(), emoji);
       setOpen(false);
       setName(''); setSubject(''); setNote('');
       await onCreated(created);
@@ -311,7 +312,7 @@ function EditClassModal({ cls, onClose, onSaved }: { cls: TeacherClass; onClose:
     const next = name.trim();
     if (!next || !subject.trim() || !user) return;
     setSaving(true);
-    try { await updateTeacherClassDetails(cls.id, user.uid, next, subject, note); onSaved(); onClose(); }
+    try { await updateTeacherClassDetails(cls.id, user.uid, next, subject, note, subjects.find(item => item.name === subject)?.emoji ?? cls.subjectEmoji ?? '📘'); onSaved(); onClose(); }
     finally { setSaving(false); }
   }
   return <>

@@ -36,6 +36,19 @@ function safeSourceId(value: unknown): string | null {
   return trimmed.length >= 3 && trimmed.length <= 520 ? trimmed : null;
 }
 
+router.post('/economy/bootstrap-wallet', async (req: Request, res: Response) => {
+  try {
+    const user = await verifySupabaseToken(req.header('authorization'));
+    if (!user) { res.status(401).json({ error: 'Authentication required.' }); return; }
+    const result = await callServiceRpc<{ applied: boolean; balance: Record<string, number> }>('economy_bootstrap_wallet', {
+      p_user_id: user.id,
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Wallet initialization failed.' });
+  }
+});
+
 router.post('/economy/daily-energy', async (req: Request, res: Response) => {
   try {
     const user = await verifySupabaseToken(req.header('authorization'));

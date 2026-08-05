@@ -36,6 +36,52 @@ drop policy if exists economy_ledger_select_own on economy_ledger;
 create policy economy_ledger_select_own on economy_ledger for select to authenticated
 using (user_id = auth.uid()::text);
 
+-- Create the initial wallet exactly once. Existing wallets are never credited,
+-- which lets this endpoint be called safely on every login during rollout.
+create or replace function economy_bootstrap_wallet(p_user_id text)
+returns jsonb language plpgsql security definer set search_path = public
+as $$
+declare
+  v_balance user_economy%rowtype;
+  v_inserted boolean:=false;
+begin
+  if p_user_id is null or length(trim(p_user_id))<3 then
+    raise exception 'Invalid economy user';
+  end if;
+
+  insert into user_economy(user_id,gold)
+  values(p_user_id,200)
+  on conflict(user_id) do nothing
+  returning * into v_balance;
+  v_inserted:=found;
+
+  if not v_inserted then
+    select * into v_balance from user_economy where user_id=p_user_id;
+  else
+    insert into economy_ledger(
+      user_id,event_key,event_type,source_id,gold_delta,xp_delta,energy_delta,gems_delta,balance_after,metadata
+    ) values(
+      p_user_id,'account_bootstrap:v1','account_bootstrap','v1',200,0,0,0,
+      jsonb_build_object(
+        'gold',v_balance.gold,'xp',v_balance.global_xp,'energy',v_balance.energy,
+        'gems',v_balance.gems,'rankedEnergyStreak',v_balance.ranked_energy_streak
+      ),
+      jsonb_build_object('startingGold',200)
+    ) on conflict(user_id,event_key) do nothing;
+  end if;
+
+  return jsonb_build_object(
+    'applied',v_inserted,
+    'balance',jsonb_build_object(
+      'gold',v_balance.gold,'xp',v_balance.global_xp,'energy',v_balance.energy,
+      'gems',v_balance.gems,'rankedEnergyStreak',v_balance.ranked_energy_streak
+    )
+  );
+end;
+$$;
+revoke all on function economy_bootstrap_wallet(text) from public,anon,authenticated;
+grant execute on function economy_bootstrap_wallet(text) to service_role;
+
 -- Only the trusted server/service role can execute this mutation. The unique
 -- event key makes retries safe and prevents duplicate rewards.
 create or replace function economy_grant_event(
@@ -1806,9 +1852,24 @@ as $$
 declare v_role text; v_balance user_economy%rowtype;
 begin
   select role into v_role from profiles where id=p_actor_id;
-  if v_role<>'superadmin' then raise exception 'Superadmin permission required'; end if;
+  if v_role not in ('superadmin','admin') then raise exception 'Admin permission required'; end if;
+  if v_role='admin' and not exists(
+    select 1
+    from admin_teacher_assignments ata
+    join global_docs c on c.collection='teacher_classes' and c.data->>'teacherId'=ata.teacher_id
+    join global_docs cm on cm.collection='teacher_class_members' and cm.data->>'classId'=c.doc_id
+    where ata.admin_id=p_actor_id
+      and cm.data->>'userId'=p_user_id
+      and coalesce(cm.data->>'role','student')='student'
+      and nullif(cm.data->>'kickedAt','') is null
+  ) then
+    raise exception 'Target user is outside the admin assigned classrooms';
+  end if;
   if p_adjustment_id!~'^[A-Za-z0-9_-]{8,80}$' or length(trim(coalesce(p_reason,'')))<3 then raise exception 'Adjustment reason is required'; end if;
   if abs(p_gold)>1000000 or abs(p_xp)>250000 or abs(p_energy)>10000 or abs(p_streak)>1000 then raise exception 'Adjustment exceeds safety limit'; end if;
+  if v_role='admin' and (abs(p_gold)>10000 or abs(p_xp)>5000 or abs(p_energy)>100 or abs(p_streak)>30) then
+    raise exception 'Admin adjustment exceeds classroom safety limit';
+  end if;
   insert into user_economy(user_id) values(p_user_id) on conflict(user_id) do nothing;
   select * into v_balance from user_economy where user_id=p_user_id for update;
   if exists(select 1 from economy_ledger where user_id=p_user_id and event_key='admin_adjust:'||p_adjustment_id) then

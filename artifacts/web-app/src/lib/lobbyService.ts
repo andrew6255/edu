@@ -338,12 +338,12 @@ export async function sendLobbyInvite(args: {
       const normalized = trimmed.toLowerCase();
       // Look up target user
       let { data: profileRows } = await supabase
-        .from('profiles')
-        .select('id, user_state')
+        .from('profile_directory')
+        .select('id, friend_tag')
         .eq('username', normalized);
 
       if (!profileRows || profileRows.length === 0) {
-        const { data: rows2 } = await supabase.from('profiles').select('id, user_state').eq('username', trimmed);
+        const { data: rows2 } = await supabase.from('profile_directory').select('id, friend_tag').eq('username', trimmed);
         profileRows = rows2;
       }
 
@@ -351,7 +351,7 @@ export async function sendLobbyInvite(args: {
 
       let targetRow = profileRows[0];
       const formattedTag = args.toTag.startsWith('#') ? args.toTag : `#${args.toTag}`;
-      const match = profileRows.find((r: any) => r.user_state?.friendCode === formattedTag);
+      const match = profileRows.find((r: any) => r.friend_tag === formattedTag);
       if (match) {
         targetRow = match;
       } else {
@@ -392,10 +392,8 @@ export async function getFriendsPresence(
 ): Promise<FriendPresence[]> {
   if (friendUids.length === 0) return [];
   const supabase = requireSupabase();
-  const { data } = await supabase
-    .from('profiles')
-    .select('id, username, updated_at')
-    .in('id', friendUids);
+  const { data, error } = await supabase.rpc('get_friend_presence', { p_ids: friendUids });
+  if (error) throw error;
 
   const now = Date.now();
   return (data ?? []).map(row => {
@@ -414,7 +412,6 @@ export async function getFriendsPresence(
 /** Touch the user's updated_at and last_active so presence shows as online everywhere */
 export async function pingPresence(uid: string): Promise<void> {
   const supabase = requireSupabase();
-  const today = new Date().toISOString().split('T')[0];
   await supabase
     .from('profiles')
     .update({ updated_at: new Date().toISOString() })
@@ -441,10 +438,8 @@ export async function getFriendsWithPresence(
 ): Promise<(import('@/types/lobby').FriendPresence & { lobbyId: string | null; lobbyPlayerCount: number })[]> {
   if (friendUids.length === 0) return [];
   const supabase = requireSupabase();
-  const { data } = await supabase
-    .from('profiles')
-    .select('id, username, updated_at')
-    .in('id', friendUids);
+  const { data, error } = await supabase.rpc('get_friend_presence', { p_ids: friendUids });
+  if (error) throw error;
 
   const now = Date.now();
   const profileMap = new Map((data ?? []).map((row: Record<string, unknown>) => [row.id as string, row]));

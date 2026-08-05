@@ -29,6 +29,28 @@ as $$
   );
 $$;
 
+create or replace function rls_is_classroom_member_role(p_uid text, p_class_id text, p_role text)
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select exists(
+    select 1 from global_docs
+    where collection='teacher_class_members'
+      and data->>'classId'=p_class_id
+      and data->>'userId'=p_uid
+      and coalesce(data->>'role','student')=p_role
+      and coalesce(data->>'kickedAt','')=''
+  );
+$$;
+
+create or replace function rls_admin_can_view_classroom(p_admin_uid text, p_class_id text)
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select exists(
+    select 1 from admin_teacher_assignments a
+    where a.admin_id=p_admin_uid and a.teacher_id=rls_classroom_teacher_id(p_class_id)
+  );
+$$;
+
 create or replace function rls_is_parent_of(parent text, student text)
 returns boolean language sql stable security definer set search_path = public
 as $$ select exists(select 1 from parent_student_links where parent_id = parent and student_id = student); $$;
@@ -59,7 +81,8 @@ using (
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
   or rls_is_classroom_member(auth.uid()::text, data->>'classId')
   or rls_parent_can_view_classroom(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 );
 drop policy if exists gd_homework_insert on global_docs;
 create policy gd_homework_insert on global_docs as restrictive for insert to authenticated
@@ -79,7 +102,9 @@ using (
   or data->>'studentId' = auth.uid()::text
   or rls_is_parent_of(auth.uid()::text, data->>'studentId')
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_is_classroom_member_role(auth.uid()::text, data->>'classId', 'teacher_assistant')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 );
 drop policy if exists gd_homework_submission_insert on global_docs;
 create policy gd_homework_submission_insert on global_docs as restrictive for insert to authenticated
@@ -131,7 +156,9 @@ using (
   and (storage.foldername(name))[3] = 'homeworks'
   and (
     rls_is_classroom_teacher(auth.uid()::text, (storage.foldername(name))[2])
-    or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+    or rls_user_role(auth.uid()::text) = 'superadmin'
+    or rls_admin_can_view_classroom(auth.uid()::text, (storage.foldername(name))[2])
+    or rls_is_classroom_member_role(auth.uid()::text, (storage.foldername(name))[2], 'teacher_assistant')
     or (
       (storage.foldername(name))[5] is null
       and (

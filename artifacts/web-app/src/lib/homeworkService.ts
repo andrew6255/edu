@@ -4,8 +4,9 @@ import type { Stroke } from '@/components/FullScreenWorkspace';
 
 export interface Homework {
   id: string; classId: string; teacherId: string; title: string; fileName: string; fileUrl: string; filePath: string;
-  storageBucket?: string; dueAt: string; createdAt: string; updatedAt: string;
+  storageBucket?: string; documents: HomeworkDocument[]; dueAt: string; createdAt: string; updatedAt: string;
 }
+export interface HomeworkDocument { id: string; name: string; url: string; path: string; storageBucket?: string; uploadedAt: string; }
 export interface HomeworkAttachment { id: string; name: string; url: string; path: string; storageBucket?: string; uploadedAt: string; }
 export interface HomeworkSheet { id: string; name: string; strokes: Stroke[]; createdAt: string; updatedAt: string; }
 export interface HomeworkSubmission {
@@ -33,7 +34,11 @@ async function upload(file: File, path: string) {
   if (error) throw error;
   return createSignedUrl(path);
 }
-function toHomework(data: DocData): Homework { return data as unknown as Homework; }
+function toHomework(data: DocData): Homework {
+  const raw = data as Record<string, unknown>;
+  const legacy: HomeworkDocument = { id: 'teacher-document-1', name: String(raw.fileName ?? 'Homework document'), url: String(raw.fileUrl ?? ''), path: String(raw.filePath ?? ''), storageBucket: typeof raw.storageBucket === 'string' ? raw.storageBucket : undefined, uploadedAt: String(raw.createdAt ?? now()) };
+  return { ...(data as unknown as Homework), documents: Array.isArray(raw.documents) && raw.documents.length ? raw.documents as HomeworkDocument[] : [legacy] };
+}
 function toSubmission(data: DocData): HomeworkSubmission {
   const raw = data as Record<string, unknown>;
   const timestamp = String(raw.updatedAt ?? now());
@@ -49,23 +54,31 @@ export async function getHomework(id: string): Promise<Homework | null> {
   const raw = await getGlobalDoc(HOMEWORKS, id);
   if (!raw) return null;
   const homework = toHomework(raw);
-  return { ...homework, fileUrl: await refreshPrivateUrl(homework.filePath, homework.storageBucket, homework.fileUrl) };
+  const documents = await Promise.all(homework.documents.map(async document => ({ ...document, url: await refreshPrivateUrl(document.path, document.storageBucket, document.url) })));
+  return { ...homework, documents, fileUrl: documents[0]?.url ?? homework.fileUrl };
 }
 export async function listClassHomeworks(classId: string): Promise<Homework[]> {
   const rows = await queryGlobalDocs(HOMEWORKS, [{ field: 'classId', op: 'eq', value: classId }]);
   const homeworks = await Promise.all(rows.map(async row => {
     const homework = toHomework(row.data);
-    return { ...homework, fileUrl: await refreshPrivateUrl(homework.filePath, homework.storageBucket, homework.fileUrl) };
+    const documents = await Promise.all(homework.documents.map(async document => ({ ...document, url: await refreshPrivateUrl(document.path, document.storageBucket, document.url) })));
+    return { ...homework, documents, fileUrl: documents[0]?.url ?? homework.fileUrl };
   }));
   return homeworks.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
-export async function createHomework(classId: string, teacherId: string, title: string, dueAt: string, pdf: File): Promise<Homework> {
-  if (pdf.type !== 'application/pdf' && !pdf.name.toLowerCase().endsWith('.pdf')) throw new Error('Homework must be a PDF file.');
+export async function createHomework(classId: string, teacherId: string, title: string, dueAt: string, selectedFiles: File | File[]): Promise<Homework> {
+  const files = Array.isArray(selectedFiles) ? selectedFiles : [selectedFiles];
+  if (files.length === 0) throw new Error('Attach at least one document.');
+  if (files.length > 10) throw new Error('Attach no more than 10 documents.');
+  if (files.some(file => file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) throw new Error('Homework documents must be PDF files.');
   const id = `hw_${uid()}`;
-  const filePath = `classrooms/${classId}/homeworks/${id}/${safe(pdf.name)}`;
-  const fileUrl = await upload(pdf, filePath);
   const timestamp = now();
-  const data: Homework = { id, classId, teacherId, title: title.trim() || pdf.name.replace(/\.pdf$/i, ''), fileName: pdf.name, fileUrl, filePath, storageBucket: PRIVATE_BUCKET, dueAt, createdAt: timestamp, updatedAt: timestamp };
+  const documents = await Promise.all(files.map(async (file, index) => {
+    const path = `classrooms/${classId}/homeworks/${id}/${index + 1}_${safe(file.name)}`;
+    return { id: `document_${index + 1}`, name: file.name, path, storageBucket: PRIVATE_BUCKET, url: await upload(file, path), uploadedAt: timestamp } as HomeworkDocument;
+  }));
+  const first = documents[0];
+  const data: Homework = { id, classId, teacherId, title: title.trim() || first.name.replace(/\.pdf$/i, ''), fileName: first.name, fileUrl: first.url, filePath: first.path, storageBucket: PRIVATE_BUCKET, documents, dueAt, createdAt: timestamp, updatedAt: timestamp };
   await setGlobalDoc(HOMEWORKS, id, data as unknown as DocData);
   return data;
 }

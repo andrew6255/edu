@@ -56,7 +56,7 @@ function NotFound() {
       <div>
         <div style={{ fontSize: 60, marginBottom: 20 }}>🌌</div>
         <h1 style={{ color: 'white', margin: '0 0 10px' }}>404 — Lost in the Universe</h1>
-        <a href="/" style={{ color: '#3b82f6', fontSize: 16 }}>← Return to Logic Lords</a>
+        <a href="/" style={{ color: '#3b82f6', fontSize: 16 }}>← Return home</a>
       </div>
     </div>
   );

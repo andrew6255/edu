@@ -110,7 +110,7 @@ export async function getStudentClasses(studentId: string): Promise<ParentClassR
 
   const teacherIds = [...new Set((classes as { teacher_id: string }[]).map(c => c.teacher_id))];
   const { data: profiles } = await supabase
-    .from('profiles')
+    .from('profile_directory')
     .select('id, username')
     .in('id', teacherIds);
   const pMap = new Map((profiles ?? []).map((p: Record<string, unknown>) => [String(p.id), String(p.username ?? '')]));
@@ -253,7 +253,7 @@ export async function getStudentTeacherChats(studentId: string): Promise<ParentT
   if (!classes || classes.length === 0) return [];
 
   const teacherIds = [...new Set((classes as { teacher_id: string }[]).map(c => c.teacher_id))];
-  const { data: profiles } = await supabase.from('profiles').select('id, username').in('id', teacherIds);
+  const { data: profiles } = await supabase.from('profile_directory').select('id, username').in('id', teacherIds);
   const pMap = new Map((profiles ?? []).map((p: Record<string, unknown>) => [String(p.id), String(p.username ?? '')]));
 
   return (classes as Record<string, unknown>[]).map(c => ({

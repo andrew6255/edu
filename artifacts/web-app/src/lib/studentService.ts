@@ -65,7 +65,7 @@ export async function getMyClasses(): Promise<StudentClass[]> {
   // fetch teacher profiles
   const teacherIds = [...new Set((classes as { teacher_id: string }[]).map(c => c.teacher_id))];
   const { data: profiles } = await supabase
-    .from('profiles')
+    .from('profile_directory')
     .select('id, username, first_name, last_name')
     .in('id', teacherIds);
   const pMap = new Map((profiles ?? []).map((p: Record<string, unknown>) => [

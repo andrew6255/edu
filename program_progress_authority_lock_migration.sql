@@ -3,6 +3,18 @@
 -- Reward-bearing ranked fields are protected because RLS cannot compare OLD
 -- and NEW JSON values.
 
+begin;
+
+do $$
+begin
+  if to_regclass('public.user_docs') is null
+     or to_regprocedure('public.economy_record_ranked_program_answer(text,text,text,boolean)') is null
+     or to_regprocedure('public.economy_claim_roadmap_reward(text,text,integer)') is null then
+    raise exception 'Program progress authority prerequisites are missing; rerun economy_ledger_migration.sql first';
+  end if;
+end;
+$$;
+
 create or replace function guard_program_progress_reward_fields()
 returns trigger language plpgsql set search_path=public
 as $$
@@ -52,3 +64,5 @@ values(
 )
 on conflict(migration_key) do update
 set applied_at=now(),details=excluded.details;
+
+commit;

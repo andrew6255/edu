@@ -64,7 +64,7 @@ export async function listRooms(classId: string): Promise<ChatRoomWithMeta[]> {
   // get student profiles
   const studentIds = [...new Set((rooms as { student_id: string }[]).map(r => r.student_id))];
   const { data: profiles } = await supabase
-    .from('profiles')
+    .from('profile_directory')
     .select('id, username')
     .in('id', studentIds);
   const pMap = new Map((profiles ?? []).map((p: Record<string, unknown>) => [String(p.id), String(p.username ?? '')]));
@@ -119,7 +119,7 @@ export async function listParentRooms(studentId: string): Promise<ChatRoomWithMe
   const { data: classes } = await supabase.from('classes').select('id, name').in('id', classIds);
   const cMap = new Map((classes ?? []).map((c: Record<string, unknown>) => [String(c.id), String(c.name ?? '')]));
 
-  const { data: profile } = await supabase.from('profiles').select('username').eq('id', studentId).single();
+  const { data: profile } = await supabase.from('profile_directory').select('username').eq('id', studentId).single();
   const studentUsername = String((profile as Record<string, unknown> | null)?.username ?? '');
 
   const roomIds = (rooms as { id: string }[]).map(r => r.id);
@@ -164,7 +164,7 @@ export async function getMessages(roomId: string): Promise<ChatMessage[]> {
 
   // resolve sender usernames
   const senderIds = [...new Set((data ?? []).map((m: Record<string, unknown>) => String(m.sender_id)))];
-  const { data: profiles } = await supabase.from('profiles').select('id, username').in('id', senderIds);
+  const { data: profiles } = await supabase.from('profile_directory').select('id, username').in('id', senderIds);
   const pMap = new Map((profiles ?? []).map((p: Record<string, unknown>) => [String(p.id), String(p.username ?? '')]));
 
   return (data ?? []).map((m: Record<string, unknown>) => ({

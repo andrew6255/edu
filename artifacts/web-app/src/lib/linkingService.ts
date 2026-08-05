@@ -49,7 +49,7 @@ export async function getLinkedParent(studentId: string): Promise<{ parent_id: s
   if (error || !data) return null;
   // Fetch parent profile
   const { data: profile } = await supabase
-    .from('profiles')
+    .from('profile_directory')
     .select('first_name, last_name, username')
     .eq('id', data.parent_id)
     .maybeSingle();
@@ -91,7 +91,7 @@ export async function redeemLinkingCode(parentId: string, code: string): Promise
 
   // Get student name for confirmation
   const { data: studentProfile } = await supabase
-    .from('profiles')
+    .from('profile_directory')
     .select('first_name, last_name, username')
     .eq('id', codeRow.student_id)
     .maybeSingle();

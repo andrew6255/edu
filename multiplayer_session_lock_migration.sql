@@ -3,6 +3,22 @@
 -- These restrictive policies leave unrelated global_docs collections working
 -- while preventing authenticated browsers from forging paid queue/session data.
 
+begin;
+
+do $$
+begin
+  if to_regclass('public.global_docs') is null
+     or to_regprocedure('public.economy_start_matchmaking(text,text,text)') is null
+     or to_regprocedure('public.economy_cancel_matchmaking(text,text,text)') is null
+     or to_regprocedure('public.economy_start_bot_match(text,text,text)') is null
+     or to_regprocedure('public.game_session_submit_score(text,text,integer,integer)') is null
+     or to_regprocedure('public.game_session_resolve_round(text,text,integer)') is null
+     or to_regprocedure('public.game_session_forfeit(text,text)') is null then
+    raise exception 'Server-authoritative multiplayer functions are missing; rerun economy_ledger_migration.sql first';
+  end if;
+end;
+$$;
+
 drop policy if exists global_docs_matchmaking_insert_server_only on global_docs;
 create policy global_docs_matchmaking_insert_server_only on global_docs
 as restrictive for insert to authenticated
@@ -73,3 +89,5 @@ values(
 )
 on conflict(migration_key) do update
 set applied_at=now(),details=excluded.details;
+
+commit;

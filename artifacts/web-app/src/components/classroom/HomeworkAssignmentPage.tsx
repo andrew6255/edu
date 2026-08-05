@@ -42,7 +42,7 @@ function Tab({ active, onClick, children }: { active: boolean; onClick: () => vo
 }
 
 function Documents({ homework }: { homework: Homework }) {
-  return <div style={panel}><div style={{ display: 'flex', alignItems: 'center', gap: 13 }}><span style={{ fontSize: 34 }}>📕</span><div style={{ flex: 1 }}><strong>{homework.fileName}</strong><div style={{ color: '#94a3b8', fontSize: 12, marginTop: 3 }}>Document attached by the teacher</div></div><a href={homework.fileUrl} target="_blank" rel="noreferrer" style={{ ...button, textDecoration: 'none', background: '#3b82f6', borderColor: '#3b82f6' }}>Open</a><a href={homework.fileUrl} download={homework.fileName} style={{ ...button, textDecoration: 'none' }}>Download</a></div></div>;
+  return <div style={{ display: 'grid', gap: 9 }}>{homework.documents.map(document => <div key={document.id} style={panel}><div className="phone-wrap" style={{ display: 'flex', alignItems: 'center', gap: 13 }}><span style={{ fontSize: 34 }}>📕</span><div style={{ flex: 1, minWidth: 0 }}><strong style={{ overflowWrap: 'anywhere' }}>{document.name}</strong><div style={{ color: '#94a3b8', fontSize: 12, marginTop: 3 }}>Document attached by the teacher</div></div><a href={document.url} target="_blank" rel="noreferrer" style={{ ...button, textDecoration: 'none', background: '#3b82f6', borderColor: '#3b82f6' }}>Open</a><a href={document.url} download={document.name} style={{ ...button, textDecoration: 'none' }}>Download</a></div></div>)}</div>;
 }
 
 function StudentWork({ homework, studentId, expired }: { homework: Homework; studentId: string; expired: boolean }) {

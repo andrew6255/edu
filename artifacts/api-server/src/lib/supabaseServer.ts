@@ -37,3 +37,71 @@ export async function fetchServiceRows<T>(table: string, query: Record<string, s
   if (!response.ok) throw new Error('Supabase read failed: ' + await response.text());
   return await response.json() as T[];
 }
+
+export async function upsertServiceRow<T>(table: string, row: Record<string, unknown>, onConflict: string): Promise<T> {
+  if (!supabaseUrl() || !serviceKey()) throw new Error('Supabase server credentials are not configured.');
+  if (!/^[a-z_][a-z0-9_]*$/.test(table) || !/^[a-z_][a-z0-9_]*(,[a-z_][a-z0-9_]*)*$/.test(onConflict)) throw new Error('Invalid Supabase write target.');
+  const response = await fetch(`${supabaseUrl()}/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`, {
+    method: 'POST',
+    headers: {
+      apikey: serviceKey(), Authorization: 'Bearer ' + serviceKey(), 'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=representation',
+    },
+    body: JSON.stringify(row),
+  });
+  if (!response.ok) throw new Error('Supabase privileged write failed: ' + await response.text());
+  const rows = await response.json() as T[];
+  if (!rows[0]) throw new Error('Supabase privileged write returned no row.');
+  return rows[0];
+}
+
+export async function createServiceAuthUser(input: {
+  email: string; password: string; metadata: Record<string, unknown>;
+}): Promise<{ id: string; email?: string }> {
+  if (!supabaseUrl() || !serviceKey()) throw new Error('Supabase server credentials are not configured.');
+  const response = await fetch(supabaseUrl() + '/auth/v1/admin/users', {
+    method: 'POST',
+    headers: { apikey: serviceKey(), Authorization: 'Bearer ' + serviceKey(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: input.email, password: input.password, email_confirm: true, user_metadata: input.metadata }),
+  });
+  if (!response.ok) throw new Error('Account creation failed: ' + await response.text());
+  const user = await response.json() as Record<string, unknown>;
+  if (typeof user.id !== 'string') throw new Error('Account creation returned no user.');
+  return { id: user.id, email: typeof user.email === 'string' ? user.email : undefined };
+}
+
+export async function deleteServiceAuthUser(userId: string): Promise<void> {
+  if (!supabaseUrl() || !serviceKey()) throw new Error('Supabase server credentials are not configured.');
+  if (!/^[A-Za-z0-9-]{8,100}$/.test(userId)) throw new Error('Invalid auth user ID.');
+  const response = await fetch(supabaseUrl() + '/auth/v1/admin/users/' + encodeURIComponent(userId), {
+    method: 'DELETE',
+    headers: { apikey: serviceKey(), Authorization: 'Bearer ' + serviceKey() },
+  });
+  if (!response.ok && response.status !== 404) throw new Error('Auth account deletion failed: ' + await response.text());
+}
+
+export async function generateServiceMagicLink(email: string): Promise<string> {
+  if (!supabaseUrl() || !serviceKey()) throw new Error('Supabase server credentials are not configured.');
+  const response = await fetch(supabaseUrl() + '/auth/v1/admin/generate_link', {
+    method: 'POST',
+    headers: { apikey: serviceKey(), Authorization: 'Bearer ' + serviceKey(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'magiclink', email }),
+  });
+  if (!response.ok) throw new Error('Impersonation link generation failed: ' + await response.text());
+  const result = await response.json() as Record<string, unknown>;
+  const properties = result.properties && typeof result.properties === 'object' ? result.properties as Record<string, unknown> : null;
+  const tokenHash = typeof result.hashed_token === 'string' ? result.hashed_token : typeof properties?.hashed_token === 'string' ? properties.hashed_token : null;
+  if (!tokenHash) throw new Error('Impersonation link returned no verification token.');
+  return tokenHash;
+}
+
+export async function signInWithPasswordServer(email: string, password: string): Promise<Record<string, unknown>> {
+  if (!supabaseUrl() || !anonKey()) throw new Error('Supabase authentication is not configured.');
+  const response = await fetch(supabaseUrl() + '/auth/v1/token?grant_type=password', {
+    method: 'POST',
+    headers: { apikey: anonKey(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) throw new Error('INVALID_LOGIN');
+  return await response.json() as Record<string, unknown>;
+}

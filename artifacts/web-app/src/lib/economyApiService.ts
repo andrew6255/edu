@@ -49,6 +49,10 @@ export async function claimDailyEnergy(): Promise<EconomyGrantResult> {
   return economyRequest('daily-energy');
 }
 
+export async function initializeEconomyWallet(): Promise<EconomyGrantResult> {
+  return economyRequest('bootstrap-wallet');
+}
+
 export async function recordStudyAnswer(sourceId: string, answer: ProgramAnswer): Promise<GradedEconomyResult> {
   return economyRequest('study-answer', { sourceId, answer }) as Promise<GradedEconomyResult>;
 }

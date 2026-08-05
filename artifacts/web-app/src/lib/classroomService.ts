@@ -34,6 +34,7 @@ export interface TeacherClass {
   teacherName: string;
   name: string;
   subject: string;
+  subjectEmoji: string;
   status: ClassStatus;
   createdAt: string;
   updatedAt: string;
@@ -191,6 +192,7 @@ function docToClass(d: DocData): TeacherClass {
     teacherName: String(d.teacherName ?? ''),
     name: String(d.name ?? ''),
     subject: String(d.subject ?? ''),
+    subjectEmoji: String(d.subjectEmoji ?? '📘'),
     status: d.status === 'ended' ? 'ended' : 'active',
     createdAt: String(d.createdAt ?? ''),
     updatedAt: String(d.updatedAt ?? ''),
@@ -285,10 +287,11 @@ export async function createTeacherClass(
   name: string,
   subject: string,
   privateNote = '',
+  subjectEmoji = '📘',
 ): Promise<TeacherClass> {
   const id = `tc_${uid()}`;
   const data: TeacherClass = {
-    id, teacherId, teacherName, name, subject,
+    id, teacherId, teacherName, name, subject, subjectEmoji,
     status: 'active',
     createdAt: now(),
     updatedAt: now(),
@@ -381,8 +384,8 @@ export async function renameTeacherClass(classId: string, newName: string): Prom
   await updateGlobalDoc(COL.CLASSES, classId, { name: newName, updatedAt: now() });
 }
 
-export async function updateTeacherClassDetails(classId: string, teacherId: string, name: string, subject: string, note: string): Promise<void> {
-  await updateGlobalDoc(COL.CLASSES, classId, { name: name.trim(), subject: subject.trim(), updatedAt: now() });
+export async function updateTeacherClassDetails(classId: string, teacherId: string, name: string, subject: string, note: string, subjectEmoji = '📘'): Promise<void> {
+  await updateGlobalDoc(COL.CLASSES, classId, { name: name.trim(), subject: subject.trim(), subjectEmoji, updatedAt: now() });
   await setTeacherClassNote(classId, teacherId, note);
 }
 

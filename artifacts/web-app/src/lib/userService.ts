@@ -1,5 +1,7 @@
-import { requireSupabase, getAdminClient } from './supabase';
+import { requireSupabase } from './supabase';
 import { getGlobalDoc, setGlobalDoc } from './supabaseDocStore';
+import { initializeEconomyWallet } from './economyApiService';
+import { checkUsernameAvailable } from './authApiService';
 
 export type UserRole = 'student' | 'superadmin' | 'admin' | 'teacher' | 'teacher_assistant' | 'parent';
 
@@ -243,21 +245,6 @@ export async function requestGuardianConsent(studentId: string, guardianEmail: s
   if (error) throw error;
 }
 
-function toSupabaseEconomy(uid: string, data: Partial<UserData>): Record<string, unknown> | null {
-  const econ = data.economy;
-  if (!econ) return null;
-  return {
-    user_id: uid,
-    gold: typeof econ.gold === 'number' ? econ.gold : 0,
-    global_xp: typeof econ.global_xp === 'number' ? econ.global_xp : 0,
-    streak: typeof econ.streak === 'number' ? econ.streak : 0,
-    energy: typeof econ.energy === 'number' ? econ.energy : 0,
-    ranked_energy_streak: typeof econ.rankedEnergyStreak === 'number' ? econ.rankedEnergyStreak : 0,
-    gems: typeof econ.gems === 'number' ? econ.gems : 0,
-    updated_at: new Date().toISOString(),
-  };
-}
-
 async function getSupabaseUserData(uid: string): Promise<UserData | null> {
   const supabase = requireSupabase();
   const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
@@ -344,26 +331,7 @@ export async function createUserData(uid: string, data: Partial<UserData>): Prom
     last_active: new Date().toISOString().split('T')[0],
   }));
   if (error) throw error;
-  const econ = toSupabaseEconomy(uid, merged);
-  if (econ) {
-    const { error: econError } = await supabase.from('user_economy').insert(econ);
-    if (econError && econError.code !== '23505') throw econError;
-  }
-}
-
-export async function createUserDataAdmin(uid: string, data: Partial<UserData>): Promise<void> {
-  const admin = getAdminClient();
-  const merged = mergeUserData(DEFAULT_USER, data);
-  const { error } = await (admin.from('profiles') as any).upsert(toSupabaseProfile(uid, {
-    ...merged,
-    last_active: new Date().toISOString().split('T')[0],
-  }));
-  if (error) throw error;
-  const econ = toSupabaseEconomy(uid, merged);
-  if (econ) {
-    const { error: econError } = await (admin.from('user_economy') as any).upsert(econ);
-    if (econError) throw econError;
-  }
+  await initializeEconomyWallet();
 }
 
 export async function updateUserData(uid: string, updates: Partial<UserData>): Promise<void> {
@@ -375,62 +343,9 @@ export async function updateUserData(uid: string, updates: Partial<UserData>): P
   if (error) throw error;
 }
 
-export async function adminUpdateUserData(uid: string, updates: Partial<UserData>): Promise<void> {
-  if (updates.economy) throw new Error('Use the audited admin economy adjustment endpoint.');
-  const admin = getAdminClient();
-  const current = await getSupabaseUserData(uid);
-  const merged = mergeUserData(current ?? DEFAULT_USER, updates);
-  const { error } = await (admin.from('profiles') as any).upsert(toSupabaseProfile(uid, merged));
-  if (error) throw error;
-}
-
 export async function deleteUserData(uid: string): Promise<void> {
-  const supabase = requireSupabase();
-
-  // Look up if this is a student or parent to cascade-delete the pair
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', uid).limit(1).single();
-  const role = profile?.role as string | undefined;
-
-  let pairedUid: string | null = null;
-
-  if (role === 'student' || role === 'parent') {
-    // Find the paired account
-    if (role === 'student') {
-      const { data: link } = await supabase.from('parent_student_links').select('parent_id').eq('student_id', uid).limit(1);
-      pairedUid = link?.[0]?.parent_id ?? null;
-    } else {
-      const { data: link } = await supabase.from('parent_student_links').select('student_id').eq('parent_id', uid).limit(1);
-      pairedUid = link?.[0]?.student_id ?? null;
-    }
-
-    // Use cascade RPC for student (it deletes both student + parent app data)
-    const studentUid = role === 'student' ? uid : pairedUid;
-    if (studentUid) {
-      const { error } = await supabase.rpc('admin_delete_student_and_parent', { target_student_uid: studentUid });
-      if (error) throw error;
-    } else {
-      // No link found, just delete this user
-      const { error } = await supabase.rpc('admin_delete_user', { target_uid: uid });
-      if (error) throw error;
-    }
-  } else {
-    // Non-student/parent: simple delete
-    const { error } = await supabase.rpc('admin_delete_user', { target_uid: uid });
-    if (error) throw error;
-  }
-
-  // Delete auth user(s) via Admin API
-  try {
-    const admin = getAdminClient();
-    const { error: authError } = await admin.auth.admin.deleteUser(uid);
-    if (authError) console.error('Failed to delete auth user:', authError);
-    if (pairedUid) {
-      const { error: pairedAuthError } = await admin.auth.admin.deleteUser(pairedUid);
-      if (pairedAuthError) console.error('Failed to delete paired auth user:', pairedAuthError);
-    }
-  } catch (e) {
-    console.error('Privileged admin action must be completed through the authenticated API:', e);
-  }
+  const { deleteManagedUserAccount } = await import('./adminApiService');
+  await deleteManagedUserAccount(uid);
 }
 
 export async function updateHighScore(uid: string, gameId: string, score: number): Promise<void> {
@@ -454,15 +369,8 @@ export async function updateEconomy(uid: string, deltas: EconomyDeltas): Promise
 }
 
 export async function adminGetStudentEconomy(uid: string): Promise<{ gold: number; global_xp: number; energy: number; streak: number }> {
-  const admin = getAdminClient();
-  const { data } = await admin.from('user_economy').select('gold, global_xp, energy, streak').eq('user_id', uid).maybeSingle();
-  const d = (data ?? {}) as Record<string, unknown>;
-  return {
-    gold: typeof d.gold === 'number' ? d.gold : 0,
-    global_xp: typeof d.global_xp === 'number' ? d.global_xp : 0,
-    energy: typeof d.energy === 'number' ? d.energy : 0,
-    streak: typeof d.streak === 'number' ? d.streak : 0,
-  };
+  const { getManagedUserEconomy } = await import('./adminApiService');
+  return getManagedUserEconomy(uid);
 }
 
 export async function adminUpdateEconomy(uid: string, deltas: EconomyDeltas, reason: string): Promise<void> {
@@ -485,19 +393,8 @@ export async function recordStudyActivity(uid: string): Promise<void> {
   }
 }
 
-export async function findUserByUsername(username: string): Promise<{ email: string } | null> {
-  const supabase = requireSupabase();
-  const { data, error } = await supabase.from('profiles').select('email').eq('username', username).limit(1);
-  if (error) throw error;
-  if (!data || data.length === 0) return null;
-  return { email: String(data[0].email ?? '') };
-}
-
 export async function isUsernameTaken(username: string): Promise<boolean> {
-  const supabase = requireSupabase();
-  const { data, error } = await supabase.from('profiles').select('id').eq('username', username).limit(1);
-  if (error) throw error;
-  return !!data && data.length > 0;
+  return !(await checkUsernameAvailable(username));
 }
 
 export async function getAllUsers(): Promise<Array<UserData & { uid: string }>> {
@@ -569,54 +466,25 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
 
   try {
     const supabase = requireSupabase();
-    let query = supabase.from('profiles').select('id, user_state').eq('username', baseName);
+    const query = supabase.from('profile_directory').select('id, friend_tag').eq('username', baseName);
     const { data: rows } = await query;
     
     if (!rows || rows.length === 0) return false;
 
     let targetRow = rows[0];
     if (searchTag && rows.length > 1) {
-      const match = rows.find(r => r.user_state?.friendCode === searchTag);
+      const match = rows.find(r => r.friend_tag === searchTag);
       if (match) targetRow = match;
     } else if (searchTag) {
-      if (targetRow.user_state?.friendCode !== searchTag) return false;
+      if (targetRow.friend_tag !== searchTag) return false;
     }
 
     const toUid = String(targetRow.id);
     if (toUid === fromUid) return false;
 
-    const toData = await getUserData(toUid);
-    const fromData = await getUserData(fromUid);
-    if (toData) {
-      const friends = Array.isArray(toData.friends) ? toData.friends : [];
-      const incoming = Array.isArray(toData.incomingRequests) ? toData.incomingRequests : [];
-      const myFriends = fromData ? (Array.isArray(fromData.friends) ? fromData.friends : []) : [];
-
-      const mutualFriends = friends.includes(fromUid) && myFriends.includes(toUid);
-      if (mutualFriends) throw new Error('You are already friends');
-
-      // If friendship is stale / one-sided, clean it up before proceeding.
-      // If friendship is stale / one-sided, clean it up before proceeding.
-      if (friends.includes(fromUid) && !myFriends.includes(toUid)) {
-        await supabase.rpc('remove_friend_rpc', { target_uid: toUid });
-      }
-      if (myFriends.includes(toUid) && !friends.includes(fromUid)) {
-        await updateUserData(fromUid, { friends: myFriends.filter(x => x !== toUid) });
-      }
-
-      if (incoming.includes(fromUid)) {
-        // Request already pending; we'll just bump the existing notification below.
-      }
-    }
-
-    // Instead of admin update, use RPC to safely add to incomingRequests of the target
+    // The RPC validates both profiles and updates both request lists atomically.
     const { error: rpcError } = await supabase.rpc('send_friend_request_rpc', { target_uid: toUid });
     if (rpcError) throw rpcError;
-
-    // We still update our own outgoingRequests manually (safe)
-    const fromDataFresh = await getUserData(fromUid);
-    const fromOutgoing = Array.from(new Set([...(fromDataFresh?.outgoingRequests ?? []), toUid]));
-    await updateUserData(fromUid, { outgoingRequests: fromOutgoing });
 
     // Deduplicate: one friendRequest notification per sender->receiver.
     const notifId = `friendRequest_${fromUid}`;
@@ -642,16 +510,7 @@ export async function sendFriendRequest(fromUid: string, fromUsername: string, t
 
 export async function respondToFriendRequest(uid: string, peerUid: string, accept: boolean): Promise<void> {
   const myData = await getUserData(uid);
-  const peerData = await getUserData(peerUid);
-  if (!myData || !peerData) return;
-
-  const myIncoming = Array.isArray(myData.incomingRequests) ? myData.incomingRequests : [];
-  const myFriends = Array.isArray(myData.friends) ? myData.friends : [];
-  const peerOutgoing = Array.isArray(peerData.outgoingRequests) ? peerData.outgoingRequests : [];
-  const peerFriends = Array.isArray(peerData.friends) ? peerData.friends : [];
-
-  const myNewIncoming = myIncoming.filter(x => x !== peerUid);
-  const peerNewOutgoing = peerOutgoing.filter(x => x !== uid);
+  if (!myData) return;
 
   const supabase = requireSupabase();
 
@@ -678,24 +537,10 @@ export async function respondToFriendRequest(uid: string, peerUid: string, accep
 
 export async function removeFriend(uid: string, peerUid: string): Promise<void> {
   const myData = await getUserData(uid);
-  const peerData = await getUserData(peerUid);
-  if (!myData || !peerData) return;
-
-  const myFriends = Array.isArray(myData.friends) ? myData.friends : [];
-  const peerFriends = Array.isArray(peerData.friends) ? peerData.friends : [];
-
-  const myHadPeer = myFriends.includes(peerUid);
-  const peerHadMe = peerFriends.includes(uid);
-
-  if (!myHadPeer && !peerHadMe) return;
-
-  if (myFriends.includes(peerUid)) {
-    await updateUserData(uid, { friends: myFriends.filter(x => x !== peerUid) });
-  }
-  if (peerFriends.includes(uid)) {
-    const supabase = requireSupabase();
-    await supabase.rpc('remove_friend_rpc', { target_uid: peerUid });
-  }
+  if (!myData) return;
+  const supabase = requireSupabase();
+  const { error } = await supabase.rpc('remove_friend_rpc', { target_uid: peerUid });
+  if (error) throw error;
 }
 
 export async function submitCurriculumRequest(uid: string, username: string, profile: {
@@ -720,7 +565,7 @@ export interface AdminTeacherAssignment {
 }
 
 export async function getAdminTeacherAssignments(): Promise<AdminTeacherAssignment[]> {
-  const supabase = getAdminClient();
+  const supabase = requireSupabase();
   const { data, error } = await supabase.from('admin_teacher_assignments').select('admin_id, teacher_id');
   if (error) throw error;
   return (data ?? []) as AdminTeacherAssignment[];
@@ -749,7 +594,7 @@ export interface ParentStudentLink {
 }
 
 export async function getParentStudentLinks(): Promise<ParentStudentLink[]> {
-  const supabase = getAdminClient();
+  const supabase = requireSupabase();
   const { data, error } = await supabase.from('parent_student_links').select('parent_id, student_id');
   if (error) throw error;
   return (data ?? []) as ParentStudentLink[];

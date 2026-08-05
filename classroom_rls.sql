@@ -63,6 +63,15 @@ as $$
   );
 $$;
 
+create or replace function rls_admin_can_view_classroom(p_admin_uid text, p_class_id text)
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select exists(
+    select 1 from admin_teacher_assignments
+    where admin_id=p_admin_uid and teacher_id=rls_classroom_teacher_id(p_class_id)
+  );
+$$;
+
 create or replace function rls_is_classroom_session_participant(p_uid text, p_session_id text)
 returns boolean language sql stable security definer set search_path = public
 as $$
@@ -211,7 +220,8 @@ using (
   or data->>'teacherId' = auth.uid()::text
   or rls_is_classroom_member(auth.uid()::text, doc_id)
   or rls_parent_can_view_classroom(auth.uid()::text, doc_id)
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, doc_id)
 );
 
 drop policy if exists gd_classroom_tc_insert on global_docs;
@@ -256,7 +266,8 @@ using (
   or data->>'userId' = auth.uid()::text
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
   or rls_is_parent_of(auth.uid()::text, data->>'userId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 );
 
 drop policy if exists gd_classroom_tcm_insert on global_docs;
@@ -265,7 +276,8 @@ with check (
   collection <> 'teacher_class_members'
   or data->>'userId' = auth.uid()::text
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 );
 
 drop policy if exists gd_classroom_tcm_update on global_docs;
@@ -274,13 +286,15 @@ using (
   collection <> 'teacher_class_members'
   or data->>'userId' = auth.uid()::text
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 )
 with check (
   collection <> 'teacher_class_members'
   or data->>'userId' = auth.uid()::text
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 );
 
 drop policy if exists gd_classroom_tcm_delete on global_docs;
@@ -289,7 +303,8 @@ using (
   collection <> 'teacher_class_members'
   or data->>'userId' = auth.uid()::text
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 );
 
 -- teacher_class_codes: never openly readable — joining goes through
@@ -335,7 +350,8 @@ using (
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
   or data->'participantIds' ? auth.uid()::text
   or rls_parent_can_view_classroom(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 );
 
 drop policy if exists gd_classroom_cs_insert on global_docs;

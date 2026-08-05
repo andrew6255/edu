@@ -201,10 +201,9 @@ export async function getAllTeacherUsers(): Promise<TeacherUserRow[]> {
   });
 }
 
-/** All students available to a teacher, from admin assignments, roster invites, and live classrooms. */
+/** All students available to a teacher from the new roster and new classrooms. */
 export async function getAssignedTeacherStudents(teacherId: string): Promise<TeacherUserRow[]> {
-  const [legacy, roster, liveClasses, removedIds] = await Promise.all([
-    getAllTeacherUsers().catch(() => []),
+  const [roster, liveClasses, removedIds] = await Promise.all([
     getTeacherStudents(teacherId).catch(() => []),
     getTeacherClassesByTeacher(teacherId).catch(() => []),
     getRemovedTeacherStudentIds(teacherId).catch(() => []),
@@ -214,7 +213,6 @@ export async function getAssignedTeacherStudents(teacherId: string): Promise<Tea
   );
   const merged = new Map<string, TeacherUserRow>();
 
-  for (const student of (legacy as TeacherUserRow[]).filter(entry => entry.role === 'student')) merged.set(student.user_id, { ...student });
   for (const student of roster) {
     if (!merged.has(student.studentId)) merged.set(student.studentId, {
       user_id: student.studentId,
@@ -252,7 +250,10 @@ export interface StudentParentInfo {
 }
 
 export async function getStudentParentLinks(): Promise<StudentParentInfo[]> {
-  const users = await getAllTeacherUsers();
+  const { data: authData } = await requireSupabase().auth.getUser();
+  const teacherId = authData.user?.id;
+  if (!teacherId) return [];
+  const users = await getAssignedTeacherStudents(teacherId);
   const studentIds = users.filter(u => u.role === 'student').map(u => u.user_id);
   if (studentIds.length === 0) return [];
 
@@ -305,7 +306,7 @@ export async function getClassQuizResults(classId: string): Promise<StudentQuizR
 
   const studentIds = [...new Set((attempts as { student_id: string }[]).map(a => a.student_id))];
   const { data: profiles } = await supabase
-    .from('profiles')
+    .from('profile_directory')
     .select('id, username')
     .in('id', studentIds);
   const pMap = new Map((profiles ?? []).map((p: Record<string, unknown>) => [String(p.id), String(p.username ?? '')]));

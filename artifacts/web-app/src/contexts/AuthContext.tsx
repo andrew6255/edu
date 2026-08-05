@@ -3,6 +3,7 @@ import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { requireSupabase } from '@/lib/supabase';
 import { createUserData, getUserData, UserData } from '@/lib/userService';
 import { saveRememberedAccount, getRememberedAccounts } from '@/lib/authService';
+import { initializeEconomyWallet } from '@/lib/economyApiService';
 
 type AuthUser = Pick<SupabaseUser, 'id' | 'email'> & { uid: string; displayName: string | null };
 
@@ -96,7 +97,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function ensureProfileForAuthUser(authUser: SupabaseUser): Promise<UserData | null> {
     try {
       let profile = await getUserData(authUser.id);
-      if (profile) return profile;
+      if (profile) {
+        const wallet = await initializeEconomyWallet();
+        return wallet.applied ? await getUserData(authUser.id) : profile;
+      }
 
       const fallback = buildFallbackUserData(authUser);
 

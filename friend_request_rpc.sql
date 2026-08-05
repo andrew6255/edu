@@ -1,134 +1,156 @@
--- Secure Postgres Functions for Friend Requests (Bypasses RLS Safely)
--- Run this in the Supabase SQL Editor
+-- Atomic, authenticated friend relationship functions. Safe to rerun.
+-- Run after profiles exists.
 
--- Clean up the old functions that used 'uuid' to avoid overloading conflicts
-DROP FUNCTION IF EXISTS send_friend_request_rpc(uuid);
-DROP FUNCTION IF EXISTS accept_friend_request_rpc(uuid);
-DROP FUNCTION IF EXISTS decline_friend_request_rpc(uuid);
-DROP FUNCTION IF EXISTS remove_friend_rpc(uuid);
+begin;
 
--- 1. Send Friend Request (Appends sender to target's incomingRequests)
-CREATE OR REPLACE FUNCTION send_friend_request_rpc(target_uid text)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  current_state jsonb;
-  incoming jsonb;
-  sender_id text;
-BEGIN
-  sender_id := auth.uid()::text;
-  IF sender_id IS NULL THEN
-    RAISE EXCEPTION 'Not authenticated';
-  END IF;
+drop function if exists send_friend_request_rpc(uuid);
+drop function if exists accept_friend_request_rpc(uuid);
+drop function if exists decline_friend_request_rpc(uuid);
+drop function if exists remove_friend_rpc(uuid);
 
-  SELECT user_state INTO current_state FROM profiles WHERE id = target_uid;
-  IF current_state IS NULL THEN
-    RAISE EXCEPTION 'Target profile not found';
-  END IF;
-
-  incoming := COALESCE(current_state -> 'incomingRequests', '[]'::jsonb);
-  
-  -- Add sender_id if not present
-  IF NOT incoming @> to_jsonb(sender_id) THEN
-    incoming := incoming || to_jsonb(sender_id);
-    UPDATE profiles 
-    SET user_state = jsonb_set(current_state, '{incomingRequests}', incoming),
-        updated_at = now()
-    WHERE id = target_uid;
-  END IF;
-END;
+create or replace function friend_array_without(p_array jsonb, p_value text)
+returns jsonb
+language sql
+immutable
+set search_path = public
+as $$
+  select coalesce(jsonb_agg(value), '[]'::jsonb)
+  from jsonb_array_elements(coalesce(p_array, '[]'::jsonb)) value
+  where value <> to_jsonb(p_value);
 $$;
 
--- 2. Accept Friend Request (Adds each other to friends array, clears from incoming/outgoing)
-CREATE OR REPLACE FUNCTION accept_friend_request_rpc(target_uid text)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  my_id text;
-  my_state jsonb;
-  target_state jsonb;
-BEGIN
-  my_id := auth.uid()::text;
-  IF my_id IS NULL THEN RAISE EXCEPTION 'Not authenticated'; END IF;
+create or replace function send_friend_request_rpc(target_uid text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sender text := auth.uid()::text;
+  v_sender_state jsonb;
+  v_target_state jsonb;
+begin
+  if v_sender is null then raise exception 'Not authenticated'; end if;
+  if target_uid is null or target_uid = v_sender then raise exception 'Invalid friend target'; end if;
 
-  -- 2a. Update MY profile (the one accepting)
-  SELECT user_state INTO my_state FROM profiles WHERE id = my_id;
-  my_state := jsonb_set(my_state, '{incomingRequests}', 
-    COALESCE((SELECT jsonb_agg(elem) FROM jsonb_array_elements(COALESCE(my_state->'incomingRequests', '[]'::jsonb)) elem WHERE elem::text != '"' || target_uid || '"'), '[]'::jsonb)
-  );
-  IF NOT COALESCE(my_state->'friends', '[]'::jsonb) @> to_jsonb(target_uid) THEN
-    my_state := jsonb_set(my_state, '{friends}', COALESCE(my_state->'friends', '[]'::jsonb) || to_jsonb(target_uid));
-  END IF;
-  UPDATE profiles SET user_state = my_state, updated_at = now() WHERE id = my_id;
+  perform id from profiles where id in (v_sender, target_uid) order by id for update;
+  select coalesce(user_state, '{}'::jsonb) into v_sender_state from profiles where id = v_sender;
+  select coalesce(user_state, '{}'::jsonb) into v_target_state from profiles where id = target_uid;
+  if v_sender_state is null or v_target_state is null then raise exception 'Profile not found'; end if;
+  if coalesce(v_sender_state->'friends', '[]'::jsonb) ? target_uid
+     or coalesce(v_target_state->'friends', '[]'::jsonb) ? v_sender then
+    raise exception 'You are already friends';
+  end if;
 
-  -- 2b. Update TARGET profile (the one who sent it)
-  SELECT user_state INTO target_state FROM profiles WHERE id = target_uid;
-  target_state := jsonb_set(target_state, '{outgoingRequests}', 
-    COALESCE((SELECT jsonb_agg(elem) FROM jsonb_array_elements(COALESCE(target_state->'outgoingRequests', '[]'::jsonb)) elem WHERE elem::text != '"' || my_id || '"'), '[]'::jsonb)
-  );
-  IF NOT COALESCE(target_state->'friends', '[]'::jsonb) @> to_jsonb(my_id) THEN
-    target_state := jsonb_set(target_state, '{friends}', COALESCE(target_state->'friends', '[]'::jsonb) || to_jsonb(my_id));
-  END IF;
-  UPDATE profiles SET user_state = target_state, updated_at = now() WHERE id = target_uid;
-END;
+  if not coalesce(v_target_state->'incomingRequests', '[]'::jsonb) ? v_sender then
+    v_target_state := jsonb_set(
+      v_target_state, '{incomingRequests}',
+      coalesce(v_target_state->'incomingRequests', '[]'::jsonb) || jsonb_build_array(v_sender), true
+    );
+  end if;
+  if not coalesce(v_sender_state->'outgoingRequests', '[]'::jsonb) ? target_uid then
+    v_sender_state := jsonb_set(
+      v_sender_state, '{outgoingRequests}',
+      coalesce(v_sender_state->'outgoingRequests', '[]'::jsonb) || jsonb_build_array(target_uid), true
+    );
+  end if;
+
+  update profiles set user_state = v_sender_state, updated_at = now() where id = v_sender;
+  update profiles set user_state = v_target_state, updated_at = now() where id = target_uid;
+end;
 $$;
 
--- 3. Decline Friend Request (Clears from incoming and outgoing)
-CREATE OR REPLACE FUNCTION decline_friend_request_rpc(target_uid text)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  my_id text;
-  my_state jsonb;
-  target_state jsonb;
-BEGIN
-  my_id := auth.uid()::text;
-  IF my_id IS NULL THEN RAISE EXCEPTION 'Not authenticated'; END IF;
+create or replace function accept_friend_request_rpc(target_uid text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_me text := auth.uid()::text;
+  v_my_state jsonb;
+  v_target_state jsonb;
+begin
+  if v_me is null then raise exception 'Not authenticated'; end if;
+  if target_uid is null or target_uid = v_me then raise exception 'Invalid friend target'; end if;
 
-  SELECT user_state INTO my_state FROM profiles WHERE id = my_id;
-  my_state := jsonb_set(my_state, '{incomingRequests}', 
-    COALESCE((SELECT jsonb_agg(elem) FROM jsonb_array_elements(COALESCE(my_state->'incomingRequests', '[]'::jsonb)) elem WHERE elem::text != '"' || target_uid || '"'), '[]'::jsonb)
-  );
-  UPDATE profiles SET user_state = my_state, updated_at = now() WHERE id = my_id;
+  perform id from profiles where id in (v_me, target_uid) order by id for update;
+  select coalesce(user_state, '{}'::jsonb) into v_my_state from profiles where id = v_me;
+  select coalesce(user_state, '{}'::jsonb) into v_target_state from profiles where id = target_uid;
+  if v_my_state is null or v_target_state is null then raise exception 'Profile not found'; end if;
+  if not coalesce(v_my_state->'incomingRequests', '[]'::jsonb) ? target_uid
+     or not coalesce(v_target_state->'outgoingRequests', '[]'::jsonb) ? v_me then
+    raise exception 'No pending friend request';
+  end if;
 
-  SELECT user_state INTO target_state FROM profiles WHERE id = target_uid;
-  target_state := jsonb_set(target_state, '{outgoingRequests}', 
-    COALESCE((SELECT jsonb_agg(elem) FROM jsonb_array_elements(COALESCE(target_state->'outgoingRequests', '[]'::jsonb)) elem WHERE elem::text != '"' || my_id || '"'), '[]'::jsonb)
-  );
-  UPDATE profiles SET user_state = target_state, updated_at = now() WHERE id = target_uid;
-END;
+  v_my_state := jsonb_set(v_my_state, '{incomingRequests}', friend_array_without(v_my_state->'incomingRequests', target_uid), true);
+  v_target_state := jsonb_set(v_target_state, '{outgoingRequests}', friend_array_without(v_target_state->'outgoingRequests', v_me), true);
+  if not coalesce(v_my_state->'friends', '[]'::jsonb) ? target_uid then
+    v_my_state := jsonb_set(v_my_state, '{friends}', coalesce(v_my_state->'friends', '[]'::jsonb) || jsonb_build_array(target_uid), true);
+  end if;
+  if not coalesce(v_target_state->'friends', '[]'::jsonb) ? v_me then
+    v_target_state := jsonb_set(v_target_state, '{friends}', coalesce(v_target_state->'friends', '[]'::jsonb) || jsonb_build_array(v_me), true);
+  end if;
+
+  update profiles set user_state = v_my_state, updated_at = now() where id = v_me;
+  update profiles set user_state = v_target_state, updated_at = now() where id = target_uid;
+end;
 $$;
 
--- 4. Remove Friend
-CREATE OR REPLACE FUNCTION remove_friend_rpc(target_uid text)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  my_id text;
-  my_state jsonb;
-  target_state jsonb;
-BEGIN
-  my_id := auth.uid()::text;
-  IF my_id IS NULL THEN RAISE EXCEPTION 'Not authenticated'; END IF;
-
-  SELECT user_state INTO my_state FROM profiles WHERE id = my_id;
-  my_state := jsonb_set(my_state, '{friends}', 
-    COALESCE((SELECT jsonb_agg(elem) FROM jsonb_array_elements(COALESCE(my_state->'friends', '[]'::jsonb)) elem WHERE elem::text != '"' || target_uid || '"'), '[]'::jsonb)
-  );
-  UPDATE profiles SET user_state = my_state, updated_at = now() WHERE id = my_id;
-
-  SELECT user_state INTO target_state FROM profiles WHERE id = target_uid;
-  target_state := jsonb_set(target_state, '{friends}', 
-    COALESCE((SELECT jsonb_agg(elem) FROM jsonb_array_elements(COALESCE(target_state->'friends', '[]'::jsonb)) elem WHERE elem::text != '"' || my_id || '"'), '[]'::jsonb)
-  );
-  UPDATE profiles SET user_state = target_state, updated_at = now() WHERE id = target_uid;
-END;
+create or replace function decline_friend_request_rpc(target_uid text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_me text := auth.uid()::text;
+begin
+  if v_me is null then raise exception 'Not authenticated'; end if;
+  if target_uid is null or target_uid = v_me then raise exception 'Invalid friend target'; end if;
+  perform id from profiles where id in (v_me, target_uid) order by id for update;
+  update profiles set
+    user_state = jsonb_set(coalesce(user_state, '{}'::jsonb), '{incomingRequests}', friend_array_without(user_state->'incomingRequests', target_uid), true),
+    updated_at = now()
+  where id = v_me;
+  update profiles set
+    user_state = jsonb_set(coalesce(user_state, '{}'::jsonb), '{outgoingRequests}', friend_array_without(user_state->'outgoingRequests', v_me), true),
+    updated_at = now()
+  where id = target_uid;
+end;
 $$;
+
+create or replace function remove_friend_rpc(target_uid text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_me text := auth.uid()::text;
+begin
+  if v_me is null then raise exception 'Not authenticated'; end if;
+  if target_uid is null or target_uid = v_me then raise exception 'Invalid friend target'; end if;
+  perform id from profiles where id in (v_me, target_uid) order by id for update;
+  update profiles set
+    user_state = jsonb_set(coalesce(user_state, '{}'::jsonb), '{friends}', friend_array_without(user_state->'friends', target_uid), true),
+    updated_at = now()
+  where id = v_me;
+  update profiles set
+    user_state = jsonb_set(coalesce(user_state, '{}'::jsonb), '{friends}', friend_array_without(user_state->'friends', v_me), true),
+    updated_at = now()
+  where id = target_uid;
+end;
+$$;
+
+revoke all on function friend_array_without(jsonb, text) from public;
+revoke all on function send_friend_request_rpc(text) from public;
+revoke all on function accept_friend_request_rpc(text) from public;
+revoke all on function decline_friend_request_rpc(text) from public;
+revoke all on function remove_friend_rpc(text) from public;
+grant execute on function send_friend_request_rpc(text) to authenticated;
+grant execute on function accept_friend_request_rpc(text) to authenticated;
+grant execute on function decline_friend_request_rpc(text) to authenticated;
+grant execute on function remove_friend_rpc(text) to authenticated;
+
+commit;

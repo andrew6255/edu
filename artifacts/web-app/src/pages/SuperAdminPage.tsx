@@ -11,14 +11,14 @@ import {
 } from '@/lib/classroomService';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/contexts/ConfirmContext';
-import { requireSupabase, getAdminClient } from '@/lib/supabase';
+import { requireSupabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { performSignOut } from '@/lib/authService';
+import SettingsLauncher from '@/components/settings/SettingsLauncher';
 import { 
   getAllUsers, 
   updateUserData, 
   deleteUserData, 
-  createUserDataAdmin, 
   isUsernameTaken, 
   adminUpdateEconomy, 
   type EconomyDeltas, 
@@ -32,6 +32,7 @@ import {
   AdminTeacherAssignment, 
   ParentStudentLink 
 } from '@/lib/userService';
+import { createImpersonationToken, createManagedUserAccount } from '@/lib/adminApiService';
 import ProgramsAdminComponent from '@/components/superadmin/ProgramsAdmin';
 import {
   BUILDER_DIVISION_LABELS,
@@ -328,14 +329,7 @@ export default function SuperAdminPage() {
     setImpersonating(true);
     setImpersonateError('');
     try {
-      const admin = getAdminClient();
-      const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-        type: 'magiclink',
-        email: impersonateTarget.email,
-      });
-      if (linkError) throw linkError;
-      const token_hash = linkData?.properties?.hashed_token;
-      if (!token_hash) throw new Error('No token returned.');
+      const token_hash = await createImpersonationToken(impersonateTarget.uid);
       const rawSession = localStorage.getItem('sb-auth-token');
       if (rawSession) {
         localStorage.setItem('ll:superadmin_session', rawSession);
@@ -402,11 +396,16 @@ export default function SuperAdminPage() {
       : 'Permanently delete this account? This cannot be undone.';
     if (!(await confirm(msg))) return;
     setDeletingUser(uid);
-    await deleteUserData(uid);
-    const removedIds = new Set([uid, ...(pairedUid ? [pairedUid] : [])]);
-    setUsers(prev => prev.filter(u => !removedIds.has(u.uid)));
-    setPslLinks(prev => prev.filter(l => !removedIds.has(l.student_id) && !removedIds.has(l.parent_id)));
-    setDeletingUser(null);
+    try {
+      await deleteUserData(uid);
+      const removedIds = new Set([uid, ...(pairedUid ? [pairedUid] : [])]);
+      setUsers(prev => prev.filter(u => !removedIds.has(u.uid)));
+      setPslLinks(prev => prev.filter(l => !removedIds.has(l.student_id) && !removedIds.has(l.parent_id)));
+    } catch (error) {
+      toast({ variant: 'destructive', description: error instanceof Error ? error.message : 'Account deletion failed.' });
+    } finally {
+      setDeletingUser(null);
+    }
   }
 
   async function handleEconApply() {
@@ -416,20 +415,26 @@ export default function SuperAdminPage() {
     const energy = parseInt(econModal.energyDelta) || 0;
     const streak = parseInt(econModal.streakDelta) || 0;
     if (gold === 0 && xp === 0 && energy === 0 && streak === 0) { setEconModal(null); return; }
+    const reason=econModal.reason.trim();
+    if(reason.length<3){toast({variant:'destructive',description:'Enter a reason of at least 3 characters.'});return;}
     setApplyingEcon(true);
-    if(econModal.reason.trim().length<3){return;}
-    await adminUpdateEconomy(econModal.uid, { gold, xp, energy, streak },econModal.reason.trim());
-    setUsers(prev => prev.map(u => u.uid === econModal.uid ? {
-      ...u, economy: {
-        ...u.economy,
-        gold: Math.max(0, (u.economy?.gold || 0) + gold),
-        global_xp: Math.max(0, (u.economy?.global_xp || 0) + xp),
-        energy: Math.max(0, (u.economy?.energy || 0) + energy),
-        streak: Math.max(0, (u.economy?.streak || 0) + streak),
-      }
-    } : u));
-    setApplyingEcon(false);
-    setEconModal(null);
+    try {
+      await adminUpdateEconomy(econModal.uid, { gold, xp, energy, streak },reason);
+      setUsers(prev => prev.map(u => u.uid === econModal.uid ? {
+        ...u, economy: {
+          ...u.economy,
+          gold: Math.max(0, (u.economy?.gold || 0) + gold),
+          global_xp: Math.max(0, (u.economy?.global_xp || 0) + xp),
+          energy: Math.max(0, (u.economy?.energy || 0) + energy),
+          streak: Math.max(0, (u.economy?.streak || 0) + streak),
+        }
+      } : u));
+      setEconModal(null);
+    } catch (error) {
+      toast({variant:'destructive',description:error instanceof Error?error.message:'Economy adjustment failed.'});
+    } finally {
+      setApplyingEcon(false);
+    }
   }
 
   async function handleEconomyAudit() {
@@ -448,27 +453,17 @@ export default function SuperAdminPage() {
     if (!createFname || !createLname || !createUsername || !createEmail || !createPass) {
       setCreateError('Please fill in all fields.'); return;
     }
-    if (createPass.length < 6) { setCreateError('Password must be at least 6 characters.'); return; }
+    if (createPass.length < 8) { setCreateError('Password must be at least 8 characters.'); return; }
     if (!/^[a-zA-Z0-9_]+$/.test(createUsername)) { setCreateError('Username can only contain letters, numbers and underscores.'); return; }
     setCreating(true); setCreateError('');
     try {
       const taken = await isUsernameTaken(createUsername.toLowerCase());
       if (taken) { setCreateError('Username is already taken.'); return; }
-      const admin = getAdminClient();
-      const { data, error } = await admin.auth.admin.createUser({
-        email: createEmail,
-        password: createPass,
-        email_confirm: true,
-        user_metadata: { full_name: `${createFname} ${createLname}`.trim(), name: createUsername },
+      const created = await createManagedUserAccount({
+        firstName: createFname, lastName: createLname, username: createUsername.toLowerCase(),
+        email: createEmail, password: createPass, role: createRole,
       });
-      if (error) throw error;
-      const authUser = data.user;
-      if (!authUser) throw new Error('No user returned.');
-      await createUserDataAdmin(authUser.id, {
-        firstName: createFname, lastName: createLname, username: createUsername.toLowerCase(), email: createEmail,
-        role: createRole, onboardingComplete: true,
-      });
-      setUsers(prev => [...prev, { uid: authUser.id, firstName: createFname, lastName: createLname, username: createUsername.toLowerCase(), email: createEmail, role: createRole, onboardingComplete: true } as UserData & { uid: string }]);
+      setUsers(prev => [...prev, created]);
       setCreateModal(false);
       setCreateFname(''); setCreateLname(''); setCreateUsername(''); setCreateEmail(''); setCreatePass(''); setCreateError('');
     } catch (e: any) {
@@ -551,10 +546,10 @@ export default function SuperAdminPage() {
   ];
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#0f172a', overflow: 'hidden' }}>
+    <div className="app-viewport" style={{ display: 'flex', flexDirection: 'column', background: '#0f172a', overflow: 'hidden', paddingBottom: 'calc(66px + env(safe-area-inset-bottom))', boxSizing: 'border-box' }}>
       {/* Header */}
-      <div style={{ padding: '13px 18px', background: '#1e293b', borderBottom: '2px solid #a855f744', flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+      <div className="app-safe-header" style={{ paddingBottom: 10, background: '#1e293b', borderBottom: '2px solid #a855f744', flexShrink: 0 }}>
+        <div className="phone-wrap" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <div>
             <h2 style={{ margin: 0, color: 'white', fontSize: 19, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ color: '#a855f7' }}>👑</span> Super Admin Panel
@@ -568,19 +563,20 @@ export default function SuperAdminPage() {
             <button onClick={loadData} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', cursor: 'pointer' }}>
               ↺ Refresh
             </button>
+            <SettingsLauncher compact inline />
             <button onClick={async () => { await performSignOut(); }} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', background: 'transparent', border: '1px solid #ef4444', color: '#f87171', cursor: 'pointer' }}>
               Sign Out
             </button>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        <nav aria-label="Super admin sections" className="app-safe-nav" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50, display: 'flex', justifyContent: 'space-around', gap: 4, background: 'rgba(15,23,42,.98)', borderTop: '1px solid #334155', paddingTop: 7 }}>
           {tabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
-              padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit',
+              flex: 1, padding: '5px 4px', borderRadius: 8, fontSize: 11, fontWeight: 'bold', fontFamily: 'inherit',
               background: tab === t.id ? 'rgba(168,85,247,0.2)' : 'transparent',
               border: `1px solid ${tab === t.id ? 'rgba(168,85,247,0.5)' : 'transparent'}`,
               color: tab === t.id ? '#d8b4fe' : '#64748b', cursor: 'pointer', whiteSpace: 'nowrap',
-              display: 'flex', alignItems: 'center', gap: 6, position: 'relative'
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative'
             }}>
               {t.icon} {t.label}
               {t.badge != null && t.badge > 0 && (
@@ -595,7 +591,7 @@ export default function SuperAdminPage() {
               )}
             </button>
           ))}
-        </div>
+        </nav>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>

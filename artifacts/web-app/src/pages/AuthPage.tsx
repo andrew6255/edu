@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import { requireSupabase, getAdminClient } from '@/lib/supabase';
+import { requireSupabase } from '@/lib/supabase';
 import {
-  findUserByUsername, createUserData, isUsernameTaken, getUserData, requestGuardianConsent
+  createUserData, isUsernameTaken, getUserData, requestGuardianConsent
 } from '@/lib/userService';
+import { loginWithIdentifier } from '@/lib/authApiService';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getRememberedAccounts, removeRememberedAccount, switchToRememberedAccount, RememberedAccount
@@ -36,7 +37,7 @@ async function ensureUserDoc(authUser: {
   uid: string;
   displayName: string | null;
   email: string | null;
-}, role: 'student' | 'superadmin' = 'student', onboardingComplete = true) {
+}, onboardingComplete = true) {
   const existing = await getUserData(authUser.uid);
   if (!existing) {
     const rawName = authUser.displayName || 'LogicLord';
@@ -47,7 +48,7 @@ async function ensureUserDoc(authUser: {
       lastName: parts.slice(1).join(' ') || '',
       username,
       email: authUser.email || '',
-      role,
+      role: 'student',
       onboardingComplete,
     });
   }
@@ -164,15 +165,7 @@ export default function AuthPage() {
 
     let success = false;
     try {
-      const supabase = requireSupabase();
-      let loginEmail = loginId.trim();
-      if (!loginId.includes('@')) {
-        const found = await findUserByUsername(loginId.toLowerCase().trim());
-        if (!found) { setError('Username not found.'); return; }
-        loginEmail = found.email;
-      }
-      const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password: loginPass });
-      if (error) throw error;
+      await loginWithIdentifier(loginId.trim(),loginPass);
       
       success = true;
       // The useEffect listener on user and userData will handle the client-side routing.
@@ -196,7 +189,7 @@ export default function AuthPage() {
     const needsGuardianConsent = accountType === 'student' && age < 18;
     if (needsGuardianConsent && !/^\S+@\S+\.\S+$/.test(guardianEmail.trim())) return setError('Enter a valid parent or guardian email.');
     if (pass !== confirm) return setError('Passwords do not match.');
-    if (pass.length < 6) return setError('Password must be at least 6 characters.');
+    if (pass.length < 8) return setError('Password must be at least 8 characters.');
     if (!/^[a-zA-Z0-9_]+$/.test(username)) return setError('Username can only contain letters, numbers and underscores.');
     setSubmitting(true); setError('');
     try {
@@ -223,48 +216,7 @@ export default function AuthPage() {
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
       if (code === 'user_already_exists' || code === 'email_exists') {
-        // Ghost user: auth entry exists but profile was admin-deleted.
-        // Use admin client to find & delete the ghost, then retry signup.
-        try {
-          const admin = getAdminClient();
-          // Find the ghost auth user by email
-          const { data: listData } = await admin.auth.admin.listUsers();
-          const ghost = listData?.users?.find((u: { email?: string }) => u.email === email);
-          if (ghost) {
-            // Verify there's no profile (truly a ghost)
-            const existing = await getUserData(ghost.id);
-            if (existing) {
-              setError('An account with this email already exists.');
-              return;
-            }
-            // Delete the ghost auth entry
-            await admin.auth.admin.deleteUser(ghost.id);
-            // Retry signup
-            const supabase = requireSupabase();
-            const { data: retryData, error: retryError } = await supabase.auth.signUp({
-              email,
-              password: pass,
-              options: { data: { full_name: `${fname} ${lname}`.trim(), name: username } },
-            });
-            if (retryError) throw retryError;
-            const authUser = retryData.user;
-            if (!authUser) throw new Error('Registration returned no user.');
-            await createUserData(authUser.id, {
-              firstName: fname, lastName: lname, username, email,
-              role: accountType,
-              onboardingComplete: true,
-              birthDate,
-              countryCode: 'EG',
-              guardianConsentStatus: needsGuardianConsent ? 'pending' : 'not_required',
-            });
-            if (needsGuardianConsent) await requestGuardianConsent(authUser.id, guardianEmail);
-            return;
-          }
-          setError('An account with this email already exists.');
-        } catch (retryErr) {
-          console.error('Ghost user cleanup failed:', retryErr);
-          setError('An account with this email already exists.');
-        }
+        setError('An account with this email already exists. Sign in or use password recovery.');
       } else {
         setError(formatAuthError(e, 'Registration failed'));
       }

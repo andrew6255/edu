@@ -7,6 +7,8 @@ import symbolRecognitionRouter from "../modules/symbol-recognition/routes";
 import aiTutorRouter from "../modules/ai-tutor/routes";
 import aiFeaturesRouter from "../modules/ai-features/routes";
 import economyRouter from "../modules/economy/routes";
+import adminRouter from "../modules/admin/routes";
+import authRouter from "../modules/auth/routes";
 
 const router: IRouter = Router();
 
@@ -18,5 +20,7 @@ router.use(symbolRecognitionRouter);
 router.use(aiTutorRouter);
 router.use(aiFeaturesRouter);
 router.use(economyRouter);
+router.use(adminRouter);
+router.use(authRouter);
 
 export default router;

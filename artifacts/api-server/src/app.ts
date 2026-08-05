@@ -7,6 +7,17 @@ import { sentryErrorHandler } from "./lib/sentry";
 
 const app: Express = express();
 
+app.set('trust proxy', 1);
+
+const configuredOrigins = (process.env['CORS_ALLOWED_ORIGINS'] ?? '')
+  .split(',').map((origin) => origin.trim()).filter(Boolean);
+const allowedOrigins = new Set([
+  ...configuredOrigins,
+  'capacitor://localhost',
+  'https://localhost',
+  ...(process.env['NODE_ENV'] === 'production' ? [] : ['http://localhost:3000', 'http://localhost:5173']),
+]);
+
 app.use(
   pinoHttp({
     logger,
@@ -26,7 +37,12 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin)) { callback(null, true); return; }
+    callback(new Error('Origin is not allowed.'));
+  },
+}));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true }));
 

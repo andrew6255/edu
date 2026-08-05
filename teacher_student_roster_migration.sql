@@ -1,6 +1,12 @@
 -- Teacher student roster, private classroom notes, and one-minute roster invites.
 -- Apply after classroom_rls.sql.
 
+create or replace function rls_admin_manages_teacher(p_admin_uid text, p_teacher_uid text)
+returns boolean language sql stable security definer set search_path=public
+as $$
+  select exists(select 1 from admin_teacher_assignments where admin_id=p_admin_uid and teacher_id=p_teacher_uid);
+$$;
+
 -- Classroom membership is teacher/admin managed only. Students may no longer
 -- add or reactivate themselves through the former classroom join-code flow.
 drop policy if exists gd_classroom_tcm_insert on global_docs;
@@ -8,7 +14,8 @@ create policy gd_classroom_tcm_insert on global_docs as restrictive for insert t
 with check (
   collection <> 'teacher_class_members'
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 );
 
 drop policy if exists gd_classroom_tcm_update on global_docs;
@@ -16,12 +23,14 @@ create policy gd_classroom_tcm_update on global_docs as restrictive for update t
 using (
   collection <> 'teacher_class_members'
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 )
 with check (
   collection <> 'teacher_class_members'
   or rls_is_classroom_teacher(auth.uid()::text, data->>'classId')
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_can_view_classroom(auth.uid()::text, data->>'classId')
 );
 
 revoke execute on function join_class_by_code_rpc(text, text, text) from authenticated;
@@ -49,20 +58,21 @@ using (
   collection <> 'teacher_students'
   or data->>'teacherId' = auth.uid()::text
   or data->>'studentId' = auth.uid()::text
-  or rls_user_role(auth.uid()::text) in ('admin', 'superadmin')
+  or rls_user_role(auth.uid()::text) = 'superadmin'
+  or rls_admin_manages_teacher(auth.uid()::text, data->>'teacherId')
 );
 
 drop policy if exists gd_teacher_students_write on global_docs;
 drop policy if exists gd_teacher_students_insert on global_docs;
 create policy gd_teacher_students_insert on global_docs as restrictive for insert to authenticated
-with check (collection <> 'teacher_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) in ('admin', 'superadmin'));
+with check (collection <> 'teacher_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) = 'superadmin' or rls_admin_manages_teacher(auth.uid()::text, data->>'teacherId'));
 drop policy if exists gd_teacher_students_update on global_docs;
 create policy gd_teacher_students_update on global_docs as restrictive for update to authenticated
-using (collection <> 'teacher_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) in ('admin', 'superadmin'))
-with check (collection <> 'teacher_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) in ('admin', 'superadmin'));
+using (collection <> 'teacher_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) = 'superadmin' or rls_admin_manages_teacher(auth.uid()::text, data->>'teacherId'))
+with check (collection <> 'teacher_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) = 'superadmin' or rls_admin_manages_teacher(auth.uid()::text, data->>'teacherId'));
 drop policy if exists gd_teacher_students_delete on global_docs;
 create policy gd_teacher_students_delete on global_docs as restrictive for delete to authenticated
-using (collection <> 'teacher_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) in ('admin', 'superadmin'));
+using (collection <> 'teacher_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) = 'superadmin' or rls_admin_manages_teacher(auth.uid()::text, data->>'teacherId'));
 
 drop policy if exists gd_teacher_student_codes_select on global_docs;
 create policy gd_teacher_student_codes_select on global_docs as restrictive for select to authenticated
@@ -75,8 +85,8 @@ with check (collection <> 'teacher_student_codes' or data->>'teacherId' = auth.u
 
 drop policy if exists gd_teacher_removed_students_access on global_docs;
 create policy gd_teacher_removed_students_access on global_docs as restrictive for all to authenticated
-using (collection <> 'teacher_removed_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) in ('admin', 'superadmin'))
-with check (collection <> 'teacher_removed_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) in ('admin', 'superadmin'));
+using (collection <> 'teacher_removed_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) = 'superadmin' or rls_admin_manages_teacher(auth.uid()::text, data->>'teacherId'))
+with check (collection <> 'teacher_removed_students' or data->>'teacherId' = auth.uid()::text or rls_user_role(auth.uid()::text) = 'superadmin' or rls_admin_manages_teacher(auth.uid()::text, data->>'teacherId'));
 
 drop policy if exists gd_teacher_student_reports_access on global_docs;
 create policy gd_teacher_student_reports_access on global_docs as restrictive for all to authenticated

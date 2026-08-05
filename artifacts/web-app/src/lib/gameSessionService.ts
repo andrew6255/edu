@@ -106,17 +106,17 @@ export async function sendChallenge(
   const normalized = trimmed.toLowerCase();
 
   try {
-    // Look up username via Supabase profiles
+    // Look up only the privacy-safe public handle fields.
     const supabase = requireSupabase();
     const { data: profileRows } = await supabase
-      .from('profiles')
+      .from('profile_directory')
       .select('id')
       .eq('username', normalized)
       .limit(1);
 
     let toUid: string | undefined = profileRows?.[0]?.id;
     if (!toUid && trimmed !== normalized) {
-      const { data: rows2 } = await supabase.from('profiles').select('id').eq('username', trimmed).limit(1);
+      const { data: rows2 } = await supabase.from('profile_directory').select('id').eq('username', trimmed).limit(1);
       toUid = rows2?.[0]?.id;
     }
     if (!toUid) return { success: false, error: 'Username not found' };

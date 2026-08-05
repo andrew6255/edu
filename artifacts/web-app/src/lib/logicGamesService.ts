@@ -1,4 +1,4 @@
-import { requireSupabase, getAdminClient } from '@/lib/supabase';
+import { requireSupabase } from '@/lib/supabase';
 import type { LogicGameNode, LogicGameQuestionsDoc, LogicGamesProgressDoc } from '@/types/logicGames';
 
 const NODES_PUBLIC_COL = 'logic_game_nodes_public';
@@ -53,7 +53,7 @@ async function listNodes(table: string): Promise<LogicGameNode[]> {
 
 async function upsertNode(table: string, node: LogicGameNode, publishedAt?: string): Promise<void> {
   const now = new Date().toISOString();
-  const supabase = getAdminClient();
+  const supabase = requireSupabase();
   const payload: Record<string, unknown> = {
     id: node.id,
     iq: node.iq,
@@ -77,7 +77,7 @@ async function getQuestions(table: string, nodeId: string): Promise<LogicGameQue
 
 async function replaceQuestions(table: string, nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>, publishedAt?: string): Promise<void> {
   const now = new Date().toISOString();
-  const supabase = getAdminClient();
+  const supabase = requireSupabase();
 
   const newQuestions = docData.questions;
   const newIds = new Set(newQuestions.map((q) => q.id));
@@ -147,7 +147,7 @@ export async function upsertLogicGameNode(node: LogicGameNode): Promise<void> {
 }
 
 export async function deleteLogicGameNode(nodeId: string): Promise<void> {
-  const supabase = getAdminClient();
+  const supabase = requireSupabase();
   const { error: qError } = await supabase.from(QUESTIONS_PUBLIC_COL as any).delete().eq('node_id', nodeId);
   if (qError) throw qError;
   const { error } = await supabase.from(NODES_PUBLIC_COL as any).delete().eq('id', nodeId);
