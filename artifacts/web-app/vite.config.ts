@@ -22,14 +22,17 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port: Number(process.env.PORT) || 3000,
-    strictPort: false,
+    // Keep the browser dev server away from the API's PORT (3001). Using the
+    // generic PORT variable here previously let Vite claim the API port and
+    // return index.html for /api requests.
+    port: 5173,
+    strictPort: true,
     host: "0.0.0.0",
     allowedHosts: true,
   },
   preview: {
-    port: Number(process.env.PORT) || 3000,
-    strictPort: false,
+    port: 4173,
+    strictPort: true,
     host: "0.0.0.0",
     allowedHosts: true,
   },
