@@ -83,6 +83,15 @@ import {
 } from '@/lib/programAdminService';
 
 
+// Dialog stacking. The floating settings launcher sits at 1500 and the settings
+// modals at 1600/1700, so admin dialogs must clear 1700 or the settings gear
+// renders on top of them — and stays clickable through the overlay.
+const Z_DIALOG_BACKDROP = 1800;
+const Z_DIALOG_PANEL = 1801;
+/** Nested dialogs opened from within another dialog (e.g. question details). */
+const Z_NESTED_DIALOG_BACKDROP = 1900;
+const Z_NESTED_DIALOG_PANEL = 1901;
+
 type Tab = 'overview' | 'users' | 'programs' | 'logicGames';
 
 const ROLE_ORDER: UserRole[] = ['student', 'superadmin', 'admin', 'teacher', 'teacher_assistant', 'parent'];
@@ -912,11 +921,11 @@ export default function SuperAdminPage() {
       {/* Economy modal */}
       {econModal && (
         <>
-          <div onClick={() => setEconModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000 }} />
+          <div onClick={() => setEconModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: Z_DIALOG_BACKDROP }} />
           <div style={{
             position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
             background: '#1e293b', borderRadius: 16, padding: 26, width: 'min(360px, 92vw)',
-            border: '2px solid #fbbf24', zIndex: 1001, animation: 'slideUp 0.2s ease'
+            border: '2px solid #fbbf24', zIndex: Z_DIALOG_PANEL, animation: 'slideUp 0.2s ease'
           }}>
             <h2 style={{ margin: '0 0 14px', color: 'white', fontSize: 17 }}>✏️ Adjust Economy — {econModal.name}</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginBottom: 14 }}>
@@ -959,11 +968,11 @@ export default function SuperAdminPage() {
       {/* Create Account modal */}
       {createModal && (
         <>
-          <div onClick={() => setCreateModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000 }} />
+          <div onClick={() => setCreateModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: Z_DIALOG_BACKDROP }} />
           <div style={{
             position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
             background: '#1e293b', borderRadius: 14, border: '2px solid #a855f7', padding: 24,
-            zIndex: 1001, width: 'min(380px, 90vw)', maxHeight: '90vh', overflowY: 'auto',
+            zIndex: Z_DIALOG_PANEL, width: 'min(380px, 90vw)', maxHeight: '90vh', overflowY: 'auto',
             boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
           }}>
             <h3 style={{ color: 'white', margin: '0 0 16px', fontSize: 16 }}>Create Teacher / Admin Account</h3>
@@ -1020,12 +1029,12 @@ export default function SuperAdminPage() {
 
         return (
           <>
-            <div onClick={() => setAtaModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000 }} />
+            <div onClick={() => setAtaModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: Z_DIALOG_BACKDROP }} />
             <div style={{
               position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
               background: '#1e293b', borderRadius: 16, padding: 26, width: 'min(420px, 92vw)',
               maxHeight: '80vh', display: 'flex', flexDirection: 'column',
-              border: `2px solid ${ROLE_COLORS.teacher}`, zIndex: 1001, animation: 'slideUp 0.2s ease'
+              border: `2px solid ${ROLE_COLORS.teacher}`, zIndex: Z_DIALOG_PANEL, animation: 'slideUp 0.2s ease'
             }}>
               <h2 style={{ margin: '0 0 6px', color: 'white', fontSize: 17 }}>
                 👥 Manage Teachers — {ataModal.adminName}
@@ -1067,11 +1076,11 @@ export default function SuperAdminPage() {
       {/* ── Class Member Modal ─────────────────────────────────────────────── */}
       {classMemberModal && (
         <>
-          <div onClick={() => setClassMemberModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000 }} />
+          <div onClick={() => setClassMemberModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: Z_DIALOG_BACKDROP }} />
           <div style={{
             position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
             background: '#1e293b', border: '1px solid #475569', borderRadius: 14,
-            padding: 24, width: '90%', maxWidth: 500, zIndex: 1001,
+            padding: 24, width: '90%', maxWidth: 500, zIndex: Z_DIALOG_PANEL,
             boxShadow: '0 20px 40px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column',
             maxHeight: '80vh'
           }}>
@@ -1494,6 +1503,31 @@ function LogicGamesAdmin() {
     }
   }
 
+  // The server already supports cancelling a run; it just had no way to be told
+  // which one, because the job id was generated server-side and never sent back.
+  // Minting it here means the client can address the job it started.
+  const extractionJobIdRef = useRef<string | null>(null);
+  const extractionAbortRef = useRef<AbortController | null>(null);
+  const [cancellingExtraction, setCancellingExtraction] = useState(false);
+
+  async function cancelExtraction() {
+    const jobId = extractionJobIdRef.current;
+    setCancellingExtraction(true);
+    try {
+      if (jobId) {
+        const apiUrl = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() || 'http://localhost:5000';
+        // Tell the server first so it aborts the in-flight AI request, then stop
+        // reading locally. Doing it the other way round would leave the run going.
+        await fetch(`${apiUrl}/api/program-ingestion/extract-iq-pdf/jobs/${encodeURIComponent(jobId)}/cancel`, {
+          method: 'POST',
+        }).catch(() => { /* still abort locally below */ });
+      }
+    } finally {
+      extractionAbortRef.current?.abort();
+      setCancellingExtraction(false);
+    }
+  }
+
   async function handleExtractFromPdf() {
     if (!pdfFile) return;
     setPdfExtracting(true);
@@ -1505,8 +1539,16 @@ function LogicGamesAdmin() {
     ]);
     try {
       const apiUrl = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() || 'http://localhost:5000';
+      const jobId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? `iq-extract-${crypto.randomUUID()}`
+        : `iq-extract-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      extractionJobIdRef.current = jobId;
+      const abortController = new AbortController();
+      extractionAbortRef.current = abortController;
+
       const formData = new FormData();
       formData.append('file', pdfFile);
+      formData.append('jobId', jobId);
       if (answersFile) {
         formData.append('answersFile', answersFile);
       }
@@ -1514,6 +1556,7 @@ function LogicGamesAdmin() {
       const aiRes = await fetch(`${apiUrl}/api/program-ingestion/extract-iq-pdf`, {
         method: 'POST',
         body: formData,
+        signal: abortController.signal,
       });
 
       if (!aiRes.ok || !aiRes.body) {
@@ -1604,11 +1647,25 @@ function LogicGamesAdmin() {
         toast({ title: `✅ Extracted ${formatted.length} questions` });
       }
     } catch (e) {
-      setPdfError(e instanceof Error ? e.message : String(e));
-      setPdfProgress('');
-      setPdfSteps(prev => prev.map(s => ({ ...s, done: true })));
+      // A cancel aborts the stream, which surfaces here as an AbortError. That is
+      // an intentional stop, not a failure, so report it as such.
+      const aborted = (e instanceof DOMException && e.name === 'AbortError')
+        || (e instanceof Error && /abort/i.test(e.message));
+      if (aborted) {
+        setPdfError(null);
+        setPdfProgress('');
+        setPdfSteps([]);
+        toast({ title: '🛑 Extraction cancelled' });
+      } else {
+        setPdfError(e instanceof Error ? e.message : String(e));
+        setPdfProgress('');
+        setPdfSteps(prev => prev.map(s => ({ ...s, done: true })));
+      }
     } finally {
       setPdfExtracting(false);
+      setCancellingExtraction(false);
+      extractionAbortRef.current = null;
+      extractionJobIdRef.current = null;
     }
   }
 
@@ -1975,11 +2032,11 @@ function LogicGamesAdmin() {
 
         return (
           <>
-            <div onClick={() => saveAndClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1100 }} />
+            <div onClick={() => saveAndClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: Z_NESTED_DIALOG_BACKDROP }} />
             <div style={{
               position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
               background: '#1e293b', borderRadius: 16, border: '1px solid #475569',
-              zIndex: 1101, width: 'min(600px, 95vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+              zIndex: Z_NESTED_DIALOG_PANEL, width: 'min(600px, 95vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
               boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
             }}>
               <div style={{ padding: '16px 20px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2049,11 +2106,11 @@ function LogicGamesAdmin() {
       {/* Add Questions Modal */}
       {addModalOpen && (
         <>
-          <div onClick={() => !pdfExtracting && setAddModalOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000 }} />
+          <div onClick={() => !pdfExtracting && setAddModalOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: Z_DIALOG_BACKDROP }} />
           <div style={{
             position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
             background: '#1e293b', borderRadius: 16, border: '1px solid #475569',
-            zIndex: 1001, width: 'min(800px, 95vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+            zIndex: Z_DIALOG_PANEL, width: 'min(800px, 95vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
             boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
           }}>
             <div style={{ padding: '20px 24px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2132,6 +2189,21 @@ function LogicGamesAdmin() {
                       <span style={{ color: '#f8fafc', fontWeight: 800, fontSize: 16, letterSpacing: '0.3px', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
                         AI Vision Processing Center
                       </span>
+                      <button
+                        onClick={() => void cancelExtraction()}
+                        disabled={cancellingExtraction}
+                        title="Stop this extraction. Nothing is saved."
+                        style={{
+                          marginLeft: 8, padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 800,
+                          fontFamily: 'inherit',
+                          background: 'rgba(239,68,68,0.15)', color: '#fca5a5',
+                          border: '1px solid rgba(239,68,68,0.45)',
+                          cursor: cancellingExtraction ? 'progress' : 'pointer',
+                          opacity: cancellingExtraction ? 0.6 : 1,
+                        }}
+                      >
+                        {cancellingExtraction ? 'Cancelling…' : '🛑 Cancel'}
+                      </button>
                     </div>
                     <div style={{
                       display: 'flex',
