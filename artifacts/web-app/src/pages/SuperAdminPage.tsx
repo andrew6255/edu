@@ -2147,7 +2147,9 @@ function LogicGamesAdmin() {
                     maxHeight: '240px',
                     overflowY: 'auto'
                   }}>
-                    {pdfSteps.map((step, i) => (
+                    {/* Newest first. The index is captured before reversing so React
+                        keys stay stable as steps are appended. */}
+                    {pdfSteps.map((step, i) => ({ step, i })).reverse().map(({ step, i }) => (
                       <div key={i} style={{
                         display: 'flex',
                         alignItems: 'flex-start',
