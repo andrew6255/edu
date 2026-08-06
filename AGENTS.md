@@ -23,7 +23,7 @@ This file is the handoff contract for automated agents and developers working in
 
 - Never put secrets in a `VITE_*` variable or browser code.
 - Never use the service-role key from the frontend.
-- `SUPERADMIN_USERNAME` and `SUPERADMIN_PASSWORD` are optional server-only recovery credentials. Never copy them into a `VITE_*` variable, logs, source, or documentation.
+- Supabase is the only store for superadmin credentials. Never reintroduce an environment variable that overrides a stored password, and never hardcode the account's password in source, logs, or documentation.
 - Browser access must remain protected by RLS; role checks in React are presentation only.
 - Privileged user management, wallet mutations, impersonation, confidential answers, and final progress authority belong on the API/server side.
 - Classroom storage is private and uses signed URLs. Validate both database scope and storage-object ownership.

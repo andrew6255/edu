@@ -1,11 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Router, type IRouter, type Request, type Response } from 'express';
-import {
-  fetchServiceRows,
-  signInWithPasswordServer,
-  updateServiceAuthUserPassword,
-  updateServiceRows,
-} from '../../lib/supabaseServer';
+import { fetchServiceRows, signInWithPasswordServer } from '../../lib/supabaseServer';
 
 const router: IRouter = Router();
 const loginWindows = new Map<string, { startedAt: number; attempts: number }>();
@@ -40,47 +35,8 @@ function consumeLoginAttempt(key: string): boolean {
   return true;
 }
 
-type SuperadminProfile = { id: string; email?: string; username?: string; role?: string };
-
-async function synchronizeConfiguredSuperadmin(loginId: string): Promise<string | null> {
-  const configuredUsername = normalizedLogin(process.env['SUPERADMIN_USERNAME']);
-  if (!configuredUsername || loginId !== configuredUsername) return null;
-  if (!/^[a-z0-9_]+$/.test(configuredUsername) || configuredUsername.length > 40) {
-    throw new Error('SUPERADMIN_CONFIG_INVALID');
-  }
-
-  const configuredPassword = process.env['SUPERADMIN_PASSWORD'] ?? '';
-  if (configuredPassword.length < 8 || configuredPassword.length > 200) {
-    throw new Error('SUPERADMIN_CONFIG_INVALID');
-  }
-
-  const profiles = await fetchServiceRows<SuperadminProfile>('profiles', {
-    select: 'id,email,username,role',
-    role: 'eq.superadmin',
-    limit: '2',
-  });
-  if (profiles.length !== 1 || !profiles[0]?.id || !profiles[0]?.email) {
-    throw new Error('SUPERADMIN_CONFIG_INVALID');
-  }
-  const profile = profiles[0];
-
-  const conflicts = await fetchServiceRows<{ id: string }>('profiles', {
-    select: 'id',
-    username: `eq.${configuredUsername}`,
-    limit: '2',
-  });
-  if (conflicts.some((row) => row.id !== profile.id)) throw new Error('SUPERADMIN_CONFIG_INVALID');
-
-  // The server environment is intentionally authoritative for this one
-  // emergency/admin account. No credential value is logged or returned.
-  await updateServiceAuthUserPassword(profile.id, configuredPassword);
-  if (profile.username !== configuredUsername) {
-    const updated = await updateServiceRows<SuperadminProfile>('profiles', 'id', profile.id, { username: configuredUsername });
-    if (updated[0]?.username !== configuredUsername) throw new Error('SUPERADMIN_CONFIG_INVALID');
-  }
-  return profile.email;
-}
-
+// Every account, superadmin included, authenticates against the credentials
+// stored in Supabase. The server never overrides a stored password.
 router.post('/auth/password-login', async (req: Request, res: Response) => {
   try {
     const body=(req.body??{}) as Record<string,unknown>;
@@ -92,13 +48,8 @@ router.post('/auth/password-login', async (req: Request, res: Response) => {
     let email=loginId;
     if(!loginId.includes('@')){
       if(!/^[a-z0-9_]+$/.test(loginId)){res.status(401).json({error:'Incorrect email/username or password.'});return;}
-      const configuredSuperadminEmail = await synchronizeConfiguredSuperadmin(loginId);
-      if (configuredSuperadminEmail) {
-        email = configuredSuperadminEmail;
-      } else {
-        const profiles=await fetchServiceRows<{email?:string}>('profiles',{select:'email',username:`eq.${loginId}`,limit:'1'});
-        email=profiles[0]?.email??'';
-      }
+      const profiles=await fetchServiceRows<{email?:string}>('profiles',{select:'email',username:`eq.${loginId}`,limit:'1'});
+      email=profiles[0]?.email??'';
     }
     if(!email){res.status(401).json({error:'Incorrect email/username or password.'});return;}
     const session=await signInWithPasswordServer(email,password);
@@ -109,13 +60,8 @@ router.post('/auth/password-login', async (req: Request, res: Response) => {
   }catch(error){
     const message=error instanceof Error?error.message:'';
     const invalidCredentials = message === 'INVALID_LOGIN';
-    const invalidConfiguration = message === 'SUPERADMIN_CONFIG_INVALID';
     res.status(invalidCredentials ? 401 : 500).json({
-      error: invalidCredentials
-        ? 'Incorrect email/username or password.'
-        : invalidConfiguration
-          ? 'Superadmin login is not configured correctly on the API server.'
-          : 'Login failed.',
+      error: invalidCredentials ? 'Incorrect email/username or password.' : 'Login failed.',
     });
   }
 });
