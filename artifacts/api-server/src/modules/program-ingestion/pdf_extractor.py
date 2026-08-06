@@ -104,6 +104,34 @@ def auto_trim_crop(crop_img):
     return trimmed
 
 
+# Breathing room drawn around every extracted figure, as a fraction of its larger
+# side, with a floor in pixels. Pages render at 2x, so 28px reads as ~14pt.
+FIGURE_MARGIN_RATIO = 0.06
+FIGURE_MARGIN_MIN_PX = 28
+FIGURE_MARGIN_MAX_PX = 90
+
+
+def add_white_margin(crop_img):
+    """Frame a crop in white so the figure's own borders stay visible.
+
+    Padding the crop *before* cutting cannot solve this: for a native image the
+    crop box is already exactly the figure, so widening it pulls in neighbouring
+    page content, and auto_trim_crop can only re-pad within what it was given.
+    Compositing a margin afterwards is independent of what surrounds the figure
+    on the page, so a square with a white background no longer comes out cut
+    exactly on its outline.
+    """
+    if crop_img is None or crop_img.size == 0:
+        return crop_img
+    h, w = crop_img.shape[:2]
+    margin = int(round(FIGURE_MARGIN_RATIO * max(h, w)))
+    margin = max(FIGURE_MARGIN_MIN_PX, min(FIGURE_MARGIN_MAX_PX, margin))
+    return cv2.copyMakeBorder(
+        crop_img, margin, margin, margin, margin,
+        cv2.BORDER_CONSTANT, value=(255, 255, 255),
+    )
+
+
 def draw_label_with_bg(img, label, x, y, font_scale=1.0, thickness=2):
     """Draw a label string with a white filled background rectangle for maximum readability."""
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -345,8 +373,10 @@ def extract_pdf(pdf_path, mode="text"):
                     cy1 = min(h_img, y1 + pad)
 
                 cropped = clean_img[cy0:cy1, cx0:cx1]
-                # Auto-trim excess whitespace from the crop
+                # Tighten to the actual content, then frame it in white so the
+                # figure's outline is clearly visible rather than flush to the edge.
                 cropped = auto_trim_crop(cropped)
+                cropped = add_white_margin(cropped)
 
                 success, buffer = cv2.imencode('.png', cropped)
                 if success:

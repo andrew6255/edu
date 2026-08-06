@@ -25,6 +25,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   function updateUserDataState(data: UserData | null) {
+    // Keep the previous object when the profile is unchanged. Returning to a
+    // background tab makes Supabase re-emit an auth event, which refetches the
+    // profile; handing back a fresh-but-identical object re-fires every
+    // useEffect([userData]) downstream, and pages that reload on it would throw
+    // away whatever the user was in the middle of typing.
+    const previous = userDataRef.current;
+    if (previous && data && JSON.stringify(previous) === JSON.stringify(data)) return;
     setUserData(data);
     userDataRef.current = data;
   }

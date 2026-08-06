@@ -69,6 +69,7 @@ import {
   type EconomyReconciliationReport,
 } from '@/lib/economyApiService';
 import type { LogicGameNode, LogicGameQuestionsDoc, LogicGameQuestion } from '@/types/logicGames';
+import type { LogicGameSaveProgress } from '@/lib/logicGamesService';
 import {
   deleteDraftProgramAdmin,
   getDraftProgramAdmin,
@@ -347,19 +348,31 @@ export default function SuperAdminPage() {
     }
   }
 
+  // Which uid this page has already loaded for. Returning from another browser
+  // tab re-emits an auth event; without this the effect would re-run loadData,
+  // flip the full-page loading gate, and unmount the question editor along with
+  // any unsaved work in it.
+  const loadedForUidRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (user === null) {
       setLocation('/auth');
       return;
     }
-    if (userData) {
-      if (userData.role !== 'superadmin') setLocation('/');
-      else loadData();
+    if (!user || !userData) return;
+    if (userData.role !== 'superadmin') {
+      setLocation('/');
+      return;
     }
-  }, [user, userData, setLocation]);
+    if (loadedForUidRef.current === user.uid) return;
+    loadedForUidRef.current = user.uid;
+    void loadData({ initial: true });
+  }, [user?.uid, userData?.role, setLocation]);
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(options?: { initial?: boolean }) {
+    // Only the first load may blank the page. A later refresh updates the lists
+    // in place so it cannot destroy in-progress editing.
+    if (options?.initial) setLoading(true);
     try {
       const [u, ata, psl] = await Promise.all([getAllUsers(), getAdminTeacherAssignments().catch(() => [] as AdminTeacherAssignment[]), getParentStudentLinks().catch(() => [] as ParentStudentLink[])]);
       setUsers(u);
@@ -375,7 +388,7 @@ export default function SuperAdminPage() {
     } catch (e) {
       console.error('Failed to load users:', e);
     } finally {
-      setLoading(false);
+      if (options?.initial) setLoading(false);
     }
   }
 
@@ -560,7 +573,7 @@ export default function SuperAdminPage() {
             <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>Full platform control · All accounts</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={loadData} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', cursor: 'pointer' }}>
+            <button onClick={() => void loadData()} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', cursor: 'pointer' }}>
               ↺ Refresh
             </button>
             <SettingsLauncher compact inline />
@@ -1422,14 +1435,19 @@ function LogicGamesAdmin() {
     }
   }
 
-  async function saveQuestionsList(newQuestions: LogicGameQuestion[]): Promise<boolean> {
+  // Live save progress, so a long "add all" is not a blank wait. Each question is
+  // one request, so these counts are the real state of the save, not an estimate.
+  const [saveProgress, setSaveProgress] = useState<LogicGameSaveProgress | null>(null);
+
+  async function saveQuestionsList(newQuestions: LogicGameQuestion[], options?: { trackProgress?: boolean }): Promise<boolean> {
     if (!selectedNodeId) return false;
     setSaving(true);
+    if (options?.trackProgress) setSaveProgress({ phase: 'preparing', completed: 0, total: newQuestions.length });
     try {
       await upsertLogicGameQuestions(selectedNodeId, {
         questions: newQuestions,
         updatedAt: new Date().toISOString()
-      });
+      }, options?.trackProgress ? setSaveProgress : undefined);
       setQuestions(newQuestions);
       setStatus('✅ Auto-saved');
       return true;
@@ -1438,6 +1456,7 @@ function LogicGamesAdmin() {
       return false;
     } finally {
       setSaving(false);
+      if (options?.trackProgress) setSaveProgress(null);
     }
   }
 
@@ -2460,7 +2479,7 @@ function LogicGamesAdmin() {
                            if (!(await confirm("Some questions do not have a correct answer selected. Add them anyway?"))) return;
                         }
 
-                        const success = await saveQuestionsList([...questions, ...extractedQuestions]);
+                        const success = await saveQuestionsList([...questions, ...extractedQuestions], { trackProgress: true });
                         if (success) {
                           setAddModalOpen(false);
                           setExtractedQuestions(null);
@@ -2470,11 +2489,46 @@ function LogicGamesAdmin() {
                         }
                       }} 
                       className="ll-btn ll-btn-primary" 
-                      style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', flex: 1 }}
+                      disabled={saving}
+                      style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', flex: 1, opacity: saving ? 0.7 : 1, cursor: saving ? 'progress' : 'pointer' }}
                     >
-                      Add All {extractedQuestions.length} Questions to Bucket
+                      {saving && saveProgress ? 'Saving…' : `Add All ${extractedQuestions.length} Questions to Bucket`}
                     </button>
                   </div>
+
+                  {/* Real save progress. Each question is one request, so this bar
+                      tracks actual completed writes rather than a timed animation. */}
+                  {saveProgress && (() => {
+                    const total = Math.max(1, saveProgress.total);
+                    const pct = saveProgress.phase === 'done'
+                      ? 100
+                      : Math.round((saveProgress.completed / total) * 100);
+                    const label =
+                      saveProgress.phase === 'preparing' ? 'Checking which questions already exist…'
+                      : saveProgress.phase === 'saving' ? `Saving question ${Math.min(saveProgress.completed + 1, saveProgress.total)} of ${saveProgress.total}`
+                      : saveProgress.phase === 'removing' ? 'Removing questions you deleted…'
+                      : 'Finishing up…';
+                    return (
+                      <div style={{ marginTop: 14 }} aria-live="polite">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                          <span style={{ color: '#94a3b8', fontSize: 12, fontWeight: 700 }}>{label}</span>
+                          <span style={{ color: '#c4b5fd', fontSize: 12, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+                        </div>
+                        <div style={{ height: 8, background: '#0f172a', borderRadius: 999, overflow: 'hidden', border: '1px solid #334155' }}>
+                          <div style={{
+                            width: `${pct}%`, height: '100%', borderRadius: 999,
+                            background: 'linear-gradient(90deg, #6366f1, #a855f7)',
+                            transition: 'width 0.25s ease-out',
+                          }} />
+                        </div>
+                        {saveProgress.phase === 'saving' && saveProgress.total > 0 && (
+                          <div style={{ color: '#64748b', fontSize: 11, marginTop: 6 }}>
+                            {saveProgress.total - saveProgress.completed} left · questions with images upload more slowly
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>

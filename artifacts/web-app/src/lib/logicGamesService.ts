@@ -93,12 +93,27 @@ async function getQuestions(table: string, nodeId: string): Promise<LogicGameQue
   return mapQuestionsRows(nodeId, rows);
 }
 
-async function replaceQuestions(table: string, nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>, publishedAt?: string): Promise<void> {
+/** Reports real save progress: which phase, and how many rows are done. */
+export type LogicGameSaveProgress = {
+  phase: 'preparing' | 'saving' | 'removing' | 'done';
+  completed: number;
+  total: number;
+};
+
+async function replaceQuestions(
+  table: string,
+  nodeId: string,
+  docData: Omit<LogicGameQuestionsDoc, 'nodeId'>,
+  publishedAt?: string,
+  onProgress?: (progress: LogicGameSaveProgress) => void,
+): Promise<void> {
   const now = new Date().toISOString();
   const supabase = requireSupabase();
 
   const newQuestions = docData.questions;
   const newIds = new Set(newQuestions.map((q) => q.id));
+
+  onProgress?.({ phase: 'preparing', completed: 0, total: newQuestions.length });
 
   // Step 1: Fetch existing question IDs for this node (lightweight query)
   const { data: existingRows, error: fetchError } = await supabase
@@ -129,13 +144,11 @@ async function replaceQuestions(table: string, nodeId: string, docData: Omit<Log
   const CHUNK_SIZE = 1;
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     const chunk = rows.slice(i, i + CHUNK_SIZE);
-    
-    // DEBUG: Log the chunk and its keys to see what is causing the 400 Bad Request
-    if (i === 0) {
-      console.log("[replaceQuestions] Sending chunk 0 keys:", Object.keys(chunk[0]));
-      console.log("[replaceQuestions] Sending chunk 0 sizes (chars):", chunk.map(r => JSON.stringify(r).length));
-    }
-    
+
+    // One request per question, so the count reported here is the true state of
+    // the save rather than an estimate.
+    onProgress?.({ phase: 'saving', completed: i, total: rows.length });
+
     const { error: upsertError } = await supabase
       .from(table as any)
       .upsert(chunk as any, { onConflict: 'node_id,question_id' });
@@ -145,8 +158,11 @@ async function replaceQuestions(table: string, nodeId: string, docData: Omit<Log
     }
   }
 
+  onProgress?.({ phase: 'saving', completed: rows.length, total: rows.length });
+
   // Step 4: Only now delete rows that were explicitly removed (selective, not blanket)
   if (idsToDelete.length > 0) {
+    onProgress?.({ phase: 'removing', completed: rows.length, total: rows.length });
     const { error: deleteError } = await supabase
       .from(table as any)
       .delete()
@@ -316,6 +332,11 @@ export async function submitLogicGameAnswer(input: {
   };
 }
 
-export async function upsertLogicGameQuestions(nodeId: string, docData: Omit<LogicGameQuestionsDoc, 'nodeId'>): Promise<void> {
-  await replaceQuestions(QUESTIONS_PUBLIC_COL, nodeId, docData, new Date().toISOString());
+export async function upsertLogicGameQuestions(
+  nodeId: string,
+  docData: Omit<LogicGameQuestionsDoc, 'nodeId'>,
+  onProgress?: (progress: LogicGameSaveProgress) => void,
+): Promise<void> {
+  await replaceQuestions(QUESTIONS_PUBLIC_COL, nodeId, docData, new Date().toISOString(), onProgress);
+  onProgress?.({ phase: 'done', completed: docData.questions.length, total: docData.questions.length });
 }
