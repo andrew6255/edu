@@ -1,10 +1,41 @@
-export type LogicGameNode = {
+/**
+ * A bucket. Authoring-only: it decides the starting difficulty of questions filed
+ * into it and has no threshold, no unlock gate, and no student-facing meaning.
+ * Questions self-calibrate from that seed as players answer them.
+ */
+export type LogicGameBucket = {
   id: string;
-  iq: number;
-  label: string; // e.g. "IQ 80"
+  label: string; // e.g. "Medium"
+  seedDifficulty: number;
   order: number;
+  /** @deprecated Old level threshold. Dropped once the level map is gone. */
+  iq?: number;
   publishedAt?: string;
   updatedAt?: string;
+};
+
+/** @deprecated Buckets replaced levels; kept so existing imports keep compiling. */
+export type LogicGameNode = LogicGameBucket;
+
+/** A question as served by logic_game_next_question, with the answer key stripped. */
+export type LogicGameServedQuestion = {
+  nodeId: string;
+  questionId: string;
+  promptBlocks?: LogicGamePromptBlock[];
+  promptRawText?: string;
+  promptLatex?: string;
+  timeLimitSec: number;
+  interaction: LogicGameInteraction;
+};
+
+export type LogicGameSubmitResult = {
+  alreadyAnswered: boolean;
+  correct: boolean;
+  mode: 'iq' | 'chill';
+  iqBefore: number;
+  iqAfter: number;
+  delta: number;
+  peakIq?: number;
 };
 
 export type LogicGamePromptBlock =
@@ -64,9 +95,12 @@ export type LogicGameNodeQueue = {
 
 export type LogicGamesProgressDoc = {
   id: 'global';
+  /** Live Elo rating. Falls as well as rises — that symmetry is what keeps it meaningful. */
   iq: number;
-  // Highest unlocked milestone (e.g. 80, 90, 100). IQ cannot drop below this.
-  floorIq: number;
+  /** Cosmetic "highest ever reached" badge. Never decreases. */
+  peakIq: number;
+  /** @deprecated Ratcheting floor from the level system. Dropped in the Elo cleanup. */
+  floorIq?: number;
   nodeQueues?: Record<string, LogicGameNodeQueue>;
   updatedAt: string;
 };

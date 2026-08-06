@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import type { LogicGameNode, LogicGamePromptBlock, LogicGamesProgressDoc, LogicGameQuestion, LogicGameNodeQueue } from '@/types/logicGames';
+import type { LogicGameNode, LogicGamePromptBlock, LogicGamesProgressDoc, LogicGameQuestion, LogicGameServedQuestion, LogicGameNodeQueue } from '@/types/logicGames';
 import {
   ensureLogicGamesProgress,
-  getLogicGameQuestions,
+  fetchNextLogicGameQuestion,
+  getLogicGameQuestionById,
   listLogicGameNodes,
-  setLogicGamesIq,
+  submitLogicGameAnswer,
 } from '@/lib/logicGamesService';
+import { useImmersiveMode } from '@/contexts/ImmersiveContext';
 import { emitSolveEvent } from '@/lib/battlePassEvents';
 import katex from 'katex';
 import { gradeInteraction } from '@/lib/interactionGrader';
@@ -23,26 +25,12 @@ import { useGlobalData } from '@/contexts/GlobalDataContext';
 type GamePlayMode = 'chill' | 'iq';
 type Screen = 'map' | 'playing' | 'friend_waiting' | 'friend_match';
 
-// ── IQ Gain/Loss Calculations ───────────────────────────────────────────────
+// Scoring lives on the server now (logic_game_submit_answer). The browser sends
+// what the student chose and is told what it cost — it no longer computes, and
+// cannot assert, its own rating change.
 
-function computeIqGain(q: LogicGameQuestion, timeTakenSec: number): number {
-  const maxGain = q.maxIqGain ?? q.iqDeltaCorrect ?? 2;
-  const decayRate = q.iqGainDecayRate ?? 0.1;
-  const decayInterval = q.iqGainDecayIntervalSec ?? 10;
-  const intervalsElapsed = Math.floor(timeTakenSec / decayInterval);
-  const gain = maxGain - (decayRate * intervalsElapsed);
-  return Math.max(0, Math.round(gain * 100) / 100);
-}
-
-function computeIqLoss(q: LogicGameQuestion, currentIq: number): number {
-  const baseLoss = q.iqLossBase ?? Math.abs(q.iqDeltaWrong ?? 3);
-  const scaleFactor = q.iqLossScaleFactor ?? 0.05;
-  const questionIq = q.questionIq ?? 80;
-  // If student IQ is much higher than question IQ, they lose more
-  const iqDiff = Math.max(0, currentIq - questionIq);
-  const loss = baseLoss * (1 + iqDiff * scaleFactor);
-  return -Math.round(loss * 100) / 100;
-}
+/** Questions per session. The summary screen shows the rating swing across one. */
+const SESSION_LENGTH = 10;
 
 export default function LogicGamesView() {
   const { user, userData } = useAuth();
@@ -62,11 +50,21 @@ export default function LogicGamesView() {
   const [activeNode, setActiveNode] = useState<LogicGameNode | null>(null);
   const [rankedLoading, setRankedLoading] = useState(false);
   const [rankedError, setRankedError] = useState<string | null>(null);
-  const [rankedQuestions, setRankedQuestions] = useState<LogicGameQuestion[]>([]);
-  const [rankedCurrent, setRankedCurrent] = useState<LogicGameQuestion | null>(null);
+  // The server picks each question, one at a time, matched to the player's rating
+  // and guaranteed never to have been served to them before. Nothing is preloaded,
+  // so entering a session costs one round trip regardless of how much content exists.
+  const [rankedCurrent, setRankedCurrent] = useState<LogicGameServedQuestion | null>(null);
+  const [sessionIndex, setSessionIndex] = useState(0);
+  const [sessionCorrect, setSessionCorrect] = useState(0);
+  const [sessionStartIq, setSessionStartIq] = useState(80);
+  const [sessionSummary, setSessionSummary] = useState<null | { correct: number; total: number; startIq: number; endIq: number }>(null);
+  const [exhausted, setExhausted] = useState(false);
+  const questionStartedAtRef = useRef<number>(0);
   const [rankedAnswerText, setRankedAnswerText] = useState('');
   const [rankedChoiceIndex, setRankedChoiceIndex] = useState<number | null>(null);
   const [rankedFeedback, setRankedFeedback] = useState<null | { correct: boolean; timedOut?: boolean; explanation?: string }>(null);
+  // The IQ change for the question just answered, animated next to the IQ chip.
+  const [iqDeltaFx, setIqDeltaFx] = useState<{ delta: number; key: number } | null>(null);
 
   // IQ mode: upward timer (stopwatch)
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -147,10 +145,9 @@ export default function LogicGamesView() {
     const pid = typeof window !== 'undefined' ? localStorage.getItem('ll:logicGamePreviewNodeId') : null;
     if (!pid) return;
     localStorage.removeItem('ll:logicGamePreviewNodeId');
-    const node = sorted.find((n) => n.id === pid) ?? null;
-    if (node) {
-      // Direct start in IQ mode
-      void startPlaying(node);
+    // Buckets are not student-facing, so a preview just drops into a session.
+    if (sorted.some((n) => n.id === pid)) {
+      void startSession();
     }
   }, [sorted]);
 
@@ -170,16 +167,24 @@ export default function LogicGamesView() {
       setFriendMatchId(mid);
       setScreen('friend_match');
     } else if (nid) {
-      const node = nodes.find((n) => n.id === nid) ?? null;
-      if (node) {
-        void startPlaying(node);
-      }
+      void startSession();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid, nodes.length]);
 
   const floorIq = progress?.floorIq ?? 80;
   const currentIq = progress?.iq ?? 80;
+  const peakIq = progress?.peakIq ?? currentIq;
+
+  // Hide the app HUD and bottom nav while a question is on screen. This also
+  // removes the play-mode switch from reach, so the mode can only change on the map.
+  useImmersiveMode(screen === 'playing');
+
+  const canSubmitAnswer = !!rankedCurrent && (
+    rankedCurrent.interaction.type === 'mcq'
+      ? rankedChoiceIndex != null
+      : rankedAnswerText.trim().length > 0
+  );
   const currentUnlockedIdx = useMemo(() => {
     if (sorted.length === 0) return 0;
     let idx = 0;
@@ -205,16 +210,8 @@ export default function LogicGamesView() {
     }, 50);
   }, [sorted.length, currentUnlockedIdx]);
 
-  const canOpen = (n: LogicGameNode) => {
-    if (previewUnlockAll) return true;
-    if (gamePlayMode === 'chill') {
-      // In chill mode, can play any level up to floor (already unlocked levels)
-      const iq = n.iq ?? 0;
-      return iq <= floorIq;
-    }
-    const iq = n.iq ?? 0;
-    return iq <= floorIq;
-  };
+  // No unlock gate any more: buckets are not student-facing and there are no
+  // levels to reach. The server decides which question comes next.
 
   // ── Upward Timer (Stopwatch for IQ mode) ──────────────────────────────────
 
@@ -237,172 +234,118 @@ export default function LogicGamesView() {
     return () => stopElapsedTimer();
   }, []);
 
-  function getQueueState(nodeId: string): LogicGameNodeQueue | null {
-    if (!uid) return null;
-    const str = localStorage.getItem(`logic_game_queue_${uid}_${nodeId}`);
-    return str ? JSON.parse(str) : null;
-  }
+  // The old per-node repeat queue lived in localStorage and deliberately re-served
+  // questions a student got wrong. Never-repeat replaces it, and the server now owns
+  // which question comes next, so it has been removed entirely.
 
-  function saveQueueState(nodeId: string, queue: LogicGameNodeQueue) {
-    if (!uid) return;
-    localStorage.setItem(`logic_game_queue_${uid}_${nodeId}`, JSON.stringify(queue));
-  }
-
-  function initializeOrAdvanceQueue(nodeId: string, all: LogicGameQuestion[]): LogicGameNodeQueue {
-    let queue = getQueueState(nodeId);
-    const validIds = new Set(all.map(q => q.id));
-
-    if (queue) {
-      queue.currentQueue = queue.currentQueue.filter(id => validIds.has(id));
-      queue.nextRoundWrong = queue.nextRoundWrong.filter(id => validIds.has(id));
-      queue.nextRoundRight = queue.nextRoundRight.filter(id => validIds.has(id));
-
-      const known = new Set([...queue.currentQueue, ...queue.nextRoundWrong, ...queue.nextRoundRight]);
-      const newQs = all.filter(q => !known.has(q.id)).map(q => q.id);
-      queue.currentQueue.push(...newQs);
-    } else {
-      queue = {
-        currentQueue: all.map(q => q.id).sort(() => Math.random() - 0.5),
-        nextRoundWrong: [],
-        nextRoundRight: []
-      };
+  /** Loads the next server-matched question, or ends the session if none are left. */
+  async function loadNextQuestion(): Promise<boolean> {
+    const served = await fetchNextLogicGameQuestion(gamePlayMode);
+    if (!served) {
+      setExhausted(true);
+      setRankedCurrent(null);
+      return false;
     }
-
-    if (queue.currentQueue.length === 0) {
-      queue.currentQueue = [...queue.nextRoundWrong, ...queue.nextRoundRight];
-      queue.nextRoundWrong = [];
-      queue.nextRoundRight = [];
-    }
-
-    saveQueueState(nodeId, queue);
-    return queue;
+    setRankedCurrent(served);
+    setRankedFeedback(null);
+    setRankedAnswerText('');
+    setRankedChoiceIndex(null);
+    setIqDeltaFx(null);
+    questionStartedAtRef.current = Date.now();
+    if (gamePlayMode === 'iq') startElapsedTimer();
+    return true;
   }
 
-  function pickNextQuestion(all: LogicGameQuestion[]) {
-    if (all.length === 0 || !activeNode) {
+  async function submitAnswer() {
+    if (!rankedCurrent || rankedFeedback) return;
+    stopElapsedTimer();
+
+    const interaction = rankedCurrent.interaction;
+    const answer =
+      interaction.type === 'mcq'
+        ? { kind: 'mcq' as const, choiceIndex: rankedChoiceIndex ?? -1 }
+        : interaction.type === 'numeric'
+          ? { kind: 'numeric' as const, valueText: rankedAnswerText }
+          : { kind: 'text' as const, valueText: rankedAnswerText };
+
+    const timeMs = questionStartedAtRef.current ? Date.now() - questionStartedAtRef.current : undefined;
+
+    try {
+      // The server grades and rates. Whatever it returns is the truth the UI shows.
+      const result = await submitLogicGameAnswer({
+        nodeId: rankedCurrent.nodeId,
+        questionId: rankedCurrent.questionId,
+        answer,
+        timeMs,
+        mode: gamePlayMode,
+      });
+
+      setRankedFeedback({ correct: result.correct });
+      setSessionCorrect((n) => n + (result.correct ? 1 : 0));
+
+      if (gamePlayMode === 'iq') {
+        setIqDeltaFx({ delta: result.delta, key: Date.now() });
+        setProgress((prev) => ({
+          id: 'global',
+          iq: result.iqAfter,
+          peakIq: result.peakIq ?? Math.max(prev?.peakIq ?? 80, result.iqAfter),
+          updatedAt: new Date().toISOString(),
+        }));
+      }
+
+      if (uid) {
+        try {
+          const k = interaction.type === 'mcq' ? 'mcq' : interaction.type === 'numeric' ? 'numeric' : 'text';
+          await emitSolveEvent(uid, { correct: result.correct, kind: k, difficulty: 2 });
+        } catch {
+          // battle pass errors must not block play
+        }
+      }
+    } catch (e) {
+      setRankedError(e instanceof Error ? e.message : 'Could not submit that answer');
+    }
+  }
+
+  /** Advances within the session, or shows the summary once it is complete. */
+  async function continueGame() {
+    if (!rankedCurrent) return;
+    const nextIndex = sessionIndex + 1;
+
+    if (nextIndex >= SESSION_LENGTH) {
+      setSessionSummary({
+        correct: sessionCorrect,
+        total: SESSION_LENGTH,
+        startIq: sessionStartIq,
+        endIq: currentIq,
+      });
+      stopElapsedTimer();
       setRankedCurrent(null);
       return;
     }
 
-    const queue = initializeOrAdvanceQueue(activeNode.id, all);
-    const nextId = queue.currentQueue[0];
-    const picked = all.find(q => q.id === nextId) || all[0];
-    setRankedCurrent(picked);
-    setRankedFeedback(null);
-    setRankedAnswerText('');
-    setRankedChoiceIndex(null);
-
-    if (gamePlayMode === 'iq') {
-      startElapsedTimer();
+    setSessionIndex(nextIndex);
+    setRankedLoading(true);
+    try {
+      await loadNextQuestion();
+    } catch (e) {
+      setRankedError(e instanceof Error ? e.message : 'Could not load the next question');
+    } finally {
+      setRankedLoading(false);
     }
   }
 
-  function computeNextFloorIq(nextIq: number) {
-    let best = floorIq;
-    if (nextIq >= 90) {
-      best = Math.max(best, Math.floor(nextIq / 10) * 10);
-    }
-    return best;
-  }
-
-  async function applyIqDelta(delta: number) {
-    if (!uid) return;
-    const cur = progress?.iq ?? 80;
-    const raw = cur + delta;
-    const nextFloor = computeNextFloorIq(raw);
-    const nextIq = nextFloor >= 90 ? Math.max(nextFloor, raw) : raw;
-    await setLogicGamesIq(uid, nextIq, nextFloor);
-    setProgress(() => {
-      const now = new Date().toISOString();
-      return { id: 'global', iq: nextIq, floorIq: nextFloor, updatedAt: now };
-    });
-  }
-
-  async function submitAnswer() {
-    if (!rankedCurrent) return;
-    if (rankedFeedback) return;
-    stopElapsedTimer();
-
-    const interaction = rankedCurrent.interaction;
-    const g = interaction.type === 'mcq'
-      ? (rankedChoiceIndex == null ? { correct: false, correctIndex: 0 } : gradeInteraction(interaction, { kind: 'mcq', choiceIndex: rankedChoiceIndex }))
-      : interaction.type === 'numeric'
-        ? gradeInteraction(interaction, { kind: 'numeric', valueText: rankedAnswerText })
-        : gradeInteraction(interaction, { kind: 'text', valueText: rankedAnswerText });
-
-    const explanation = rankedCurrent.explanation || undefined;
-
-    // Dequeue the answered question SYNCHRONOUSLY before any awaits.
-    // This prevents a race condition: setRankedFeedback (below) shows the "Next"
-    // button immediately, and if the user clicks it before the awaits resolve,
-    // pickNextQuestion would read the un-dequeued queue and show the same question again.
-    const answeredId = rankedCurrent.id;
-    const answeredCorrect = g.correct;
-    if (activeNode) {
-      const queue = getQueueState(activeNode.id);
-      if (queue && queue.currentQueue.length > 0 && queue.currentQueue[0] === answeredId) {
-        queue.currentQueue.shift();
-        if (answeredCorrect) {
-          queue.nextRoundRight.push(answeredId);
-        } else {
-          queue.nextRoundWrong.push(answeredId);
-        }
-        saveQueueState(activeNode.id, queue);
-      }
-    }
-
-    setRankedFeedback({ correct: g.correct, explanation });
-
-    if (uid) {
-      try {
-        const k = interaction.type === 'mcq' ? 'mcq' : interaction.type === 'numeric' ? 'numeric' : 'text';
-        await emitSolveEvent(uid, { correct: g.correct, kind: k, difficulty: 2 });
-      } catch {
-        // ignore battle pass errors
-      }
-    }
-
-    if (gamePlayMode === 'iq') {
-      // IQ mode: apply time-based gain or IQ-relative loss
-      if (g.correct) {
-        const gain = computeIqGain(rankedCurrent, elapsedSeconds);
-        await applyIqDelta(gain);
-      } else {
-        const loss = computeIqLoss(rankedCurrent, currentIq);
-        await applyIqDelta(loss);
-      }
-    }
-    // Chill mode: no IQ changes
-  }
-
-  function continueGame() {
-    if (!rankedCurrent) return;
-    pickNextQuestion(rankedQuestions);
-  }
-
-  async function startPlaying(node: LogicGameNode) {
+  async function startSession() {
     if (!uid) return;
     setRankedLoading(true);
     setRankedError(null);
+    setExhausted(false);
+    setSessionSummary(null);
+    setSessionIndex(0);
+    setSessionCorrect(0);
+    setSessionStartIq(currentIq);
+    setScreen('playing');
     try {
-      const qdoc = await getLogicGameQuestions(node.id);
-      const qs = Array.isArray(qdoc?.questions) ? qdoc!.questions : [];
-      if (qs.length === 0) throw new Error('No questions found for this node');
-      setRankedQuestions(qs);
-      setActiveNode(node);
-      setScreen('playing');
-
-      const queue = initializeOrAdvanceQueue(node.id, qs);
-      const firstId = queue.currentQueue[0];
-      const firstQ = qs.find(q => q.id === firstId) || qs[0];
-      setRankedCurrent(firstQ);
-      setRankedFeedback(null);
-      setRankedAnswerText('');
-      setRankedChoiceIndex(null);
-
-      if (gamePlayMode === 'iq') {
-        startElapsedTimer();
-      }
+      await loadNextQuestion();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setRankedError(msg || 'Failed to start');
@@ -415,12 +358,14 @@ export default function LogicGamesView() {
     stopElapsedTimer();
     setScreen('map');
     setActiveNode(null);
-    setRankedQuestions([]);
+    setIqDeltaFx(null);
     setRankedCurrent(null);
     setRankedAnswerText('');
     setRankedChoiceIndex(null);
     setRankedFeedback(null);
     setRankedError(null);
+    setSessionSummary(null);
+    setExhausted(false);
   }
 
   function renderPromptBlocks(blocks: LogicGamePromptBlock[] | undefined, fallbackText?: string) {
@@ -570,9 +515,7 @@ export default function LogicGamesView() {
       return;
     }
 
-    const qdoc = await getLogicGameQuestions(activeNode.id);
-    const qs = Array.isArray(qdoc?.questions) ? (qdoc!.questions as LogicGameQuestion[]) : [];
-    const q = qs.find((x) => x.id === round.questionId) ?? null;
+    const q = await getLogicGameQuestionById(activeNode.id, round.questionId);
     if (!q) return;
 
     const g = q.interaction.type === 'mcq'
@@ -605,11 +548,9 @@ export default function LogicGamesView() {
       let alive = true;
       setQ(null);
       setQErr(null);
-      getLogicGameQuestions(props.nodeId)
-        .then((doc0) => {
+      getLogicGameQuestionById(props.nodeId, props.questionId)
+        .then((found) => {
           if (!alive) return;
-          const qs = Array.isArray(doc0?.questions) ? (doc0!.questions as LogicGameQuestion[]) : [];
-          const found = qs.find((x) => x.id === props.questionId) ?? null;
           setQ(found);
         })
         .catch((e) => {
@@ -796,15 +737,57 @@ export default function LogicGamesView() {
 
       {/* ── Playing Screen ── */}
       {screen === 'playing' ? (
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
-            <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 13 }}>
-              {gamePlayMode === 'iq' ? '🧠 IQ Mode' : '😌 Chill Mode'} · {activeNode?.label ?? '—'}
-            </div>
-            <button className="ll-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={exitPlaying}>
-              Exit
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {/* Slim play header: Exit on the left, live IQ on the right. Replaces the
+              app HUD and the IQ Games bar, both hidden while solving. */}
+          <div className="app-safe-header" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+            padding: '10px 14px', flexShrink: 0,
+            borderBottom: '1px solid var(--ll-border)', background: 'var(--ll-overlay)',
+          }}>
+            <button className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }} onClick={exitPlaying}>
+              ← Exit
             </button>
+            <div style={{
+              color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 800,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {activeNode?.label ?? '—'}
+            </div>
+            {gamePlayMode === 'iq' ? (
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <span style={{
+                  fontSize: 13, fontWeight: 1000, padding: '4px 10px', borderRadius: 999,
+                  background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)',
+                  color: '#a78bfa', fontVariantNumeric: 'tabular-nums',
+                }}>
+                  🧠 {currentIq.toFixed(1)}
+                </span>
+                {iqDeltaFx && (
+                  <span
+                    key={iqDeltaFx.key}
+                    aria-live="polite"
+                    style={{
+                      position: 'absolute', right: 0, top: '100%', marginTop: 2,
+                      fontSize: 13, fontWeight: 1000, whiteSpace: 'nowrap', pointerEvents: 'none',
+                      color: iqDeltaFx.delta >= 0 ? '#34d399' : '#fca5a5',
+                      animation: 'llIqFloat 1.1s ease-out forwards',
+                    }}
+                  >
+                    {iqDeltaFx.delta >= 0 ? '+' : ''}{iqDeltaFx.delta.toFixed(1)}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span style={{
+                fontSize: 12, fontWeight: 800, padding: '4px 10px', borderRadius: 999,
+                background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)',
+                color: '#34d399', flexShrink: 0,
+              }}>😌 Chill</span>
+            )}
           </div>
+
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }}>
 
           {rankedError && (
             <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10 }}>{rankedError}</div>
@@ -816,27 +799,12 @@ export default function LogicGamesView() {
             <div style={{ color: 'var(--ll-text-soft)' }}>No question available.</div>
           ) : (
             <div style={{ border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)', borderRadius: 14, padding: 12 }}>
-              {/* Timer / Mode indicator bar */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-                {gamePlayMode === 'iq' ? (
-                  <>
-                    <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      ⏱️ <span style={{ color: 'var(--ll-text)', fontFamily: 'monospace', fontSize: 14 }}>{formatTime(elapsedSeconds)}</span>
-                    </div>
-                    <div style={{
-                      fontSize: 11, padding: '3px 10px', borderRadius: 8,
-                      background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)',
-                      color: '#a78bfa', fontWeight: 800,
-                    }}>IQ Mode</div>
-                  </>
-                ) : (
-                  <div style={{
-                    fontSize: 11, padding: '3px 10px', borderRadius: 8,
-                    background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)',
-                    color: '#34d399', fontWeight: 800,
-                  }}>😌 Chill Mode — No IQ changes</div>
-                )}
-              </div>
+              {/* Timer. The mode badge moved to the play header. */}
+              {gamePlayMode === 'iq' && (
+                <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                  ⏱️ <span style={{ color: 'var(--ll-text)', fontFamily: 'monospace', fontSize: 14 }}>{formatTime(elapsedSeconds)}</span>
+                </div>
+              )}
 
               {/* Question prompt */}
               <div style={{ color: 'var(--ll-text)', fontSize: 18, lineHeight: 1.35, marginBottom: 12 }}>
@@ -856,6 +824,7 @@ export default function LogicGamesView() {
                         key={idx}
                         className="ll-btn"
                         disabled={disabled}
+                        aria-pressed={chosen}
                         onClick={() => {
                           if (disabled) return;
                           setRankedChoiceIndex(idx);
@@ -863,17 +832,23 @@ export default function LogicGamesView() {
                         style={{
                           fontSize: 16,
                           textAlign: 'left',
-                          padding: '10px 10px',
+                          padding: '14px 14px',
+                          minHeight: 52,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
                           borderRadius: 12,
+                          transition: 'border-color 0.15s, background 0.15s, transform 0.1s',
+                          transform: chosen && !rankedFeedback ? 'scale(1.01)' : 'none',
                           border: rankedFeedback
                             ? isCorrect
                               ? '2px solid #34d399'
                               : isWrong
                                 ? '2px solid #ef4444'
                                 : chosen
-                                  ? '1px solid rgba(59,130,246,0.55)'
+                                  ? '2px solid rgba(59,130,246,0.55)'
                                   : '1px solid var(--ll-border)'
-                            : chosen ? '1px solid rgba(59,130,246,0.55)' : '1px solid var(--ll-border)',
+                            : chosen ? '2px solid rgba(59,130,246,0.8)' : '1px solid var(--ll-border)',
                           background: rankedFeedback
                             ? isCorrect
                               ? 'rgba(52,211,153,0.1)'
@@ -887,22 +862,27 @@ export default function LogicGamesView() {
                           opacity: disabled && !chosen && !isCorrect ? 0.75 : 1,
                         }}
                       >
-                        {c.toLowerCase().startsWith('data:image/') || c.toLowerCase().startsWith('http') ? (
-                          <img src={c} alt="choice" style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 4 }} />
-                        ) : (
-                          <>{c}</>
-                        )}
+                        {/* A, B, C… marker keeps options scannable and gives the
+                            result state somewhere to show without shifting layout. */}
+                        <span style={{
+                          flexShrink: 0, width: 26, height: 26, borderRadius: 8,
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 12, fontWeight: 1000,
+                          background: isCorrect ? '#34d399' : isWrong ? '#ef4444' : chosen ? 'rgba(59,130,246,0.8)' : 'var(--ll-surface-3)',
+                          color: isCorrect || isWrong || chosen ? '#0b1020' : 'var(--ll-text-soft)',
+                        }}>
+                          {isCorrect ? '✓' : isWrong ? '✕' : String.fromCharCode(65 + idx)}
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          {c.toLowerCase().startsWith('data:image/') || c.toLowerCase().startsWith('http') ? (
+                            <img src={c} alt="choice" style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 4, display: 'block' }} />
+                          ) : (
+                            <>{c}</>
+                          )}
+                        </span>
                       </button>
                     );
                   })}
-                  <button
-                    className="ll-btn ll-btn-primary"
-                    disabled={!!rankedFeedback || rankedChoiceIndex == null}
-                    onClick={() => void submitAnswer()}
-                    style={{ padding: '10px 12px', fontSize: 13, width: '100%', marginTop: 8 }}
-                  >
-                    Submit
-                  </button>
                 </div>
               ) : rankedCurrent.interaction.type === 'numeric' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -923,14 +903,6 @@ export default function LogicGamesView() {
                       fontWeight: 900,
                     }}
                   />
-                  <button
-                    className="ll-btn ll-btn-primary"
-                    disabled={!!rankedFeedback || !rankedAnswerText.trim()}
-                    onClick={() => void submitAnswer()}
-                    style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
-                  >
-                    Submit
-                  </button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -951,17 +923,9 @@ export default function LogicGamesView() {
                       fontWeight: 900,
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') void submitAnswer();
+                      if (e.key === 'Enter' && canSubmitAnswer) void submitAnswer();
                     }}
                   />
-                  <button
-                    className="ll-btn ll-btn-primary"
-                    disabled={!!rankedFeedback || !rankedAnswerText.trim()}
-                    onClick={() => void submitAnswer()}
-                    style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
-                  >
-                    Submit
-                  </button>
                 </div>
               )}
 
@@ -972,14 +936,13 @@ export default function LogicGamesView() {
                     {rankedFeedback.correct ? '✅ Correct!' : '❌ Incorrect'}
                   </div>
 
-                  {/* IQ mode: show IQ delta */}
-                  {gamePlayMode === 'iq' && (
+                  {/* IQ mode: the signed delta also animates next to the IQ chip above. */}
+                  {gamePlayMode === 'iq' && iqDeltaFx && (
                     <div style={{ fontSize: 12, color: 'var(--ll-text-soft)', marginBottom: 8 }}>
-                      {rankedFeedback.correct ? (
-                        <span style={{ color: '#34d399' }}>+{computeIqGain(rankedCurrent!, elapsedSeconds).toFixed(1)} IQ (solved in {formatTime(elapsedSeconds)})</span>
-                      ) : (
-                        <span style={{ color: '#fca5a5' }}>{computeIqLoss(rankedCurrent!, currentIq).toFixed(1)} IQ</span>
-                      )}
+                      <span style={{ color: iqDeltaFx.delta >= 0 ? '#34d399' : '#fca5a5' }}>
+                        {iqDeltaFx.delta >= 0 ? '+' : ''}{iqDeltaFx.delta.toFixed(1)} IQ
+                      </span>
+                      {rankedFeedback.correct ? ` (solved in ${formatTime(elapsedSeconds)})` : ''}
                     </div>
                   )}
 
@@ -996,15 +959,30 @@ export default function LogicGamesView() {
                     </div>
                   )}
 
-                  <button
-                    className="ll-btn ll-btn-primary"
-                    onClick={continueGame}
-                    style={{ padding: '10px 12px', fontSize: 13, width: '100%' }}
-                  >
-                    Next
-                  </button>
                 </div>
               )}
+            </div>
+          )}
+          </div>
+
+          {/* Sticky action bar: one button that never moves, so Submit -> Next
+              needs no scrolling. Width-capped rather than full-bleed. */}
+          {!rankedLoading && rankedCurrent && (
+            <div style={{
+              flexShrink: 0, borderTop: '1px solid var(--ll-border)',
+              background: 'var(--ll-overlay)', backdropFilter: 'blur(10px)',
+              padding: '10px 14px',
+              paddingBottom: 'max(10px, env(safe-area-inset-bottom, 10px))',
+              display: 'flex', justifyContent: 'center',
+            }}>
+              <button
+                className="ll-btn ll-btn-primary"
+                disabled={rankedFeedback ? false : !canSubmitAnswer}
+                onClick={() => { if (rankedFeedback) continueGame(); else void submitAnswer(); }}
+                style={{ padding: '12px 16px', fontSize: 15, fontWeight: 900, width: '100%', maxWidth: 340, borderRadius: 12 }}
+              >
+                {rankedFeedback ? 'Next →' : 'Submit'}
+              </button>
             </div>
           )}
         </div>
@@ -1076,76 +1054,83 @@ export default function LogicGamesView() {
           )}
         </div>
       ) : (
-        /* ── Map Screen ── */
-        <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14, position: 'relative' }}>
-          {sorted.length === 0 ? (
-            <div style={{ color: 'var(--ll-text-soft)', padding: 10 }}>No nodes published yet.</div>
-          ) : (
-            <div style={{ position: 'relative', padding: '10px 0 30px' }}>
-            <div
-              style={{
-                position: 'absolute',
-                left: '50%',
-                top: 10,
-                bottom: 10,
-                width: 4,
-                transform: 'translateX(-50%)',
-                borderRadius: 999,
-                background: 'linear-gradient(to bottom, rgba(59,130,246,0.0), rgba(59,130,246,0.30), rgba(59,130,246,0.0))',
-                opacity: 0.9,
-              }}
-            />
+        /* ── Home Screen ── */
+        <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 20 }}>
+          <div style={{ maxWidth: 460, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {sorted.map((n, i) => {
-                const unlocked = canOpen(n);
-                const isCurrent = i === currentUnlockedIdx;
-                const sideLeft = i % 2 === 0;
-                const baseBg = unlocked ? 'rgba(59,130,246,0.10)' : 'var(--ll-surface-2)';
-                const border = unlocked ? '1px solid rgba(59,130,246,0.45)' : '1px solid var(--ll-border)';
-                const glow = isCurrent ? '0 0 0 4px rgba(251,191,36,0.08), 0 14px 40px rgba(0,0,0,0.45)' : '0 12px 34px rgba(0,0,0,0.35)';
-
-                return (
-                  <div
-                    key={n.id}
-                    data-logic-node-index={i}
-                    style={{ display: 'flex', justifyContent: sideLeft ? 'flex-start' : 'flex-end' }}
-                  >
-                    <button
-                      className="ll-btn"
-                      disabled={!unlocked}
-                      onClick={() => void startPlaying(n)}
-                      style={{
-                        width: 'min(420px, 92vw)',
-                        textAlign: 'center',
-                        padding: '18px 12px',
-                        borderRadius: 14,
-                        border,
-                        background: baseBg,
-                        color: unlocked ? 'var(--ll-text)' : 'var(--ll-text-soft)',
-                        fontWeight: 1000,
-                        letterSpacing: 0.4,
-                        boxShadow: glow,
-                        position: 'relative',
-                      }}
-                      title={unlocked ? 'Start playing' : 'Locked — reach the previous IQ milestone to unlock'}
-                    >
-                      <div style={{ fontSize: 18 }}>{n.label}</div>
-                      {isCurrent && (
-                        <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 10px', borderRadius: 999, background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24', fontSize: 11, fontWeight: 1000 }}>
-                          Current
-                        </div>
-                      )}
-                      {!unlocked && (
-                        <div style={{ marginTop: 8, color: 'var(--ll-text-muted)', fontSize: 11, fontWeight: 900 }}>Locked</div>
-                      )}
-                    </button>
+            {sessionSummary ? (
+              <div style={{
+                border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)',
+                borderRadius: 18, padding: 24, textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>
+                  {sessionSummary.correct >= sessionSummary.total * 0.7 ? '🎉' : '💪'}
+                </div>
+                <div style={{ fontWeight: 1000, fontSize: 20, marginBottom: 4 }}>Session complete</div>
+                <div style={{ color: 'var(--ll-text-soft)', fontSize: 14, marginBottom: 16 }}>
+                  {sessionSummary.correct} of {sessionSummary.total} correct
+                </div>
+                {gamePlayMode === 'iq' && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 18 }}>
+                    <span style={{ fontSize: 18, color: 'var(--ll-text-soft)', fontVariantNumeric: 'tabular-nums' }}>
+                      {sessionSummary.startIq.toFixed(1)}
+                    </span>
+                    <span style={{ color: 'var(--ll-text-muted)' }}>→</span>
+                    <span style={{
+                      fontSize: 26, fontWeight: 1000, fontVariantNumeric: 'tabular-nums',
+                      color: sessionSummary.endIq >= sessionSummary.startIq ? '#34d399' : '#fca5a5',
+                    }}>
+                      {sessionSummary.endIq.toFixed(1)}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
-            </div>
-          )}
+                )}
+                <button className="ll-btn ll-btn-primary" onClick={() => void startSession()}
+                  style={{ padding: '12px 18px', fontSize: 15, fontWeight: 900, borderRadius: 12, width: '100%' }}>
+                  Play again
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Rating card */}
+                <div style={{
+                  border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)',
+                  borderRadius: 18, padding: 24, textAlign: 'center',
+                }}>
+                  <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>YOUR IQ</div>
+                  <div style={{ fontSize: 52, fontWeight: 1000, color: '#a78bfa', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
+                    {currentIq.toFixed(1)}
+                  </div>
+                  <div style={{ color: 'var(--ll-text-muted)', fontSize: 12, marginTop: 6 }}>
+                    🏆 Highest reached <strong style={{ color: 'var(--ll-text-soft)' }}>{peakIq.toFixed(1)}</strong>
+                  </div>
+                </div>
+
+                {exhausted && (
+                  <div style={{
+                    border: '1px solid rgba(251,191,36,0.35)', background: 'rgba(251,191,36,0.10)',
+                    borderRadius: 14, padding: 16, color: '#fbbf24', fontSize: 13, textAlign: 'center',
+                  }}>
+                    You have answered every question available. New ones appear here as they are added.
+                  </div>
+                )}
+
+                <button
+                  className="ll-btn ll-btn-primary"
+                  disabled={rankedLoading}
+                  onClick={() => void startSession()}
+                  style={{ padding: '16px 18px', fontSize: 17, fontWeight: 1000, borderRadius: 14 }}
+                >
+                  {rankedLoading ? 'Loading…' : `▶ Play ${SESSION_LENGTH} questions`}
+                </button>
+
+                <div style={{ color: 'var(--ll-text-muted)', fontSize: 12, textAlign: 'center', lineHeight: 1.6 }}>
+                  Questions are matched to your rating, and you will never be shown the
+                  same one twice.
+                  {gamePlayMode === 'chill' && <><br />Chill mode is on — your IQ will not change.</>}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

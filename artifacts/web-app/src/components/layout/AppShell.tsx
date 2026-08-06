@@ -19,6 +19,7 @@ import { pingPresence } from '@/lib/lobbyService';
 import TopNotificationToast from './TopNotificationToast';
 import { acceptAppNotification, dismissAppNotification } from '@/lib/notificationService';
 import { claimDailyEnergy } from '@/lib/economyApiService';
+import { useImmersive } from '@/contexts/ImmersiveContext';
 
 type View =
   | 'emporium'
@@ -198,6 +199,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
   const gold = userData?.economy?.gold ?? 0;
   const xp = userData?.economy?.global_xp ?? 0;
+  const { immersive } = useImmersive();
   const streak = userData?.economy?.streak ?? 0;
   const energy = userData?.economy?.energy ?? 0;
   const rankedEnergyStreak = userData?.economy?.rankedEnergyStreak ?? 0;
@@ -283,7 +285,8 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
   return (
     <div className="app-viewport" style={{ display: 'flex', flexDirection: 'column', background: 'var(--ll-surface-0)', color: 'var(--ll-text)' }}>
-      {/* Top HUD */}
+      {/* Top HUD — hidden in immersive mode (e.g. while solving an IQ question) */}
+      {!immersive && (
       <div className="app-safe-header landscape-compact-header" style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         padding: '10px 16px', background: 'var(--ll-overlay)',
@@ -335,13 +338,15 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
 
         </button>
       </div>
+      )}
 
       {/* Main content */}
       <div style={{ flex: 1, height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         {children}
       </div>
 
-      {/* Bottom nav */}
+      {/* Bottom nav — hidden in immersive mode */}
+      {!immersive && (
       <div className="app-safe-nav" style={{
         display: 'flex', justifyContent: 'space-around', alignItems: 'center',
         background: 'var(--ll-overlay)', borderTop: '1px solid var(--ll-border)',
@@ -373,6 +378,7 @@ export default function AppShell({ view, setView, children }: AppShellProps) {
           </button>
         ))}
       </div>
+      )}
 
       {/* Side menu overlay */}
       {menuOpen && (

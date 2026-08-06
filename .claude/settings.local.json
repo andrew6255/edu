@@ -20,7 +20,17 @@
       "Bash(pnpm run *)",
       "Bash(curl -s -o /dev/null -w \"status=%{http_code} size=%{size_download}\\\\n\" -X POST http://localhost:3001/api/admin/users/impersonation-token -H 'Content-Type: application/json' -H 'Authorization: Bearer invalid' -d '{\"userId\":\"x\"}' --max-time 6)",
       "Bash(node -e \"const p=require\\('./artifacts/api-server/package.json'\\);console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\)\")",
-      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/verify-rpc-parse.mjs)"
+      "Bash(node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/verify-rpc-parse.mjs)",
+      "Bash(timeout 40 node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/ping.mjs)",
+      "Bash(timeout 45 node /tmp/claude-1000/-mnt-c-Users-andantoine-Projects-edu/6acd56d3-db46-4f96-b680-551491ec2f76/scratchpad/ping.mjs)",
+      "Bash(node *)",
+      "Read(//usr/lib/**)",
+      "Bash(command -v docker)",
+      "Bash(docker info *)",
+      "Bash(docker run *)",
+      "Bash(docker cp *)",
+      "Bash(docker exec *)",
+      "Bash(echo \"migration exit=$?\")"
     ]
   }
 }

@@ -17,6 +17,24 @@ Run or rerun in this order:
 8. `profile_privacy_migration.sql`
 9. `logic_games_superadmin_rls_migration.sql`
 10. `view_write_grant_lockdown_migration.sql`
+11. `logic_games_elo_phase1_migration.sql`
+12. `logic_games_elo_phase2_migration.sql`
+
+`logic_games_elo_phase3_cleanup_migration.sql` is **not** part of this list. It drops
+`logic_game_progress.floor_iq` and `logic_game_nodes_*.iq`, which the current web
+build still writes and reads, so it must run only after the new IQ Games UI is
+deployed and verified. It refuses to run if phases 1 and 2 are missing.
+
+Step 12 adds the scoring and matchmaking RPCs. Grading moves to the server, so the
+browser submits what the student chose and never what it scored; the answer key is
+stripped before a question is sent to the client. Nothing calls these until the new
+IQ Games UI ships, so step 12 is safe to run ahead of the frontend.
+
+Step 11 is schema only and changes no gameplay: it turns levels into buckets,
+gives questions a self-calibrating difficulty, makes the player rating fractional
+and falling, and adds permanent answer history. It is safe to run before the new
+IQ Games UI ships. `logic_game_progress.floor_iq` is deliberately left in place
+until the new frontend is live, because the current build still writes to it.
 
 `program_answer_confidentiality_migration.sql` is already installed and does not
 need to be rerun unless its SQL changes. Its grant block was corrected, so rerun

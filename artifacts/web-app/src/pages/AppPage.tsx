@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import GlobalLoadingScreen from '@/components/layout/GlobalLoadingScreen';
 import { useAuth } from '@/contexts/AuthContext';
 import { GlobalDataProvider } from '@/contexts/GlobalDataContext';
+import { ImmersiveProvider } from '@/contexts/ImmersiveContext';
 import AppShell from '@/components/layout/AppShell';
 import HexUniverseView from '@/views/HexUniverseView';
 import WarmupView from '@/views/WarmupView';
@@ -156,16 +157,18 @@ export default function AppPage() {
 
   return (
     <GlobalDataProvider>
-      <AppShell view={view} setView={v => { setView(v); }}>
-        <div style={{ height: '100%', overflow: 'hidden' }}>
-          <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'block' : 'none' }}>
-            <WarmupView />
+      <ImmersiveProvider>
+        <AppShell view={view} setView={v => { setView(v); }}>
+          <div style={{ height: '100%', overflow: 'hidden' }}>
+            <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'block' : 'none' }}>
+              <WarmupView />
+            </div>
+            <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'none' : 'block', animation: 'fadeIn 0.3s ease' }} key={view}>
+              {renderView()}
+            </div>
           </div>
-          <div style={{ height: '100%', overflow: 'hidden', display: view === 'warmup' ? 'none' : 'block', animation: 'fadeIn 0.3s ease' }} key={view}>
-            {renderView()}
-          </div>
-        </div>
-      </AppShell>
+        </AppShell>
+      </ImmersiveProvider>
     </GlobalDataProvider>
   );
 }

@@ -1240,10 +1240,10 @@ function LogicGamesAdmin() {
     try {
       const pub = await listLogicGameNodes();
       
-      // Auto-create level 1 if empty
+      // Auto-create a starter bucket if empty
       if (pub.length === 0) {
-         const id = `iq-80`;
-         const initialNode: LogicGameNode = { id, iq: 80, order: 0, label: `Level 1` };
+         const id = `bucket-medium`;
+         const initialNode: LogicGameNode = { id, seedDifficulty: 100, order: 0, label: `Medium` };
          await upsertLogicGameNode(initialNode);
          setNodes([initialNode]);
       } else {
@@ -1284,8 +1284,8 @@ function LogicGamesAdmin() {
         if (cancelled) return;
 
         if (pub.length === 0) {
-          const id = `iq-80`;
-          const initialNode: LogicGameNode = { id, iq: 80, order: 0, label: `Level 1` };
+          const id = `bucket-medium`;
+          const initialNode: LogicGameNode = { id, seedDifficulty: 100, order: 0, label: `Medium` };
           await upsertLogicGameNode(initialNode);
           if (cancelled) return;
           setNodes([initialNode]);
@@ -1337,22 +1337,22 @@ function LogicGamesAdmin() {
     if (!n) return;
     
     const label = editNodeLabel.trim();
-    const iq = Number(editNodeIq.trim());
-    if (!label || !Number.isFinite(iq)) {
+    const seedDifficulty = Number(editNodeIq.trim());
+    if (!label || !Number.isFinite(seedDifficulty)) {
        setEditingNodeId(null);
        return;
     }
 
     setSaving(true);
     try {
-      await upsertLogicGameNode({ ...n, label, iq });
+      await upsertLogicGameNode({ ...n, label, seedDifficulty });
       setNodes((prev) =>
         prev
-          .map((x) => (x.id === nodeId ? { ...x, label, iq } : x))
+          .map((x) => (x.id === nodeId ? { ...x, label, seedDifficulty } : x))
           .slice()
           .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       );
-      setStatus('✅ Level updated');
+      setStatus('✅ Bucket updated');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1386,16 +1386,16 @@ function LogicGamesAdmin() {
     setStatus(null);
     try {
       const nextOrder = nodes.length > 0 ? Math.max(...nodes.map((n) => n.order ?? 0)) + 1 : 0;
-      const nextIq = nodes.length > 0 ? (nodes[nodes.length - 1].iq ?? 80) + 10 : 80;
-      const id = `iq-${nextIq}`;
-      const node: LogicGameNode = { id, iq: nextIq, order: nextOrder, label: `Level ${nodes.length + 1}` };
+      const nextSeed = nodes.length > 0 ? (nodes[nodes.length - 1].seedDifficulty ?? 100) + 15 : 100;
+      const id = `bucket-${Date.now().toString(36)}`;
+      const node: LogicGameNode = { id, seedDifficulty: nextSeed, order: nextOrder, label: `Bucket ${nodes.length + 1}` };
       await upsertLogicGameNode(node);
 
       setNodes((prev) => {
         const next = prev.some((n) => n.id === node.id) ? prev : [...prev, node];
         return next.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       });
-      setStatus('✅ Level added');
+      setStatus('✅ Bucket added');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1408,13 +1408,13 @@ function LogicGamesAdmin() {
   
 
   async function deleteNode(nodeId: string) {
-    if (!(await confirm('Delete this level and all its questions? This cannot be undone.'))) return;
+    if (!(await confirm('Delete this bucket and all its questions? This cannot be undone.'))) return;
     setSaving(true);
     try {
       await deleteLogicGameNode(nodeId);
       if (selectedNodeId === nodeId) setSelectedNodeId(null);
       await load();
-      setStatus('✅ Level deleted');
+      setStatus('✅ Bucket deleted');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1564,7 +1564,7 @@ function LogicGamesAdmin() {
       <div style={{ display: 'flex', justifyContent: 'center', flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 20px' }}>
         {!selectedNodeId ? (
           <div style={{ width: '100%', maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 40 }}>
-            <h1 style={{ textAlign: 'center', color: 'white', margin: '0 0 20px 0', fontSize: 32, fontWeight: 900 }}>IQ levels</h1>
+            <h1 style={{ textAlign: 'center', color: 'white', margin: '0 0 20px 0', fontSize: 32, fontWeight: 900 }}>Question buckets</h1>
             {loading ? (
               // ── Loading skeleton: shows while Supabase data is still fetching ──
               <>
@@ -1586,7 +1586,7 @@ function LogicGamesAdmin() {
                     </div>
                   </div>
                 ))}
-                <div style={{ textAlign: 'center', color: '#475569', fontSize: 13, marginTop: 4 }}>Loading levels…</div>
+                <div style={{ textAlign: 'center', color: '#475569', fontSize: 13, marginTop: 4 }}>Loading buckets…</div>
               </>
             ) : (
               nodes.map((n) => (
@@ -1599,11 +1599,11 @@ function LogicGamesAdmin() {
                 {editingNodeId === n.id ? (
                   <div style={{ display: 'flex', gap: 16, flex: 1, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                       <label style={{ fontSize: 12, color: '#94a3b8', fontWeight: 'bold' }}>Level Name</label>
+                       <label style={{ fontSize: 12, color: '#94a3b8', fontWeight: 'bold' }}>Bucket Name</label>
                        <input value={editNodeLabel} onChange={e => setEditNodeLabel(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', outline: 'none' }} />
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 120 }}>
-                       <label style={{ fontSize: 12, color: '#94a3b8', fontWeight: 'bold' }}>IQ Threshold</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 150 }}>
+                       <label style={{ fontSize: 12, color: '#94a3b8', fontWeight: 'bold' }} title="Starting difficulty for new questions filed here. Each question then self-calibrates from how players actually do on it.">Starting difficulty</label>
                        <input type="number" value={editNodeIq} onChange={e => setEditNodeIq(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', outline: 'none' }} />
                     </div>
                     <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
@@ -1616,11 +1616,11 @@ function LogicGamesAdmin() {
                     <div>
                        <div style={{ color: 'white', fontWeight: 900, fontSize: 18 }}>{n.label}</div>
                        <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 6 }}>
-                         IQ Threshold: <span style={{ color: '#d8b4fe', fontWeight: 'bold' }}>{n.iq}</span>
+                         Starting difficulty: <span style={{ color: '#d8b4fe', fontWeight: 'bold' }}>{n.seedDifficulty}</span>
                        </div>
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <button className="ll-btn" title="Edit Level" onClick={(e) => { e.stopPropagation(); setEditNodeLabel(n.label || ''); setEditNodeIq(n.iq?.toString() || '80'); setEditingNodeId(n.id); }} style={{ padding: '8px 12px', borderRadius: 8, fontSize: 13, background: 'rgba(255,255,255,0.05)', color: 'white' }}>✎ Edit</button>
+                      <button className="ll-btn" title="Edit Bucket" onClick={(e) => { e.stopPropagation(); setEditNodeLabel(n.label || ''); setEditNodeIq(String(n.seedDifficulty ?? 100)); setEditingNodeId(n.id); }} style={{ padding: '8px 12px', borderRadius: 8, fontSize: 13, background: 'rgba(255,255,255,0.05)', color: 'white' }}>✎ Edit</button>
                       <button className="ll-btn" title="Delete" onClick={(e) => { e.stopPropagation(); deleteNode(n.id); }} style={{ padding: '8px 12px', borderRadius: 8, fontSize: 13, color: '#fca5a5', background: 'rgba(239,68,68,0.1)' }}>🗑 Delete</button>
                     </div>
                   </>
@@ -1640,9 +1640,9 @@ function LogicGamesAdmin() {
                 cursor: loading ? 'not-allowed' : 'pointer',
                 transition: 'opacity 0.2s',
               }}
-              title={loading ? 'Please wait while levels are loading…' : undefined}
+              title={loading ? 'Please wait while buckets are loading…' : undefined}
             >
-              {loading ? '⏳ Loading levels…' : '+ Add New Level'}
+              {loading ? '⏳ Loading buckets…' : '+ Add New Bucket'}
             </button>
           </div>
         ) : (
@@ -1668,7 +1668,7 @@ function LogicGamesAdmin() {
               {questionsLoading ? (
                 <div style={{ color: '#94a3b8', textAlign: 'center' }}>Loading questions...</div>
               ) : questions.length === 0 ? (
-                <div style={{ color: '#64748b', textAlign: 'center', marginTop: 40 }}>No questions in this level yet.</div>
+                <div style={{ color: '#64748b', textAlign: 'center', marginTop: 40 }}>No questions in this bucket yet.</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                   {questions.map((q, qIndex) => (
@@ -1856,7 +1856,7 @@ function LogicGamesAdmin() {
       {/* Question Details Popup */}
       {detailsQIndex !== null && detailsQIndex < questions.length && (() => {
         const dq = questions[detailsQIndex];
-        const nodeIq = nodes.find(n => n.id === selectedNodeId)?.iq ?? 80;
+        const seedDifficulty = nodes.find(n => n.id === selectedNodeId)?.seedDifficulty ?? 100;
         const inputStyle: React.CSSProperties = { padding: '8px 12px', borderRadius: 8, background: '#0f172a', border: '1px solid #475569', color: 'white', outline: 'none', width: '100%', fontSize: 13 };
         const labelStyle: React.CSSProperties = { fontSize: 11, color: '#94a3b8', fontWeight: 'bold', marginBottom: 4 };
         const updateField = (field: string, value: any) => {
@@ -1876,21 +1876,17 @@ function LogicGamesAdmin() {
             const res = await fetch(`${apiUrl}/api/program-ingestion/iq-question-details`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ promptText, choices, correctChoiceIndex: correctIdx, nodeIq }),
+              body: JSON.stringify({ promptText, choices, correctChoiceIndex: correctIdx, nodeIq: seedDifficulty }),
             });
             if (!res.ok) throw new Error(`Failed: ${await res.text()}`);
             const data = await res.json();
             const newQ = [...questions];
-            if (data.questionIq != null) (newQ[detailsQIndex] as any).questionIq = data.questionIq;
-            if (data.maxIqGain != null) (newQ[detailsQIndex] as any).maxIqGain = data.maxIqGain;
-            if (data.iqGainDecayRate != null) (newQ[detailsQIndex] as any).iqGainDecayRate = data.iqGainDecayRate;
-            if (data.iqGainDecayIntervalSec != null) (newQ[detailsQIndex] as any).iqGainDecayIntervalSec = data.iqGainDecayIntervalSec;
-            if (data.iqLossBase != null) (newQ[detailsQIndex] as any).iqLossBase = data.iqLossBase;
-            if (data.iqLossScaleFactor != null) (newQ[detailsQIndex] as any).iqLossScaleFactor = data.iqLossScaleFactor;
+            // Difficulty and point values are no longer authored: a question seeds from
+            // its bucket and then self-calibrates from how players actually do on it.
             if (data.explanation) (newQ[detailsQIndex] as any).explanation = data.explanation;
             if (data.category) (newQ[detailsQIndex] as any).category = data.category;
             setQuestions(newQ);
-            setStatus('✅ Groq values applied');
+            setStatus('✅ Explanation and category applied');
           } catch (e) {
             setErr(e instanceof Error ? e.message : String(e));
           } finally {
@@ -1912,55 +1908,6 @@ function LogicGamesAdmin() {
                 <button onClick={() => saveAndClose()} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 24 }}>×</button>
               </div>
               <div style={{ padding: 20, overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {/* Question IQ Level */}
-                <div>
-                  <div style={labelStyle}>Question IQ Level</div>
-                  <input type="number" value={dq.questionIq ?? nodeIq} onChange={e => updateField('questionIq', Number(e.target.value))} style={inputStyle} />
-                </div>
-
-                {/* IQ Gain Settings */}
-                <div style={{ background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: 10, padding: 14 }}>
-                  <div style={{ fontSize: 12, fontWeight: 900, color: '#34d399', marginBottom: 10 }}>📈 IQ Gain (Correct Answer)</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>
-                      <div style={labelStyle}>Max IQ Gain</div>
-                      <input type="number" step="0.1" value={dq.maxIqGain ?? 2} onChange={e => updateField('maxIqGain', Number(e.target.value))} style={inputStyle} />
-                    </div>
-                    <div>
-                      <div style={labelStyle}>Decay Rate (per interval)</div>
-                      <input type="number" step="0.01" value={dq.iqGainDecayRate ?? 0.1} onChange={e => updateField('iqGainDecayRate', Number(e.target.value))} style={inputStyle} />
-                    </div>
-                    <div>
-                      <div style={labelStyle}>Decay Interval (seconds)</div>
-                      <input type="number" value={dq.iqGainDecayIntervalSec ?? 10} onChange={e => updateField('iqGainDecayIntervalSec', Number(e.target.value))} style={inputStyle} />
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.5 }}>
-                    Example: Max gain {dq.maxIqGain ?? 2}, decay {dq.iqGainDecayRate ?? 0.1}/interval ({dq.iqGainDecayIntervalSec ?? 10}s).
-                    Solve in 0-{dq.iqGainDecayIntervalSec ?? 10}s → +{dq.maxIqGain ?? 2},
-                    in {dq.iqGainDecayIntervalSec ?? 10}-{(dq.iqGainDecayIntervalSec ?? 10) * 2}s → +{Math.max(0, (dq.maxIqGain ?? 2) - (dq.iqGainDecayRate ?? 0.1)).toFixed(2)}, etc.
-                  </div>
-                </div>
-
-                {/* IQ Loss Settings */}
-                <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: 14 }}>
-                  <div style={{ fontSize: 12, fontWeight: 900, color: '#fca5a5', marginBottom: 10 }}>📉 IQ Loss (Incorrect Answer)</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>
-                      <div style={labelStyle}>Base IQ Loss</div>
-                      <input type="number" step="0.1" value={dq.iqLossBase ?? 3} onChange={e => updateField('iqLossBase', Number(e.target.value))} style={inputStyle} />
-                    </div>
-                    <div>
-                      <div style={labelStyle}>Scale Factor (per IQ diff)</div>
-                      <input type="number" step="0.01" value={dq.iqLossScaleFactor ?? 0.05} onChange={e => updateField('iqLossScaleFactor', Number(e.target.value))} style={inputStyle} />
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.5 }}>
-                    Loss = base × (1 + max(0, studentIQ - questionIQ) × scale).
-                    E.g. student IQ 100, question IQ {dq.questionIq ?? nodeIq}: loss = {((dq.iqLossBase ?? 3) * (1 + Math.max(0, 100 - (dq.questionIq ?? nodeIq)) * (dq.iqLossScaleFactor ?? 0.05))).toFixed(2)}
-                  </div>
-                </div>
-
                 {/* Explanation */}
                 <div>
                   <div style={labelStyle}>💡 Explanation (shown in chill mode)</div>
@@ -2525,7 +2472,7 @@ function LogicGamesAdmin() {
                       className="ll-btn ll-btn-primary" 
                       style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', flex: 1 }}
                     >
-                      Add All {extractedQuestions.length} Questions to Level
+                      Add All {extractedQuestions.length} Questions to Bucket
                     </button>
                   </div>
                 </div>
