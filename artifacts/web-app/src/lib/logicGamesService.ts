@@ -264,6 +264,36 @@ export async function getLogicGameQuestionsByIds(nodeId: string, questionIds: st
   return ((data ?? []) as Record<string, unknown>[]).map((row) => mapQuestionRow(row));
 }
 
+/**
+ * Loads a bucket's questions in batches, reporting genuine progress. A single
+ * `select *` returns nothing until the very last row arrives, and prompt_blocks
+ * can carry inline image data, so a big bucket looked frozen. Batching gives a
+ * real completed/total and lets the first rows land sooner.
+ */
+export async function loadLogicGameQuestionsWithProgress(
+  nodeId: string,
+  onProgress?: (progress: { completed: number; total: number }) => void,
+): Promise<LogicGameQuestion[]> {
+  const ids = await listLogicGameQuestionIds(nodeId);
+  onProgress?.({ completed: 0, total: ids.length });
+  if (ids.length === 0) return [];
+
+  const BATCH_SIZE = 8;
+  const loaded: LogicGameQuestion[] = [];
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const batch = ids.slice(i, i + BATCH_SIZE);
+    const rows = await getLogicGameQuestionsByIds(nodeId, batch);
+    // Keep the authored order: `in` does not guarantee it.
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    for (const id of batch) {
+      const question = byId.get(id);
+      if (question) loaded.push(question);
+    }
+    onProgress?.({ completed: Math.min(i + BATCH_SIZE, ids.length), total: ids.length });
+  }
+  return loaded;
+}
+
 export async function getLogicGameQuestionById(nodeId: string, questionId: string): Promise<LogicGameQuestion | null> {
   const rows = await getLogicGameQuestionsByIds(nodeId, [questionId]);
   return rows[0] ?? null;

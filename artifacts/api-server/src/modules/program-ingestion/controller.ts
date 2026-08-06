@@ -794,7 +794,13 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
       stage: "extracting", stageCurrent: 0, stageTotal: totalPages, totalFiles: totalSourceFiles,
       processedFiles: totalSourceFiles, totalPages, currentPage: 0, totalQuestions: 0, answersFound: Object.keys(answerMap).length,
     });
-    logger.info({ totalPages }, "[extractIqPdf] Extracting questions using vision...");
+    logger.info({ totalPages, keyCount: apiKeys.length }, "[extractIqPdf] Extracting questions using vision...");
+    sendProgress("🔑", `Using ${apiKeys.length} Groq API key${apiKeys.length === 1 ? "" : "s"}`,
+      apiKeys.length === 1
+        ? "One key means about one page per minute on the free tier"
+        : `Budgets are tracked per key, so roughly ${apiKeys.length} pages per minute`, {
+      stage: "extracting", stageCurrent: 0, stageTotal: totalPages, totalPages,
+    });
 
     const allQuestions: any[] = [];
 
@@ -1005,8 +1011,20 @@ Additional rules:
                 // A little headroom, capped so a bad hint cannot stall the job.
                 waitMs = Math.min(70_000, Math.max(waitMs, Math.ceil(hintedSeconds * 1000) + 750));
               }
-              logger.warn({ page: page.page, status: visionRes.status, err: errText.slice(0,100) }, "[extractIqPdf] Rate limit hit. Retrying...");
-              sendProgress("↻", `Retrying page ${page.page}`, `The AI service is busy; retry ${retryCount + 1}/${maxRetries} starts in ${Math.ceil(waitMs / 1000)}s`, {
+              const remainingTokensNow = visionRes.headers.get("x-ratelimit-remaining-tokens") ?? "?";
+              const clamped = Number.isFinite(hintedSeconds) && (hintedSeconds * 1000 + 750) > waitMs;
+              logger.warn({
+                page: page.page, status: visionRes.status, keyIndex: lastKeyIndex, keyCount: apiKeys.length,
+                hintedSeconds, waitMs, remainingTokens: remainingTokensNow, err: errText.slice(0, 200),
+              }, "[extractIqPdf] Rate limit hit. Retrying...");
+              // Spell out which limit was hit and on which key. A wait longer than a
+              // minute is not the per-minute token window — it means a daily quota,
+              // and no amount of retrying inside this run will clear it.
+              const limitDetail = clamped
+                ? `Groq asked to wait ${Math.ceil(hintedSeconds)}s — longer than the 60s token window, so this is a daily quota on this key, not the per-minute one.`
+                : `${remainingTokensNow} of 8000 tokens left on this key.`;
+              sendProgress("↻", `Retrying page ${page.page}`,
+                `HTTP ${visionRes.status} on key ${lastKeyIndex + 1}/${apiKeys.length}. ${limitDetail} Retry ${retryCount + 1}/${maxRetries} in ${Math.ceil(waitMs / 1000)}s`, {
                 ...pageProgressStats, retry: retryCount + 1, httpStatus: visionRes.status,
                 rateLimitWaitSeconds: Math.ceil(waitMs / 1000), lastError: errText.slice(0, 300),
               });
@@ -1548,13 +1566,27 @@ Rules:
 
               const corrections: any[] = Array.isArray(parsed) ? parsed : (parsed.corrections || []);
 
+              // The model returns an entry per question it looked at, and most of
+              // those repeat the text unchanged. Counting entries made the log say
+              // "3 corrections" when nothing had actually changed, so count real edits.
+              let promptsRewritten = 0;
+              let choicesFixed = 0;
+              let questionsFlagged = 0;
+              const changedQuestionNumbers: Array<string | number> = [];
+
               for (const corr of corrections) {
                 const fq = formattedQuestions[corr.globalIdx];
                 if (!fq) continue;
+                let questionChanged = false;
 
                 // Apply text corrections
                 if (typeof corr.promptRawText === 'string' && corr.promptRawText.trim()) {
-                  fq.promptRawText = corr.promptRawText.trim();
+                  const next = corr.promptRawText.trim();
+                  if (next !== fq.promptRawText) {
+                    promptsRewritten++;
+                    questionChanged = true;
+                  }
+                  fq.promptRawText = next;
                   const firstText = fq.promptBlocks.find((b: any) => b.type === 'text');
                   if (firstText) firstText.text = fq.promptRawText;
                 }
@@ -1564,14 +1596,22 @@ Rules:
                   fq.interaction.choices = fq.interaction.choices.map((orig: string, ci: number) => {
                     const corrected = corr.choices[ci];
                     if (typeof orig === 'string' && orig.startsWith('data:')) return orig; // preserve images
-                    if (typeof corrected === 'string' && corrected !== '[IMAGE]') return corrected;
+                    if (typeof corrected === 'string' && corrected !== '[IMAGE]') {
+                      if (corrected !== orig) {
+                        choicesFixed++;
+                        questionChanged = true;
+                      }
+                      return corrected;
+                    }
                     return orig;
                   });
                 }
+                if (questionChanged) changedQuestionNumbers.push(fq.questionNumber ?? corr.globalIdx + 1);
 
                 // Apply human-review flags from vision model
                 if (corr.needsHumanReview === true) {
                   if (!fq.flags) fq.flags = [];
+                  if (fq.reviewStatus !== "FLAGGED_FOR_REVIEW") questionsFlagged++;
                   fq.reviewStatus = "FLAGGED_FOR_REVIEW";
                   if (Array.isArray(corr.issues) && corr.issues.length > 0) {
                     for (const issue of corr.issues) {
@@ -1586,8 +1626,22 @@ Rules:
                 }
               }
 
-              logger.info({ page: reviewPage.page, corrections: corrections.length }, "[extractIqPdf] Vision review Pass A applied corrections");
-              sendProgress("✓", `Reviewed page ${reviewPage.page}/${reviewTotalPages}`, `${corrections.length} correction(s) or review issue(s) found`, {
+              const edits: string[] = [];
+              if (promptsRewritten > 0) edits.push(`${promptsRewritten} question text${promptsRewritten === 1 ? "" : "s"} rewritten`);
+              if (choicesFixed > 0) edits.push(`${choicesFixed} answer choice${choicesFixed === 1 ? "" : "s"} corrected`);
+              if (questionsFlagged > 0) edits.push(`${questionsFlagged} flagged for your review`);
+              const changedList = changedQuestionNumbers.length > 0
+                ? ` (Q${changedQuestionNumbers.slice(0, 6).join(", Q")}${changedQuestionNumbers.length > 6 ? "…" : ""})`
+                : "";
+              const summary = edits.length > 0
+                ? `${edits.join(", ")}${changedList}`
+                : `Checked ${pageQs.length} question(s) — nothing needed changing`;
+
+              logger.info({
+                page: reviewPage.page, returned: corrections.length,
+                promptsRewritten, choicesFixed, questionsFlagged,
+              }, "[extractIqPdf] Vision review Pass A applied corrections");
+              sendProgress(edits.length > 0 ? "✏️" : "✓", `Reviewed page ${reviewPage.page}/${reviewTotalPages}`, summary, {
                 ...reviewProgressStats, stageCurrent: pageIdx + 1,
               });
               break; // Success — move to next page

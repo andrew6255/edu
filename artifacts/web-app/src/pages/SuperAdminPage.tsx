@@ -56,6 +56,7 @@ import {
 import {
   deleteLogicGameNode,
   getLogicGameQuestions,
+  loadLogicGameQuestionsWithProgress,
   listLogicGameNodes,
   upsertLogicGameNode,
   upsertLogicGameQuestions,
@@ -1175,6 +1176,12 @@ export default function SuperAdminPage() {
   );
 }
 
+// LogicGamesAdmin unmounts whenever the admin switches tabs, so anything held in
+// component state is thrown away and refetched on return. These caches live at
+// module scope so coming back to the tab is instant.
+const bucketQuestionsCache = new Map<string, LogicGameQuestion[]>();
+let cachedBuckets: LogicGameNode[] | null = null;
+
 function LogicGamesAdmin() {
   const { toast } = useToast();
   const { confirm } = useConfirm();
@@ -1289,12 +1296,20 @@ function LogicGamesAdmin() {
     let cancelled = false;
 
     async function run() {
-      setLoading(true);
+      // Show the buckets we already have while revalidating, so returning to this
+      // tab is not a blank wait.
+      if (cachedBuckets) {
+        setNodes(cachedBuckets);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
       setErr(null);
       setStatus(null);
       try {
         const pub = await listLogicGameNodes();
         if (cancelled) return;
+        cachedBuckets = pub;
 
         if (pub.length === 0) {
           const id = `bucket-medium`;
@@ -1324,15 +1339,30 @@ function LogicGamesAdmin() {
         setQuestions([]);
         return;
       }
+      // Straight from cache when we have already loaded this bucket — no spinner.
+      const cached = bucketQuestionsCache.get(selectedNodeId);
+      if (cached) {
+        setQuestions(cached);
+        setQuestionsLoading(false);
+        setQuestionsProgress(null);
+        return;
+      }
       setQuestionsLoading(true);
+      setQuestionsProgress({ completed: 0, total: 0 });
       try {
-        const doc = await getLogicGameQuestions(selectedNodeId);
+        const loaded = await loadLogicGameQuestionsWithProgress(selectedNodeId, (progress) => {
+          if (!cancelled) setQuestionsProgress(progress);
+        });
         if (cancelled) return;
-        setQuestions(doc ? doc.questions : []);
+        bucketQuestionsCache.set(selectedNodeId, loaded);
+        setQuestions(loaded);
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
       } finally {
-        if (!cancelled) setQuestionsLoading(false);
+        if (!cancelled) {
+          setQuestionsLoading(false);
+          setQuestionsProgress(null);
+        }
       }
     }
 
@@ -1341,6 +1371,7 @@ function LogicGamesAdmin() {
   }, [selectedNodeId]);
 
   
+  const [questionsProgress, setQuestionsProgress] = useState<{ completed: number; total: number } | null>(null);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editNodeLabel, setEditNodeLabel] = useState("");
   const [editNodeIq, setEditNodeIq] = useState("");
@@ -1425,6 +1456,8 @@ function LogicGamesAdmin() {
     setSaving(true);
     try {
       await deleteLogicGameNode(nodeId);
+      bucketQuestionsCache.delete(nodeId);
+      cachedBuckets = null;
       if (selectedNodeId === nodeId) setSelectedNodeId(null);
       await load();
       setStatus('✅ Bucket deleted');
@@ -1448,6 +1481,7 @@ function LogicGamesAdmin() {
         questions: newQuestions,
         updatedAt: new Date().toISOString()
       }, options?.trackProgress ? setSaveProgress : undefined);
+      if (selectedNodeId) bucketQuestionsCache.set(selectedNodeId, newQuestions);
       setQuestions(newQuestions);
       setStatus('✅ Auto-saved');
       return true;
@@ -1685,7 +1719,33 @@ function LogicGamesAdmin() {
             
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {questionsLoading ? (
-                <div style={{ color: '#94a3b8', textAlign: 'center' }}>Loading questions...</div>
+                <div style={{ color: '#94a3b8', textAlign: 'center', maxWidth: 420, margin: '0 auto' }} aria-live="polite">
+                  {(() => {
+                    const total = questionsProgress?.total ?? 0;
+                    const completed = questionsProgress?.completed ?? 0;
+                    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+                    return (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, fontSize: 13 }}>
+                          <span>{total > 0 ? `Loading question ${Math.min(completed + 1, total)} of ${total}…` : 'Counting questions…'}</span>
+                          <span style={{ color: '#c4b5fd', fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+                        </div>
+                        <div style={{ height: 8, background: '#0f172a', borderRadius: 999, overflow: 'hidden', border: '1px solid #334155' }}>
+                          <div style={{
+                            width: total > 0 ? `${pct}%` : '35%',
+                            height: '100%', borderRadius: 999,
+                            background: 'linear-gradient(90deg, #6366f1, #a855f7)',
+                            transition: 'width 0.25s ease-out',
+                            animation: total > 0 ? 'none' : 'shimmer 1.2s infinite linear',
+                          }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+                          Questions with images take longer · this bucket is cached once loaded
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
               ) : questions.length === 0 ? (
                 <div style={{ color: '#64748b', textAlign: 'center', marginTop: 40 }}>No questions in this bucket yet.</div>
               ) : (
