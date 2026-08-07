@@ -479,7 +479,19 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
     // Track the allowance per key: a single global counter would make a page wait
     // for one key's window to refill while another key sat completely unused.
     type KeyBudget = { remaining: number; readyAt: number };
-    const keyBudgets: KeyBudget[] = apiKeys.map(() => ({ remaining: Number.POSITIVE_INFINITY, readyAt: 0 }));
+    // Groq meters each key separately *per model*, so the vision model and the
+    // text model each get their own table. One shared table would let a
+    // llama-3.3 request mark a key as spent for qwen (and the reverse), holding
+    // back an allowance the key had never actually used.
+    const keyBudgetsByModel = new Map<string, KeyBudget[]>();
+    const budgetsFor = (model: string): KeyBudget[] => {
+      let budgets = keyBudgetsByModel.get(model);
+      if (!budgets) {
+        budgets = apiKeys.map(() => ({ remaining: Number.POSITIVE_INFINITY, readyAt: 0 }));
+        keyBudgetsByModel.set(model, budgets);
+      }
+      return budgets;
+    };
     let lastKeyIndex = 0;
 
     // ── Proactive per-key token-budget throttle ─────────────────────────────
@@ -507,8 +519,8 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
 
     // Structural type on purpose: `Response` in this module is Express's, not
     // the fetch one.
-    const noteRateLimitHeaders = (res: { headers: { get(name: string): string | null } }) => {
-      const budget = keyBudgets[lastKeyIndex];
+    const noteRateLimitHeaders = (res: { headers: { get(name: string): string | null } }, model: string) => {
+      const budget = budgetsFor(model)[lastKeyIndex];
       if (!budget) return;
       const remaining = Number(res.headers.get("x-ratelimit-remaining-tokens"));
       if (Number.isFinite(remaining)) budget.remaining = remaining;
@@ -520,7 +532,8 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
      * Picks a key that can serve this request now, waiting only if every key is
      * spent. With N keys from N accounts this yields roughly N pages per minute.
      */
-    const acquireApiKey = async (pageLabel: string, stats: ExtractionProgressStats): Promise<string> => {
+    const acquireApiKey = async (pageLabel: string, stats: ExtractionProgressStats, model: string): Promise<string> => {
+      const keyBudgets = budgetsFor(model);
       const now = Date.now();
       let index = keyBudgets.findIndex(b => b.remaining >= ESTIMATED_REQUEST_TOKENS && b.readyAt <= now);
       if (index === -1) {
@@ -545,6 +558,9 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
     };
 
     const VISION_MODEL = "qwen/qwen3.6-27b";
+    // Named so the model sent to Groq and the model the budget is booked against
+    // can never drift apart — they are separate allowances per key.
+    const TEXT_MODEL = "llama-3.3-70b-versatile";
 
     const { execFile } = await import("node:child_process");
     const { promisify } = await import("node:util");
@@ -672,7 +688,7 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
               };
               sendProgress("👁️", `Reading answer image ${answerPageIndex + 1}/${rendered.pages.length}`, answerFile.originalname, answerPageStats);
               // Shares the same per-key allowance as page extraction.
-              const answerApiKey = await acquireApiKey(`answer image ${answerPageIndex + 1}`, answerPageStats);
+              const answerApiKey = await acquireApiKey(`answer image ${answerPageIndex + 1}`, answerPageStats, VISION_MODEL);
               const visionResponse = await withProgressHeartbeat(fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
                 headers: { Authorization: `Bearer ${answerApiKey}`, "Content-Type": "application/json" },
@@ -686,7 +702,7 @@ export async function extractIqPdf(req: Request, res: Response): Promise<void> {
                 }),
                 signal: getAiSignal(),
               }), "👁️", `Reading answer image ${answerPageIndex + 1}/${rendered.pages.length}`, "AI is transcribing the answer page", answerPageStats);
-              noteRateLimitHeaders(visionResponse);
+              noteRateLimitHeaders(visionResponse, VISION_MODEL);
               if (!visionResponse.ok) {
                 const answerImageError = await visionResponse.text();
                 sendProgress("⛔", `Could not read answer image ${answerPageIndex + 1}`, `HTTP ${visionResponse.status}: ${answerImageError.slice(0, 220)}`, {
@@ -735,11 +751,11 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
         const answerParseStats: ExtractionProgressStats = {
           stage: "answers", stageCurrent: answerFiles.length, stageTotal: answerFiles.length,
           totalFiles: totalSourceFiles, processedFiles: totalSourceFiles, totalPages: extractedData.pages.length, answersFound: 0,
-          operation: "answer_key_parse", model: "llama-3.3-70b-versatile",
+          operation: "answer_key_parse", model: TEXT_MODEL,
           attempt: 1, maxAttempts: 1, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
         };
         sendProgress("🧩", "Matching answers to question numbers…", "AI is interpreting the combined answer sources", answerParseStats);
-        const answerResKey = await acquireApiKey("answer matching", answerParseStats);
+        const answerResKey = await acquireApiKey("answer matching", answerParseStats, TEXT_MODEL);
         const answerRes = await withProgressHeartbeat(fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -747,7 +763,7 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
             "Authorization": `Bearer ${answerResKey}`,
           },
           body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
+            model: TEXT_MODEL,
             temperature: 0.0,
             response_format: { type: "json_object" },
             messages: [
@@ -757,6 +773,7 @@ Return ONLY a JSON object like {"answers": {"1": "B", "2": "A", "3": "D"}} with 
           }),
           signal: getAiSignal(),
         }), "🧩", "Matching answers to question numbers…", "AI is interpreting the combined answer sources", answerParseStats);
+        noteRateLimitHeaders(answerRes, TEXT_MODEL);
 
         if (answerRes.ok) {
           const ansPayload = await answerRes.json() as any;
@@ -956,7 +973,7 @@ Additional rules:
             operation: "question_page_extraction", model: VISION_MODEL, page: page.page,
             attempt: retryCount + 1, maxAttempts: maxRetries, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
           };
-          const apiKey = await acquireApiKey(`page ${page.page} of ${totalPages}`, pageProgressStats);
+          const apiKey = await acquireApiKey(`page ${page.page} of ${totalPages}`, pageProgressStats, VISION_MODEL);
           sendProgress("🧠", `Sending page ${page.page} to AI`, `Extraction attempt ${retryCount + 1}/${maxRetries} using ${VISION_MODEL}`, pageProgressStats);
           const visionRes = await withProgressHeartbeat(fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
@@ -985,7 +1002,7 @@ Additional rules:
             signal: getAiSignal(),
           }), "🧠", `AI Vision — Page ${page.page} of ${totalPages}`, "The model is identifying questions, choices and diagrams", pageProgressStats);
 
-          noteRateLimitHeaders(visionRes);
+          noteRateLimitHeaders(visionRes, VISION_MODEL);
 
           if (!visionRes.ok) {
             const errText = await visionRes.text();
@@ -1415,6 +1432,10 @@ Additional rules:
       totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length, answersFound: Object.keys(answerMap).length,
     });
 
+    // Each retry now lands on a different key, so allowing one attempt per key
+    // gives the page a genuine chance instead of hammering a single spent key.
+    const MAX_REVIEW_ATTEMPTS = Math.min(Math.max(3, apiKeys.length), 8);
+
     try {
       for (let pageIdx = 0; pageIdx < extractedData.pages.length; pageIdx++) {
         const reviewPage = extractedData.pages[pageIdx];
@@ -1426,7 +1447,7 @@ Additional rules:
           totalFiles: totalSourceFiles, processedFiles: totalSourceFiles,
           totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length, answersFound: Object.keys(answerMap).length,
           operation: "vision_review", model: VISION_MODEL, page: reviewPage.page,
-          maxAttempts: 3, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
+          maxAttempts: MAX_REVIEW_ATTEMPTS, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
         };
         sendProgress("🔎", `Vision Review — Page ${reviewPage.page}/${reviewTotalPages}`, `Cross-checking ${pageQs.length} question(s) on page ${reviewPage.page} against original PDF`, reviewProgressStats);
 
@@ -1494,11 +1515,12 @@ Rules:
 
         try {
           let reviewRetries = 0;
-          while (reviewRetries < 3) {
-            sendProgress("🔎", `Sending page ${reviewPage.page} for review`, `Review attempt ${reviewRetries + 1}/3 using ${VISION_MODEL}`, {
+          let reviewApplied = false;
+          while (reviewRetries < MAX_REVIEW_ATTEMPTS) {
+            sendProgress("🔎", `Sending page ${reviewPage.page} for review`, `Review attempt ${reviewRetries + 1}/${MAX_REVIEW_ATTEMPTS} using ${VISION_MODEL}`, {
               ...reviewProgressStats, attempt: reviewRetries + 1,
             });
-            const reviewResKey = await acquireApiKey("question review", reviewProgressStats);
+            const reviewResKey = await acquireApiKey("question review", reviewProgressStats, VISION_MODEL);
             const reviewRes = await withProgressHeartbeat(fetch("https://api.groq.com/openai/v1/chat/completions", {
               method: "POST",
               headers: {
@@ -1526,10 +1548,22 @@ Rules:
               signal: getAiSignal(),
             }), "🔎", `Vision Review — Page ${reviewPage.page}/${reviewTotalPages}`, `Cross-checking ${pageQs.length} question(s) against the source page`, { ...reviewProgressStats, retry: reviewRetries });
 
+            // Book the spend against the key that was just used. Without this the
+            // budget for that key stays untouched, so acquireApiKey hands back the
+            // same exhausted key on every retry and the page can never succeed.
+            noteRateLimitHeaders(reviewRes, VISION_MODEL);
+
             if (!reviewRes.ok) {
               if (reviewRes.status === 429) {
-                const waitMs = Math.min(15_000, 5_000 + (reviewRetries * 2_500));
-                sendProgress("↻", `Review retry for page ${reviewPage.page}`, `The AI service is busy; retry ${reviewRetries + 1}/3 starts in ${Math.ceil(waitMs / 1000)}s`, {
+                // The key is now recorded as spent, so the next attempt rotates to a
+                // fresh one and only needs a moment. When every key really is spent,
+                // acquireApiKey does the waiting and reports it.
+                const keysRemain = reviewRetries < apiKeys.length - 1;
+                const waitMs = keysRemain ? 500 : Math.min(15_000, 5_000 + (reviewRetries * 2_500));
+                sendProgress("↻", `Review retry for page ${reviewPage.page}`,
+                  keysRemain
+                    ? `That API key is out of budget; retry ${reviewRetries + 2}/${MAX_REVIEW_ATTEMPTS} on the next key`
+                    : `All API keys are spent; retry ${reviewRetries + 2}/${MAX_REVIEW_ATTEMPTS} starts in ${Math.ceil(waitMs / 1000)}s`, {
                   ...reviewProgressStats, retry: reviewRetries + 1, attempt: reviewRetries + 1,
                   httpStatus: reviewRes.status, rateLimitWaitSeconds: Math.ceil(waitMs / 1000),
                 });
@@ -1538,7 +1572,7 @@ Rules:
                 continue;
               }
               const reviewError = await reviewRes.text();
-              sendProgress("⚠️", `Review failed on page ${reviewPage.page}`, `HTTP ${reviewRes.status}: ${reviewError.slice(0, 220)}. Continuing without this review.`, {
+              sendProgress("⚠️", `Review failed on page ${reviewPage.page}`, `HTTP ${reviewRes.status}: ${reviewError.slice(0, 220)}`, {
                 ...reviewProgressStats, attempt: reviewRetries + 1, httpStatus: reviewRes.status, lastError: reviewError.slice(0, 300),
               });
               break;
@@ -1644,11 +1678,26 @@ Rules:
               sendProgress(edits.length > 0 ? "✏️" : "✓", `Reviewed page ${reviewPage.page}/${reviewTotalPages}`, summary, {
                 ...reviewProgressStats, stageCurrent: pageIdx + 1,
               });
+              reviewApplied = true;
               break; // Success — move to next page
             } catch {
               logger.warn({ page: reviewPage.page }, "[extractIqPdf] Vision review Pass A: failed to parse response");
               break;
             }
+          }
+
+          // Every exit from the loop above except success used to be silent, so a
+          // page that was never cross-checked looked identical to one that passed.
+          // Say it plainly instead: these questions carry no review guarantee.
+          if (!reviewApplied) {
+            logger.warn(
+              { page: reviewPage.page, attempts: reviewRetries, questions: pageQs.length },
+              "[extractIqPdf] Vision review Pass A: page was not reviewed",
+            );
+            sendProgress("⚠️", `Page ${reviewPage.page} was NOT reviewed`,
+              `${pageQs.length} question(s) on this page were not cross-checked against the PDF after ${Math.max(1, reviewRetries)} attempt(s). Check them by hand.`, {
+              ...reviewProgressStats, stageCurrent: pageIdx + 1, attempt: reviewRetries,
+            });
           }
         } catch (pageReviewErr) {
           logger.warn({ page: reviewPage.page, err: pageReviewErr }, "[extractIqPdf] Vision review Pass A: page skipped");
@@ -1681,7 +1730,7 @@ Rules:
     const auditProgressStats: ExtractionProgressStats = {
       stage: "auditing", stageCurrent: 0, stageTotal: 1, totalFiles: totalSourceFiles, processedFiles: totalSourceFiles,
       totalPages, currentPage: totalPages, totalQuestions: formattedQuestions.length, answersFound: Object.keys(answerMap).length,
-      operation: "structural_audit", model: "llama-3.3-70b-versatile",
+      operation: "structural_audit", model: TEXT_MODEL,
       attempt: 1, maxAttempts: 1, requestTimeoutSeconds: AI_REQUEST_TIMEOUT_MS / 1000,
     };
     sendProgress("✅", "Vision Review Pass B…", "Final structural audit & flagging any remaining issues", auditProgressStats);
@@ -1725,7 +1774,7 @@ Only include questions with issues. Return ONLY valid JSON, no fences.
 Questions:
 ${JSON.stringify(textOnlyForAudit, null, 2)}`;
 
-      const auditResKey = await acquireApiKey("final audit", auditProgressStats);
+      const auditResKey = await acquireApiKey("final audit", auditProgressStats, TEXT_MODEL);
       const auditRes = await withProgressHeartbeat(fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -1733,7 +1782,7 @@ ${JSON.stringify(textOnlyForAudit, null, 2)}`;
           "Authorization": `Bearer ${auditResKey}`,
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: TEXT_MODEL,
           temperature: 0.0,
           max_tokens: 2000,
           response_format: { type: "json_object" },
@@ -1744,6 +1793,7 @@ ${JSON.stringify(textOnlyForAudit, null, 2)}`;
         }),
         signal: getAiSignal(),
       }), "✅", "Final structural audit…", "Checking extracted questions for residual structural or textual issues", auditProgressStats);
+      noteRateLimitHeaders(auditRes, TEXT_MODEL);
 
       if (auditRes.ok) {
         const auditPayload = await auditRes.json() as any;
