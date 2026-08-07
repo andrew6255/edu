@@ -84,3 +84,5 @@ artifacts/api-server/scripts/*.pth
 
 # Web ONNX demo model assets
 artifacts/web-app/public/models/symbol-classifier/
+.vercel
+.env*
