@@ -1,0 +1,8 @@
+Touch this file to force Vercel to run a real build.
+
+Vercel skips builds when a commit changes nothing inside the project's
+Root Directory (artifacts/web-app). Environment variable changes alone do
+not count, so a dashboard change to VITE_API_SERVER_URL will not take
+effect until a commit touches a file in this directory.
+
+2026-08-07: bumped to pick up VITE_API_SERVER_URL=https://edu-api-jwon.onrender.com
