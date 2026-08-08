@@ -1278,91 +1278,65 @@ function LogicGamesAdmin() {
   const [detailsQIndex, setDetailsQIndex] = useState<number | null>(null);
   const [detailsGroqLoading, setDetailsGroqLoading] = useState(false);
 
-  // Bulk "Ask Groq" backfill for every question in the open bucket that is
-  // still missing its explanation/cognitive metrics (existing questions from
-  // before this feature existed).
-  const [bulkGroqRunning, setBulkGroqRunning] = useState(false);
-  const [bulkGroqProgress, setBulkGroqProgress] = useState<{ completed: number; total: number } | null>(null);
-  const bulkGroqCancelRef = useRef(false);
+  // Auto-fill details (explanation/cognitive metrics/per-option explanations)
+  // for freshly extracted questions before they're reviewed and added to the
+  // bucket, so nothing sits with blank details after being added. Matches
+  // extracted questions by their client-generated id, not array index, so it
+  // stays correct even if the admin edits/reorders/deletes while it runs.
+  const [extractedDetailsFilling, setExtractedDetailsFilling] = useState(false);
+  const [extractedDetailsProgress, setExtractedDetailsProgress] = useState<{ completed: number; total: number } | null>(null);
+  const extractedDetailsCancelRef = useRef(false);
 
-  async function bulkAskGroq() {
-    const targetIndexes = questions
-      .map((q, idx) => idx)
-      .filter((idx) => !questions[idx].primaryMetric);
-    if (targetIndexes.length === 0) {
-      toast({ description: 'Every question in this bucket already has details set.' });
-      return;
-    }
-    setBulkGroqRunning(true);
-    bulkGroqCancelRef.current = false;
-    setBulkGroqProgress({ completed: 0, total: targetIndexes.length });
+  async function autoFillExtractedQuestionsDetails(freshlyExtracted: LogicGameQuestion[]) {
+    const targets = freshlyExtracted.filter((q) => !q.primaryMetric);
+    if (targets.length === 0) return;
+    setExtractedDetailsFilling(true);
+    extractedDetailsCancelRef.current = false;
+    setExtractedDetailsProgress({ completed: 0, total: targets.length });
     const apiUrl = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() || 'http://localhost:3001';
     const seedDifficulty = nodes.find(n => n.id === selectedNodeId)?.seedDifficulty ?? 100;
-    const next = [...questions];
-    let filled = 0;
     let failed = 0;
-    let skipped = 0;
-    let stoppedEarly = false;
-    let firstError: string | null = null;
-    for (let i = 0; i < targetIndexes.length; i++) {
-      if (bulkGroqCancelRef.current) { stoppedEarly = true; break; }
-      const idx = targetIndexes[i];
-      const dq = next[idx];
+    for (let i = 0; i < targets.length; i++) {
+      if (extractedDetailsCancelRef.current) break;
+      const dq = targets[i];
       try {
         const promptText = dq.promptRawText || (dq.promptBlocks?.[0] as any)?.text || '';
-        if (!promptText.trim()) {
-          skipped++;
-          console.warn(`[bulkAskGroq] question ${dq.id} has no prompt text, skipping`);
-          continue;
-        }
-        const choicesArr = dq.interaction.type === 'mcq' ? dq.interaction.choices : [];
-        const correctIdx = dq.interaction.type === 'mcq' ? dq.interaction.correctChoiceIndex : -1;
-        const res = await fetch(`${apiUrl}/api/program-ingestion/iq-question-details`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ promptText, choices: choicesArr, correctChoiceIndex: correctIdx, nodeIq: seedDifficulty }),
-        });
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${(await res.text()).slice(0, 300)}`);
-        const data = await res.json();
-        const updated: LogicGameQuestion = { ...next[idx] };
-        if (data.explanation) updated.explanation = data.explanation;
-        if (data.primaryMetric) updated.primaryMetric = data.primaryMetric;
-        if (Array.isArray(data.secondaryMetrics)) updated.secondaryMetrics = data.secondaryMetrics;
-        if (updated.interaction.type === 'mcq' && Array.isArray(data.choiceExplanations) && data.choiceExplanations.length > 0) {
-          updated.interaction = { ...updated.interaction, choiceExplanations: data.choiceExplanations };
-        }
-        next[idx] = updated;
-        filled++;
-        // Checkpoint every 20: a long run (e.g. a 200-question bucket) can take
-        // several minutes, and saving only once at the very end means an
-        // interruption near the end loses everything filled so far. This keeps
-        // that risk to at most ~20 questions' worth of re-work.
-        if (filled % 20 === 0) {
-          setQuestions([...next]);
-          await saveQuestionsList([...next]);
+        if (promptText.trim()) {
+          const choicesArr = dq.interaction.type === 'mcq' ? dq.interaction.choices : [];
+          const correctIdx = dq.interaction.type === 'mcq' ? dq.interaction.correctChoiceIndex : -1;
+          const res = await fetch(`${apiUrl}/api/program-ingestion/iq-question-details`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ promptText, choices: choicesArr, correctChoiceIndex: correctIdx, nodeIq: seedDifficulty }),
+          });
+          if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${(await res.text()).slice(0, 300)}`);
+          const data = await res.json();
+          setExtractedQuestions((prev) => (prev ?? []).map((q) => {
+            if (q.id !== dq.id) return q;
+            const updated: LogicGameQuestion = { ...q };
+            if (data.explanation) updated.explanation = data.explanation;
+            if (data.primaryMetric) updated.primaryMetric = data.primaryMetric;
+            if (Array.isArray(data.secondaryMetrics)) updated.secondaryMetrics = data.secondaryMetrics;
+            if (updated.interaction.type === 'mcq' && Array.isArray(data.choiceExplanations) && data.choiceExplanations.length > 0) {
+              updated.interaction = { ...updated.interaction, choiceExplanations: data.choiceExplanations };
+            }
+            return updated;
+          }));
         }
       } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        console.error(`[bulkAskGroq] question ${dq.id} failed:`, message);
-        if (!firstError) firstError = message;
+        console.error(`[autoFillExtractedQuestionsDetails] question ${dq.id} failed:`, e instanceof Error ? e.message : String(e));
         failed++;
       }
-      setBulkGroqProgress({ completed: i + 1, total: targetIndexes.length });
+      setExtractedDetailsProgress({ completed: i + 1, total: targets.length });
     }
-    setQuestions(next);
-    if (filled > 0) await saveQuestionsList(next, { trackProgress: true });
-    setBulkGroqRunning(false);
-    setBulkGroqProgress(null);
-    if (failed > 0 && firstError) {
-      console.error(`[bulkAskGroq] ${failed} of ${targetIndexes.length} failed. First error: ${firstError}`);
+    setExtractedDetailsFilling(false);
+    setExtractedDetailsProgress(null);
+    if (failed > 0) {
+      toast({
+        variant: 'destructive',
+        description: `${failed} of ${targets.length} question${targets.length === 1 ? '' : 's'} couldn't get auto-filled details — after adding them to the bucket, open each one's Details panel and use the 🤖 button to retry.`,
+      });
     }
-    const skippedPart = skipped ? `, ${skipped} skipped (no prompt text)` : '';
-    toast({
-      variant: failed > 0 && filled === 0 ? 'destructive' : undefined,
-      description: stoppedEarly
-        ? `Cancelled — filled ${filled} question${filled === 1 ? '' : 's'} before stopping.`
-        : `Filled ${filled} question${filled === 1 ? '' : 's'}${failed ? `, ${failed} failed` : ''}${skippedPart}.${failed > 0 && firstError ? ` First error: ${firstError.slice(0, 150)}` : ''}`,
-    });
   }
 
   // PDF Upload Flow
@@ -1788,6 +1762,7 @@ function LogicGamesAdmin() {
       });
 
       setExtractedQuestions(formatted);
+      void autoFillExtractedQuestionsDetails(formatted);
       setPdfError(null);
       setPdfProgress('');
       setPdfSteps([]);
@@ -1924,43 +1899,6 @@ function LogicGamesAdmin() {
                 + Add Questions
               </button>
             </div>
-
-            {questions.length > 0 && (
-              <div style={{ marginBottom: 18 }}>
-                <button
-                  onClick={() => void bulkAskGroq()}
-                  disabled={bulkGroqRunning || questionsLoading}
-                  className="ll-btn"
-                  style={{
-                    padding: '10px 16px', fontSize: 13, fontWeight: 'bold', width: '100%',
-                    background: 'linear-gradient(135deg, rgba(168,85,247,0.15), rgba(59,130,246,0.15))',
-                    border: '1px solid rgba(168,85,247,0.35)', color: '#c084fc', borderRadius: 10,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  }}
-                >
-                  {bulkGroqRunning
-                    ? `🔄 Filling ${bulkGroqProgress?.completed ?? 0}/${bulkGroqProgress?.total ?? 0}…`
-                    : `🤖 Ask Groq to Auto-Fill All Values for missing questions in this bucket`}
-                </button>
-                {bulkGroqRunning && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-                    <div style={{ flex: 1, height: 6, background: '#0f172a', borderRadius: 999, overflow: 'hidden', border: '1px solid #334155' }}>
-                      <div style={{
-                        width: bulkGroqProgress && bulkGroqProgress.total > 0 ? `${Math.round((bulkGroqProgress.completed / bulkGroqProgress.total) * 100)}%` : '0%',
-                        height: '100%', borderRadius: 999, background: 'linear-gradient(90deg, #6366f1, #a855f7)', transition: 'width 0.2s ease-out',
-                      }} />
-                    </div>
-                    <button
-                      onClick={() => { bulkGroqCancelRef.current = true; }}
-                      className="ll-btn"
-                      style={{ padding: '5px 10px', fontSize: 11, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
 
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {questionsLoading ? (
@@ -2658,6 +2596,18 @@ function LogicGamesAdmin() {
                       <div style={{ color: '#fca5a5', fontSize: 13, marginTop: 4 }}>
                         ⚠️ Please review all questions and select the correct answer for each by clicking the letter circle.
                       </div>
+                      {extractedDetailsFilling && (
+                        <div style={{ color: '#c084fc', fontSize: 12, marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          🤖 Auto-filling explanations & cognitive metrics — {extractedDetailsProgress?.completed ?? 0}/{extractedDetailsProgress?.total ?? 0}…
+                          <button
+                            onClick={() => { extractedDetailsCancelRef.current = true; }}
+                            className="ll-btn"
+                            style={{ padding: '2px 8px', fontSize: 10, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={async () => {
@@ -2878,11 +2828,11 @@ function LogicGamesAdmin() {
                           setPdfProgress('');
                         }
                       }} 
-                      className="ll-btn ll-btn-primary" 
-                      disabled={saving}
-                      style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', flex: 1, opacity: saving ? 0.7 : 1, cursor: saving ? 'progress' : 'pointer' }}
+                      className="ll-btn ll-btn-primary"
+                      disabled={saving || extractedDetailsFilling}
+                      style={{ padding: '14px', fontSize: 15, fontWeight: 'bold', flex: 1, opacity: (saving || extractedDetailsFilling) ? 0.7 : 1, cursor: (saving || extractedDetailsFilling) ? 'progress' : 'pointer' }}
                     >
-                      {saving && saveProgress ? 'Saving…' : `Add All ${extractedQuestions.length} Questions to Bucket`}
+                      {saving && saveProgress ? 'Saving…' : extractedDetailsFilling ? 'Filling details before adding…' : `Add All ${extractedQuestions.length} Questions to Bucket`}
                     </button>
                   </div>
 
