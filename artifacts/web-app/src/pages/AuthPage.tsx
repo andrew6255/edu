@@ -10,6 +10,12 @@ import {
   getRememberedAccounts, removeRememberedAccount, switchToRememberedAccount, RememberedAccount
 } from '@/lib/authService';
 
+type AccountType = 'student' | 'teacher' | 'parent';
+
+// Google OAuth is a redirect: the page reloads on return, so the account type
+// chosen before leaving has to survive somewhere other than component state.
+const PENDING_ROLE_KEY = 'll_pending_signup_role';
+
 function formatAuthError(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message;
   if (error && typeof error === 'object') {
@@ -31,27 +37,6 @@ async function generateUniqueUsername(base: string): Promise<string> {
     if (!(await isUsernameTaken(candidate))) return candidate;
   }
   return `${clean}${Date.now().toString().slice(-6)}`;
-}
-
-async function ensureUserDoc(authUser: {
-  uid: string;
-  displayName: string | null;
-  email: string | null;
-}, onboardingComplete = true) {
-  const existing = await getUserData(authUser.uid);
-  if (!existing) {
-    const rawName = authUser.displayName || 'LogicLord';
-    const parts = rawName.split(' ');
-    const username = await generateUniqueUsername(rawName.replace(/\s+/g, ''));
-    await createUserData(authUser.uid, {
-      firstName: parts[0] || rawName,
-      lastName: parts.slice(1).join(' ') || '',
-      username,
-      email: authUser.email || '',
-      role: 'student',
-      onboardingComplete,
-    });
-  }
 }
 
 function googleErrorMessage(code: string): string {
@@ -76,6 +61,20 @@ function ageOnDate(birthDate: string, today = new Date()): number | null {
   return age;
 }
 
+function readPendingRole(): AccountType {
+  try {
+    const stored = localStorage.getItem(PENDING_ROLE_KEY);
+    if (stored === 'student' || stored === 'teacher' || stored === 'parent') return stored;
+  } catch { /* localStorage unavailable */ }
+  return 'student';
+}
+
+const ACCOUNT_TYPE_STYLE: Record<AccountType, { rgb: string; text: string; label: string }> = {
+  student: { rgb: '59,130,246', text: '#93c5fd', label: '🎓 Student' },
+  teacher: { rgb: '16,185,129', text: '#6ee7b7', label: '🧑‍🏫 Teacher' },
+  parent: { rgb: '236,72,153', text: '#f9a8d4', label: '👨‍👩‍👧 Parent' },
+};
+
 export default function AuthPage() {
   const { user, userData, loading, refreshUserData } = useAuth();
   const [, setLocation] = useLocation();
@@ -97,9 +96,15 @@ export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [accountType, setAccountType] = useState<'student' | 'parent'>('student');
+  const [accountType, setAccountType] = useState<AccountType>('student');
   const [birthDate, setBirthDate] = useState('');
   const [guardianEmail, setGuardianEmail] = useState('');
+
+  // Set once Google OAuth returns with a brand-new auth user (no profile row
+  // yet): Google only ever gives us an email and a display name, so username
+  // and (for students) birthdate still have to be collected before the
+  // account is actually created.
+  const [googleCompletion, setGoogleCompletion] = useState<{ uid: string; email: string } | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -114,6 +119,7 @@ export default function AuthPage() {
     if (loading) return;
     if (!user) return;
     if (userData) return;
+    if (googleCompletion) return;
 
     let active = true;
 
@@ -123,27 +129,39 @@ export default function AuthPage() {
         const { data } = await supabase.auth.getUser();
         const authUser = data.user;
         if (!authUser || !active) return;
+
+        const existing = await getUserData(authUser.id);
+        if (existing) {
+          if (active) await refreshUserData();
+          return;
+        }
+
         const meta = authUser.user_metadata && typeof authUser.user_metadata === 'object'
           ? (authUser.user_metadata as Record<string, unknown>)
           : {};
         const displayName = typeof meta.full_name === 'string'
           ? meta.full_name
-          : (typeof meta.name === 'string' ? meta.name : null);
-        await ensureUserDoc({
-          uid: authUser.id,
-          displayName,
-          email: authUser.email ?? '',
-        });
-        if (active) await refreshUserData();
+          : (typeof meta.name === 'string' ? meta.name : '');
+        const parts = displayName.trim().split(/\s+/).filter(Boolean);
+        const suggestedUsername = await generateUniqueUsername(parts.join('') || (authUser.email ?? 'user').split('@')[0]);
+        if (!active) return;
+
+        setFname(parts[0] || '');
+        setLname(parts.slice(1).join(' ') || '');
+        setUsername(suggestedUsername);
+        setAccountType(readPendingRole());
+        setBirthDate('');
+        setGuardianEmail('');
+        setGoogleCompletion({ uid: authUser.id, email: authUser.email ?? '' });
       } catch (e) {
-        console.error('Failed to ensure Supabase user profile:', e);
+        console.error('Failed to prepare Google sign-up:', e);
       }
     })();
 
     return () => {
       active = false;
     };
-  }, [loading, user, userData, refreshUserData]);
+  }, [loading, user, userData, refreshUserData, googleCompletion]);
 
   useEffect(() => {
     if (!loading && user && userData) {
@@ -166,7 +184,7 @@ export default function AuthPage() {
     let success = false;
     try {
       await loginWithIdentifier(loginId.trim(),loginPass);
-      
+
       success = true;
       // The useEffect listener on user and userData will handle the client-side routing.
     } catch (e: unknown) {
@@ -183,10 +201,12 @@ export default function AuthPage() {
 
   async function handleRegister() {
     if (!fname || !lname || !username || !email || !pass) return setError('Please fill in all required fields.');
-    const age = ageOnDate(birthDate);
-    if (age === null) return setError('Enter a valid date of birth.');
-    if (accountType === 'parent' && age < 18) return setError('A parent or guardian account holder must be at least 18.');
-    const needsGuardianConsent = accountType === 'student' && age < 18;
+    let age: number | null = null;
+    if (accountType === 'student') {
+      age = ageOnDate(birthDate);
+      if (age === null) return setError('Enter a valid date of birth.');
+    }
+    const needsGuardianConsent = accountType === 'student' && age !== null && age < 18;
     if (needsGuardianConsent && !/^\S+@\S+\.\S+$/.test(guardianEmail.trim())) return setError('Enter a valid parent or guardian email.');
     if (pass !== confirm) return setError('Passwords do not match.');
     if (pass.length < 8) return setError('Password must be at least 8 characters.');
@@ -199,7 +219,7 @@ export default function AuthPage() {
       const { data, error } = await supabase.auth.signUp({
         email,
         password: pass,
-        options: { data: { full_name: `${fname} ${lname}`.trim(), name: username } },
+        options: { data: { full_name: `${fname} ${lname}`.trim(), name: username, pending_role: accountType } },
       });
       if (error) throw error;
       const authUser = data.user;
@@ -208,11 +228,13 @@ export default function AuthPage() {
         firstName: fname, lastName: lname, username, email,
         role: accountType,
         onboardingComplete: true,
-        birthDate,
+        birthDate: accountType === 'student' ? birthDate : undefined,
         countryCode: 'EG',
         guardianConsentStatus: needsGuardianConsent ? 'pending' : 'not_required',
       });
       if (needsGuardianConsent) await requestGuardianConsent(authUser.id, guardianEmail);
+      // The useEffect listener on user and userData takes it from here and
+      // routes straight into the new account's panel.
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code || '';
       if (code === 'user_already_exists' || code === 'email_exists') {
@@ -225,9 +247,47 @@ export default function AuthPage() {
     }
   }
 
+  async function handleFinishGoogleSignup() {
+    if (!googleCompletion) return;
+    if (!fname || !lname || !username) return setError('Please fill in all required fields.');
+    let age: number | null = null;
+    if (accountType === 'student') {
+      age = ageOnDate(birthDate);
+      if (age === null) return setError('Enter a valid date of birth.');
+    }
+    const needsGuardianConsent = accountType === 'student' && age !== null && age < 18;
+    if (needsGuardianConsent && !/^\S+@\S+\.\S+$/.test(guardianEmail.trim())) return setError('Enter a valid parent or guardian email.');
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) return setError('Username can only contain letters, numbers and underscores.');
+    setSubmitting(true); setError('');
+    try {
+      const taken = await isUsernameTaken(username);
+      if (taken) { setError('Username is already taken.'); return; }
+      await createUserData(googleCompletion.uid, {
+        firstName: fname, lastName: lname, username, email: googleCompletion.email,
+        role: accountType,
+        onboardingComplete: true,
+        birthDate: accountType === 'student' ? birthDate : undefined,
+        countryCode: 'EG',
+        guardianConsentStatus: needsGuardianConsent ? 'pending' : 'not_required',
+      });
+      if (needsGuardianConsent) await requestGuardianConsent(googleCompletion.uid, guardianEmail);
+      try { localStorage.removeItem(PENDING_ROLE_KEY); } catch { /* ignore */ }
+      setGoogleCompletion(null);
+      await refreshUserData();
+    } catch (e: unknown) {
+      setError(formatAuthError(e, 'Could not finish creating your account'));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function handleGoogle() {
     setSubmitting(true); setError('');
     try {
+      try {
+        if (mode === 'register') localStorage.setItem(PENDING_ROLE_KEY, accountType);
+        else localStorage.removeItem(PENDING_ROLE_KEY);
+      } catch { /* ignore */ }
       const supabase = requireSupabase();
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -256,6 +316,47 @@ export default function AuthPage() {
     fontFamily: 'inherit', outline: 'none', transition: '0.2s'
   };
 
+  function renderAccountTypePicker() {
+    return (
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {(['student', 'teacher', 'parent'] as const).map(t => {
+          const style = ACCOUNT_TYPE_STYLE[t];
+          return (
+            <button
+              key={t}
+              onClick={() => setAccountType(t)}
+              style={{
+                flex: 1, padding: '9px', borderRadius: 8, fontSize: 13, fontWeight: 'bold',
+                cursor: 'pointer', fontFamily: 'inherit', transition: '0.2s',
+                background: accountType === t ? `rgba(${style.rgb},0.2)` : 'transparent',
+                border: accountType === t ? `1px solid rgba(${style.rgb},0.5)` : '1px solid #334155',
+                color: accountType === t ? style.text : '#64748b'
+              }}
+            >
+              {style.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderBirthDateFields() {
+    if (accountType !== 'student') return null;
+    return (
+      <>
+        <label style={{ display: 'block', textAlign: 'left', color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>Date of birth</label>
+        <input style={inputStyle} type="date" value={birthDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setBirthDate(e.target.value)} />
+        {ageOnDate(birthDate) !== null && (ageOnDate(birthDate) as number) < 18 && (
+          <>
+            <input style={inputStyle} type="email" placeholder="Parent or guardian email" value={guardianEmail} onChange={e => setGuardianEmail(e.target.value.trim())} />
+            <div style={{ color: '#fbbf24', fontSize: 11, textAlign: 'left', margin: '-4px 0 10px' }}>Guardian approval will be required for protected account features.</div>
+          </>
+        )}
+      </>
+    );
+  }
+
   return (
     <div style={{
       background: 'radial-gradient(circle at center, #1e293b 0%, #0f172a 100%)',
@@ -273,9 +374,11 @@ export default function AuthPage() {
           LOGIC LORDS
         </h1>
         <p style={{ color: '#94a3b8', marginBottom: 20, fontSize: 13 }}>
-          {showRememberedView && rememberedAccounts.length > 0
-            ? 'Select an account to sign in instantly on this device'
-            : (mode === 'login' ? 'Sign in to your account' : 'Create your account')}
+          {googleCompletion
+            ? 'Just a few more details to finish creating your account'
+            : (showRememberedView && rememberedAccounts.length > 0
+              ? 'Select an account to sign in instantly on this device'
+              : (mode === 'login' ? 'Sign in to your account' : 'Create your account'))}
         </p>
 
         {error && (
@@ -288,7 +391,27 @@ export default function AuthPage() {
           </div>
         )}
 
-        {showRememberedView && rememberedAccounts.length > 0 ? (
+        {googleCompletion ? (
+          <div>
+            <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'left', marginBottom: 10 }}>
+              Signed in as <strong style={{ color: 'white' }}>{googleCompletion.email}</strong>
+            </div>
+            {renderAccountTypePicker()}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input style={{ ...inputStyle, flex: 1, marginRight: 0 }} placeholder="First Name" value={fname} onChange={e => setFname(e.target.value)} />
+              <input style={{ ...inputStyle, flex: 1 }} placeholder="Last Name" value={lname} onChange={e => setLname(e.target.value)} />
+            </div>
+            <input style={inputStyle} placeholder="Username (letters, numbers, _)" value={username} onChange={e => setUsername(e.target.value.toLowerCase().trim())} />
+            {renderBirthDateFields()}
+            <button
+              className="ll-btn ll-btn-primary"
+              style={{ width: '100%', padding: '13px', fontSize: 15, marginBottom: 8 }}
+              onClick={handleFinishGoogleSignup} disabled={isLoading}
+            >
+              {submitting ? 'Finishing...' : 'FINISH SIGNING UP'}
+            </button>
+          </div>
+        ) : showRememberedView && rememberedAccounts.length > 0 ? (
           <div style={{ textAlign: 'left', animation: 'slideUp 0.3s ease' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
               {rememberedAccounts.map((acc) => {
@@ -436,118 +559,100 @@ export default function AuthPage() {
               </button>
             )}
 
-        <button
-          onClick={handleGoogle}
-          disabled={isLoading}
-          style={{
-            background: isLoading ? '#e5e7eb' : 'white',
-            color: '#1e293b', border: 'none',
-            borderRadius: 8, padding: '12px 20px', width: '100%',
-            fontSize: 15, fontWeight: 'bold', cursor: isLoading ? 'not-allowed' : 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-            fontFamily: 'inherit', transition: '0.2s', marginBottom: 4,
-            boxShadow: '0 1px 4px rgba(0,0,0,0.3)'
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          {googleLoading ? 'Checking...' : 'Continue with Google'}
-        </button>
-
-        <p style={{ color: '#475569', fontSize: 11, margin: '4px 0 16px', textAlign: 'center' }}>
-          New to Logic Lords? Google Sign-In creates a student account automatically.
-        </p>
-
-        <div style={{ margin: '0 0 16px', color: '#475569', fontSize: 12, fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
-          <div style={{ flex: 1, borderBottom: '1px solid #334155' }} />
-          <span style={{ padding: '0 12px' }}>OR USE EMAIL</span>
-          <div style={{ flex: 1, borderBottom: '1px solid #334155' }} />
-        </div>
-
-        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-          {(['login', 'register'] as const).map(m => (
-            <button
-              key={m}
-              onClick={() => { setMode(m); setError(''); }}
-              style={{
-                flex: 1, padding: '9px', borderRadius: 8, fontSize: 13, fontWeight: 'bold',
-                cursor: 'pointer', fontFamily: 'inherit', transition: '0.2s',
-                background: mode === m ? 'rgba(59,130,246,0.2)' : 'transparent',
-                border: mode === m ? '1px solid rgba(59,130,246,0.5)' : '1px solid #334155',
-                color: mode === m ? '#93c5fd' : '#64748b'
-              }}
-            >
-              {m === 'login' ? 'Log In' : 'Register'}
-            </button>
-          ))}
-        </div>
-
-        {mode === 'login' ? (
-          <div>
-            <input
-              style={inputStyle} placeholder="Email or Username"
-              value={loginId} onChange={e => setLoginId(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleLogin()}
-            />
-            <input
-              style={inputStyle} type="password" placeholder="Password"
-              value={loginPass} onChange={e => setLoginPass(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleLogin()}
-            />
-            <button
-              className="ll-btn ll-btn-primary"
-              style={{ width: '100%', padding: '13px', fontSize: 15, marginBottom: 8 }}
-              onClick={handleLogin} disabled={isLoading}
-            >
-              {submitting ? 'Signing in...' : 'LOG IN'}
-            </button>
-          </div>
-        ) : (
-          <div>
-            {/* Account type selector */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-              {(['student', 'parent'] as const).map(t => (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+              {(['login', 'register'] as const).map(m => (
                 <button
-                  key={t}
-                  onClick={() => setAccountType(t)}
+                  key={m}
+                  onClick={() => { setMode(m); setError(''); }}
                   style={{
                     flex: 1, padding: '9px', borderRadius: 8, fontSize: 13, fontWeight: 'bold',
                     cursor: 'pointer', fontFamily: 'inherit', transition: '0.2s',
-                    background: accountType === t ? (t === 'student' ? 'rgba(59,130,246,0.2)' : 'rgba(236,72,153,0.2)') : 'transparent',
-                    border: accountType === t ? `1px solid ${t === 'student' ? 'rgba(59,130,246,0.5)' : 'rgba(236,72,153,0.5)'}` : '1px solid #334155',
-                    color: accountType === t ? (t === 'student' ? '#93c5fd' : '#f9a8d4') : '#64748b'
+                    background: mode === m ? 'rgba(59,130,246,0.2)' : 'transparent',
+                    border: mode === m ? '1px solid rgba(59,130,246,0.5)' : '1px solid #334155',
+                    color: mode === m ? '#93c5fd' : '#64748b'
                   }}
                 >
-                  {t === 'student' ? '🎓 Student' : '👨\u200d👩\u200d👧 Parent'}
+                  {m === 'login' ? 'Log In' : 'Register'}
                 </button>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input style={{ ...inputStyle, flex: 1, marginRight: 0 }} placeholder="First Name" value={fname} onChange={e => setFname(e.target.value)} />
-              <input style={{ ...inputStyle, flex: 1 }} placeholder="Last Name" value={lname} onChange={e => setLname(e.target.value)} />
-            </div>
-            <input style={inputStyle} placeholder="Username (letters, numbers, _)" value={username} onChange={e => setUsername(e.target.value.toLowerCase().trim())} />
-            <input style={inputStyle} type="email" placeholder="Email Address" value={email} onChange={e => setEmail(e.target.value.trim())} />
-            <label style={{ display: 'block', textAlign: 'left', color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>Date of birth</label>
-            <input style={inputStyle} type="date" value={birthDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setBirthDate(e.target.value)} />
-            {accountType === 'student' && ageOnDate(birthDate) !== null && (ageOnDate(birthDate) as number) < 18 && (
-              <><input style={inputStyle} type="email" placeholder="Parent or guardian email" value={guardianEmail} onChange={e => setGuardianEmail(e.target.value.trim())} /><div style={{ color: '#fbbf24', fontSize: 11, textAlign: 'left', margin: '-4px 0 10px' }}>Guardian approval will be required for protected account features.</div></>
-            )}
-            <input style={inputStyle} type="password" placeholder="Password (min 6 chars)" value={pass} onChange={e => setPass(e.target.value)} />
-            <input style={inputStyle} type="password" placeholder="Confirm Password" value={confirm} onChange={e => setConfirm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleRegister()} />
+
+            {mode === 'register' && renderAccountTypePicker()}
+
             <button
-              className="ll-btn ll-btn-primary"
-              style={{ width: '100%', padding: '13px', fontSize: 15, marginBottom: 8 }}
-              onClick={handleRegister} disabled={isLoading}
+              onClick={handleGoogle}
+              disabled={isLoading}
+              style={{
+                background: isLoading ? '#e5e7eb' : 'white',
+                color: '#1e293b', border: 'none',
+                borderRadius: 8, padding: '12px 20px', width: '100%',
+                fontSize: 15, fontWeight: 'bold', cursor: isLoading ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                fontFamily: 'inherit', transition: '0.2s', marginBottom: 4,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.3)'
+              }}
             >
-              {submitting ? 'Creating account...' : 'CREATE ACCOUNT'}
+              <svg width="20" height="20" viewBox="0 0 48 48">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+              </svg>
+              {googleLoading ? 'Checking...' : 'Continue with Google'}
             </button>
-          </div>
-        )}
+
+            <p style={{ color: '#475569', fontSize: 11, margin: '4px 0 16px', textAlign: 'center' }}>
+              {mode === 'register'
+                ? `Creates a ${ACCOUNT_TYPE_STYLE[accountType].label.replace(/^\S+\s/, '')} account. You'll add a username${accountType === 'student' ? ' and date of birth' : ''} next.`
+                : 'Signs in with your existing account.'}
+            </p>
+
+            <div style={{ margin: '0 0 16px', color: '#475569', fontSize: 12, fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
+              <div style={{ flex: 1, borderBottom: '1px solid #334155' }} />
+              <span style={{ padding: '0 12px' }}>OR USE EMAIL</span>
+              <div style={{ flex: 1, borderBottom: '1px solid #334155' }} />
+            </div>
+
+            {mode === 'login' ? (
+              <div>
+                <input
+                  style={inputStyle} placeholder="Email or Username"
+                  value={loginId} onChange={e => setLoginId(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                />
+                <input
+                  style={inputStyle} type="password" placeholder="Password"
+                  value={loginPass} onChange={e => setLoginPass(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                />
+                <button
+                  className="ll-btn ll-btn-primary"
+                  style={{ width: '100%', padding: '13px', fontSize: 15, marginBottom: 8 }}
+                  onClick={handleLogin} disabled={isLoading}
+                >
+                  {submitting ? 'Signing in...' : 'LOG IN'}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input style={{ ...inputStyle, flex: 1, marginRight: 0 }} placeholder="First Name" value={fname} onChange={e => setFname(e.target.value)} />
+                  <input style={{ ...inputStyle, flex: 1 }} placeholder="Last Name" value={lname} onChange={e => setLname(e.target.value)} />
+                </div>
+                <input style={inputStyle} placeholder="Username (letters, numbers, _)" value={username} onChange={e => setUsername(e.target.value.toLowerCase().trim())} />
+                <input style={inputStyle} type="email" placeholder="Email Address" value={email} onChange={e => setEmail(e.target.value.trim())} />
+                {renderBirthDateFields()}
+                <input style={inputStyle} type="password" placeholder="Password (min 6 chars)" value={pass} onChange={e => setPass(e.target.value)} />
+                <input style={inputStyle} type="password" placeholder="Confirm Password" value={confirm} onChange={e => setConfirm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleRegister()} />
+                <button
+                  className="ll-btn ll-btn-primary"
+                  style={{ width: '100%', padding: '13px', fontSize: 15, marginBottom: 8 }}
+                  onClick={handleRegister} disabled={isLoading}
+                >
+                  {submitting ? 'Creating account...' : 'CREATE ACCOUNT'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -66,6 +66,7 @@ export interface UserData {
   onboardingComplete?: boolean;
   birthDate?: string;
   countryCode?: string;
+  createdAt?: string;
   guardianConsentStatus?: 'not_required' | 'pending' | 'granted' | 'revoked';
   inventory: { stories: string[]; badges: string[]; banners: string[]; mapThemes: string[] };
   equipped: { mapTheme: string; banner: string; badges: string[] };
@@ -195,6 +196,7 @@ function mapSupabaseUserRow(profile: Record<string, unknown>, economy: Record<st
     onboardingComplete: typeof profile.onboarding_complete === 'boolean' ? profile.onboarding_complete : undefined,
     birthDate: typeof profile.birth_date === 'string' ? profile.birth_date : undefined,
     countryCode: typeof profile.country_code === 'string' ? profile.country_code : undefined,
+    createdAt: typeof profile.created_at === 'string' ? profile.created_at : undefined,
     guardianConsentStatus: profile.guardian_consent_status === 'pending' || profile.guardian_consent_status === 'granted' || profile.guardian_consent_status === 'revoked'
       ? profile.guardian_consent_status
       : 'not_required',

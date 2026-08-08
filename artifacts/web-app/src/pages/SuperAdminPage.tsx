@@ -32,7 +32,7 @@ import {
   AdminTeacherAssignment, 
   ParentStudentLink 
 } from '@/lib/userService';
-import { createImpersonationToken, createManagedUserAccount } from '@/lib/adminApiService';
+import { createImpersonationToken, createManagedUserAccount, updateManagedUserRole } from '@/lib/adminApiService';
 import ProgramsAdminComponent from '@/components/superadmin/ProgramsAdmin';
 import {
   BUILDER_DIVISION_LABELS,
@@ -69,7 +69,8 @@ import {
   getEconomyReconciliationReport,
   type EconomyReconciliationReport,
 } from '@/lib/economyApiService';
-import type { LogicGameNode, LogicGameQuestionsDoc, LogicGameQuestion } from '@/types/logicGames';
+import type { LogicGameNode, LogicGameQuestionsDoc, LogicGameQuestion, CognitiveMetric } from '@/types/logicGames';
+import { COGNITIVE_METRICS } from '@/types/logicGames';
 import type { LogicGameSaveProgress } from '@/lib/logicGamesService';
 import {
   deleteDraftProgramAdmin,
@@ -305,6 +306,10 @@ export default function SuperAdminPage() {
   const [ataModal, setAtaModal] = useState<{ adminUid: string; adminName: string } | null>(null);
   const [ataSaving, setAtaSaving] = useState(false);
 
+  // Role change modal
+  const [roleModal, setRoleModal] = useState<{ uid: string; name: string; currentRole: UserRole; newRole: Exclude<UserRole, 'superadmin'> } | null>(null);
+  const [applyingRole, setApplyingRole] = useState(false);
+
   // Economy modal
   const [econModal, setEconModal] = useState<{ uid: string; name: string; goldDelta: string; xpDelta: string; energyDelta: string; streakDelta: string; reason:string } | null>(null);
   const [applyingEcon, setApplyingEcon] = useState(false);
@@ -321,7 +326,6 @@ export default function SuperAdminPage() {
 
   // Create account modal
   const [createModal, setCreateModal] = useState(false);
-  const [createRole, setCreateRole] = useState<'teacher' | 'admin'>('teacher');
   const [createFname, setCreateFname] = useState('');
   const [createLname, setCreateLname] = useState('');
   const [createUsername, setCreateUsername] = useState('');
@@ -431,6 +435,21 @@ export default function SuperAdminPage() {
     }
   }
 
+  async function handleRoleApply() {
+    if (!roleModal) return;
+    setApplyingRole(true);
+    try {
+      await updateManagedUserRole(roleModal.uid, roleModal.newRole);
+      setUsers(prev => prev.map(u => u.uid === roleModal.uid ? { ...u, role: roleModal.newRole } : u));
+      toast({ description: `${roleModal.name} is now ${ROLE_LABELS[roleModal.newRole]}.` });
+      setRoleModal(null);
+    } catch (error) {
+      toast({ variant: 'destructive', description: error instanceof Error ? error.message : 'Role change failed.' });
+    } finally {
+      setApplyingRole(false);
+    }
+  }
+
   async function handleEconApply() {
     if (!econModal) return;
     const gold = parseInt(econModal.goldDelta) || 0;
@@ -484,7 +503,7 @@ export default function SuperAdminPage() {
       if (taken) { setCreateError('Username is already taken.'); return; }
       const created = await createManagedUserAccount({
         firstName: createFname, lastName: createLname, username: createUsername.toLowerCase(),
-        email: createEmail, password: createPass, role: createRole,
+        email: createEmail, password: createPass, role: 'admin',
       });
       setUsers(prev => [...prev, created]);
       setCreateModal(false);
@@ -736,7 +755,7 @@ export default function SuperAdminPage() {
                 onClick={() => setCreateModal(true)}
                 style={{ padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 'bold', fontFamily: 'inherit', background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: '#c084fc', cursor: 'pointer', whiteSpace: 'nowrap' }}
               >
-                + Create Account
+                + Create Admin Account
               </button>
             </div>
             <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>{filtered.length} users</div>
@@ -797,6 +816,14 @@ export default function SuperAdminPage() {
                           fontSize: 10, fontWeight: 'bold', padding: '2px 8px', borderRadius: 5,
                           background: `${roleColor}22`, border: `1px solid ${roleColor}55`, color: roleColor
                         }}>{roleLabel}</span>
+                        {!isSelf && (
+                          <button
+                            onClick={() => setRoleModal({ uid: u.uid, name: u.username || u.firstName, currentRole: u.role as UserRole, newRole: (u.role === 'superadmin' ? 'student' : u.role) as Exclude<UserRole, 'superadmin'> })}
+                            style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#c084fc', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                          >
+                            Role: {roleLabel}
+                          </button>
+                        )}
                         {!isSelf && u.role !== 'superadmin' && (
                           <>
                             {u.role === 'admin' && (
@@ -836,6 +863,9 @@ export default function SuperAdminPage() {
                     </div>
                     {isExpanded && (
                       <div style={{ padding: '10px 14px 14px', borderTop: '1px solid #334155' }}>
+                        <div style={{ color: '#64748b', fontSize: 11, marginBottom: 10 }}>
+                          Created: {u.createdAt ? new Date(u.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </div>
                         {isStudent && (
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8 }}>
                             {[
@@ -918,6 +948,50 @@ export default function SuperAdminPage() {
 
       </div>
 
+      {/* Role change modal */}
+      {roleModal && (
+        <>
+          <div onClick={() => setRoleModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: Z_DIALOG_BACKDROP }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+            background: '#1e293b', borderRadius: 16, padding: 26, width: 'min(360px, 92vw)',
+            border: '2px solid #a855f7', zIndex: Z_DIALOG_PANEL, animation: 'slideUp 0.2s ease'
+          }}>
+            <h2 style={{ margin: '0 0 14px', color: 'white', fontSize: 17 }}>🔁 Change Role — {roleModal.name}</h2>
+            <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 14px' }}>
+              Currently <strong style={{ color: ROLE_COLORS[roleModal.currentRole] }}>{ROLE_LABELS[roleModal.currentRole]}</strong>. Progress, economy, and existing data are preserved across the change.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+              {ROLE_ORDER.filter(r => r !== 'superadmin').map(r => (
+                <button
+                  key={r}
+                  onClick={() => setRoleModal(p => p ? { ...p, newRole: r } : null)}
+                  style={{
+                    padding: '9px 12px', borderRadius: 8, fontSize: 13, fontWeight: 'bold', textAlign: 'left',
+                    cursor: 'pointer', fontFamily: 'inherit',
+                    background: roleModal.newRole === r ? `${ROLE_COLORS[r]}22` : 'transparent',
+                    border: `1px solid ${roleModal.newRole === r ? `${ROLE_COLORS[r]}88` : '#334155'}`,
+                    color: roleModal.newRole === r ? ROLE_COLORS[r] : '#94a3b8',
+                  }}
+                >
+                  {ROLE_LABELS[r]}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setRoleModal(null)} className="ll-btn" style={{ flex: 1, padding: '11px' }}>Cancel</button>
+              <button
+                onClick={handleRoleApply}
+                disabled={applyingRole || roleModal.newRole === roleModal.currentRole}
+                className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}
+              >
+                {applyingRole ? 'Applying...' : 'Apply'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Economy modal */}
       {econModal && (
         <>
@@ -975,18 +1049,8 @@ export default function SuperAdminPage() {
             zIndex: Z_DIALOG_PANEL, width: 'min(380px, 90vw)', maxHeight: '90vh', overflowY: 'auto',
             boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
           }}>
-            <h3 style={{ color: 'white', margin: '0 0 16px', fontSize: 16 }}>Create Teacher / Admin Account</h3>
+            <h3 style={{ color: 'white', margin: '0 0 16px', fontSize: 16 }}>Create Admin Account</h3>
             {createError && <div style={{ color: '#fca5a5', fontSize: 12, marginBottom: 10, padding: '8px 12px', background: 'rgba(239,68,68,0.1)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)' }}>{createError}</div>}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-              {(['teacher', 'admin'] as const).map(r => (
-                <button key={r} onClick={() => setCreateRole(r)} style={{
-                  flex: 1, padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', fontFamily: 'inherit', cursor: 'pointer',
-                  background: createRole === r ? `${ROLE_COLORS[r]}22` : 'transparent',
-                  border: `1px solid ${createRole === r ? `${ROLE_COLORS[r]}88` : '#334155'}`,
-                  color: createRole === r ? ROLE_COLORS[r] : '#64748b',
-                }}>{ROLE_LABELS[r]}</button>
-              ))}
-            </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <input value={createFname} onChange={e => setCreateFname(e.target.value)} placeholder="First Name" style={{ flex: 1, minWidth: 0, padding: '9px 12px', borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
               <input value={createLname} onChange={e => setCreateLname(e.target.value)} placeholder="Last Name" style={{ flex: 1, minWidth: 0, padding: '9px 12px', borderRadius: 8, border: '1px solid #475569', background: 'rgba(0,0,0,0.4)', color: 'white', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
@@ -997,7 +1061,7 @@ export default function SuperAdminPage() {
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setCreateModal(false)} className="ll-btn" style={{ flex: 1, padding: '11px' }}>Cancel</button>
               <button onClick={handleCreateAccount} disabled={creating} className="ll-btn ll-btn-primary" style={{ flex: 1, padding: '11px' }}>
-                {creating ? 'Creating...' : `Create ${ROLE_LABELS[createRole]}`}
+                {creating ? 'Creating...' : 'Create Admin'}
               </button>
             </div>
           </div>
@@ -1213,6 +1277,85 @@ function LogicGamesAdmin() {
   // Details popup state
   const [detailsQIndex, setDetailsQIndex] = useState<number | null>(null);
   const [detailsGroqLoading, setDetailsGroqLoading] = useState(false);
+
+  // Bulk "Ask Groq" backfill for every question in the open bucket that is
+  // still missing its explanation/cognitive metrics (existing questions from
+  // before this feature existed).
+  const [bulkGroqRunning, setBulkGroqRunning] = useState(false);
+  const [bulkGroqProgress, setBulkGroqProgress] = useState<{ completed: number; total: number } | null>(null);
+  const bulkGroqCancelRef = useRef(false);
+
+  async function bulkAskGroq() {
+    const targetIndexes = questions
+      .map((q, idx) => idx)
+      .filter((idx) => !questions[idx].primaryMetric);
+    if (targetIndexes.length === 0) {
+      toast({ description: 'Every question in this bucket already has details set.' });
+      return;
+    }
+    setBulkGroqRunning(true);
+    bulkGroqCancelRef.current = false;
+    setBulkGroqProgress({ completed: 0, total: targetIndexes.length });
+    const apiUrl = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() || 'http://localhost:3001';
+    const seedDifficulty = nodes.find(n => n.id === selectedNodeId)?.seedDifficulty ?? 100;
+    const next = [...questions];
+    let filled = 0;
+    let failed = 0;
+    let skipped = 0;
+    let stoppedEarly = false;
+    let firstError: string | null = null;
+    for (let i = 0; i < targetIndexes.length; i++) {
+      if (bulkGroqCancelRef.current) { stoppedEarly = true; break; }
+      const idx = targetIndexes[i];
+      const dq = next[idx];
+      try {
+        const promptText = dq.promptRawText || (dq.promptBlocks?.[0] as any)?.text || '';
+        if (!promptText.trim()) {
+          skipped++;
+          console.warn(`[bulkAskGroq] question ${dq.id} has no prompt text, skipping`);
+          continue;
+        }
+        const choicesArr = dq.interaction.type === 'mcq' ? dq.interaction.choices : [];
+        const correctIdx = dq.interaction.type === 'mcq' ? dq.interaction.correctChoiceIndex : -1;
+        const res = await fetch(`${apiUrl}/api/program-ingestion/iq-question-details`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ promptText, choices: choicesArr, correctChoiceIndex: correctIdx, nodeIq: seedDifficulty }),
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${(await res.text()).slice(0, 300)}`);
+        const data = await res.json();
+        const updated: LogicGameQuestion = { ...next[idx] };
+        if (data.explanation) updated.explanation = data.explanation;
+        if (data.primaryMetric) updated.primaryMetric = data.primaryMetric;
+        if (Array.isArray(data.secondaryMetrics)) updated.secondaryMetrics = data.secondaryMetrics;
+        if (updated.interaction.type === 'mcq' && Array.isArray(data.choiceExplanations) && data.choiceExplanations.length > 0) {
+          updated.interaction = { ...updated.interaction, choiceExplanations: data.choiceExplanations };
+        }
+        next[idx] = updated;
+        filled++;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        console.error(`[bulkAskGroq] question ${dq.id} failed:`, message);
+        if (!firstError) firstError = message;
+        failed++;
+      }
+      setBulkGroqProgress({ completed: i + 1, total: targetIndexes.length });
+    }
+    setQuestions(next);
+    if (filled > 0) await saveQuestionsList(next, { trackProgress: true });
+    setBulkGroqRunning(false);
+    setBulkGroqProgress(null);
+    if (failed > 0 && firstError) {
+      console.error(`[bulkAskGroq] ${failed} of ${targetIndexes.length} failed. First error: ${firstError}`);
+    }
+    const skippedPart = skipped ? `, ${skipped} skipped (no prompt text)` : '';
+    toast({
+      variant: failed > 0 && filled === 0 ? 'destructive' : undefined,
+      description: stoppedEarly
+        ? `Cancelled — filled ${filled} question${filled === 1 ? '' : 's'} before stopping.`
+        : `Filled ${filled} question${filled === 1 ? '' : 's'}${failed ? `, ${failed} failed` : ''}${skippedPart}.${failed > 0 && firstError ? ` First error: ${firstError.slice(0, 150)}` : ''}`,
+    });
+  }
 
   // PDF Upload Flow
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -1773,7 +1916,44 @@ function LogicGamesAdmin() {
                 + Add Questions
               </button>
             </div>
-            
+
+            {questions.length > 0 && (
+              <div style={{ marginBottom: 18 }}>
+                <button
+                  onClick={() => void bulkAskGroq()}
+                  disabled={bulkGroqRunning || questionsLoading}
+                  className="ll-btn"
+                  style={{
+                    padding: '10px 16px', fontSize: 13, fontWeight: 'bold', width: '100%',
+                    background: 'linear-gradient(135deg, rgba(168,85,247,0.15), rgba(59,130,246,0.15))',
+                    border: '1px solid rgba(168,85,247,0.35)', color: '#c084fc', borderRadius: 10,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  }}
+                >
+                  {bulkGroqRunning
+                    ? `🔄 Filling ${bulkGroqProgress?.completed ?? 0}/${bulkGroqProgress?.total ?? 0}…`
+                    : `🤖 Ask Groq to Auto-Fill All Values for missing questions in this bucket`}
+                </button>
+                {bulkGroqRunning && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                    <div style={{ flex: 1, height: 6, background: '#0f172a', borderRadius: 999, overflow: 'hidden', border: '1px solid #334155' }}>
+                      <div style={{
+                        width: bulkGroqProgress && bulkGroqProgress.total > 0 ? `${Math.round((bulkGroqProgress.completed / bulkGroqProgress.total) * 100)}%` : '0%',
+                        height: '100%', borderRadius: 999, background: 'linear-gradient(90deg, #6366f1, #a855f7)', transition: 'width 0.2s ease-out',
+                      }} />
+                    </div>
+                    <button
+                      onClick={() => { bulkGroqCancelRef.current = true; }}
+                      className="ll-btn"
+                      style={{ padding: '5px 10px', fontSize: 11, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {questionsLoading ? (
                 <div style={{ color: '#94a3b8', textAlign: 'center', maxWidth: 420, margin: '0 auto' }} aria-live="polite">
@@ -2000,6 +2180,23 @@ function LogicGamesAdmin() {
           (newQ[detailsQIndex] as any)[field] = value;
           setQuestions(newQ);
         };
+        const updateChoiceExplanation = (choiceIndex: number, value: string) => {
+          const newQ = [...questions];
+          const target = newQ[detailsQIndex];
+          if (target.interaction.type !== 'mcq') return;
+          const nextExplanations = [...(target.interaction.choiceExplanations ?? target.interaction.choices.map(() => ''))];
+          nextExplanations[choiceIndex] = value;
+          target.interaction = { ...target.interaction, choiceExplanations: nextExplanations };
+          setQuestions(newQ);
+        };
+        const toggleSecondaryMetric = (metric: CognitiveMetric) => {
+          const current = dq.secondaryMetrics ?? [];
+          if (current.includes(metric)) {
+            updateField('secondaryMetrics', current.filter(m => m !== metric));
+          } else if (current.length < 2) {
+            updateField('secondaryMetrics', [...current, metric]);
+          }
+        };
         const saveAndClose = () => { saveQuestionsList(questions); setDetailsQIndex(null); };
 
         const askGroq = async () => {
@@ -2017,12 +2214,17 @@ function LogicGamesAdmin() {
             if (!res.ok) throw new Error(`Failed: ${await res.text()}`);
             const data = await res.json();
             const newQ = [...questions];
+            const target = newQ[detailsQIndex];
             // Difficulty and point values are no longer authored: a question seeds from
             // its bucket and then self-calibrates from how players actually do on it.
-            if (data.explanation) (newQ[detailsQIndex] as any).explanation = data.explanation;
-            if (data.category) (newQ[detailsQIndex] as any).category = data.category;
+            if (data.explanation) target.explanation = data.explanation;
+            if (data.primaryMetric) target.primaryMetric = data.primaryMetric;
+            if (Array.isArray(data.secondaryMetrics)) target.secondaryMetrics = data.secondaryMetrics;
+            if (target.interaction.type === 'mcq' && Array.isArray(data.choiceExplanations) && data.choiceExplanations.length > 0) {
+              target.interaction = { ...target.interaction, choiceExplanations: data.choiceExplanations };
+            }
             setQuestions(newQ);
-            setStatus('✅ Explanation and category applied');
+            setStatus('✅ Explanation and cognitive metrics applied');
           } catch (e) {
             setErr(e instanceof Error ? e.message : String(e));
           } finally {
@@ -2060,20 +2262,66 @@ function LogicGamesAdmin() {
                   />
                 </div>
 
-                {/* Category */}
+                {/* Primary metric */}
                 <div>
-                  <div style={labelStyle}>🏷️ Category</div>
+                  <div style={labelStyle}>🧠 Primary Metric (10pts)</div>
                   <select
-                    value={dq.category || 'Fluid Reasoning'}
-                    onChange={e => updateField('category', e.target.value)}
+                    value={dq.primaryMetric || ''}
+                    onChange={e => updateField('primaryMetric', e.target.value || undefined)}
                     style={{ ...inputStyle, padding: '10px 14px' }}
                   >
-                    <option value="Fluid Reasoning">Fluid Reasoning (Logic & Patterns)</option>
-                    <option value="Quantitative Reasoning">Quantitative Reasoning (Math Logic)</option>
-                    <option value="Verbal Reasoning">Verbal Reasoning (Language Logic)</option>
-                    <option value="Working Memory">Working Memory (Mental Manipulation)</option>
+                    <option value="">— None —</option>
+                    {COGNITIVE_METRICS.map(m => (
+                      <option key={m.slug} value={m.slug}>{m.label}</option>
+                    ))}
                   </select>
                 </div>
+
+                {/* Secondary metrics */}
+                <div>
+                  <div style={labelStyle}>🧠 Secondary Metrics (5pts each, up to 2)</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {COGNITIVE_METRICS.filter(m => m.slug !== dq.primaryMetric).map(m => {
+                      const selected = (dq.secondaryMetrics ?? []).includes(m.slug);
+                      return (
+                        <button
+                          key={m.slug}
+                          onClick={() => toggleSecondaryMetric(m.slug)}
+                          style={{
+                            padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 'bold', cursor: 'pointer', fontFamily: 'inherit',
+                            background: selected ? 'rgba(168,85,247,0.2)' : 'transparent',
+                            border: `1px solid ${selected ? 'rgba(168,85,247,0.6)' : '#475569'}`,
+                            color: selected ? '#c084fc' : '#94a3b8',
+                          }}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Per-option explanations (MCQ only) */}
+                {dq.interaction.type === 'mcq' && (
+                  <div>
+                    <div style={labelStyle}>💬 Per-option explanations</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {dq.interaction.choices.map((choice, cIndex) => (
+                        <div key={cIndex}>
+                          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>
+                            {String.fromCharCode(65 + cIndex)}{dq.interaction.type === 'mcq' && dq.interaction.correctChoiceIndex === cIndex ? ' (correct)' : ''}: {choice.slice(0, 60)}
+                          </div>
+                          <textarea
+                            value={(dq.interaction.type === 'mcq' ? dq.interaction.choiceExplanations?.[cIndex] : '') || ''}
+                            onChange={e => updateChoiceExplanation(cIndex, e.target.value)}
+                            placeholder={`Why ${String.fromCharCode(65 + cIndex)} is right or wrong...`}
+                            style={{ ...inputStyle, minHeight: 44, resize: 'vertical', fontSize: 12 }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Ask Groq Button */}
                 <button

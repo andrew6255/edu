@@ -5,12 +5,17 @@ import {
   deleteServiceAuthUser,
   fetchServiceRows,
   generateServiceMagicLink,
+  updateServiceRows,
   upsertServiceRow,
   verifySupabaseToken,
 } from '../../lib/supabaseServer';
 
 const router: IRouter = Router();
 type ManagedRole = 'teacher' | 'admin' | 'teacher_assistant';
+// Superadmin is a single fixed account for this deployment and is deliberately
+// excluded here: no account may ever be promoted into it through this route.
+const ASSIGNABLE_ROLES = ['student', 'admin', 'teacher', 'teacher_assistant', 'parent'] as const;
+type AssignableRole = typeof ASSIGNABLE_ROLES[number];
 
 async function authenticatedManager(req: Request): Promise<{ id: string; role: 'admin' | 'superadmin' } | null> {
   const user = await verifySupabaseToken(req.header('authorization'));
@@ -117,6 +122,39 @@ router.post('/admin/users/delete', async (req: Request, res: Response) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Account deletion failed.';
     res.status(/not found/i.test(message) ? 404 : 500).json({ error: message });
+  }
+});
+
+router.post('/admin/users/update-role', async (req: Request, res: Response) => {
+  try {
+    const manager = await authenticatedManager(req);
+    if (!manager || manager.role !== 'superadmin') { res.status(403).json({ error: 'Superadmin access required.' }); return; }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const targetUserId = requiredText(body.userId, 100);
+    const newRole = body.role as AssignableRole;
+    if (!targetUserId || targetUserId === manager.id) { res.status(400).json({ error: 'A different valid user is required.' }); return; }
+    if (!ASSIGNABLE_ROLES.includes(newRole)) { res.status(400).json({ error: 'Invalid role.' }); return; }
+
+    const targets = await fetchServiceRows<{ role?: string }>('profiles', { select: 'role', id: `eq.${targetUserId}`, limit: '1' });
+    const previousRole = targets[0]?.role;
+    if (!previousRole) { res.status(404).json({ error: 'User not found.' }); return; }
+    if (previousRole === 'superadmin') { res.status(403).json({ error: 'Superadmin accounts cannot be changed here.' }); return; }
+    if (previousRole === newRole) { res.json({ userId: targetUserId, role: newRole }); return; }
+
+    // A single-column update on profiles: every other table (economy, logic
+    // game progress, classroom links, personal programs, ...) is keyed by user
+    // id and untouched by a role change, so existing progress is preserved.
+    await updateServiceRows('profiles', 'id', targetUserId, { role: newRole, updated_at: new Date().toISOString() });
+    try {
+      await callServiceRpc('server_admin_record_action', {
+        p_actor_user_id: manager.id, p_target_user_id: targetUserId,
+        p_action: 'user_role_changed', p_metadata: { from: previousRole, to: newRole },
+      });
+    } catch { /* audit trail must never block the actual role change */ }
+
+    res.json({ userId: targetUserId, role: newRole });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Role change failed.' });
   }
 });
 

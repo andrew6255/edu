@@ -106,7 +106,7 @@ Each API feature follows routes → validation/controller → service → provid
 Auth identities are extended by `profiles`; roles are `student`, `teacher_assistant`, `teacher`, `admin`, `superadmin`, and `parent`. The main relational tables are:
 
 - Core/economy/content: `profiles`, `user_economy`, `public_programs`, `draft_programs`, `assets`.
-- Logic learning: `logic_game_nodes_public`, `logic_game_nodes_draft`, `logic_game_questions_public`, `logic_game_questions_draft`, `logic_game_progress`, `question_progress`.
+- Logic learning: `logic_game_nodes_public`, `logic_game_nodes_draft`, `logic_game_questions_public`, `logic_game_questions_draft`, `logic_game_progress`, `question_progress`. Questions can be tagged with a primary + up to 2 secondary metrics from the 7 Cognitive Metrics Framework (`logic_game_questions_public/draft.primary_metric`/`secondary_metrics`); correct ranked answers accumulate per-metric points into `logic_game_progress.mental_profile`, shown to students as their "mental profile".
 - Generic document layer: `user_docs` (owner-scoped) and `global_docs` (shared collections). Many game/social/Chrono features encode their domain data here, so service modules are the contract for document keys and payload shapes.
 - School identity: `admin_teacher_assignments` and `parent_student_links`. The active classroom model is stored in `global_docs` collections prefixed with `teacher_`, `class_`, `session_`, and `homework_`; the older relational class tables are retained only for migration compatibility and are not part of active role-panel navigation.
 - Ingestion: `program_ingestion_jobs`, `program_ingestion_drafts`, `program_ingestion_questions`, `program_ingestion_chat_messages`, `program_ingestion_assets`.

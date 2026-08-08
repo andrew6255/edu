@@ -13,6 +13,7 @@ import {
   type SessionSheet,
   type TeacherClass,
 } from '@/lib/classroomService';
+import { listenGlobalCollection } from '@/lib/supabaseDocStore';
 import ClassroomWorkspace from '@/components/ClassroomWorkspace';
 import ClassroomHomeworkView from '@/components/classroom/ClassroomHomeworkView';
 
@@ -46,6 +47,25 @@ export default function ClassesView({ pendingContentId, pendingContentType, onPe
 
   useEffect(() => { if (user) void load(); }, [user?.uid]);
   useEffect(() => { if (pendingContentId || pendingContentType) onPendingHandled?.(); }, [pendingContentId, pendingContentType, onPendingHandled]);
+
+  // Live refresh: a teacher creating a classroom (new membership row) or
+  // ending/archiving one won't otherwise reach a student parked on this tab
+  // until they leave and come back, since load() only ever runs once on mount.
+  useEffect(() => {
+    if (!user) return;
+    const unsub = listenGlobalCollection('teacher_class_members', [{ field: 'userId', value: user.uid }], () => { void load(); });
+    return unsub;
+  }, [user?.uid]);
+
+  // Live refresh for sessions inside an open classroom, same reasoning: a
+  // teacher creating a new session should show up without a manual refresh.
+  useEffect(() => {
+    if (!user || !classroom) return;
+    const unsub = listenGlobalCollection('class_sessions', [{ field: 'classId', value: classroom.id }], () => {
+      getStudentSessions(user.uid, classroom.id).then(setSessions).catch(() => {});
+    });
+    return unsub;
+  }, [user?.uid, classroom?.id]);
 
   async function load() {
     if (!user) return;

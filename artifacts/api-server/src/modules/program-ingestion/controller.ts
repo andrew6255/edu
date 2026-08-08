@@ -26,6 +26,22 @@ type QuestionExtractionJob = {
 const questionExtractionJobs = new Map<string, QuestionExtractionJob>();
 const questionExtractionAbortControllers = new Map<string, AbortController>();
 
+// GROQ_API_KEY may hold a comma-separated pool of keys (see providers.ts and
+// extractIqPdf's per-key budget tracker) rather than a single key. Passing the
+// raw, unsplit env value straight to Groq as a Bearer token fails with
+// "Invalid API Key" the moment more than one key is configured. The
+// heavyweight per-key budget tracker in extractIqPdf is overkill for the
+// single-request endpoints below; simple round-robin is enough to spread a
+// bulk run's back-to-back calls across the pool instead of hammering one key.
+let groqKeyRoundRobinIndex = 0;
+function resolveGroqApiKey(): string | null {
+  const keys = (process.env['GROQ_API_KEY'] ?? '').split(',').map(k => k.trim()).filter(Boolean);
+  if (keys.length === 0) return null;
+  const key = keys[groqKeyRoundRobinIndex % keys.length];
+  groqKeyRoundRobinIndex++;
+  return key;
+}
+
 export async function getQuestionExtractionJob(req: Request, res: Response): Promise<void> {
   const job = questionExtractionJobs.get(getJobId(req));
   if (!job) {
@@ -270,7 +286,7 @@ export async function extractMcqFromText(req: Request, res: Response): Promise<v
       return;
     }
 
-    const apiKey = process.env["GROQ_API_KEY"];
+    const apiKey = resolveGroqApiKey();
     if (!apiKey) {
       throw new Error("GROQ_API_KEY is not configured.");
     }
@@ -1868,6 +1884,26 @@ ${JSON.stringify(textOnlyForAudit, null, 2)}`;
  * POST /api/program-ingestion/iq-question-details
  * Uses Groq to analyze a question and return IQ parameters + explanation.
  */
+const COGNITIVE_METRIC_SLUGS = [
+  'spatial_imagination', 'fluid_patterning', 'deductive_logic',
+  'quantitative_abstraction', 'working_memory', 'strategic_optimization',
+  'visual_perceptual_precision',
+] as const;
+type CognitiveMetricSlug = typeof COGNITIVE_METRIC_SLUGS[number];
+
+function isCognitiveMetricSlug(value: unknown): value is CognitiveMetricSlug {
+  return typeof value === 'string' && (COGNITIVE_METRIC_SLUGS as readonly string[]).includes(value);
+}
+
+const COGNITIVE_METRICS_FRAMEWORK = `The 7 Cognitive Metrics Framework — tag every question with a primary metric and up to two secondary metrics:
+1. spatial_imagination — visualizing/rotating/folding shapes in 2D/3D. Indicators: cube nets, paper folding, mental rotation.
+2. fluid_patterning — discovering rules in non-verbal sequences. Indicators: matrix completion, grid growth, visual analogies.
+3. deductive_logic — step-by-step conditional reasoning, elimination. Indicators: knights & knaves, ordering from clues, constraint puzzles.
+4. quantitative_abstraction — ratios, scaling, turning scenarios into equations. Indicators: balance scales, speed/distance, age ratios.
+5. working_memory — holding several variables/constraints in mind at once. Indicators: multi-step chains, multi-variable constraints, pathing.
+6. strategic_optimization — worst-case reasoning, invariants, lateral shortcuts. Indicators: min/max move games, pigeonhole guarantees.
+7. visual_perceptual_precision — fast accurate visual discrimination. Indicators: counting overlapping shapes, spotting subtle differences.`;
+
 export async function generateIqQuestionDetails(req: Request, res: Response): Promise<void> {
   try {
     const { promptText, choices, correctChoiceIndex, nodeIq } = req.body;
@@ -1876,12 +1912,13 @@ export async function generateIqQuestionDetails(req: Request, res: Response): Pr
       return;
     }
 
-    const apiKey = process.env["GROQ_API_KEY"];
+    const apiKey = resolveGroqApiKey();
     if (!apiKey) {
       throw new Error("GROQ_API_KEY is not configured.");
     }
 
-    const choicesText = Array.isArray(choices) && choices.length > 0
+    const hasChoices = Array.isArray(choices) && choices.length > 0;
+    const choicesText = hasChoices
       ? choices.map((c: string, i: number) => `${String.fromCharCode(65 + i)}) ${c}${i === correctChoiceIndex ? ' (CORRECT)' : ''}`).join('\n')
       : '';
 
@@ -1891,6 +1928,8 @@ Question: ${promptText}
 ${choicesText ? `Choices:\n${choicesText}` : ''}
 Base Node IQ Level: ${nodeIq || 80}
 
+${COGNITIVE_METRICS_FRAMEWORK}
+
 Respond with a JSON object (no markdown, no code fences) containing:
 - "questionIq": number - Precise decimal estimate of the question's IQ difficulty (MUST be a number between ${nodeIq || 80} and ${(nodeIq || 80) + 10})
 - "maxIqGain": number - Maximum IQ gain for correct answer (max 2.0, usually between 0.5-2.0 based on difficulty)
@@ -1898,8 +1937,10 @@ Respond with a JSON object (no markdown, no code fences) containing:
 - "iqGainDecayIntervalSec": number - Time interval for decay in seconds (usually 10)
 - "iqLossBase": number - Base IQ loss for wrong answer (usually 1-5 based on difficulty)
 - "iqLossScaleFactor": number - Scale factor for IQ-relative loss (usually 0.03-0.08)
-- "explanation": string - A concise 1-2 sentence explanation of why the correct answer is correct and why other answers are wrong. Be direct and to the point.
-- "category": string - MUST be exactly one of: "Fluid Reasoning", "Quantitative Reasoning", "Verbal Reasoning", "Working Memory".
+- "explanation": string - A short, direct 1-2 sentence overall explanation of why the correct answer is correct.
+- "primaryMetric": string - MUST be exactly one of: ${COGNITIVE_METRIC_SLUGS.join(', ')}.
+- "secondaryMetrics": string[] - 0 to 2 more of the same slugs (not the same as primaryMetric).
+${hasChoices ? `- "choiceExplanations": string[] - Exactly ${choices.length} short strings, same order as the choices above, each a brief (one sentence) reason why that specific option is right or wrong.` : ''}
 
 Return ONLY valid JSON.`;
 
@@ -1936,6 +1977,16 @@ Return ONLY valid JSON.`;
     }
     const parsed = JSON.parse(cleaned);
 
+    const primaryMetric: CognitiveMetricSlug = isCognitiveMetricSlug(parsed.primaryMetric)
+      ? parsed.primaryMetric
+      : 'fluid_patterning';
+    const secondaryMetrics: CognitiveMetricSlug[] = Array.isArray(parsed.secondaryMetrics)
+      ? parsed.secondaryMetrics.filter(isCognitiveMetricSlug).filter((m: CognitiveMetricSlug) => m !== primaryMetric).slice(0, 2)
+      : [];
+    const choiceExplanations: string[] = hasChoices && Array.isArray(parsed.choiceExplanations)
+      ? parsed.choiceExplanations.map((e: unknown) => (typeof e === 'string' ? e : '')).slice(0, choices.length)
+      : [];
+
     res.json({
       questionIq: typeof parsed.questionIq === 'number' ? parsed.questionIq : nodeIq || 80,
       maxIqGain: typeof parsed.maxIqGain === 'number' ? Math.min(2, parsed.maxIqGain) : 2,
@@ -1944,7 +1995,9 @@ Return ONLY valid JSON.`;
       iqLossBase: typeof parsed.iqLossBase === 'number' ? parsed.iqLossBase : 3,
       iqLossScaleFactor: typeof parsed.iqLossScaleFactor === 'number' ? parsed.iqLossScaleFactor : 0.05,
       explanation: typeof parsed.explanation === 'string' ? parsed.explanation : '',
-      category: typeof parsed.category === 'string' ? parsed.category : 'Fluid Reasoning',
+      primaryMetric,
+      secondaryMetrics,
+      choiceExplanations,
     });
 
   } catch (error) {
@@ -1957,8 +2010,8 @@ Return ONLY valid JSON.`;
 export const generateEmoji = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { name, subject } = req.body;
-    
-    const apiKey = process.env["GROQ_API_KEY"];
+
+    const apiKey = resolveGroqApiKey();
     if (!apiKey) {
       throw new Error("GROQ_API_KEY is not configured.");
     }
@@ -2025,7 +2078,7 @@ export async function enrichQuestions(req: Request, res: Response): Promise<void
       return;
     }
 
-    const apiKey = process.env["GROQ_API_KEY"];
+    const apiKey = resolveGroqApiKey();
     if (!apiKey) {
       res.status(500).json({ error: "GROQ_API_KEY is not configured on the server." });
       return;

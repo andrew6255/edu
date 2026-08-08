@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback } from 'react';
 import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { requireSupabase } from '@/lib/supabase';
-import { createUserData, getUserData, UserData } from '@/lib/userService';
+import { createUserData, getUserData, UserData, UserRole } from '@/lib/userService';
+
+const KNOWN_ROLES: readonly UserRole[] = ['student', 'superadmin', 'admin', 'teacher', 'teacher_assistant', 'parent'];
 import { saveRememberedAccount, getRememberedAccounts } from '@/lib/authService';
 import { initializeEconomyWallet } from '@/lib/economyApiService';
 
@@ -62,7 +64,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const parts = fullName.trim().split(/\s+/).filter(Boolean);
     const email = authUser.email ?? '';
     const emailPrefix = email.split('@')[0] || 'user';
-    const role = 'student' as const;
+    // Self-registration writes the chosen role into signUp's user_metadata so
+    // that if this fallback wins the race against AuthPage's own createUserData
+    // upsert, it still writes the role the user actually picked instead of
+    // silently reverting a new teacher/parent account back to 'student'.
+    const pendingRole = typeof meta.pending_role === 'string' ? meta.pending_role : null;
+    const role = (pendingRole && (KNOWN_ROLES as string[]).includes(pendingRole) ? pendingRole : 'student') as UserRole;
 
     const baseName = (parts[0] || emailPrefix || 'Logic').replace(/[^a-zA-Z0-9]/g, '');
     const tag = Math.floor(1000 + Math.random() * 9000);

@@ -83,3 +83,7 @@ export async function createImpersonationToken(userId: string): Promise<string> 
   const result = await adminRequest<{ tokenHash: string }>('admin/users/impersonation-token', { userId });
   return result.tokenHash;
 }
+
+export async function updateManagedUserRole(userId: string, role: Exclude<UserRole, 'superadmin'>): Promise<void> {
+  await adminRequest('admin/users/update-role', { userId, role });
+}

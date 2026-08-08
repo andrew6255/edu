@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import type { LogicGameNode, LogicGamePromptBlock, LogicGamesProgressDoc, LogicGameQuestion, LogicGameServedQuestion, LogicGameNodeQueue } from '@/types/logicGames';
+import type { LogicGameNode, LogicGamePromptBlock, LogicGamesProgressDoc, LogicGameQuestion, LogicGameServedQuestion, LogicGameNodeQueue, CognitiveMetric } from '@/types/logicGames';
+import { COGNITIVE_METRICS } from '@/types/logicGames';
 import {
   ensureLogicGamesProgress,
   fetchNextLogicGameQuestion,
@@ -62,9 +63,11 @@ export default function LogicGamesView() {
   const questionStartedAtRef = useRef<number>(0);
   const [rankedAnswerText, setRankedAnswerText] = useState('');
   const [rankedChoiceIndex, setRankedChoiceIndex] = useState<number | null>(null);
-  const [rankedFeedback, setRankedFeedback] = useState<null | { correct: boolean; timedOut?: boolean; explanation?: string }>(null);
+  const [rankedFeedback, setRankedFeedback] = useState<null | { correct: boolean; timedOut?: boolean; explanation?: string; choiceExplanations?: string[] }>(null);
   // The IQ change for the question just answered, animated next to the IQ chip.
   const [iqDeltaFx, setIqDeltaFx] = useState<{ delta: number; key: number } | null>(null);
+  // Opened by tapping any IQ number: the student's running 7-metric mental profile.
+  const [showMentalProfile, setShowMentalProfile] = useState(false);
 
   // IQ mode: upward timer (stopwatch)
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -280,15 +283,28 @@ export default function LogicGamesView() {
         mode: gamePlayMode,
       });
 
-      setRankedFeedback({ correct: result.correct });
+      setRankedFeedback({
+        correct: result.correct,
+        explanation: result.explanation,
+        choiceExplanations: result.interaction?.type === 'mcq' ? result.interaction.choiceExplanations : undefined,
+      });
       setSessionCorrect((n) => n + (result.correct ? 1 : 0));
+
+      // The served question had its answer key stripped for anti-cheat reasons;
+      // now that it's answered, merge the real interaction back in so the
+      // correct-choice highlight and per-option explanations can render.
+      if (result.interaction) {
+        setRankedCurrent((prev) => (prev ? { ...prev, interaction: result.interaction! } : prev));
+      }
 
       if (gamePlayMode === 'iq') {
         setIqDeltaFx({ delta: result.delta, key: Date.now() });
         setProgress((prev) => ({
+          ...prev,
           id: 'global',
           iq: result.iqAfter,
           peakIq: result.peakIq ?? Math.max(prev?.peakIq ?? 80, result.iqAfter),
+          mentalProfile: result.mentalProfile ?? prev?.mentalProfile,
           updatedAt: new Date().toISOString(),
         }));
       }
@@ -692,8 +708,12 @@ export default function LogicGamesView() {
           {/* Left: Title */}
           <div style={{ color: 'var(--ll-text)', fontWeight: 1000, fontSize: 16, minWidth: 120 }}>🧠 IQ Games</div>
 
-          {/* Center: IQ display */}
-          <div style={{ color: 'var(--ll-text-soft)', fontSize: 13, fontWeight: 900, textAlign: 'center' }}>
+          {/* Center: IQ display — tap to open the mental profile */}
+          <div
+            role="button"
+            onClick={() => setShowMentalProfile(true)}
+            style={{ color: 'var(--ll-text-soft)', fontSize: 13, fontWeight: 900, textAlign: 'center', cursor: 'pointer' }}
+          >
             IQ: <span style={{ color: '#fbbf24', fontSize: 15 }}>{currentIq.toFixed(1)}</span>
           </div>
 
@@ -745,8 +765,12 @@ export default function LogicGamesView() {
             padding: '10px 14px', flexShrink: 0,
             borderBottom: '1px solid var(--ll-border)', background: 'var(--ll-overlay)',
           }}>
-            <button className="ll-btn" style={{ padding: '6px 12px', fontSize: 12 }} onClick={exitPlaying}>
-              ← Exit
+            <button className="ll-btn" style={{ padding: '6px 12px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }} onClick={exitPlaying}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
+              </svg>
+              Exit
             </button>
             <div style={{
               color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 800,
@@ -754,13 +778,22 @@ export default function LogicGamesView() {
             }}>
               {activeNode?.label ?? '—'}
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, fontSize: 12, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ color: 'var(--ll-text-soft)' }}>Q {Math.min(sessionIndex + 1, SESSION_LENGTH)}/{SESSION_LENGTH}</span>
+              <span style={{ color: '#34d399' }}>✓ {sessionCorrect}</span>
+              <span style={{ color: '#f87171' }}>✗ {sessionIndex - sessionCorrect}</span>
+            </div>
             {gamePlayMode === 'iq' ? (
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                <span style={{
-                  fontSize: 13, fontWeight: 1000, padding: '4px 10px', borderRadius: 999,
-                  background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)',
-                  color: '#a78bfa', fontVariantNumeric: 'tabular-nums',
-                }}>
+                <span
+                  role="button"
+                  onClick={() => setShowMentalProfile(true)}
+                  style={{
+                    fontSize: 13, fontWeight: 1000, padding: '4px 10px', borderRadius: 999,
+                    background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)',
+                    color: '#a78bfa', fontVariantNumeric: 'tabular-nums', cursor: 'pointer',
+                  }}
+                >
                   🧠 {currentIq.toFixed(1)}
                 </span>
                 {iqDeltaFx && (
@@ -819,6 +852,7 @@ export default function LogicGamesView() {
                     const disabled = !!rankedFeedback;
                     const isCorrect = rankedFeedback && rankedCurrent!.interaction.type === 'mcq' && (rankedCurrent!.interaction as any).correctChoiceIndex === idx;
                     const isWrong = rankedFeedback && chosen && !rankedFeedback.correct;
+                    const choiceExplanation = rankedFeedback?.choiceExplanations?.[idx];
                     return (
                       <button
                         key={idx}
@@ -835,8 +869,9 @@ export default function LogicGamesView() {
                           padding: '14px 14px',
                           minHeight: 52,
                           display: 'flex',
-                          alignItems: 'center',
-                          gap: 12,
+                          flexDirection: 'column',
+                          alignItems: 'stretch',
+                          gap: 6,
                           borderRadius: 12,
                           transition: 'border-color 0.15s, background 0.15s, transform 0.1s',
                           transform: chosen && !rankedFeedback ? 'scale(1.01)' : 'none',
@@ -862,24 +897,31 @@ export default function LogicGamesView() {
                           opacity: disabled && !chosen && !isCorrect ? 0.75 : 1,
                         }}
                       >
-                        {/* A, B, C… marker keeps options scannable and gives the
-                            result state somewhere to show without shifting layout. */}
-                        <span style={{
-                          flexShrink: 0, width: 26, height: 26, borderRadius: 8,
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 12, fontWeight: 1000,
-                          background: isCorrect ? '#34d399' : isWrong ? '#ef4444' : chosen ? 'rgba(59,130,246,0.8)' : 'var(--ll-surface-3)',
-                          color: isCorrect || isWrong || chosen ? '#0b1020' : 'var(--ll-text-soft)',
-                        }}>
-                          {isCorrect ? '✓' : isWrong ? '✕' : String.fromCharCode(65 + idx)}
-                        </span>
-                        <span style={{ flex: 1, minWidth: 0 }}>
-                          {c.toLowerCase().startsWith('data:image/') || c.toLowerCase().startsWith('http') ? (
-                            <img src={c} alt="choice" style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 4, display: 'block' }} />
-                          ) : (
-                            <>{c}</>
-                          )}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          {/* A, B, C… marker keeps options scannable and gives the
+                              result state somewhere to show without shifting layout. */}
+                          <span style={{
+                            flexShrink: 0, width: 26, height: 26, borderRadius: 8,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 12, fontWeight: 1000,
+                            background: isCorrect ? '#34d399' : isWrong ? '#ef4444' : chosen ? 'rgba(59,130,246,0.8)' : 'var(--ll-surface-3)',
+                            color: isCorrect || isWrong || chosen ? '#0b1020' : 'var(--ll-text-soft)',
+                          }}>
+                            {isCorrect ? '✓' : isWrong ? '✕' : String.fromCharCode(65 + idx)}
+                          </span>
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            {c.toLowerCase().startsWith('data:image/') || c.toLowerCase().startsWith('http') ? (
+                              <img src={c} alt="choice" style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 4, display: 'block' }} />
+                            ) : (
+                              <>{c}</>
+                            )}
+                          </span>
+                        </div>
+                        {choiceExplanation && (
+                          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ll-text-soft)', paddingLeft: 38 }}>
+                            {choiceExplanation}
+                          </div>
+                        )}
                       </button>
                     );
                   })}
@@ -1092,10 +1134,14 @@ export default function LogicGamesView() {
             ) : (
               <>
                 {/* Rating card */}
-                <div style={{
-                  border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)',
-                  borderRadius: 18, padding: 24, textAlign: 'center',
-                }}>
+                <div
+                  role="button"
+                  onClick={() => setShowMentalProfile(true)}
+                  style={{
+                    border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)',
+                    borderRadius: 18, padding: 24, textAlign: 'center', cursor: 'pointer',
+                  }}
+                >
                   <div style={{ color: 'var(--ll-text-soft)', fontSize: 12, fontWeight: 900, letterSpacing: 1 }}>YOUR IQ</div>
                   <div style={{ fontSize: 52, fontWeight: 1000, color: '#a78bfa', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
                     {currentIq.toFixed(1)}
@@ -1133,6 +1179,48 @@ export default function LogicGamesView() {
           </div>
         </div>
       )}
+
+      {showMentalProfile && (() => {
+        const profile: Partial<Record<CognitiveMetric, number>> = progress?.mentalProfile ?? {};
+        const maxScore = Math.max(1, ...COGNITIVE_METRICS.map(m => profile[m.slug] ?? 0));
+        return (
+          <>
+            <div onClick={() => setShowMentalProfile(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 2000 }} />
+            <div style={{
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+              background: 'var(--ll-surface-1)', border: '1px solid var(--ll-border)', borderRadius: 16,
+              padding: 22, width: 'min(420px, 92vw)', maxHeight: '85vh', overflowY: 'auto', zIndex: 2001,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <h2 style={{ margin: 0, fontSize: 17, color: 'var(--ll-text)' }}>🧠 Mental Profile</h2>
+                <button onClick={() => setShowMentalProfile(false)} style={{ background: 'transparent', border: 'none', color: 'var(--ll-text-soft)', cursor: 'pointer', fontSize: 22 }}>×</button>
+              </div>
+              <p style={{ color: 'var(--ll-text-muted)', fontSize: 12, margin: '0 0 16px' }}>
+                Points build up from correct answers on tagged questions, played in IQ mode.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {COGNITIVE_METRICS.map(m => {
+                  const score = profile[m.slug] ?? 0;
+                  const pct = Math.round((score / maxScore) * 100);
+                  return (
+                    <div key={m.slug}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 800, color: 'var(--ll-text)', marginBottom: 3 }}>
+                        <span>{m.label}</span>
+                        <span style={{ color: '#a78bfa', fontVariantNumeric: 'tabular-nums' }}>{score}</span>
+                      </div>
+                      <div style={{ height: 8, borderRadius: 999, background: 'var(--ll-surface-3)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: 'linear-gradient(90deg, #6366f1, #a78bfa)' }} />
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--ll-text-muted)', marginTop: 3 }}>{m.blurb}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }

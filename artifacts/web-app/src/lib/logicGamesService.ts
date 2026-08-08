@@ -1,5 +1,7 @@
 import { requireSupabase } from '@/lib/supabase';
 import type {
+  CognitiveMetric,
+  LogicGameInteraction,
   LogicGameNode,
   LogicGameQuestion,
   LogicGameQuestionsDoc,
@@ -40,6 +42,9 @@ function mapQuestionRow(row: Record<string, unknown>) {
     timeLimitSec: typeof row.time_limit_sec === 'number' ? row.time_limit_sec : 0,
     iqDeltaCorrect: typeof row.iq_delta_correct === 'number' ? row.iq_delta_correct : 0,
     iqDeltaWrong: typeof row.iq_delta_wrong === 'number' ? row.iq_delta_wrong : 0,
+    explanation: typeof row.explanation === 'string' ? row.explanation : undefined,
+    primaryMetric: typeof row.primary_metric === 'string' ? row.primary_metric as CognitiveMetric : undefined,
+    secondaryMetrics: Array.isArray(row.secondary_metrics) ? row.secondary_metrics as CognitiveMetric[] : undefined,
   };
 }
 
@@ -136,6 +141,9 @@ async function replaceQuestions(
     time_limit_sec: q.timeLimitSec,
     iq_delta_correct: q.iqDeltaCorrect,
     iq_delta_wrong: q.iqDeltaWrong,
+    explanation: q.explanation ?? null,
+    primary_metric: q.primaryMetric ?? null,
+    secondary_metrics: q.secondaryMetrics ?? [],
     sort_order: idx,
     updated_at: now,
   }));
@@ -199,6 +207,7 @@ export async function getLogicGamesProgress(uid: string): Promise<LogicGamesProg
     peakIq: typeof data.peak_iq === 'number' ? data.peak_iq : (typeof data.iq === 'number' ? data.iq : 80),
     floorIq: typeof data.floor_iq === 'number' ? data.floor_iq : 80,
     nodeQueues: data.node_queues || {},
+    mentalProfile: (data.mental_profile && typeof data.mental_profile === 'object') ? data.mental_profile as Partial<Record<CognitiveMetric, number>> : {},
     updatedAt: typeof data.updated_at === 'string' ? data.updated_at : new Date().toISOString(),
   };
 }
@@ -359,6 +368,9 @@ export async function submitLogicGameAnswer(input: {
     iqAfter: num(row.iqAfter, 80),
     delta: num(row.delta, 0),
     peakIq: row.peakIq == null ? undefined : num(row.peakIq, 80),
+    explanation: typeof row.explanation === 'string' ? row.explanation : undefined,
+    interaction: row.interaction ? row.interaction as LogicGameInteraction : undefined,
+    mentalProfile: (row.mentalProfile && typeof row.mentalProfile === 'object') ? row.mentalProfile as Partial<Record<CognitiveMetric, number>> : undefined,
   };
 }
 
