@@ -368,6 +368,10 @@ export default function LogicGamesView() {
       });
       stopElapsedTimer();
       setRankedCurrent(null);
+      // Without this, screen stays 'playing' with no current question, which
+      // rendered "No question available." instead of navigating home to show
+      // the summary that was just set above.
+      setScreen('map');
       if (gamePlayMode === 'iq') {
         setCurrentSession(null);
         refreshSessionHistory();
