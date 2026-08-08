@@ -34,12 +34,55 @@ const questionExtractionAbortControllers = new Map<string, AbortController>();
 // single-request endpoints below; simple round-robin is enough to spread a
 // bulk run's back-to-back calls across the pool instead of hammering one key.
 let groqKeyRoundRobinIndex = 0;
+function resolveGroqApiKeyPool(): string[] {
+  return (process.env['GROQ_API_KEY'] ?? '').split(',').map(k => k.trim()).filter(Boolean);
+}
 function resolveGroqApiKey(): string | null {
-  const keys = (process.env['GROQ_API_KEY'] ?? '').split(',').map(k => k.trim()).filter(Boolean);
+  const keys = resolveGroqApiKeyPool();
   if (keys.length === 0) return null;
   const key = keys[groqKeyRoundRobinIndex % keys.length];
   groqKeyRoundRobinIndex++;
   return key;
+}
+
+/**
+ * Chat completion with automatic key failover. Each pooled key is a separate
+ * Groq account/org with its own rate-limit budget, so a 429 or 5xx on one key
+ * usually succeeds immediately on the next rather than needing a real wait —
+ * this matters for bulk runs (e.g. auto-filling a whole bucket of questions),
+ * which are exactly the case that hammers a single key hardest. A 4xx other
+ * than 429 (bad request, invalid model, etc.) fails identically on every key,
+ * so it's not worth burning through the pool for those.
+ */
+async function callGroqChatCompletion(prompt: string, options: { maxTokens?: number; temperature?: number } = {}): Promise<string> {
+  const pool = resolveGroqApiKeyPool();
+  if (pool.length === 0) throw new Error('GROQ_API_KEY is not configured.');
+  const startIndex = groqKeyRoundRobinIndex % pool.length;
+  groqKeyRoundRobinIndex++;
+  let lastError: Error = new Error('Groq request failed on every configured key.');
+  for (let attempt = 0; attempt < pool.length; attempt++) {
+    const key = pool[(startIndex + attempt) % pool.length];
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: options.temperature ?? 0.3,
+        max_tokens: options.maxTokens ?? 500,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json() as any;
+      const text = data.choices?.[0]?.message?.content?.trim();
+      if (!text) throw new Error('Groq response empty');
+      return text;
+    }
+    const errorText = await res.text();
+    lastError = new Error(`Groq request failed: ${errorText}`);
+    if (res.status !== 429 && res.status < 500) throw lastError;
+  }
+  throw lastError;
 }
 
 export async function getQuestionExtractionJob(req: Request, res: Response): Promise<void> {
@@ -1928,11 +1971,6 @@ export async function generateIqQuestionDetails(req: Request, res: Response): Pr
       return;
     }
 
-    const apiKey = resolveGroqApiKey();
-    if (!apiKey) {
-      throw new Error("GROQ_API_KEY is not configured.");
-    }
-
     const hasChoices = Array.isArray(choices) && choices.length > 0;
     const cleanPromptText = truncateForPrompt(stripEmbeddedImages(String(promptText)), 6000);
     const choicesText = hasChoices
@@ -1961,31 +1999,7 @@ ${hasChoices ? `- "choiceExplanations": string[] - Exactly ${choices.length} sho
 
 Return ONLY valid JSON.`;
 
-    const url = "https://api.groq.com/openai/v1/chat/completions";
-    const groqRes = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.3,
-        max_tokens: 500,
-      }),
-    });
-
-    if (!groqRes.ok) {
-      const errorText = await groqRes.text();
-      throw new Error(`Groq request failed: ${errorText}`);
-    }
-
-    const groqData = await groqRes.json() as any;
-    const responseText = groqData.choices?.[0]?.message?.content?.trim();
-    if (!responseText) {
-      throw new Error("Groq response empty");
-    }
+    const responseText = await callGroqChatCompletion(prompt, { maxTokens: 500, temperature: 0.3 });
 
     // Parse JSON from response (strip markdown fences if present)
     let cleaned = responseText;

@@ -1333,6 +1333,14 @@ function LogicGamesAdmin() {
         }
         next[idx] = updated;
         filled++;
+        // Checkpoint every 20: a long run (e.g. a 200-question bucket) can take
+        // several minutes, and saving only once at the very end means an
+        // interruption near the end loses everything filled so far. This keeps
+        // that risk to at most ~20 questions' worth of re-work.
+        if (filled % 20 === 0) {
+          setQuestions([...next]);
+          await saveQuestionsList([...next]);
+        }
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         console.error(`[bulkAskGroq] question ${dq.id} failed:`, message);
