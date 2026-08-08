@@ -253,7 +253,7 @@ function docToSheet(d: DocData): SessionSheet {
   };
 }
 
-function docToStrokeData(d: DocData): SheetStrokeData {
+export function docToStrokeData(d: DocData): SheetStrokeData {
   return {
     id: String(d.id ?? ''),
     sheetId: String(d.sheetId ?? ''),
@@ -264,7 +264,7 @@ function docToStrokeData(d: DocData): SheetStrokeData {
   };
 }
 
-function docToAccess(d: DocData): SheetAccess {
+export function docToAccess(d: DocData): SheetAccess {
   return {
     sheetId: String(d.sheetId ?? ''),
     masterAccess: d.masterAccess === true,
@@ -690,11 +690,6 @@ export async function getSheetStrokes(sheetId: string, layerId?: string): Promis
   const all = rows.map(r => docToStrokeData(r.data));
   if (layerId) return all.filter(s => s.layerId === layerId);
   return all;
-}
-
-export async function pollSheetUpdates(sheetId: string, since: string): Promise<SheetStrokeData[]> {
-  const all = await getSheetStrokes(sheetId);
-  return all.filter(s => s.updatedAt > since);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

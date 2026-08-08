@@ -17,7 +17,7 @@ import {
   TEACHER_LAYER_ID,
   annotationLayerId,
 } from '@/lib/classroomService';
-import { useSheetPolling } from '@/lib/sheetPollingService';
+import { useSheetRealtime } from '@/lib/sheetRealtimeService';
 import ClassroomCanvas from '@/components/classroom/ClassroomCanvas';
 import { type Stroke } from '@/components/FullScreenWorkspace';
 
@@ -34,11 +34,11 @@ const SECTION_GROW = 200;
 const TOOLBAR_COLORS = ['#1e293b', '#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed'];
 
 // ─── Editable layer hook ────────────────────────────────────────────────────────
-// Wraps useSheetPolling with a local, undoable strokes buffer for whichever layer
+// Wraps useSheetRealtime with a local, undoable strokes buffer for whichever layer
 // the current user is actively writing to.
 
 function useEditableLayer(sheetId: string, layerId: string, myUserId: string) {
-  const { remoteLayers, access, canWrite, saveStrokes, forceSave, loading: pollLoading } = useSheetPolling({
+  const { remoteLayers, access, canWrite, saveStrokes, forceSave, loading: pollLoading } = useSheetRealtime({
     sheetId, layerId, userId: myUserId, enabled: !!sheetId,
   });
 
@@ -156,7 +156,7 @@ function LockedShell({ message, onClose }: { message: string; onClose: () => voi
 
 function ParticipantsSidebar({
   sheetType, teacherName, participants, nameFor, access, onToggleMaster, onToggleStudent,
-  teacherTarget, onSelectTarget, onClose,
+  togglingMaster, togglingStudents, teacherTarget, onSelectTarget, onClose,
 }: {
   sheetType: 'group' | 'individual';
   teacherName: string;
@@ -165,6 +165,8 @@ function ParticipantsSidebar({
   access: { masterAccess: boolean; studentAccess: Record<string, boolean> };
   onToggleMaster: (v: boolean) => void;
   onToggleStudent: (id: string, v: boolean) => void;
+  togglingMaster: boolean;
+  togglingStudents: Set<string>;
   teacherTarget: string | null;
   onSelectTarget?: (id: string | null) => void;
   onClose: () => void;
@@ -184,27 +186,39 @@ function ParticipantsSidebar({
       </div>
 
       <div style={{ padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
-        <span style={{ fontSize: 13, color: '#94a3b8' }}>Allow all to write</span>
-        <input type="checkbox" checked={access.masterAccess} onChange={e => onToggleMaster(e.target.checked)} />
+        <span style={{ fontSize: 13, color: '#94a3b8', opacity: togglingMaster ? 0.6 : 1 }}>
+          Allow all to write{togglingMaster ? '…' : ''}
+        </span>
+        <input
+          type="checkbox"
+          disabled={togglingMaster}
+          checked={access.masterAccess}
+          onChange={e => onToggleMaster(e.target.checked)}
+          style={{ opacity: togglingMaster ? 0.5 : 1, cursor: togglingMaster ? 'wait' : 'pointer' }}
+        />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {participants.map(pid => (
-          <div key={pid} style={{ padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #33415555' }}>
-            <span
-              onClick={() => onSelectTarget?.(pid)}
-              style={{ cursor: onSelectTarget ? 'pointer' : 'default', fontWeight: teacherTarget === pid ? 'bold' : 'normal', color: teacherTarget === pid ? '#60a5fa' : 'white' }}
-            >
-              {nameFor(pid)}
-            </span>
-            <input
-              type="checkbox"
-              disabled={!access.masterAccess}
-              checked={access.studentAccess[pid] === true}
-              onChange={e => onToggleStudent(pid, e.target.checked)}
-            />
-          </div>
-        ))}
+        {participants.map(pid => {
+          const pending = togglingStudents.has(pid);
+          return (
+            <div key={pid} style={{ padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #33415555' }}>
+              <span
+                onClick={() => onSelectTarget?.(pid)}
+                style={{ cursor: onSelectTarget ? 'pointer' : 'default', fontWeight: teacherTarget === pid ? 'bold' : 'normal', color: teacherTarget === pid ? '#60a5fa' : 'white', opacity: pending ? 0.6 : 1 }}
+              >
+                {nameFor(pid)}{pending ? '…' : ''}
+              </span>
+              <input
+                type="checkbox"
+                disabled={!access.masterAccess || pending}
+                checked={access.studentAccess[pid] === true}
+                onChange={e => onToggleStudent(pid, e.target.checked)}
+                style={{ opacity: pending ? 0.5 : 1, cursor: pending ? 'wait' : 'pointer' }}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -338,6 +352,49 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
     }
   }, [sheet.type]);
 
+  // Pending state for the three write-access actions below: previously these
+  // fired without awaiting or showing anything, so a click looked like it did
+  // nothing until the next poll (up to 5s) caught up. Access now arrives via
+  // realtime (see sheetRealtimeService.ts), so the round trip after a click
+  // is normally well under a second — these flags just give that brief wait
+  // a visible, per-control pending state instead of silence.
+  const [togglingMaster, setTogglingMaster] = useState(false);
+  const [togglingStudents, setTogglingStudents] = useState<Set<string>>(new Set());
+  const [expandingSections, setExpandingSections] = useState<Set<string>>(new Set());
+
+  const handleToggleMaster = useCallback(async (v: boolean) => {
+    setTogglingMaster(true);
+    try {
+      await toggleMasterAccess(sheet.id, v);
+    } catch (err) {
+      console.error('[ClassroomWorkspace] toggleMasterAccess failed:', err);
+    } finally {
+      setTogglingMaster(false);
+    }
+  }, [sheet.id]);
+
+  const handleToggleStudent = useCallback(async (studentId: string, v: boolean) => {
+    setTogglingStudents(prev => new Set(prev).add(studentId));
+    try {
+      await toggleStudentAccess(sheet.id, studentId, v);
+    } catch (err) {
+      console.error('[ClassroomWorkspace] toggleStudentAccess failed:', err);
+    } finally {
+      setTogglingStudents(prev => { const next = new Set(prev); next.delete(studentId); return next; });
+    }
+  }, [sheet.id]);
+
+  const handleExpandSection = useCallback(async (participantId: string, nextHeight: number) => {
+    setExpandingSections(prev => new Set(prev).add(participantId));
+    try {
+      await setSectionHeight(sheet.id, participantId, nextHeight);
+    } catch (err) {
+      console.error('[ClassroomWorkspace] setSectionHeight failed:', err);
+    } finally {
+      setExpandingSections(prev => { const next = new Set(prev); next.delete(participantId); return next; });
+    }
+  }, [sheet.id]);
+
   const activeLayerId = useMemo(() => {
     if (sheet.type === 'personal') return myId;
     if (sheet.type === 'group') {
@@ -449,7 +506,8 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
                     onStrokeAdd={layer.addStroke}
                     onStrokeRemove={layer.removeStroke}
                     onClick={isTeacher && !isMine ? () => handleSelectTarget(pid) : undefined}
-                    onExpand={() => setSectionHeight(sheet.id, pid, (layer.access.sectionHeights[pid] || SECTION_MIN_H) + SECTION_GROW)}
+                    expanding={expandingSections.has(pid)}
+                    onExpand={() => void handleExpandSection(pid, (layer.access.sectionHeights[pid] || SECTION_MIN_H) + SECTION_GROW)}
                   />
                 );
               })}
@@ -501,8 +559,10 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
             participants={participantOrder}
             nameFor={nameFor}
             access={layer.access}
-            onToggleMaster={v => toggleMasterAccess(sheet.id, v)}
-            onToggleStudent={(id, v) => toggleStudentAccess(sheet.id, id, v)}
+            onToggleMaster={v => void handleToggleMaster(v)}
+            onToggleStudent={(id, v) => void handleToggleStudent(id, v)}
+            togglingMaster={togglingMaster}
+            togglingStudents={togglingStudents}
             teacherTarget={sheet.type === 'group' ? activeSectionOwner : teacherTarget}
             onSelectTarget={handleSelectTarget}
             onClose={() => setShowParticipants(false)}
@@ -534,7 +594,7 @@ export default function ClassroomWorkspace({ sheet, session, onClose }: Classroo
 
 function GroupSection({
   label, accentColor, height, canExpand, strokes, writable, color, tool, strokeWidth,
-  onStrokeAdd, onStrokeRemove, onClick, onExpand,
+  onStrokeAdd, onStrokeRemove, onClick, onExpand, expanding = false,
 }: {
   label: string;
   accentColor: string;
@@ -549,6 +609,7 @@ function GroupSection({
   onStrokeRemove: (id: string) => void;
   onClick?: () => void;
   onExpand: () => void;
+  expanding?: boolean;
 }) {
   return (
     <div style={{ background: 'white', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', borderRadius: 8, overflow: 'hidden', border: writable ? `2px solid ${accentColor}` : '2px solid transparent' }}>
@@ -577,9 +638,13 @@ function GroupSection({
       {canExpand && (
         <button
           onClick={onExpand}
-          style={{ width: '100%', padding: '6px 0', background: '#f1f5f9', border: 'none', borderTop: '1px solid #e2e8f0', color: '#64748b', cursor: 'pointer', fontSize: 12 }}
+          disabled={expanding}
+          style={{
+            width: '100%', padding: '6px 0', background: '#f1f5f9', border: 'none', borderTop: '1px solid #e2e8f0',
+            color: '#64748b', cursor: expanding ? 'wait' : 'pointer', fontSize: 12, opacity: expanding ? 0.6 : 1,
+          }}
         >
-          + More space
+          {expanding ? 'Expanding…' : '+ More space'}
         </button>
       )}
     </div>
