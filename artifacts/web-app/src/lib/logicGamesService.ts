@@ -6,6 +6,7 @@ import type {
   LogicGameQuestion,
   LogicGameQuestionsDoc,
   LogicGameServedQuestion,
+  LogicGameSession,
   LogicGameSubmitResult,
   LogicGamesProgressDoc,
 } from '@/types/logicGames';
@@ -371,7 +372,61 @@ export async function submitLogicGameAnswer(input: {
     explanation: typeof row.explanation === 'string' ? row.explanation : undefined,
     interaction: row.interaction ? row.interaction as LogicGameInteraction : undefined,
     mentalProfile: (row.mentalProfile && typeof row.mentalProfile === 'object') ? row.mentalProfile as Partial<Record<CognitiveMetric, number>> : undefined,
+    sessionId: typeof row.sessionId === 'string' ? row.sessionId : undefined,
+    sessionAnsweredCount: typeof row.sessionAnsweredCount === 'number' ? row.sessionAnsweredCount : undefined,
+    sessionTargetLength: typeof row.sessionTargetLength === 'number' ? row.sessionTargetLength : undefined,
+    sessionComplete: row.sessionComplete === true,
+    sessionMentalProfileDelta: (row.sessionMentalProfileDelta && typeof row.sessionMentalProfileDelta === 'object')
+      ? row.sessionMentalProfileDelta as Partial<Record<CognitiveMetric, number>>
+      : undefined,
   };
+}
+
+function mapSessionRow(row: Record<string, unknown>): LogicGameSession {
+  const num = (v: unknown, fallback = 0) => (typeof v === 'number' ? v : Number(v ?? fallback) || fallback);
+  return {
+    id: String(row.id ?? ''),
+    status: row.status === 'completed' ? 'completed' : 'in_progress',
+    targetLength: num(row.target_length, 10),
+    answeredCount: num(row.answered_count, 0),
+    correctCount: num(row.correct_count, 0),
+    iqBefore: num(row.iq_before, 80),
+    iqAfter: typeof row.iq_after === 'number' ? row.iq_after : undefined,
+    mentalProfileDelta: (row.mental_profile_delta && typeof row.mental_profile_delta === 'object')
+      ? row.mental_profile_delta as Partial<Record<CognitiveMetric, number>>
+      : {},
+    startedAt: typeof row.started_at === 'string' ? row.started_at : new Date().toISOString(),
+    completedAt: typeof row.completed_at === 'string' ? row.completed_at : undefined,
+  };
+}
+
+/** The student's currently open 10-question round, if they have one — used to
+ * resume rather than silently restart when they left mid-session. */
+export async function getCurrentLogicGameSession(uid: string): Promise<LogicGameSession | null> {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase
+    .from('logic_game_sessions')
+    .select('*')
+    .eq('user_id', uid)
+    .eq('status', 'in_progress')
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapSessionRow(data as Record<string, unknown>) : null;
+}
+
+/** Past completed sessions, most recent first — the log shown under the Play button. */
+export async function getLogicGameSessionHistory(uid: string, limit = 20): Promise<LogicGameSession[]> {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase
+    .from('logic_game_sessions')
+    .select('*')
+    .eq('user_id', uid)
+    .eq('status', 'completed')
+    .order('started_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return ((data ?? []) as Record<string, unknown>[]).map(mapSessionRow);
 }
 
 export async function upsertLogicGameQuestions(

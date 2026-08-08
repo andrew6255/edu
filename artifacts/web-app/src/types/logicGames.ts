@@ -67,6 +67,30 @@ export type LogicGameSubmitResult = {
   interaction?: LogicGameInteraction;
   /** The student's updated mental profile, when this answer scored one. */
   mentalProfile?: Partial<Record<CognitiveMetric, number>>;
+  /** The 10-question session this answer belongs to (iq mode only). */
+  sessionId?: string;
+  /** How many of the session's questions have now been answered, including this one. */
+  sessionAnsweredCount?: number;
+  sessionTargetLength?: number;
+  /** True once this answer brought the session to its target length. */
+  sessionComplete?: boolean;
+  /** Metric points earned so far in this session alone (not the lifetime total). */
+  sessionMentalProfileDelta?: Partial<Record<CognitiveMetric, number>>;
+};
+
+/** A 10-question iq-mode round. Auto-opened by the first answer, auto-closed
+ * once `answeredCount` reaches `targetLength` — see logic_game_submit_answer. */
+export type LogicGameSession = {
+  id: string;
+  status: 'in_progress' | 'completed';
+  targetLength: number;
+  answeredCount: number;
+  correctCount: number;
+  iqBefore: number;
+  iqAfter?: number;
+  mentalProfileDelta: Partial<Record<CognitiveMetric, number>>;
+  startedAt: string;
+  completedAt?: string;
 };
 
 export type LogicGamePromptBlock =

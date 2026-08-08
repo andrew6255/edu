@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import type { LogicGameNode, LogicGamePromptBlock, LogicGamesProgressDoc, LogicGameQuestion, LogicGameServedQuestion, LogicGameNodeQueue, CognitiveMetric } from '@/types/logicGames';
+import type { LogicGameNode, LogicGamePromptBlock, LogicGamesProgressDoc, LogicGameQuestion, LogicGameServedQuestion, LogicGameNodeQueue, LogicGameSession, CognitiveMetric } from '@/types/logicGames';
 import { COGNITIVE_METRICS } from '@/types/logicGames';
 import {
   ensureLogicGamesProgress,
   fetchNextLogicGameQuestion,
+  getCurrentLogicGameSession,
   getLogicGameQuestionById,
+  getLogicGameSessionHistory,
   listLogicGameNodes,
   submitLogicGameAnswer,
 } from '@/lib/logicGamesService';
@@ -58,7 +60,14 @@ export default function LogicGamesView() {
   const [sessionIndex, setSessionIndex] = useState(0);
   const [sessionCorrect, setSessionCorrect] = useState(0);
   const [sessionStartIq, setSessionStartIq] = useState(80);
-  const [sessionSummary, setSessionSummary] = useState<null | { correct: number; total: number; startIq: number; endIq: number }>(null);
+  const [sessionSummary, setSessionSummary] = useState<null | { correct: number; total: number; startIq: number; endIq: number; mentalDelta: Partial<Record<CognitiveMetric, number>> }>(null);
+  // Server-confirmed session state (logic_game_sessions), independent of the
+  // client-side counters above: this is what makes a session survive a
+  // refresh or a mid-session exit, since the counters alone would not.
+  const [currentSession, setCurrentSession] = useState<LogicGameSession | null>(null);
+  const [sessionHistory, setSessionHistory] = useState<LogicGameSession[]>([]);
+  const sessionCompleteRef = useRef(false);
+  const sessionMentalDeltaRef = useRef<Partial<Record<CognitiveMetric, number>>>({});
   const [exhausted, setExhausted] = useState(false);
   const questionStartedAtRef = useRef<number>(0);
   const [rankedAnswerText, setRankedAnswerText] = useState('');
@@ -104,6 +113,19 @@ export default function LogicGamesView() {
       setPreviewUnlockAll(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!uid) return;
+    let alive = true;
+    getCurrentLogicGameSession(uid).then((s) => { if (alive) setCurrentSession(s); }).catch(() => {});
+    getLogicGameSessionHistory(uid).then((h) => { if (alive) setSessionHistory(h); }).catch(() => {});
+    return () => { alive = false; };
+  }, [uid]);
+
+  function refreshSessionHistory() {
+    if (!uid) return;
+    getLogicGameSessionHistory(uid).then(setSessionHistory).catch(() => {});
+  }
 
   useEffect(() => {
     let alive = true;
@@ -307,6 +329,11 @@ export default function LogicGamesView() {
           mentalProfile: result.mentalProfile ?? prev?.mentalProfile,
           updatedAt: new Date().toISOString(),
         }));
+        // Server-confirmed session progress — the source of truth for whether
+        // this was the session's 10th answer, since it's what survives a
+        // refresh (the client's own counters don't).
+        sessionCompleteRef.current = result.sessionComplete === true;
+        if (result.sessionMentalProfileDelta) sessionMentalDeltaRef.current = result.sessionMentalProfileDelta;
       }
 
       if (uid) {
@@ -322,24 +349,33 @@ export default function LogicGamesView() {
     }
   }
 
-  /** Advances within the session, or shows the summary once it is complete. */
+  /** Advances within the session, or shows the summary once it is complete.
+   * IQ mode trusts the server's sessionComplete flag (set in submitAnswer);
+   * chill mode has no server-side session at all, so it keeps counting locally. */
   async function continueGame() {
     if (!rankedCurrent) return;
-    const nextIndex = sessionIndex + 1;
+    const sessionDone = gamePlayMode === 'iq'
+      ? sessionCompleteRef.current
+      : (sessionIndex + 1) >= SESSION_LENGTH;
 
-    if (nextIndex >= SESSION_LENGTH) {
+    if (sessionDone) {
       setSessionSummary({
         correct: sessionCorrect,
         total: SESSION_LENGTH,
         startIq: sessionStartIq,
         endIq: currentIq,
+        mentalDelta: gamePlayMode === 'iq' ? sessionMentalDeltaRef.current : {},
       });
       stopElapsedTimer();
       setRankedCurrent(null);
+      if (gamePlayMode === 'iq') {
+        setCurrentSession(null);
+        refreshSessionHistory();
+      }
       return;
     }
 
-    setSessionIndex(nextIndex);
+    setSessionIndex((n) => n + 1);
     setRankedLoading(true);
     try {
       await loadNextQuestion();
@@ -350,15 +386,36 @@ export default function LogicGamesView() {
     }
   }
 
+  /** Starts a fresh session, or — for IQ mode — resumes whatever the server
+   * still has open, so leaving mid-session and coming back continues it
+   * instead of silently starting over. */
   async function startSession() {
     if (!uid) return;
     setRankedLoading(true);
     setRankedError(null);
     setExhausted(false);
     setSessionSummary(null);
-    setSessionIndex(0);
-    setSessionCorrect(0);
-    setSessionStartIq(currentIq);
+    sessionCompleteRef.current = false;
+    sessionMentalDeltaRef.current = {};
+
+    let resumed: LogicGameSession | null = null;
+    if (gamePlayMode === 'iq') {
+      try { resumed = await getCurrentLogicGameSession(uid); } catch { resumed = null; }
+    }
+
+    if (resumed) {
+      setSessionIndex(resumed.answeredCount);
+      setSessionCorrect(resumed.correctCount);
+      setSessionStartIq(resumed.iqBefore);
+      sessionMentalDeltaRef.current = resumed.mentalProfileDelta;
+      setCurrentSession(resumed);
+    } else {
+      setSessionIndex(0);
+      setSessionCorrect(0);
+      setSessionStartIq(currentIq);
+      setCurrentSession(null);
+    }
+
     setScreen('playing');
     try {
       await loadNextQuestion();
@@ -1126,10 +1183,31 @@ export default function LogicGamesView() {
                     </span>
                   </div>
                 )}
-                <button className="ll-btn ll-btn-primary" onClick={() => void startSession()}
-                  style={{ padding: '12px 18px', fontSize: 15, fontWeight: 900, borderRadius: 12, width: '100%' }}>
-                  Play again
-                </button>
+
+                {gamePlayMode === 'iq' && Object.values(sessionSummary.mentalDelta).some((v) => (v ?? 0) > 0) && (
+                  <div style={{ textAlign: 'left', border: '1px solid var(--ll-border)', borderRadius: 12, padding: '12px 14px', marginBottom: 18 }}>
+                    <div style={{ color: 'var(--ll-text-soft)', fontSize: 11, fontWeight: 900, letterSpacing: 0.5, marginBottom: 8 }}>THIS SESSION</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {COGNITIVE_METRICS.filter((m) => (sessionSummary.mentalDelta[m.slug] ?? 0) > 0).map((m) => (
+                        <div key={m.slug} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                          <span style={{ color: 'var(--ll-text)' }}>{m.label}</span>
+                          <span style={{ color: '#34d399', fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>+{sessionSummary.mentalDelta[m.slug]}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button className="ll-btn" onClick={() => setSessionSummary(null)}
+                    style={{ padding: '12px 18px', fontSize: 15, fontWeight: 900, borderRadius: 12, flex: 1 }}>
+                    Leave
+                  </button>
+                  <button className="ll-btn ll-btn-primary" onClick={() => void startSession()}
+                    style={{ padding: '12px 18px', fontSize: 15, fontWeight: 900, borderRadius: 12, flex: 1 }}>
+                    ▶ Play another 10
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -1166,14 +1244,43 @@ export default function LogicGamesView() {
                   onClick={() => void startSession()}
                   style={{ padding: '16px 18px', fontSize: 17, fontWeight: 1000, borderRadius: 14 }}
                 >
-                  {rankedLoading ? 'Loading…' : `▶ Play ${SESSION_LENGTH} questions`}
+                  {rankedLoading
+                    ? 'Loading…'
+                    : gamePlayMode === 'iq' && currentSession
+                      ? `▶ Continue (${currentSession.answeredCount}/${currentSession.targetLength} answered)`
+                      : `▶ Play ${SESSION_LENGTH} questions`}
                 </button>
 
-                <div style={{ color: 'var(--ll-text-muted)', fontSize: 12, textAlign: 'center', lineHeight: 1.6 }}>
-                  Questions are matched to your rating, and you will never be shown the
-                  same one twice.
-                  {gamePlayMode === 'chill' && <><br />Chill mode is on — your IQ will not change.</>}
-                </div>
+                {gamePlayMode === 'chill' && (
+                  <div style={{ color: 'var(--ll-text-muted)', fontSize: 12, textAlign: 'center', lineHeight: 1.6 }}>
+                    Chill mode is on — your IQ will not change.
+                  </div>
+                )}
+
+                {gamePlayMode === 'iq' && sessionHistory.length > 0 && (
+                  <div>
+                    <div style={{ color: 'var(--ll-text-soft)', fontSize: 11, fontWeight: 900, letterSpacing: 0.5, marginBottom: 8 }}>PAST SESSIONS</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {sessionHistory.map((s) => (
+                        <div key={s.id} style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          border: '1px solid var(--ll-border)', background: 'var(--ll-surface-1)',
+                          borderRadius: 10, padding: '10px 14px', fontSize: 12.5,
+                        }}>
+                          <span style={{ color: 'var(--ll-text-muted)' }}>
+                            {new Date(s.startedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          </span>
+                          <span style={{ color: 'var(--ll-text-soft)', fontWeight: 800 }}>
+                            {s.correctCount}/{s.targetLength} correct
+                          </span>
+                          <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 900, color: (s.iqAfter ?? s.iqBefore) >= s.iqBefore ? '#34d399' : '#fca5a5' }}>
+                            {s.iqBefore.toFixed(1)} → {(s.iqAfter ?? s.iqBefore).toFixed(1)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
