@@ -1895,6 +1895,22 @@ function isCognitiveMetricSlug(value: unknown): value is CognitiveMetricSlug {
   return typeof value === 'string' && (COGNITIVE_METRIC_SLUGS as readonly string[]).includes(value);
 }
 
+// llama-3.3-70b-versatile is text-only — a base64 image embedded in a prompt
+// or choice (this app stores image choices as data: URIs, see `c.toLowerCase()
+// .startsWith('data:image/')` on the frontend) is pure noise to it, but Groq
+// still counts every character as tokens. A handful of these blew through the
+// 12k TPM limit in one request, since one embedded image can run to tens of
+// thousands of tokens as base64.
+function stripEmbeddedImages(text: string): string {
+  return text.replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, '[image]');
+}
+
+// Defensive cap so an unusually long field can never trigger a TPM error on
+// its own — a generous excerpt is enough context for the model either way.
+function truncateForPrompt(text: string, maxChars: number): string {
+  return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
+}
+
 const COGNITIVE_METRICS_FRAMEWORK = `The 7 Cognitive Metrics Framework — tag every question with a primary metric and up to two secondary metrics:
 1. spatial_imagination — visualizing/rotating/folding shapes in 2D/3D. Indicators: cube nets, paper folding, mental rotation.
 2. fluid_patterning — discovering rules in non-verbal sequences. Indicators: matrix completion, grid growth, visual analogies.
@@ -1918,13 +1934,14 @@ export async function generateIqQuestionDetails(req: Request, res: Response): Pr
     }
 
     const hasChoices = Array.isArray(choices) && choices.length > 0;
+    const cleanPromptText = truncateForPrompt(stripEmbeddedImages(String(promptText)), 6000);
     const choicesText = hasChoices
-      ? choices.map((c: string, i: number) => `${String.fromCharCode(65 + i)}) ${c}${i === correctChoiceIndex ? ' (CORRECT)' : ''}`).join('\n')
+      ? choices.map((c: string, i: number) => `${String.fromCharCode(65 + i)}) ${truncateForPrompt(stripEmbeddedImages(String(c)), 500)}${i === correctChoiceIndex ? ' (CORRECT)' : ''}`).join('\n')
       : '';
 
     const prompt = `You are an educational assessment expert. Analyze this question and provide IQ-related parameters.
 
-Question: ${promptText}
+Question: ${cleanPromptText}
 ${choicesText ? `Choices:\n${choicesText}` : ''}
 Base Node IQ Level: ${nodeIq || 80}
 
